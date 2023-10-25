@@ -4,6 +4,10 @@ import numpy as np
 import matplotlib.pyplot as plt
 from scipy.signal import find_peaks
 
+
+class Phase(xu.Crystal):
+    pass
+
 def write_calibration_file(mat, name=None, tt_cutoff=90, ignore_less=1, simulate_convolution=False):
     '''
     
