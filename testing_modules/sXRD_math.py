@@ -6,6 +6,7 @@ import scipy.constants as constants
 #############################
 ### Fundamental Relations ###
 #############################
+# TODO: Wrap conversion functions inside a class
 
 def energy_2_wavelength(energy):
     # Convert energy into keV
@@ -64,31 +65,24 @@ class PeakFunctionBase():
 
     def multi_1d(self, *args):
         return multi_peak_fitting(self.func_1d, *args)
-    
 
     def multi_2d(self, *args, **kwargs):
         return multi_peak_fitting(self.func_2d, *args, **kwargs)
     
-
     def func_1d_offset(self, *args):
         return args[-1] + self.func_1d(*args[:-1])
     
-
     def func_2d_offset(self, *args, **kwargs):     
         return args[-1] + self.func_2d(*args[:-1], **kwargs)
-    
 
     def generate_guess():
         return
-    
 
     def generate_bounds():
         return
-    
 
     def qualify_fit():
         return
-    
 
 
 class GaussianFunctions(PeakFunctionBase):
@@ -96,7 +90,6 @@ class GaussianFunctions(PeakFunctionBase):
     def func_1d(self, x, amp, x0, sigma):
         return amp * (np.exp(-(x - x0)**2 / (2 * sigma**2)))
     
-
     def func_2d(self, xy, amp, x0, y0, sigma_x, sigma_y, theta, radians=False):
         if len(xy) != 2:
             raise IOError("xy input must be length 2.")
@@ -113,10 +106,8 @@ class GaussianFunctions(PeakFunctionBase):
         
         return amp * np.exp(-(a * ((x - x0) ** 2) + 2 * b * (x - x0) * (y - y0) + c *((y - y0) **2)))
     
-
-    def get_integrated_intensity():
+    def get_area():
         return
-
 
     def get_FWHM():
         return
@@ -128,7 +119,6 @@ class LorentzianFunctions(PeakFunctionBase):
         # FWHM = 2 * gamma
         return amp * (gamma**2 / ((x - x0)**2 + gamma**2))
     
-
     # Not sure about this one...
     def func_2d(self, xy, amp, x0, y0, gamma_x, gamma_y, theta, radians=False):
         if len(xy) != 2:
@@ -144,15 +134,12 @@ class LorentzianFunctions(PeakFunctionBase):
         yp = (x - x0) * np.sin(theta) + (y - y0) * np.cos(theta)
         return amp / (1.0 + 4 * xp ** 2 / gamma_x + 4 * yp ** 2 / gamma_y)
     
-
-    def get_integrated_intensity():
+    def get_area():
         return
     
-
     def get_FWHM():
         return
     
-
 
 class VoigtFunctions(PeakFunctionBase):
 
@@ -160,12 +147,10 @@ class VoigtFunctions(PeakFunctionBase):
         self.G = GaussianFunctions()
         self.L = LorentzianFunctions()
         
-
     def func_1d(self, x, amp, x0, sigma, gamma, eta):
         # FWHM = 2 * gamma
         return eta * self.G.func_1d(x, amp, x0, sigma) + (1 - eta) * self.L.func_1d(x, amp, x0, gamma)
     
-
     # Not sure about this one...
     def func_2d(self, xy, amp, x0, y0, sigma_x, sigma_y, gamma_x, gamma_y, theta, eta, radians=False):
         if len(xy) != 2:
@@ -180,10 +165,8 @@ class VoigtFunctions(PeakFunctionBase):
         return (eta * self.G.func_2d(x, amp, x0, y0, sigma_x, sigma_y, theta, radians=radians) + 
                 (1 - eta) * self.L.func_2d(x, amp, x0, y0, gamma_x, gamma_y, theta, radians=radians))
     
-
-    def get_integrated_intensity():
+    def get_area():
         return
-
 
     def get_FWHM():
         return
@@ -254,21 +237,16 @@ def gaussian_2d(xy, amp, y0, x0, z0, sigma_x, sigma_y, theta, radians=False):
 ### Mutli-Functions ###
 #######################
 
-# Works for 1d and 2d peaks. Ignores arguments with defualt values
+# Works for 1d and 2d peaks.
 def multi_peak_fitting(peak_function, *args):
     # Get function input variable names, excluding 'self', 'x' or '(xy)' and any default arguments
     inputs = list(peak_function.__code__.co_varnames[:peak_function.__code__.co_argcount])
     if 'self' in inputs: inputs.remove('self')
     inputs = inputs[1:] # remove the x, or xy inputs
-    if peak_function.__defaults__ != None:
+    if peak_function.__defaults__ is not None:
         inputs = inputs[:-len(peak_function.__defaults__)] # remove defualts
 
     x = args[0]
-
-    #print(np.asarray(x).shape)
-    #print(len(x))
-    #print(inputs)
-    #print(len(args))
 
     # Set starting values
     if len(np.asarray(x).shape) == 1:
@@ -300,6 +278,17 @@ def compute_r_squared(actual, predicted):
     ss_tot = np.sum((actual - np.mean(actual)) ** 2)
     r_squared = 1 - (ss_res / ss_tot)
     return r_squared
+
+def check_precision(*dtypes):
+    info = []
+    for d in [*dtypes]:
+        d = np.dtype(d)
+        if np.issubdtype(d, np.integer):
+            val = np.iinfo(d)
+        elif np.issubdtype(d, np.floating):
+            val = np.finfo(d)
+        info.append(val)
+    return info
 
 
 '''# Works for 1d and 2d peaks. Ignores arguments with defualt values

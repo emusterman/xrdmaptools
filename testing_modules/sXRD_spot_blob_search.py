@@ -3,6 +3,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from scipy.ndimage import center_of_mass, gaussian_filter, median_filter
 from scipy.optimize import curve_fit
+import scipy.stats as st
 from skimage.measure import label, find_contours
 from skimage.segmentation import expand_labels
 from skimage.feature import peak_local_max
@@ -10,8 +11,9 @@ from skimage.feature import peak_local_max
 
 def find_blobs(img, thresh, method='gaussian_threshold',
                sigma=3,
-               tth=tth, chi=chi,
+               tth=None, chi=None,
                blob_expansion=5, min_blob_significance=500,
+               find_contours=True,
                listme=False, plotme=False):
     '''
     img                     ()
@@ -26,28 +28,27 @@ def find_blobs(img, thresh, method='gaussian_threshold',
     plot_blobs              ()
     '''
 
+    proc_img = np.copy(img).astype(np.float32)
+
     if method == 'simple_threshold':
-        proc_img = np.copy(img)
-        proc_img[proc_img < thresh] = np.nan
-        proc_img[~np.isnan(proc_img)] = 1
-        blob_img = label(proc_img).astype(np.float32)
+        pass
 
     elif method == 'gaussian_threshold':
-        proc_img = gaussian_filter(img, sigma=3)
-        proc_img[proc_img < thresh] = np.nan
-        proc_img[~np.isnan(proc_img)] = 1
-        blob_img = label(proc_img).astype(np.float32)
+        proc_img = gaussian_filter(proc_img, sigma=sigma)
 
     else:
-        print("Method {mehtod} not implemented. Please choose 'simple_threshold' or 'gaussian_threshold'.")
-        return None
-    blob_labels = np.unique(blob_img)
-
+        print(f"Method {method} not implemented. Please choose 'simple_threshold' or 'gaussian_threshold'.")
+        return None # Not sure I am supposed to do this...
+    
+    proc_img[proc_img < thresh] = np.nan
+    proc_img[~np.isnan(proc_img)] = 1
+    proc_img[np.isnan(proc_img)] = 0 # This forces the background/isignificant regions to be zero
     # Adds a buffer to each blob. In theory this should hurt the fitting since it adds insignificant noise
-    # Helps connect blobs that get separated
-    temp_image = np.copy(blob_img)
-    temp_image[temp_image == 1] = 0
-    blob_img = expand_labels(temp_image, distance=blob_expansion)
+    # Helps connect blobs that get separated though
+    proc_img = expand_labels(proc_img, distance=blob_expansion)
+    blob_img = label(proc_img).astype(np.float32)
+
+    blob_labels = np.unique(blob_img)
 
     blob_masks = []
     blob_values =  []
@@ -56,11 +57,6 @@ def find_blobs(img, thresh, method='gaussian_threshold',
     blob_significances = []
     blob_max_coords = []
     blob_centers_of_mass = []
-
-    # Includes pieces of background. These are removed latter
-    blob_contours = find_blob_contours(blob_img)
-    for i in range(len(blob_contours)):
-        blob_contours[i] = estimate_recipricol_coords(blob_contours[i], img, tth=tth, chi=chi)
 
     # Characterize individual blobs
     for i, blob in enumerate(blob_labels):
@@ -74,16 +70,34 @@ def find_blobs(img, thresh, method='gaussian_threshold',
         blob_area = np.sum(blob_mask) * np.diff(tth[:2]) * np.diff(chi[:2]) # in angle squared
         blob_intensity = np.sum(blob_value)
         blob_significance = blob_intensity / blob_area
+        
+        # Remove isignificant blobs. Earlier is better
+        if blob_significance < min_blob_significance:
+            # Remove blob from blob_img
+            #return blob_img, blob_mask
+            blob_img[blob_mask] = 0
+            continue
+
         blob_max_coord = np.unravel_index(np.argmax(blob_value), blob_value.shape)
         blob_center_of_mass = center_of_mass(blob_value)
 
-        blob_masks.append(blob_mask)
-        blob_values.append(blob_value)
+        # Reduced memory method for storing mask coords
+        blob_mask_coords = np.asarray(np.where(blob_mask)).astype(np.uint16).T
+        # Reconstruct mask with:
+            # mask = np.zeros(test.map.image_shape)
+            # mask[*coords.T] = 1
+        blob_pixel_values = img[*blob_mask_coords.T]
+
+        blob_masks.append(blob_mask_coords)
+        blob_values.append(blob_pixel_values)
         blob_areas.append(blob_area)
         blob_intensities.append(blob_intensity)
         blob_significances.append(blob_significance)
         blob_max_coords.append(blob_max_coord)
         blob_centers_of_mass.append(blob_center_of_mass)
+    
+    # Includes pieces of background. These are removed latter
+
 
     blob_df = pd.DataFrame.from_dict({
         'intensity':blob_intensities,
@@ -91,14 +105,25 @@ def find_blobs(img, thresh, method='gaussian_threshold',
         'significance':blob_significances,
         'value':blob_values,
         'mask':blob_masks,
-        'contour':blob_contours,
-        'max_coords':list(estimate_recipricol_coords(np.asarray(blob_max_coords).T[::-1], img, tth=tth, chi=chi).T),
-        'center_of_mass':list(estimate_recipricol_coords(np.asarray(blob_centers_of_mass).T[::-1], img, tth=tth, chi=chi).T)
+        'max_coords':list(estimate_recipricol_coords(np.asarray(blob_max_coords).T[::-1], img.shape, tth=tth, chi=chi).T),
+        'center_of_mass':list(estimate_recipricol_coords(np.asarray(blob_centers_of_mass).T[::-1], img.shape, tth=tth, chi=chi).T)
     })
+
+    if find_contours:
+        if len(np.unique(blob_img)) > 2:
+            blob_contours = find_blob_contours(blob_img)
+            for i in range(len(blob_contours)):
+                blob_contours[i] = estimate_recipricol_coords(blob_contours[i], img.shape, tth=tth, chi=chi)
+        else:
+            blob_contours = (None,) * len(blob_masks)
+
+        if 'contour' not in blob_df:
+            blob_df.insert(len(blob_df.columns), 'contour', blob_contours, True)
 
     # Remove insignificant regions. Mainly aiming for background "blobs"
     # Might be worth adding and area qualifier later...
-    blob_df.drop(blob_df[np.array(np.isnan(blob_df['significance'].to_list())) | np.array(blob_df['significance'] < min_blob_significance)].index, inplace=True)
+    blob_df.drop(blob_df[np.array(np.isnan(blob_df['significance'].to_list()))
+                         | np.array(blob_df['significance'] < min_blob_significance)].index, inplace=True)
 
     # Resort values by significance for convensence
     blob_df.sort_values('significance', ascending=False, inplace=True)
@@ -106,13 +131,15 @@ def find_blobs(img, thresh, method='gaussian_threshold',
     
     if plotme:
         fig, ax = plt.subplots(1, 1, figsize=(6, 5), dpi=200)
-        im = ax.imshow(img, extent=[tth[0], tth[-1], chi[0], chi[-1]], vmin=0)
+        im = ax.imshow(img, extent=[tth[0], tth[-1], chi[0], chi[-1]], vmin=0, aspect='auto')
         fig.colorbar(im, ax=ax)
         ax.set_xlabel('Scattering Angle, 2θ [°]')
         ax.set_ylabel('Azimuthal Angle, χ [°]')
-        for i in range(len(blob_df)):
-            ax.plot(*blob_df['contour'][i], c='r', lw=0.5)
-            ax.scatter(*blob_df['center_of_mass'][i], c='r', s=1)
+        if find_contours and len(blob_df) > 0:
+            for i in range(len(blob_df)):
+                if blob_df['contour'][i] is not None:
+                    ax.plot(*blob_df['contour'][i], c='r', lw=0.5)
+                    ax.scatter(*blob_df['center_of_mass'][i], c='r', s=1)
             
     if listme:
         print(blob_df.loc[:, ['intensity', 'area', 'significance','center_of_mass']].head())
@@ -120,7 +147,7 @@ def find_blobs(img, thresh, method='gaussian_threshold',
     return blob_df
 
 
-def fit_blobs(img, thresh, blob_df, PeakModel,  tth=tth, chi=chi, plotme=False):
+def fit_blobs(img, thresh, blob_df, PeakModel,  tth=None, chi=None, plotme=False):
 
     x_coords, y_coords = np.meshgrid(tth, chi[::-1])
 
@@ -165,14 +192,14 @@ def fit_blobs(img, thresh, blob_df, PeakModel,  tth=tth, chi=chi, plotme=False):
                 ax.annotate(f'R² = {r_squared:.2f}', xy=(popt[1], popt[2]), xytext=(popt[1] + 1, popt[2] + 1),
                             arrowprops=arrow_props, bbox=props, fontsize=8)
                 
-        except:
+        except RuntimeError:
             blob_gaussian_lst.append([np.nan])
     
     blob_df['fit_parameters'] = blob_gaussian_lst
     return blob_df
 
 
-def find_blob_spots(img, blob_df, tth=tth, chi=chi,
+def find_blob_spots(img, blob_df, tth=None, chi=None,
                     size=2, sigma=0.5, min_distance=3, threshold_rel=0.15,
                     plotme=False):
 
@@ -190,7 +217,7 @@ def find_blob_spots(img, blob_df, tth=tth, chi=chi,
                 spot_lst.append(spot)
                 spot_int_lst.append(img[*spot])
         if len(spot_lst) > 0:
-            blob_spot_lst.append(list(estimate_recipricol_coords(np.asarray(spot_lst).T[::-1], img, tth=tth, chi=chi).T))
+            blob_spot_lst.append(list(estimate_recipricol_coords(np.asarray(spot_lst).T[::-1], img.shape, tth=tth, chi=chi).T))
             blob_spot_int_lst.append(spot_int_lst)
 
         else:
@@ -219,15 +246,104 @@ def find_blob_spots(img, blob_df, tth=tth, chi=chi,
     return blob_df
 
 
-def adaptive_spot_fitting(img, blob_df, tth=tth, chi=chi):
-    x_img_lst = np.linspace(0, tth_num - 1, tth_num)
-    y_img_lst = np.linspace(0, chi_num - 1, chi_num)
-    x_img, y_img = np.meshgrid(x_img_lst, y_img_lst)
+# WIP
+def adaptive_spot_fitting(img, blob_df, thresh, PeakModel, tth=None, chi=None,
+                          plotme=False):
+    # Adaptive peak fitting within blobs
+    # TODO: Allow for peak addition with residual?
+    x_coords, y_coords = np.meshgrid(tth, chi[::-1])
 
-    blob_bbox = [int(np.min(x_img[blob_df['mask'][blob_num]])), int(np.max(x_img[blob_df['mask'][blob_num]])) + 1,
-                int(np.min(y_img[blob_df['mask'][blob_num]])), int(np.max(y_img[blob_df['mask'][blob_num]])) + 1]
+    if plotme:
+        fig, ax = plt.subplots(1, 1, figsize=(6, 5), dpi=200)
+        im = ax.imshow(img, extent=[tth[0], tth[-1], chi[0], chi[-1]], vmin=0)
+        fig.colorbar(im, ax=ax)
+        for i in range(len(blob_df)):
+            ax.plot(*blob_df['contour'][i], c='r', lw=0.5)
 
-    return
+    spot_fits = []
+    parent_blobs = []
+    for blob_num in range(len(blob_df)):
+        
+        z_fit = blob_df['value'][blob_num][blob_df['mask'][blob_num]]
+        x_fit = x_coords[blob_df['mask'][blob_num]]
+        y_fit = y_coords[blob_df['mask'][blob_num]]
+
+        # Only works for Gaussian and Lorentzian. Create function to generate these...
+        p0 = []
+        for i, spot in enumerate(blob_df['spots'][blob_num]):
+            p0.append(blob_df['spots_intensity'][blob_num][i]) # amp
+            p0.append(spot[0]) # x0
+            p0.append(spot[1]) # y0
+            p0.append(0.05) # sigma_x
+            p0.append(0.05) # sigma_y
+            p0.append(0) # theta
+
+        bounds = generate_bounds(p0, PeakModel.func_2d, tth_step=None, chi_step=None)
+
+        adaptive_fitting = True
+        while adaptive_fitting:
+            peaks_discounted = False
+            popt, pcov = curve_fit(PeakModel.multi_2d, np.vstack([x_fit, y_fit]), z_fit, p0=p0, bounds=bounds)
+            r_squared = compute_r_squared(z_fit, PeakModel.multi_2d((x_fit, y_fit), *popt))
+            
+            old_p0 = p0.copy()
+            for i in range(len(popt) // 6):
+                if not qualify_gaussian_2d_fit(0.5, 4 * np.std(img), old_p0[6 * i:6 * i + 6], popt[6 * i:6 * i + 6]):
+                    print(f'Spot {i} discounted.')
+                    #print(old_p0[6 * i:6 * i + 6])
+                    #print(popt[6 * i:6 * i + 6])
+                    del(p0[6 * i:6 * i + 6])
+                    del(bounds[0][6 * i:6 * i + 6])
+                    del(bounds[1][6 * i:6 * i + 6])
+                    #print(len(p0) // 7)
+                    peaks_discounted = True
+            if len(p0) == 0:
+                adaptive_fitting = False
+                print(f'Eliminated all local maxima. Defaulting to full blob fit for {blob_num}')
+                popt = blob_df['fit_parameters'][blob_num]
+                if len(popt) > 1:
+                    popt = popt[:-2].astype(float)
+                else:
+                    print('No blob fit either!. Blob appears to be insignificant. Consider removing?')
+            else:
+                adaptive_fitting = peaks_discounted
+            if adaptive_fitting:
+                print('Refitting...')
+            elif np.all(~np.isnan(popt)) and (len(popt) > 1):
+                print(f'Fitting successful for {len(popt) // 6} spot(s) within blob {blob_num}!')
+                spot_fits.append(popt)
+                parent_blobs.append([blob_num]*(len(popt) // 6))
+
+        # Adds contours and peak centers if spot fitting successful and plotme=True
+        if plotme and np.all(~np.isnan(popt)) and (len(popt) > 1):       
+            fit_data = PeakModel.multi_2d((x_coords.ravel(), y_coords.ravel()), *popt)
+            ax.contour(x_coords, y_coords, fit_data.reshape(*img.shape), np.linspace(thresh, popt[0], 5), colors='w', linewidths=0.5)
+            ax.scatter(np.asarray(popt).reshape(len(popt) // 6, 6)[:, 1], np.asarray(popt).reshape(len(popt) // 6, 6)[:, 2], s=1, c='r')
+            ax.set_xlabel('Scattering Angle, 2θ [°]')
+            ax.set_ylabel('Azimuthal Angle, χ [°]')
+
+            props = dict(boxstyle='round', facecolor='white', alpha=0.5)
+            arrow_props = dict(facecolor='black', shrink=0.1, width=1, headwidth=5, headlength=5)
+            ax.annotate(f'R² = {r_squared:.2f}', xy=(popt[1], popt[2]), xytext=(popt[1] + 1, popt[2] + 1),
+                        arrowprops=arrow_props, bbox=props, fontsize=8)
+            
+    parent_blobs = np.array([item for sublist in parent_blobs for item in sublist])
+    spot_fits = np.array([item for sublist in spot_fits for item in sublist])
+    spot_fits = spot_fits.reshape(len(parent_blobs), len(spot_fits) // len(parent_blobs))
+
+    spot_df = pd.DataFrame.from_dict({
+        'height' : spot_fits[:, 0], # Will add integrated intensity too
+        'tth' : spot_fits[:, 1],
+        'chi' : spot_fits[:, 2],
+        'tth_width' : spot_fits[:, 3], # Not accurate yet. Will change to FWHM
+        'chi_width' : spot_fits[:, 4], # Not accurate yet. Will change to FWHM
+        'rotation' : spot_fits[:, 5], # Not accurate yet. Need to apply to above widths
+        'parent_blobs' : parent_blobs
+        })
+    
+    spot_df.sort_values('height', ascending=False, inplace=True)
+    spot_df.reset_index(inplace=True, drop=True)
+    return spot_df
 
 
 
@@ -241,13 +357,23 @@ def find_blob_contours(blob_img):
     return [contour[:, ::-1].T for contour in contours] # Rearranging for convenience
 
 
+def coord_mask(coords, image, masked_image=False):
+    # Convert coordinates into mask
+    mask = np.zeros_like(image)
+    mask[*coords.T] = 1
+    if masked_image:
+        return image[np.bool_(mask)]
+    else:
+        return np.bool_(mask)
+
+
 def qualify_gaussian_2d_fit(r_squared, sig_threshold, guess_params, fit_params, return_reason=False):
     # Determine euclidean distance between intitial guess and peak fit. TODO change to angular misorientation
     offset_distance = np.sqrt((fit_params[1] - guess_params[1])**2 + (fit_params[2] - guess_params[2])**2)
     
     keep_fit = np.all([r_squared >= 0, # Qualify peak fit. Decent fits still do not have great r_squared, so cutoff is low
                        fit_params[0] > sig_threshold,
-                       offset_distance < 50,
+                       offset_distance < 50, # Useless when using bounded curve fit...
                        np.abs(fit_params[3]) < 0.5, # Qualifies sigma_x to not be too diffuse
                        np.abs(fit_params[4]) < 1.5, # Qualifies sigma_y to not be too diffuse
                        ])
@@ -268,11 +394,11 @@ def generate_bounds(p0, peak_function, tth_step=None, chi_step=None):
     inputs = list(peak_function.__code__.co_varnames[:peak_function.__code__.co_argcount])
     if 'self' in inputs: inputs.remove('self')
     inputs = inputs[1:] # remove the x, or xy inputs
-    if peak_function.__defaults__ != None:
+    if peak_function.__defaults__ is not None:
         inputs = inputs[:-len(peak_function.__defaults__)] # remove defualts
 
-    if tth_step == None: tth_step = 0.02
-    if chi_step == None: chi_step = 0.05
+    if tth_step is None: tth_step = 0.02
+    if chi_step is None: chi_step = 0.05
 
     tth_resolution, chi_resolution = 0.01, 0.01 # In degrees...
     tth_range = np.max([tth_resolution, tth_step])

@@ -92,6 +92,18 @@ def rebin(arr, new_shape=None, bin_size=(2, 2), method='sum', keep_range=False):
     return new_img
 
 
+def rescale_array(arr, lower=0, upper=1, arr_min=None, arr_max=None):
+    # Works for arrays of any size including images!
+    if arr_min is None:
+        arr_min = np.min(arr)
+    if arr_max is None:
+        arr_max = np.max(arr)
+    ext = upper - lower
+    
+    scaled_arr = lower + ext * ((arr - arr_min) / (arr_max - arr_min))
+    return scaled_arr
+
+
 
 '''def rebin(arr, new_shape, method='sum'):
     # TODO: Generalize further based on binning number and not image shape...
