@@ -7,6 +7,7 @@ import scipy.constants as constants
 ### Fundamental Relations ###
 #############################
 # TODO: Wrap conversion functions inside a class
+# Or maybe not...
 
 def energy_2_wavelength(energy):
     # Convert energy into keV
@@ -86,11 +87,15 @@ class PeakFunctionBase():
 
 
 class GaussianFunctions(PeakFunctionBase):
+    name = 'Gaussian'
+    abbr = 'gauss'
 
-    def func_1d(self, x, amp, x0, sigma):
+    @staticmethod
+    def func_1d(x, amp, x0, sigma):
         return amp * (np.exp(-(x - x0)**2 / (2 * sigma**2)))
     
-    def func_2d(self, xy, amp, x0, y0, sigma_x, sigma_y, theta, radians=False):
+    @staticmethod
+    def func_2d(xy, amp, x0, y0, sigma_x, sigma_y, theta, radians=False):
         if len(xy) != 2:
             raise IOError("xy input must be length 2.")
 
@@ -114,13 +119,17 @@ class GaussianFunctions(PeakFunctionBase):
 
 
 class LorentzianFunctions(PeakFunctionBase):
+    name = 'Lorentzian'
+    abbr = 'lorentz'
 
-    def func_1d(self, x, amp, x0, gamma):
+    @staticmethod
+    def func_1d(x, amp, x0, gamma):
         # FWHM = 2 * gamma
         return amp * (gamma**2 / ((x - x0)**2 + gamma**2))
     
     # Not sure about this one...
-    def func_2d(self, xy, amp, x0, y0, gamma_x, gamma_y, theta, radians=False):
+    @staticmethod
+    def func_2d(xy, amp, x0, y0, gamma_x, gamma_y, theta, radians=False):
         if len(xy) != 2:
             raise IOError("xy input must be length 2.")
         
@@ -239,6 +248,10 @@ def gaussian_2d(xy, amp, y0, x0, z0, sigma_x, sigma_y, theta, radians=False):
 
 # Works for 1d and 2d peaks.
 def multi_peak_fitting(peak_function, *args):
+    # arg[0] is the x independent variable
+    # arg[1] is the background offset
+    # arg[>1] are the arguments of the individual peaks models
+
     # Get function input variable names, excluding 'self', 'x' or '(xy)' and any default arguments
     inputs = list(peak_function.__code__.co_varnames[:peak_function.__code__.co_argcount])
     if 'self' in inputs: inputs.remove('self')
@@ -253,10 +266,13 @@ def multi_peak_fitting(peak_function, *args):
         z = np.zeros_like(x)
     else:
         z = np.zeros(np.asarray(x).shape[1])
+    
+    # Add background
+    z += args[1]
 
     # Iterate through input paramters for every peak of interest
     arg_dict = {}
-    for i in range(1, len(args) - 1, len(inputs)):
+    for i in range(2, len(args) - 2, len(inputs)):
         for j, arg in enumerate(inputs):
             #print(f'{i + j=}')
             #print(f'{arg=}')

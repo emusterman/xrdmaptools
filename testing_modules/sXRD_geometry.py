@@ -7,6 +7,9 @@ from collections import OrderedDict
 
 
 def estimate_img_coords(coords, image_shape, tth=None, chi=None):
+    if len(coords) == 0:
+        return coords
+    
     # Estimate image coordinates from tth and chi values
     tth_i = np.asarray(coords[0])
     chi_i = np.asarray(coords[1])
@@ -16,6 +19,9 @@ def estimate_img_coords(coords, image_shape, tth=None, chi=None):
 
 
 def estimate_recipricol_coords(coords, image_shape, tth=None, chi=None):
+    if len(coords) == 0:
+        return coords
+    
     # Convert image coordinates to tth and chi values
     x_i = np.asarray(coords[0])
     y_i = np.asarray(coords[1])

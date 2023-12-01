@@ -7,8 +7,211 @@ import scipy.stats as st
 from skimage.measure import label, find_contours
 from skimage.segmentation import expand_labels
 from skimage.feature import peak_local_max
+from skimage.segmentation import watershed
+from scipy import ndimage as ndi
 
 
+
+
+def spot_search(image, bkg_noise, multiplier=10, sigma=3, plotme=False):
+
+
+    # Consider other threshold methods
+    mask_thresh = np.median(image[image != 0]) + multiplier * bkg_noise
+    thresh_img = gaussian_filter(median_filter(image, size=1), sigma=sigma)
+    mask = thresh_img > mask_thresh
+
+    #spot_img = gaussian_filter(median_filter(pixel, size=1), sigma=5)
+    spots = peak_local_max(thresh_img,
+                           threshold_rel=multiplier * bkg_noise,
+                           min_distance=2, # Just a pinch more spacing
+                           labels=mask,
+                           num_peaks_per_label=np.inf)
+    
+    if plotme:
+        fig, ax = plt.subplots(1, 1, figsize=(9, 6), dpi=200)
+
+        im = ax.imshow(image, vmin=0, vmax=10 * mask_thresh)
+        fig.colorbar(im, ax=ax)
+        ax.scatter(spots[:, 1], spots[:, 0], s=1, c='r')
+
+        plt.show()
+
+    return spots, mask
+
+
+def watershed_blob_segmentation(blob_image, spots):
+    old_blob_image = np.copy(blob_image)
+
+    if blob_image.dtype != np.bool_:
+        blob_image = (blob_image != 0)
+
+    # Generate distance image from binary blob_img
+    distance = ndi.distance_transform_edt(blob_image)
+
+    #coords = peak_local_max(distance, footprint=np.ones((3, 3)),
+    #                        labels=[blob_img != 0][0], num_peaks_per_label=np.inf,
+    #                        threshold_rel=0.5)
+    
+    # Generate markers upon which to segment blobs
+    # Number of input spots may need to be reduceds depending on blob morphology
+    coords = np.asarray(spots)
+    mask = np.zeros(distance.shape, dtype=bool)
+    mask[tuple(coords.T)] = True
+    markers, _ = ndi.label(mask)
+
+    # Futher segment blob image
+    new_blob_image = watershed(-distance, markers, mask=blob_image)
+
+    # I don't like this, but it fixes some labeling issues
+    new_blob_image = median_filter(new_blob_image, size=3)
+
+    # Re-adding very small blobs eliminated by watershed filter
+    for spot in spots:
+        if new_blob_image[*spot] == 0:
+            new_blob_image[old_blob_image == old_blob_image[*spot]] = (np.max(new_blob_image) + 1)
+
+    return new_blob_image
+
+
+def combine_nearby_spots(spots, max_dist=25, max_neighbors=np.inf):
+
+    data = label_nearest_spots(spots, max_dist=max_dist,
+                               max_neighbors=max_neighbors)
+
+    new_spots = []
+    for label in np.unique(data[:, -1]):
+        if label in data[:, -1]:
+            new_spot = np.mean(data[data[:, -1] == label][:, :-1], axis=0)
+            new_spot = np.round(new_spot, 0).astype(np.int32)
+            new_spots.append(new_spot)
+
+    return np.asarray(new_spots)
+
+
+# Currently only works for Gaussian and Lorentzian peak models(based on number of inputs)
+def fit_spots(image, blob_image, spots, PeakModel, tth=None, chi=None, verbose=False):
+    global _verbose
+    _verbose = verbose
+
+
+    x_label, y_label = 'tth', 'chi'
+    if tth is None:
+        tth = range(image.shape[1])
+        x_label = 'img_x'
+    if chi is None:
+        chi = range(image.shape[0])
+        y_label = 'img_y'
+
+    x_coords, y_coords = np.meshgrid(tth, chi[::-1])
+
+    # Add watershed to further separate blobs...
+    spot_labels = np.array([blob_image[*spot] for spot in spots])
+    model_fits = []
+    offsets = []
+
+    for blob in np.unique(blob_image):
+        if blob == 0:
+            continue
+
+        num_spots = len(spots[spot_labels == blob])
+        if num_spots == 0:
+            vprint(f'No spots in blob {blob}. Proceeding to next blob.')
+            continue
+
+        bkg_mask = [blob_image != 0][0]
+        blob_mask = [blob_image[bkg_mask] == blob][0]
+        blob_size = np.sum(blob_mask)
+
+        if blob_size / (6 * num_spots) <= 1.5:
+            vprint(f'More unknowns than pixels in blob {blob}!')
+            vprint('Proceeding to next blob.')
+            continue
+
+        vprint(f'Fitting {len(spots[spot_labels == blob])} spots within blob {blob}...', end='', flush=True)
+
+        blob_int = image[bkg_mask][blob_mask]
+        blob_x = x_coords[bkg_mask][blob_mask]
+        blob_y = y_coords[bkg_mask][blob_mask]
+
+        p0 = [np.median(image)] # Guess offset
+        for i, spot in enumerate(spots[spot_labels == blob]):
+            p0.append(image[*spot]) # amp
+            p0.append(x_coords[*spot]) # x0
+            p0.append(y_coords[*spot]) # y0
+            p0.append(0.05) # sigma_x
+            p0.append(0.1) # sigma_y
+            p0.append(0) # theta
+
+        bounds = generate_bounds(p0[1:], PeakModel.func_2d, tth_step=None, chi_step=None)
+        bounds[0].insert(0, np.min(image)) # offset lower bound
+        bounds[1].insert(0, np.max(image)) # offset upper bound
+
+        popt, pcov = curve_fit(PeakModel.multi_2d, [blob_x, blob_y], blob_int, p0=p0, bounds=bounds)
+        r_squared = compute_r_squared(blob_int, PeakModel.multi_2d([blob_x, blob_y], *popt))
+        #residual = blob_int - PeakModel.multi_2d([blob_x, blob_y], *popt)
+        vprint('done!')
+        vprint(f'Fitting R²: {r_squared:.4f}')
+
+
+        model_fits.extend(popt[1:])
+        offsets.extend([popt[0],] * num_spots)
+
+    vprint(f'All {len(spots)} spots have been fit!')
+
+    model_fits = np.asarray(model_fits).reshape(len(model_fits) // 6, 6)
+    model_fits = np.hstack((model_fits, np.asarray(offsets).reshape(len(offsets), 1)))
+
+
+    #abbr = PeakModel.abbr
+    dict_labels = [f'fit_amp',
+                   f'fit_{x_label}',
+                   f'fit_{y_label}',
+                   f'fit_sigma_x', # Not labeled due to potential rotation
+                   f'fit_sigma_y', # Not labeled due to potential rotation
+                   f'fit_theta',
+                   f'fit_offset']
+
+    spot_dict = dict(zip(dict_labels, model_fits.T))
+    
+    return spot_dict
+
+
+# Big combined function!
+# This is what would be parallelized...
+def find_and_fit_spots(image, bkg_noise, PeakModel,
+                       multiplier=10, sigma=3,
+                       max_dist=25, max_neighbors=np.inf,
+                       tth=None, chi=None, verbose=False):
+    
+    # Find spots and mask significant regions
+    spots, mask = spot_search(image, bkg_noise,
+                              multiplier=multiplier, sigma=sigma)
+    # Generate blob_image
+    blob_image = label(mask)
+
+    # If too many spots, segment blobs further
+    if len(spots) > 25: # 25 is arbitrary distinction for time
+        new_spots = combine_nearby_spots(spots, max_dist=max_dist,
+                                         max_neighbors=max_neighbors)
+        
+        new_blob_image = watershed_blob_segmentation(blob_image, new_spots)
+
+        spots = new_spots
+        blob_image = new_blob_image
+
+    # Fit spots within each blob
+    spot_dict = fit_spots(image, blob_image, spots, PeakModel,
+                          tth=tth, chi=chi, verbose=verbose)
+    
+    return spot_dict
+
+
+
+
+##############################################################################
+
+# Depracted in favor of spot search path
 def find_blobs(img, thresh, method='gaussian_threshold',
                sigma=3,
                tth=None, chi=None,
@@ -35,7 +238,7 @@ def find_blobs(img, thresh, method='gaussian_threshold',
 
     elif method == 'gaussian_threshold':
         proc_img = gaussian_filter(proc_img, sigma=sigma)
-
+        
     else:
         print(f"Method {method} not implemented. Please choose 'simple_threshold' or 'gaussian_threshold'.")
         return None # Not sure I am supposed to do this...
@@ -46,7 +249,7 @@ def find_blobs(img, thresh, method='gaussian_threshold',
     # Adds a buffer to each blob. In theory this should hurt the fitting since it adds insignificant noise
     # Helps connect blobs that get separated though
     proc_img = expand_labels(proc_img, distance=blob_expansion)
-    blob_img = label(proc_img).astype(np.float32)
+    blob_img = label(proc_img + 1).astype(np.uint16)
 
     blob_labels = np.unique(blob_img)
 
@@ -59,58 +262,56 @@ def find_blobs(img, thresh, method='gaussian_threshold',
     blob_centers_of_mass = []
 
     # Characterize individual blobs
-    for i, blob in enumerate(blob_labels):
-        blob_mask = np.copy(blob_img)
-        blob_mask[blob_mask != blob] = False
-        blob_mask[blob_mask != 0] = True
-        blob_mask = np.bool_(blob_mask)
+    if len(blob_labels) > 1:
+        for i, blob in enumerate(blob_labels):
+            blob_mask = np.copy(blob_img)
+            blob_mask[blob_mask != blob] = False
+            blob_mask[blob_mask != 0] = True
+            blob_mask = np.bool_(blob_mask)
 
-        blob_value = img * blob_mask
-        # TODO: Convert blob area to actual solid angle...
-        blob_area = np.sum(blob_mask) * np.diff(tth[:2]) * np.diff(chi[:2]) # in angle squared
-        blob_intensity = np.sum(blob_value)
-        blob_significance = blob_intensity / blob_area
-        
-        # Remove isignificant blobs. Earlier is better
-        if blob_significance < min_blob_significance:
-            # Remove blob from blob_img
-            #return blob_img, blob_mask
-            blob_img[blob_mask] = 0
-            continue
+            blob_value = img * blob_mask
+            # TODO: Convert blob area to actual solid angle...
+            blob_area = np.sum(blob_mask) * np.diff(tth[:2])[0] * np.diff(chi[:2])[0] # in angle squared
+            blob_intensity = np.sum(blob_value)
+            blob_significance = blob_intensity / blob_area
+            
+            # Remove isignificant blobs. Earlier is better
+            if blob_significance < min_blob_significance:
+                # Remove blob from blob_img
+                #return blob_img, blob_mask
+                blob_img[blob_mask] = 0
+                continue
 
-        blob_max_coord = np.unravel_index(np.argmax(blob_value), blob_value.shape)
-        blob_center_of_mass = center_of_mass(blob_value)
+            blob_max_coord = np.unravel_index(np.argmax(blob_value), blob_value.shape)
+            blob_center_of_mass = center_of_mass(blob_value)
 
-        # Reduced memory method for storing mask coords
-        blob_mask_coords = np.asarray(np.where(blob_mask)).astype(np.uint16).T
-        # Reconstruct mask with:
-            # mask = np.zeros(test.map.image_shape)
-            # mask[*coords.T] = 1
-        blob_pixel_values = img[*blob_mask_coords.T]
+            # Reduced memory method for storing mask coords
+            blob_mask_coords = np.asarray(np.where(blob_mask)).astype(np.uint16).T
+            # Reconstruct mask with:
+                # mask = np.zeros(test.map.image_shape)
+                # mask[*coords.T] = 1
+            blob_pixel_values = img[*blob_mask_coords.T]
 
-        blob_masks.append(blob_mask_coords)
-        blob_values.append(blob_pixel_values)
-        blob_areas.append(blob_area)
-        blob_intensities.append(blob_intensity)
-        blob_significances.append(blob_significance)
-        blob_max_coords.append(blob_max_coord)
-        blob_centers_of_mass.append(blob_center_of_mass)
-    
-    # Includes pieces of background. These are removed latter
-
+            blob_masks.append(blob_mask_coords)
+            blob_values.append(blob_pixel_values)
+            blob_areas.append(blob_area)
+            blob_intensities.append(blob_intensity)
+            blob_significances.append(blob_significance)
+            blob_max_coords.append(blob_max_coord)
+            blob_centers_of_mass.append(blob_center_of_mass)
 
     blob_df = pd.DataFrame.from_dict({
         'intensity':blob_intensities,
         'area':blob_areas,
         'significance':blob_significances,
-        'value':blob_values,
+        'values':blob_values,
         'mask':blob_masks,
         'max_coords':list(estimate_recipricol_coords(np.asarray(blob_max_coords).T[::-1], img.shape, tth=tth, chi=chi).T),
         'center_of_mass':list(estimate_recipricol_coords(np.asarray(blob_centers_of_mass).T[::-1], img.shape, tth=tth, chi=chi).T)
     })
 
     if find_contours:
-        if len(np.unique(blob_img)) > 2:
+        if len(np.unique(blob_img)) > 1:
             blob_contours = find_blob_contours(blob_img)
             for i in range(len(blob_contours)):
                 blob_contours[i] = estimate_recipricol_coords(blob_contours[i], img.shape, tth=tth, chi=chi)
@@ -147,6 +348,7 @@ def find_blobs(img, thresh, method='gaussian_threshold',
     return blob_df
 
 
+# Depracated in favor of spot search path
 def fit_blobs(img, thresh, blob_df, PeakModel,  tth=None, chi=None, plotme=False):
 
     x_coords, y_coords = np.meshgrid(tth, chi[::-1])
@@ -199,6 +401,7 @@ def fit_blobs(img, thresh, blob_df, PeakModel,  tth=None, chi=None, plotme=False
     return blob_df
 
 
+# Depracated in favor of spot search path
 def find_blob_spots(img, blob_df, tth=None, chi=None,
                     size=2, sigma=0.5, min_distance=3, threshold_rel=0.15,
                     plotme=False):
@@ -246,6 +449,7 @@ def find_blob_spots(img, blob_df, tth=None, chi=None,
     return blob_df
 
 
+# Depracated in favor of spot search path
 # WIP
 def adaptive_spot_fitting(img, blob_df, thresh, PeakModel, tth=None, chi=None,
                           plotme=False):
@@ -347,9 +551,12 @@ def adaptive_spot_fitting(img, blob_df, thresh, PeakModel, tth=None, chi=None,
 
 
 
+# No longer used, but still useful
 def find_blob_contours(blob_img):
     contours = []
-    for i in np.unique(blob_img).astype(int):
+    for i in np.unique(blob_img):
+        if i == 0: # Skip insignificant regions
+            continue
         single_blob = np.zeros_like(blob_img)
         single_blob[blob_img == i] = 1
         #print(len(find_contours(single_blob, 0)))
@@ -357,6 +564,7 @@ def find_blob_contours(blob_img):
     return [contour[:, ::-1].T for contour in contours] # Rearranging for convenience
 
 
+# No longer used, but still useful
 def coord_mask(coords, image, masked_image=False):
     # Convert coordinates into mask
     mask = np.zeros_like(image)
@@ -367,6 +575,7 @@ def coord_mask(coords, image, masked_image=False):
         return np.bool_(mask)
 
 
+# Not currently used.
 def qualify_gaussian_2d_fit(r_squared, sig_threshold, guess_params, fit_params, return_reason=False):
     # Determine euclidean distance between intitial guess and peak fit. TODO change to angular misorientation
     offset_distance = np.sqrt((fit_params[1] - guess_params[1])**2 + (fit_params[2] - guess_params[2])**2)
@@ -418,25 +627,25 @@ def generate_bounds(p0, peak_function, tth_step=None, chi_step=None):
                 upr_bounds.append(p0[i + j] + chi_range)
             elif arg == 'sigma':
                 low_bounds.append(0)
-                upr_bounds.append(np.inf) # Base off of intrument resolution
+                upr_bounds.append(1) # Base off of intrument resolution
             elif arg == 'sigma_x':
                 low_bounds.append(0)
-                upr_bounds.append(np.inf) # Base off of intrument resolution
+                upr_bounds.append(1) # Base off of intrument resolution
             elif arg == 'sigma_y':
                 low_bounds.append(0)
-                upr_bounds.append(np.inf) # Base off of intrument resolution
+                upr_bounds.append(1) # Base off of intrument resolution
             elif arg == 'theta':
                 low_bounds.append(-45) # Prevent spinning
                 upr_bounds.append(45) # Only works for degrees...
             elif arg == 'gamma':
                 low_bounds.append(0)
-                upr_bounds.append(np.inf) # Base off of intrument resolution
+                upr_bounds.append(1) # Base off of intrument resolution
             elif arg == 'gamma_x':
                 low_bounds.append(0)
-                upr_bounds.append(np.inf) # Base off of intrument resolution
+                upr_bounds.append(1) # Base off of intrument resolution
             elif arg == 'gamma_y':
                 low_bounds.append(0)
-                upr_bounds.append(np.inf) # Base off of intrument resolution
+                upr_bounds.append(1) # Base off of intrument resolution
             elif arg == 'eta':
                 low_bounds.append(0)
                 upr_bounds.append(1)

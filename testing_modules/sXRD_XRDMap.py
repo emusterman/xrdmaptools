@@ -2,10 +2,14 @@ import numpy as np
 import os
 import h5py
 import pyFAI
+from pyFAI.io import ponifile
+from pyFAI.azimuthalIntegrator import AzimuthalIntegrator
 import skimage.io as io
 from skimage.restoration import rolling_ball
 from tqdm.auto import tqdm
 import time as ttime
+import matplotlib.pyplot as plt
+from collections import OrderedDict
 
 
 class XRDMap():
@@ -19,8 +23,10 @@ class XRDMap():
                  image_map=None, map_title=None,
                  energy=None, wavelength=None, poni_file=None,
                  tth_resolution=None, chi_resolution=None,
-                 beamline=None, facility=None,
-                 extra_metadata=None):
+                 tth=None, chi=None,
+                 beamline='5-ID (SRX)', facility='NSLS-II',
+                 extra_metadata=None,
+                 save_h5=True):
         
         # Adding some metadata
         self.scanid = scanid
@@ -50,28 +56,30 @@ class XRDMap():
             self.wavelength = wavelength
 
         # Only take values from h5 when opening from the class method
-        if h5_file is None:
-            if os.path.exists(f'{wd}{filename}.h5'):
-                self._h5 = h5py.File(f'{wd}{filename}.h5', 'a')
-            else:
-                self._h5 = h5py.File(f'{wd}{filename}.h5', 'w-')
-                # Should not fail, but better to be careful
-                # If not h5 file, create one
-                initialize_xrdmap_h5(self) # Initialize base structure
-        else: # specify specific h5 file
-            self._h5 = h5py.File(f'{wd}{h5_file}', 'a')
-        #self._h5.close()
+        if save_h5:
+            if h5_file is None:
+                self.h5 = f'{wd}{filename}.h5'
+                if os.path.exists(f'{wd}{filename}.h5'):
+                    pass
+                else:
+                    initialize_xrdmap_h5(self, self.h5) # Initialize base structure
+            else: # specify specific h5 file
+                self.h5 = f'{wd}{h5_file}'
+        else:
+            self.h5 = None
+
 
         # Load image map
-        self.map = ImageMap(image_map, title=map_title, h5=self._h5)
+        self.map = ImageMap(image_map, title=map_title, h5=self.h5)
         # Save to h5 if not already done so
-        if self._h5 is not None:
-            if self.map.title not in self._h5['/xrdmap/image_data']:
+        if self.h5 is not None:
+            if not check_h5_current_images(self, self.h5):
                 self.map.save_current_images(units='counts',
                                              labels=['x_ind',
                                                      'y_ind',
-                                                     'img_x',
-                                                     'img_y'])
+                                                     'img_y',
+                                                     'img_x'])
+                # Add method to avoid overwriting raw image data
             
         self.phases = {} # Place holder for potential phases
         if poni_file is not None:
@@ -83,6 +91,10 @@ class XRDMap():
             self.tth_resolution = tth_resolution
         if chi_resolution is not None:
             self.chi_resolution = chi_resolution
+        if tth is not None:
+            self.tth = tth
+        if chi is not None:
+            self.chi = chi
     
 
     def __str__(self):
@@ -168,7 +180,7 @@ class XRDMap():
     def load_images_from_h5(self, image_dataset):
         # Only most processed images will be loaded from h5
         # Deletes current image map and loads new values from h5
-        images = self._h5[f'/xrdmap/image_data/{image_dataset}'][:]
+        images = self.h5[f'/xrdmap/image_data/{image_dataset}'][:]
         self.map.images = images
 
 
@@ -180,12 +192,13 @@ class XRDMap():
 
 
     def save_current_images(self):
+        raise NotImplementedError()
         # Save current images to an h5 file
 
-        dset = self._h5['/xrdmap/image_data'].create_dataset(
+        dset = self.h5['/xrdmap/image_data'].create_dataset(
                                             self.map.title,
                                             data=self.map.images)
-        dset.attrs['labels'] = ['x_ind', 'y_ind', 'img_x', 'img_y']
+        dset.attrs['labels'] = ['x_ind', 'y_ind', 'img_y', 'img_x']
         dset.attrs['units'] = 'counts'
         dset.attrs['dtype'] = np.uint16
         dset.attrs['time_stamp'] = ttime.ctime()
@@ -210,24 +223,55 @@ class XRDMap():
     def set_calibration(self, poni_file, filedir=None):
         if filedir is None:
             filedir = self.wd
+
+        if isinstance(poni_file, str):
+            if not os.path.exists(f'{filedir}{poni_file}'):
+                raise IOError(f"{filedir}{poni_file} does not exist")
+
+            if poni_file[-4:] != 'poni':
+                raise RuntimeError("Please provide a .poni file.")
+
+            self.ai = pyFAI.load(f'{filedir}{poni_file}')
         
-        if not os.path.exists(f'{filedir}{poni_file}'):
-            raise IOError(f"{filedir}{poni_file} does not exist")
+        elif isinstance(poni_file, OrderedDict):
+            self.ai = AzimuthalIntegrator().set_config(poni_file)
 
-        if poni_file[-4:] != 'poni':
-            raise RuntimeError("Please provide a .poni file.")
+        elif isinstance(poni_file, ponifile.PoniFile):
+            self.ai = AzimuthalIntegrator().set_config(poni_file.as_dict())
+        
+        else:
+            raise TypeError(f"{type(poni_file)} is unknown and not supported!")
 
-        self.ai = pyFAI.load(f'{filedir}{poni_file}')
+        # Update energy
         if self.energy is not None:
             self.ai.energy = self.energy # Allows calibrations acquired at any energy
         else:
             print('Energy has not been defined. Defualting to .poni file value.')
             self.energy = self.ai.energy
 
+        # Extract calibration parameters to save
+        self.poni = self.ai.get_config()
+        
+        # Save poni files as dictionary 
+        if self.h5 is not None:
+            with h5py.File(self.h5, 'a') as f:
+                curr_grp = f[f'/xrdmap'].require_group('recipriocal_positions')
+                new_grp = curr_grp.require_group('poni_file')
+                # I don't really like saving values as attributes
+                # They are well setup for this type of thing, though
+                for key, value in self.poni.items():
+                    # For detector which is a nested ordered dictionary...
+                    if isinstance(value, OrderedDict):
+                        new_new_grp = new_grp.require_group(key)
+                        for key_i, value_i in value.items():
+                            new_new_grp.attrs[key_i] = value_i
+                    else:
+                        new_grp.attrs[key] = value
+
 
     # Move this to a function in geometry??
     def calibrate_images(self, poni_file=None, filedir=None,
-                         title='calibrated_images'):
+                         title='calibrated_images', unit='2th_deg'):
         if poni_file is not None:
             self.set_calibration(poni_file, filedir=filedir)
         if not hasattr(self, 'ai'):
@@ -242,7 +286,8 @@ class XRDMap():
         
         out = self.map.calibrate_images(self.ai, title=title,
                                         tth_resolution=tth_resolution,
-                                        chi_resolution=chi_resolution)
+                                        chi_resolution=chi_resolution,
+                                        unit=unit)
         
         self.tth = out[0]
         self.chi = out[1]
@@ -308,7 +353,7 @@ class XRDMap():
             self.phases[phase_name] = phase
         else:
             print(f"Did not add {phase_name} since it is already in possible phases.")
-    
+
 
     def remove_phase(self, phase):
         # Allow for phase object or name to work
@@ -332,11 +377,11 @@ class XRDMap():
         if not os.path.exists(f'{filedir}{filename}'):
             raise OSError(f"Specified path does not exist:\n{filedir}{filename}")
         
-        if filename[-3:] == 'cif':
+        if filename[-4:] == '.cif':
             phase = Phase.fromCIF(f'{filedir}{filename}')
-        elif filename[-3:] == 'txt':
+        elif filename[-4:] == '.txt':
             raise NotImplementedError()
-        elif filename[-1] in ['D']:
+        elif filename[-2] in ['.D']:
             raise NotImplementedError()
         else:
             raise TypeError(f'''Unsure how to read {filename}. 
@@ -345,14 +390,34 @@ class XRDMap():
         if phase_name is not None:
             phase.name = phase_name
         
+        if self.energy is not None:
+            phase.energy = self.energy
+        
         self.add_phase(phase)
     
+
+    def clear_phases(self):
+        self.phases = {}
+
+    
+    # Only saves phase names
+    # TODO: Replace with values to reconstruct phase objects...
+    def save_phases(self):
+        if (self.h5 is not None) and (len(self.phases) > 0):
+            with h5py.File(self.h5, 'a') as f:
+                phase_grp = f['/xrdmap'].require_group('phase_list')
+                dt = h5py.string_dtype(encoding='utf-8')
+                phase_names = np.char.encode(np.array(list(self.phases.keys())),
+                                             encoding='utf-8', errors=None)
+                f.require_dataset('phase_names2', data=phase_names,
+                                  dtype=dt, shape=(len(self.phases),))
+                # phase_names = np.char.decode([string for string in phase_dataset[:]])
+
 
     def select_phases(self, remove_less_than=-1,
                       image=None, tth_num=4096,
                       unit='2th_deg', ignore_less=1):
         # Plot phase_selector
-        # Is there a way to automatically deselect phases from this??
 
         tth, xrd = self.integrate_1d(image=image, tth_num=tth_num, unit=unit)
         # Add background subraction??
@@ -363,11 +428,9 @@ class XRDMap():
         for phase in old_phases:
             if phase_vals[phase] <= remove_less_than:
                 self.remove_phase(phase)
-
-
-    def clear_phases(self):
-        self.phases = {}
-
+        
+        # Write phases to disk
+        self.save_phases()
     
     ######################################################
     ### Blob, Ring, Peak and Spot Search and Selection ###
@@ -442,8 +505,7 @@ class ImageMap:
         
         # Share h5, so either can write processed data to file. Will default to XRDMap
         # This is probably not very pythonic...
-        if h5 is not None:
-            self._h5 = h5
+        self.h5 = h5
 
         #print('Defining new attributes')
         # Some redundant attributes, but maybe useful
@@ -501,6 +563,7 @@ class ImageMap:
     sum_map = projection_factory('sum_map', np.sum, (2, 3))
     sum_image = projection_factory('sum_image', np.sum, (0, 1))
 
+
     # Adaptively saves for whatever the current processing stage
     # Add other methods, or rename to something more intuitive
     # I should save this image to the h5...
@@ -511,38 +574,50 @@ class ImageMap:
         else:
             setattr(self, f'_{self.title}_composite',
                     self.max_image - self.min_image)
-            self._composite_image = self.max_image - self.min_image
+            
+            # Set the generic value to this as well
+            self._composite_image = getattr(self, f'_{self.title}_composite')
+
+            # Save image to h5
+            self.save_single_image(self._composite_image, f'_{self.title}_composite')
+
+            # Finally return the requested attribute
             return getattr(self, f'_{self.title}_composite')
     
-    #@property
-    #def composite_image(self):
-    #    if hasattr(self, '_composite_image'):
-    #        return self._composite_image
-    #    else:
-    #        self._composite_image = self.max_image - self.min_image
-    #        return self._composite_image
 
     # Function to dump accummulated processed images and maps
     # Not sure if will be needed between processing the full map
     def reset_attributes(self):
         old_attr = list(self.__dict__.keys())
         for attr in old_attr:
-            if (attr not in ['images', '_dtype', 'title',
-                            'shape', 'num_images',
-                            'map_shape', 'image_shape']# Preserve certain attributes between processing
+            if (attr not in ['images',
+                             '_dtype',
+                             'title',
+                            'shape',
+                            'num_images',
+                            'map_shape',
+                            'image_shape', 
+                            'h5',
+                            'dark_field_method',
+                            'flat_field_method']# Preserve certain attributes between processing
                 or attr[-10:] == '_composite'): 
                 delattr(self, attr)
     
+
     # Change background to dark-field.
     # Will need to change the estimate
-    def estimate_dark_field(self, method):
+    def estimate_dark_field(self, method='min'):
         method = str(method).lower()
         if method in ['min', 'minimum']:
+            print('Estimating dark-field with minimum method.')
             self.dark_field = self.min_image # does not account for changing electronic noise
+            self.dark_field_method = 'minimum'
         else:
             raise NotImplementedError("Method input not implemented!")
     
+
     def correct_dark_field(self, dark_field=None, title=None):
+        # TODO: Save correction to h5, with overwrite
         if dark_field is not None:
             self.dark_field = dark_field
         elif hasattr(self, 'dark_field'):
@@ -559,24 +634,34 @@ class ImageMap:
             # Trying to save memory if possible
             if np.max(self.dark_field) > np.min(self.min_image):
                 self.dtype = np.int32
-            
+        
+        print('Correcting dark-field...', end='', flush=True)
         self.images -= self.dark_field
-        self.reset_attributes()
+        print('done!')
 
 
-    def estimate_flat_field(self, method=None, **kwargs):
+    def estimate_flat_field(self, method='med', **kwargs):
         method = str(method).lower()
         # Add method to use the scalar information too.
         if method in ['med', 'median']:
-            self.flat_field = self.med_image # simple, but not very accurate
+            print('Estimating flat-field from median values.')
+            self.flat_field = np.multiply.outer(self.med_map, self.med_image)
+            self.flat_field_method = 'median'
+            
         elif method in ['ball', 'rolling ball', 'rolling_ball']:
+            print('Estimating flat-field with rolling ball method.')
             self.flat_field = rolling_ball(self.images, **kwargs)
+            self.flat_field_method = 'rolling ball'
+
         elif method in ['spline', 'spline fit', 'spline_fit']:
             raise NotImplementedError()
+            self.flat_field_method = 'spline'
         else:
             raise NotImplementedError("Method input not implemented!")
     
+
     def correct_flat_field(self, flat_field=None, title=None):
+        # TODO: Save correction to h5, with overwrite
         if flat_field is not None:
             self.flat_field = flat_field
         elif hasattr(self, 'flat_field'):
@@ -584,23 +669,16 @@ class ImageMap:
         else:
             raise RuntimeError("Please specify background to subtract.")
 
-        if self.flat_field.dtype > self.dtype:
-            self.dtype = self.flat_field.dtype
-        
-        if check_precision(self.dtype)[0].min >= 0:
-            # Not sure how to decide which int precision
-            # Both Merlin and Dexela output uint16, so this should be sufficient for now
-            # Trying to save memory if possible
-            if np.max(self.flat_field) > np.min(self.min_image):
-                self.dtype = np.float32
-                # This will ballon memory
-                # Consider rescaling into a new data type range
-            
-        self.images /= self.dark_field
-        self.reset_attributes()
+        #if self.flat_field.dtype > self.dtype:
+        #    self.dtype = self.flat_field.dtype
+
+        self.dtype = np.float32
+        print('Correcting flat-field...', end='', flush=True)
+        self.images /= self.flat_field
+        print('done!')
     
-    def correct_images(self, dark_method=None, flat_method=None, **kwargs):
-        raise NotImplementedError()
+
+    def correct_images(self, dark_method='min', flat_method='med', **kwargs):
         # Convenience functions that will help keep track of all corrections
         self.estimate_dark_field(dark_method, **kwargs)
         self.correct_dark_field()
@@ -608,66 +686,33 @@ class ImageMap:
         self.estimate_flat_field(flat_method, **kwargs)
         self.correct_flat_field()
 
+        print('Image corrections complete!')
         self.title = 'processed_images'
-        # Add label and units!
-        self.save_current_images()
-        # Save correction details. NOT the full correction, unless small
 
+        print('Compressing and writing processed images to disk...', end='', flush=True)
+        self.save_current_images(units='a.u.',
+                    labels=['x_ind',
+                            'y_ind',
+                            'img_y',
+                            'img_x'],
+                    extra_attrs={'dark_field_method':self.dark_field_method,
+                                'flat_field_method':self.flat_field_method})
+        print('done!')
 
-
-    '''# Removing background functions in favor of dark- and flat-field corrections
-    def estimate_background(self, method, **kwargs):
-        method = str(method).lower()
-
-        if method in ['med', 'median']:
-            self.background = self.med_image # simple, but not very accurate
-        elif method in ['ball', 'rolling ball', 'rolling_ball']:
-            self.background = rolling_ball(self.images, **kwargs)
-        elif method in ['spline', 'spline fit', 'spline_fit']:
-            raise NotImplementedError()
-        else:
-            raise NotImplementedError("Method input not implemented!")
-    
-    def subtract_background(self, background=None, title=None):
-        # Simple subtraction
-
-        if background is not None:
-            self.background = background
-
-        elif hasattr(self, 'background'):
-            background = self.background
-        else:
-            raise RuntimeError("Please specify background to subtract.")
-        
-        if self._h5 is not None:
-            if self.title not in self._h5['/xrdmap/image_data']:
-                self.save_current_images(units='counts',
-                                         labels=['x_ind', 'y_ind', 'img_x', 'img_y'])
-
-        if title is None:
-            title = 'processed_images'
-        
-        if self.background.dtype > self.dtype:
-            self.dtype = self.background.dtype
-        
-        if check_precision(self.dtype)[0].min >= 0:
-            # Not sure how to decide which int precision
-            # Both Merlin and Dexela output uint16, so this should be sufficient for now
-            # Trying to save memory if possible
-            if np.max(self.background) > np.min(self.min_image):
-                self.dtype = np.int32
-            
-        self.images -= background
-        # print('Bacground subtracted!')
         self.reset_attributes()
 
-        self.background = background # Keep background for back-conversion if necessary
-        self.title = title # Update title to new iteration'''
-
+        # Save correction methods
+        if self.h5 is not None:
+            with h5py.File(self.h5, 'a') as f:
+                dset = f[f'xrdmap/image_data/{self.title}']
+                dset.attrs['dark_field_method'] = self.dark_field_method
+                #dset.attrs['dark_field'] = self.dark_field
+                dset.attrs['flat_field_method'] = self.flat_field_method
     
 
     # Should move to geometry.py
     def calibrate_images(self, ai, title='calibrated_images',
+                         unit='2th_deg',
                          tth_resolution=0.02, chi_resolution=0.05):
         
         # Check for background subtraction
@@ -677,10 +722,14 @@ class ImageMap:
 
         # Ensure the processed composite image exists - useful for phase selection
         if self.title == 'processed_images' and not hasattr(self, 'processed_images_composite'):
+            print('Composite of processed images not saved. Creating composite.')
             self.composite_image;
 
         # Clear old values
         self.reset_attributes()
+
+        # Set units for metadata
+        self.calib_unit = unit
 
         # These should be properties...
         self.tth_resolution = tth_resolution # Degrees
@@ -688,44 +737,33 @@ class ImageMap:
 
         # Surely there is better way to find the extent without a full calibration
         # It's fast some maybe doesn't matter
-        res = ai.integrate2d_ng(self.images.reshape(
+        _, tth, chi = ai.integrate2d_ng(self.images.reshape(
                                 self.num_images, 
                                 *self.image_shape)[0],
-                                100, 100, unit='2th_deg')
-        self.tth = res[1]
-        self.chi = res[2]
-        self.tth_num = int(np.abs(np.max(self.tth) - np.min(self.tth))
-                           // self.tth_resolution)
-        self.chi_num = int(np.abs(np.max(self.chi) - np.min(self.chi))
-                           // self.chi_resolution)
+                                100, 100, unit=self.calib_unit)
+        
         # Interpolation bounds should be limited by the intrument resolution AND the original image size
+        self.tth_num = int(np.abs(np.max(tth) - np.min(tth))
+                           // self.tth_resolution)
+        self.chi_num = int(np.abs(np.max(chi) - np.min(chi))
+                           // self.chi_resolution)
 
-        # There is a better way I could do this...
-        res = ai.integrate2d_ng(self.images.reshape(
-                                self.num_images, 
-                                *self.image_shape)[0],
-                                self.tth_num, self.chi_num, unit='2th_deg') 
-        self.tth = res[1]
-        self.chi = res[2]
-        self.extent = [self.tth[0], self.tth[-1],
-                       self.chi[0], self.chi[-1]]
-
-        # Calibrate the full map. Can I parallelize this??
         calibrated_map = np.zeros((self.num_images,
                                    self.chi_num, 
                                    self.tth_num), 
                                    dtype=(self.dtype))
         
-        # Consider the tqdm package??
+        print('Calibrating images...', end='', flush=True)
+        # TODO: Parallelize this
         for i, pixel in tqdm(enumerate(self.images.reshape(
                                        self.num_images,
                                        *self.image_shape)),
                                        total=self.num_images):
             
-            res, _, _ = ai.integrate2d_ng(pixel,
+            res, tth, chi = ai.integrate2d_ng(pixel,
                                           self.tth_num,
                                           self.chi_num,
-                                          unit='2th_deg')
+                                          unit=self.calib_unit)
             calibrated_map[i] = res
 
         calibrated_map = calibrated_map.reshape(*self.map_shape,
@@ -733,37 +771,144 @@ class ImageMap:
                                                 self.tth_num)
         # Consider rescaling and downgrading data type to save memory...
         self.images = calibrated_map
+        self.tth = tth
+        self.chi = chi
+        self.extent = [self.tth[0], self.tth[-1],
+                       self.chi[0], self.chi[-1]]
+
+        print('done!')
         
         if title is not None:
             self.title = title
+
+        print('''Compressing and writing calibrated images to disk.\nThis may take awhile...''', end='', flush=True)
+        self.save_current_images(units=self.calib_unit,
+                                 labels=['x_ind',
+                                         'y_ind',
+                                         'chi_ind',
+                                         'tth_ind'],
+                                extra_attrs={'tth_resolution' : self.tth_resolution,
+                                             'chi_resolution' : self.chi_resolution,
+                                             'extent' : self.extent})
         
-        self.save_current_images() # Add units and labels
+        # Add calibration positions dataset
+        if self.h5 is not None:
+            with h5py.File(self.h5, 'a') as f:
+                # This group may already exist if poni file was already initialized
+                curr_grp = f[f'/xrdmap'].require_group('recipriocal_positions')
+                #curr_grp.create_dataset('name', data=['tth_pos', 'chi_pos'])
+                dset = curr_grp.require_dataset('pos',
+                            data=np.stack(np.meshgrid(self.tth, self.chi)),
+                            dtype=self.dtype, shape=(2, self.tth_num, self.chi_num))
+                dset.attrs['labels'] = ['tth', 'chi']
+                dset.attrs['comments'] = """'tth' is the two_theta scattering angle\n
+                                        'chi' is the azimuthal angle"""
+                dset.attrs['units'] = self.calib_unit #'° [deg.]'
+                dset.attrs['dtype'] = str(self.dtype)
+                dset.attrs['time_stamp'] = ttime.ctime()
+        print('done!')
+
         
         # Direct set to avoid resetting the map images again
         self._dtype = self.images.dtype
 
         # Pass these values up the line
-        return self.tth, self.chi, self.extent, (self.tth_num, self.chi_num), self.tth_resolution, self.chi_resolution, 
+        return self.tth, self.chi, self.extent, (self.chi_num, self.tth_num), self.tth_resolution, self.chi_resolution, 
 
         
-    def interactive_map():
+    def interactive_map(self):
         raise NotImplementedError()
     
-    def map_disk_size(self):
+
+    def plot_image(self, image=None, vmin=None, aspect='auto', **kwargs):
+        rand_img = False
+        if image is None:
+            i = np.random.randint(self.map_shape[0])
+            j = np.random.randint(self.map_shape[1])
+            image = self.images[i, j]
+            rand_img = True
+
+        fig, ax = plt.subplots(1, 1, figsize=(5, 5), dpi=200)
+
+        if hasattr(self, 'extent'):
+            if vmin == None:
+                vmin = 0
+            im = ax.imshow(image, extent=self.extent, vmin=vmin, aspect=aspect, **kwargs)
+            ax.set_xlabel('Scattering Angle, 2θ [°]') # Assumes degrees. Need to change...
+            ax.set_ylabel('Azimuthal Angle, χ [°]')
+        else:
+            im = ax.imshow(image, aspect=aspect)
+            ax.set_xlabel('X index')
+            ax.set_ylabel('Y index')
+        
+        if rand_img:
+            ax.set_title(f'Row = {i}, Col = {j}')
+        else:
+            ax.set_title('Input Image')
+        fig.colorbar(im, ax=ax)
+        plt.show()
+
+        
+        
+    
+    def disk_size(self):
         # Return current map size which should be most of the memory usage
         # Helps to estimate file size too
-        disk_size = self.images.size / 2**10 / 2**10 / 2**10
-        print(f'Diffraction map size is {disk_size:.3f} GB.')
-        return disk_size
+        disk_size = self.images.size
+        units = 'B'
+        if disk_size > 2**10:
+            disk_size = disk_size / 2**10
+            units = 'KB'
+            if disk_size > 2**10:
+                disk_size = disk_size / 2**10
+                units = 'MB'
+                if disk_size > 2**10:
+                    disk_size = disk_size / 2**10
+                    units = 'GB'
+        
+        print(f'Diffraction map size is {disk_size:.3f} {units}.')
+        #return self.images.size / 2**10 / 2**10 / 2**10 # in GB
     
 
-    def save_current_images(self, units='', labels=''):
-        dset = self._h5['/xrdmap/image_data'].require_dataset(
-                        self.title,
-                        data=self.images,
-                        shape=self.images.shape,
-                        dtype=self.dtype)
-        dset.attrs['labels'] = labels
-        dset.attrs['units'] = units
-        dset.attrs['dtype'] = str(self.dtype)
-        dset.attrs['time_stamp'] = ttime.ctime()
+    def save_current_images(self, units='', labels='',
+                            compression='gzip', compression_opts=8,
+                            mode='a', extra_attrs=None):
+        
+        if self.h5 is not None: # Should disable working with h5 if no information is provided
+            with h5py.File(self.h5, mode) as f:
+                dset = f['/xrdmap/image_data'].require_dataset(
+                                self.title,
+                                data=self.images,
+                                shape=self.images.shape,
+                                dtype=self.dtype,
+                                compression=compression,
+                                compression_opts=compression_opts)
+                dset.attrs['labels'] = labels
+                dset.attrs['units'] = units
+                dset.attrs['dtype'] = str(self.dtype)
+                dset.attrs['time_stamp'] = ttime.ctime()
+
+                # Add non-standard extra metadata attributes
+                if extra_attrs is not None:
+                    for key, value in extra_attrs.items():
+                        dset.attrs[key] = value
+
+
+    def save_single_image(self, image, title, units='', labels='', mode='a', extra_attrs=None):
+        if self.h5 is not None: # Should disable working with h5 if no information is provided
+            with h5py.File(self.h5, mode) as f:
+                dset = f['/xrdmap/image_data'].require_dataset(
+                                title,
+                                data=image,
+                                shape=image.shape,
+                                dtype=image.dtype)
+                dset.attrs['labels'] = labels
+                dset.attrs['units'] = units
+                dset.attrs['dtype'] = str(image.dtype)
+                dset.attrs['time_stamp'] = ttime.ctime()
+
+                # Add non-standard extra metadata attributes
+                if extra_attrs is not None:
+                    for key, value in extra_attrs.items():
+                        dset.attrs[key] = value
+    

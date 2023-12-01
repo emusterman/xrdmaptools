@@ -7,37 +7,49 @@ import h5py
 ### H5 Format ###
 #################
 
-def initialize_xrdmap_h5(xrdmap):
-    base_grp = xrdmap._h5.require_group('xrdmap')
-    base_grp.attrs['scanid'] = xrdmap.scanid
-    base_grp.attrs['beamline'] = xrdmap.beamline #'5-ID (SRX)'
-    base_grp.attrs['facility'] = xrdmap.facility #'NSLS-II'
-    base_grp.attrs['energy'] = xrdmap.energy
-    base_grp.attrs['wavelength'] = xrdmap.wavelength
-    base_grp.attrs['time_stamp'] = '' # Not sure why I cannot assign None
+def initialize_xrdmap_h5(xrdmap, h5_file):
+    with h5py.File(h5_file, 'w-') as f:
+        base_grp = f.require_group('xrdmap')
+        base_grp.attrs['scanid'] = xrdmap.scanid
+        base_grp.attrs['beamline'] = xrdmap.beamline #'5-ID (SRX)'
+        base_grp.attrs['facility'] = xrdmap.facility #'NSLS-II'
+        base_grp.attrs['energy'] = xrdmap.energy
+        base_grp.attrs['wavelength'] = xrdmap.wavelength
+        base_grp.attrs['time_stamp'] = '' # Not sure why I cannot assign None
 
-    # Record diffraction data
-    curr_grp = base_grp.require_group('image_data') # naming the group after the detector may be a bad idea...
-    curr_grp.attrs['detector'] = '' #'dexela'
-    curr_grp.attrs['detector_binning'] = '' #(4, 4)
-    curr_grp.attrs['exposure_time'] = '' # 0.1
-    curr_grp.attrs['expsure_time_units'] = 's'
+        # Record diffraction data
+        curr_grp = base_grp.require_group('image_data') # naming the group after the detector may be a bad idea...
+        curr_grp.attrs['detector'] = '' #'dexela'
+        curr_grp.attrs['detector_binning'] = '' #(4, 4)
+        curr_grp.attrs['exposure_time'] = '' # 0.1
+        curr_grp.attrs['expsure_time_units'] = 's'
 
+        # Add pixel spatial positions
 
-def save_XRD_h5(xrdmap, filename=None, wd=None):
-    if filename is None:
-        # Should I include detector name, or allow for simultaneous processing?
-        filename = f'scan{xrdmap.scanid}_XRD_map.h5'
-    if wd is None:
-        wd = '/home/xf05id1/current_user_data/'
+        # Add pixel scalar values
 
-    f = h5py.File(f'{wd}{filename}', 'a') # 'a' allows for appending data
-
-    return f.close()
+def check_h5_current_images(xrdmap, h5_file):
+    with h5py.File(h5_file, 'r') as f:
+        return xrdmap.map.title in f['/xrdmap/image_data']
+    
 
 
 def load_XRD_h5(filename, wd=None):
-    return
+    raise NotImplementedError()
+    # Load base metadata
+
+    # Load current images
+
+    # Load scalars
+
+    # Load pixel positions
+
+    # Load calibration parameters
+        # Initialize azimuthal integrator
+        # Load calibrated positions
+    
+    # return dictionary of useful values
+
 
 
 
