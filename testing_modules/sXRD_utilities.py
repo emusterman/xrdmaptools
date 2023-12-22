@@ -3,9 +3,11 @@ import os
 import skimage.io
 import h5py
 import time as ttime
-from dask .distributed import Client
+import dask
 from tqdm.dask import TqdmCallback
-
+from tqdm import tqdm
+import warnings
+import functools
 
 # Must define this as something
 _t0 = 0
@@ -103,13 +105,26 @@ def label_nearest_spots(spots, max_dist=25, max_neighbors=np.inf):
                     data[[data[:, -1] == extra][0], -1] = current_label
                     labels.remove(extra)
 
-    data = data.astype(np.int32)
+    #data = data.astype(np.int32)
     labels = np.array(labels).astype(np.int32)
     # labels is not perfectly sequential. Why???
     return data
 
 
-def vprint(message):
+def vprint(message, **kwargs):
     global _verbose
     if _verbose:
-        print(message)
+        print(message, **kwargs)
+
+
+
+def deprecated(func):
+    @functools.wraps(func)
+    def new_func(*args, **kwargs):
+        warnings.simplefilter('always', DeprecationWarning)  # turn off filter
+        warnings.warn("Call to deprecated function {}.".format(func.__name__),
+                      category=DeprecationWarning,
+                      stacklevel=2)
+        warnings.simplefilter('default', DeprecationWarning)  # reset filter
+        return func(*args, **kwargs)
+    return new_func

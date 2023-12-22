@@ -2,7 +2,7 @@ import numpy as np
 from collections import OrderedDict
 
 
-# TODO:
+# TODO: a lot
 
 
 
@@ -15,10 +15,10 @@ def estimate_img_coords(coords, image_shape, tth=None, chi=None):
     chi_i = np.asarray(coords[1])
     x = (tth_i - np.min(tth)) / (np.max(tth) - np.min(tth)) * image_shape[1]
     y = image_shape[0] - (chi_i-  np.min(chi)) / (np.max(chi) - np.min(chi)) * image_shape[0]
-    return np.array([int(x), int(y)])
+    return np.array([x.astype(np.int32), y.astype(np.int32)])
 
 
-def estimate_recipricol_coords(coords, image_shape, tth=None, chi=None):
+def estimate_reciprocal_coords(coords, image_shape, tth=None, chi=None):
     if len(coords) == 0:
         return coords
     

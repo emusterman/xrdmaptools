@@ -128,7 +128,7 @@ def display_plot(data, axes=None, display_map=None, display_title=None, cmap='vi
         
     '''
     # Generate plot
-    if type(display_map) is not None:
+    if display_map is not None:
         if map_vmin is None: map_vmin = np.min(display_map)
         if map_vmax is None: map_vmax = np.max(display_map)
         axes[0].imshow(display_map, cmap=cmap, norm=map_norm(vmin=map_vmin, vmax=map_vmax))
@@ -149,7 +149,7 @@ def display_plot(data, axes=None, display_map=None, display_title=None, cmap='vi
 
 ### Variations of Plotting Functions ###
 
-def interactive_1d_plot(integrated_data, tth, 
+def interactive_1d_plot(integrated_data, tth=None, 
                         bkg_removal=None, ball_size=None, normalize=None,
                         display_map=None, display_title=None,
                         map_vmin=None, map_vmax=None, map_norm=Normalize,
@@ -157,6 +157,10 @@ def interactive_1d_plot(integrated_data, tth,
     '''
     
     '''
+    
+    # Check axes range
+    if tth is None:
+        tth = range(integrated_data.shape[-1])
 
     # Remove background
     integrated_data = integrated_background_removal(integrated_data, bkg_removal=bkg_removal, ball_size=ball_size)
@@ -184,7 +188,7 @@ def interactive_1d_plot(integrated_data, tth,
 
 
 
-def interactive_2d_plot(calibrated_data, tth, chi,
+def interactive_2d_plot(calibrated_data, tth=None, chi=None,
                         display_map=None, display_title=None,
                         map_vmin=None, map_vmax=None, map_norm=Normalize,
                         cmap='viridis', marker_color='red',
@@ -192,6 +196,12 @@ def interactive_2d_plot(calibrated_data, tth, chi,
     '''
     
     '''
+
+    # Check axes range
+    if tth is None:
+        tth = range(calibrated_data.shape[-1])
+    if chi is None:
+        chi = range(calibrated_data.shape[-2])
 
     # Generate plot
     fig, ax = plt.subplots(1, 2, figsize=(10, 5), dpi=200)
@@ -213,7 +223,7 @@ def interactive_2d_plot(calibrated_data, tth, chi,
     cid = fig.canvas.mpl_connect('button_press_event', onclick)
 
 
-def interactive_combined_plot(integrated_data, calibrated_data, tth, chi,
+def interactive_combined_plot(integrated_data, calibrated_data, tth=None, chi=None,
                               bkg_removal=None, ball_size=None, normalize=None,
                               display_map=None, display_title=None,
                               map_vmin=None, map_vmax=None, map_norm=Normalize,
@@ -222,6 +232,12 @@ def interactive_combined_plot(integrated_data, calibrated_data, tth, chi,
     '''
     
     '''
+
+    # Check axes range
+    if tth is None:
+        tth = range(calibrated_data.shape[-1])
+    if chi is None:
+        chi = range(calibrated_data.shape[-2])
 
     # Remove background
     integrated_data = integrated_background_removal(integrated_data, bkg_removal=bkg_removal, ball_size=ball_size)
@@ -255,7 +271,7 @@ def interactive_combined_plot(integrated_data, calibrated_data, tth, chi,
     cid = fig.canvas.mpl_connect('button_press_event', onclick)
 
 
-def dynamic_1d_plot(integrated_data, tth, 
+def dynamic_1d_plot(integrated_data, tth=None, 
                     bkg_removal=None, ball_size=None, normalize=None,
                     display_map=None, display_title=None,
                     map_vmin=None, map_vmax=None, map_norm=Normalize,
@@ -263,6 +279,10 @@ def dynamic_1d_plot(integrated_data, tth,
     '''
     
     '''
+
+    # Check axes range
+    if tth is None:
+        tth = range(integrated_data.shape[-1])
 
     # Remove background
     integrated_data = integrated_background_removal(integrated_data, bkg_removal=bkg_removal, ball_size=ball_size)
@@ -291,7 +311,7 @@ def dynamic_1d_plot(integrated_data, tth,
     binding_id = plt.connect('motion_notify_event', onmove)
 
 
-def dynamic_2d_plot(calibrated_data, tth, chi,
+def dynamic_2d_plot(calibrated_data, tth=None, chi=None,
                         display_map=None, display_title=None,
                         cmap='viridis', marker_color='red',
                         map_vmin=None, map_vmax=None, map_norm=Normalize,
@@ -299,6 +319,12 @@ def dynamic_2d_plot(calibrated_data, tth, chi,
     '''
     
     '''
+
+    # Check axes range
+    if tth is None:
+        tth = range(calibrated_data.shape[-1])
+    if chi is None:
+        chi = range(calibrated_data.shape[-2])
 
     # Generate plot
     fig, ax = plt.subplots(1, 2, figsize=(10, 5), dpi=200)
@@ -322,7 +348,7 @@ def dynamic_2d_plot(calibrated_data, tth, chi,
     binding_id = plt.connect('motion_notify_event', onmove)
 
 
-def dynamic_combined_plot(integrated_data, calibrated_data, tth, chi,
+def dynamic_combined_plot(integrated_data, calibrated_data, tth=None, chi=None,
                               bkg_removal=None, ball_size=None, normalize=None,
                               display_map=None, display_title=None,
                               map_vmin=None, map_vmax=None, map_norm=Normalize,
@@ -331,6 +357,12 @@ def dynamic_combined_plot(integrated_data, calibrated_data, tth, chi,
     '''
     
     '''
+
+    # Check axes range
+    if tth is None:
+        tth = range(calibrated_data.shape[-1])
+    if chi is None:
+        chi = range(calibrated_data.shape[-2])
 
     # Remove background
     integrated_data = integrated_background_removal(integrated_data, bkg_removal=bkg_removal, ball_size=ball_size)
@@ -365,7 +397,7 @@ def dynamic_combined_plot(integrated_data, calibrated_data, tth, chi,
     binding_id = plt.connect('motion_notify_event', onmove)
 
 
-def interactive_dynamic_1d_plot(integrated_data, tth, 
+def interactive_dynamic_1d_plot(integrated_data, tth=None, 
                                 bkg_removal=None, ball_size=None, normalize=None,
                                 display_map=None, display_title=None,
                                 map_vmin=None, map_vmax=None, map_norm=Normalize,
@@ -373,6 +405,10 @@ def interactive_dynamic_1d_plot(integrated_data, tth,
     '''
     
     '''
+
+    # Check axes range
+    if tth is None:
+        tth = range(integrated_data.shape[-1])
 
     # Remove background
     integrated_data = integrated_background_removal(integrated_data, bkg_removal=bkg_removal, ball_size=ball_size)
@@ -411,7 +447,7 @@ def interactive_dynamic_1d_plot(integrated_data, tth,
 
 
 
-def interactive_dynamic_2d_plot(calibrated_data, tth, chi,
+def interactive_dynamic_2d_plot(calibrated_data, tth=None, chi=None,
                         display_map=None, display_title=None,
                         map_vmin=None, map_vmax=None, map_norm=Normalize,
                         cmap='viridis', marker_color='red',
@@ -419,6 +455,12 @@ def interactive_dynamic_2d_plot(calibrated_data, tth, chi,
     '''
     
     '''
+
+    # Check axes range
+    if tth is None:
+        tth = range(calibrated_data.shape[-1])
+    if chi is None:
+        chi = range(calibrated_data.shape[-2])
 
     # Generate plot
     fig, ax = plt.subplots(1, 2, figsize=(10, 5), dpi=200)
@@ -451,7 +493,7 @@ def interactive_dynamic_2d_plot(calibrated_data, tth, chi,
     binding_id = plt.connect('motion_notify_event', onmove)
 
 
-def interactive_dynamic_combined_plot(integrated_data, calibrated_data, tth, chi,
+def interactive_dynamic_combined_plot(integrated_data, calibrated_data, tth=None, chi=None,
                               bkg_removal=None, ball_size=None, normalize=None,
                               display_map=None, display_title=None,
                               map_vmin=None, map_vmax=None, map_norm=Normalize,
@@ -460,6 +502,12 @@ def interactive_dynamic_combined_plot(integrated_data, calibrated_data, tth, chi
     '''
     
     '''
+
+    # Check axes range
+    if tth is None:
+        tth = range(calibrated_data.shape[-1])
+    if chi is None:
+        chi = range(calibrated_data.shape[-2])
 
     # Remove background
     integrated_data = integrated_background_removal(integrated_data, bkg_removal=bkg_removal, ball_size=ball_size)

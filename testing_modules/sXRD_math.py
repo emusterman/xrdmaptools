@@ -64,17 +64,21 @@ class PeakFunctionBase():
     # Must define self.func_1d() and self.func_2d()
     # Relies on standard argument input order
 
-    def multi_1d(self, *args):
-        return multi_peak_fitting(self.func_1d, *args)
+    @classmethod
+    def multi_1d(cls, *args):
+        return multi_peak_fitting(cls.func_1d, *args)
 
-    def multi_2d(self, *args, **kwargs):
-        return multi_peak_fitting(self.func_2d, *args, **kwargs)
+    @classmethod
+    def multi_2d(cls, *args, **kwargs):
+        return multi_peak_fitting(cls.func_2d, *args, **kwargs)
     
-    def func_1d_offset(self, *args):
-        return args[-1] + self.func_1d(*args[:-1])
+    @classmethod
+    def func_1d_offset(cls, *args):
+        return args[-1] + cls.func_1d(*args[:-1])
     
-    def func_2d_offset(self, *args, **kwargs):     
-        return args[-1] + self.func_2d(*args[:-1], **kwargs)
+    @classmethod
+    def func_2d_offset(cls, *args, **kwargs):     
+        return args[-1] + cls.func_2d(*args[:-1], **kwargs)
 
     def generate_guess():
         return
@@ -111,9 +115,17 @@ class GaussianFunctions(PeakFunctionBase):
         
         return amp * np.exp(-(a * ((x - x0) ** 2) + 2 * b * (x - x0) * (y - y0) + c *((y - y0) **2)))
     
-    def get_area():
-        return
+    @staticmethod
+    def get_area(amp, x0, sigma):
+        # Returns area under 1d gaussian function
+        return amp * np.sqrt(2 * np.pi) * sigma
+    
+    @staticmethod
+    def get_volume(amp, x0, y0, sigma_x, sigma_y, theta, radians=False):
+        # Returns volume under 2d gaussian function
+        return 2 * np.pi * amp * sigma_x * sigma_y
 
+    @staticmethod
     def get_FWHM():
         return
 
@@ -143,11 +155,14 @@ class LorentzianFunctions(PeakFunctionBase):
         yp = (x - x0) * np.sin(theta) + (y - y0) * np.cos(theta)
         return amp / (1.0 + 4 * xp ** 2 / gamma_x + 4 * yp ** 2 / gamma_y)
     
-    def get_area():
+    def get_area(x, amp, x0, gamma):
+        return amp * np.pi * gamma
+    
+    def get_volume():
         return
     
-    def get_FWHM():
-        return
+    def get_FWHM(x, amp, x0, gamma):
+        return 2 * gamma
     
 
 class VoigtFunctions(PeakFunctionBase):
@@ -179,6 +194,8 @@ class VoigtFunctions(PeakFunctionBase):
 
     def get_FWHM():
         return
+    
+
 
 
 
@@ -305,6 +322,21 @@ def check_precision(*dtypes):
             val = np.finfo(d)
         info.append(val)
     return info
+
+
+def circular_mask(shape, center, radius):
+
+    #if center is None:
+    #    center = (int(shape[0] / 2), int(shape[1]/2))
+
+    #if radius is None: 
+    #    radius = np.min(center[0], center[1], shape[0] - center[0], shape[1] - center[1])
+
+    Y, X = np.ogrid[:shape[0], :shape[1]]
+    dist_from_center = np.sqrt((X - center[1])**2 + (Y - center[0])**2)
+
+    mask = dist_from_center <= radius
+    return mask
 
 
 '''# Works for 1d and 2d peaks. Ignores arguments with defualt values

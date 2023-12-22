@@ -2,6 +2,9 @@ import numpy as np
 import os
 from skimage import io
 import h5py
+from collections import OrderedDict
+import time as ttime
+import pandas as pd
 
 #################
 ### H5 Format ###
@@ -28,27 +31,157 @@ def initialize_xrdmap_h5(xrdmap, h5_file):
 
         # Add pixel scalar values
 
+
 def check_h5_current_images(xrdmap, h5_file):
     with h5py.File(h5_file, 'r') as f:
         return xrdmap.map.title in f['/xrdmap/image_data']
     
 
-
 def load_XRD_h5(filename, wd=None):
-    raise NotImplementedError()
-    # Load base metadata
+    # TODO: Add conditional to check for .h5 at end of file name
 
-    # Load current images
+    h5_path = f'{wd}{filename}'
+    with h5py.File(h5_path, 'r') as f:
+        base_grp = f['/xrdmap']
 
-    # Load scalars
+        # Load base metadata
+        base_md = dict(base_grp.attrs.items())
 
-    # Load pixel positions
+        # Load most recent image data
+        if 'image_data' not in base_grp.keys():
+            raise RuntimeError("No image data in h5 file! Try loading from image stack or from databroker.")
+        img_grp = base_grp['image_data']
 
-    # Load calibration parameters
-        # Initialize azimuthal integrator
-        # Load calibrated positions
+        time_stamps, img_keys = [], []
+        for key in img_grp.keys():
+            if key[0] != '_':
+                time_stamps.append(img_grp[key].attrs['time_stamp'])
+                img_keys.append(key)
+        time_stamps = [ttime.mktime(ttime.strptime(x)) for x in time_stamps]
+        recent_index = np.argmax(time_stamps)
+        print(f'Loading most recent images ({img_keys[recent_index]})...', end='', flush=True)
+        image_data = img_grp[img_keys[recent_index]][:]
+
+        # Rebuild correction dictionary
+        corrections = {}
+        for key in img_grp[img_keys[recent_index]].attrs.keys():
+            # _{key}_correction
+            corrections[key[1:-11]] = img_grp[img_keys[recent_index]].attrs[key]
+
+        image_data = ImageMap(image_data, title=img_keys[recent_index],
+                              h5=h5_path, corrections=corrections)
+        image_data.image_shape = img_grp['raw_images'].shape[2:]
+        
+        # I should look for other composite images???
+        if '_processed_images_composite' in img_grp.keys():
+            image_data._processed_images_composite = img_grp['_processed_images_composite'][:]
+
+        if '_calibration_mask' in img_grp.keys():
+            image_data.calibration_mask = img_grp['_calibration_mask'][:]
+        
+        if '_masks' in img_grp.keys():
+            image_data.masks = img_grp['_masks'][:]
+        
+        print('done!')
+
+
+        # Recipricol positions
+        if 'reciprocal_positions' in base_grp.keys():
+            print('Loading reciprocal positions...', end='', flush=True)
+            recip_grp = base_grp['reciprocal_positions']
+
+            if 'tth' in recip_grp.keys() and 'chi' in recip_grp.keys():
+                tth = recip_grp['tth'][:]
+                chi = recip_grp['chi'][:]
+
+                recip_pos = {
+                    'tth' : tth,
+                    'chi' : chi,
+                    'calib_units' : recip_grp['tth'].attrs['units']
+                }
+
+                # Add some extra attributes to image_data
+                image_data.tth_resolution = recip_grp['tth'].attrs['tth_resolution']
+                image_data.chi_resolution = recip_grp['chi'].attrs['chi_resolution']
+                image_data.extent = recip_grp.attrs['extent']
+                image_data.calibrated_shape = (len(chi), len(tth))
+                image_data.chi_num = image_data.calibrated_shape[0]
+                image_data.tth_num = image_data.calibrated_shape[1]
+                
+            else:
+                recip_pos = {'tth' : None,
+                             'chi' : None,
+                             'calib_units' : None}
+                image_data.tth_resolution = None
+                image_data.chi_resolution = None
+                image_data.extent = None
+                image_data.chi_num = None
+                image_data.tth_num = None
+
+            # Load poni_file calibration
+            poni_grp = recip_grp['poni_file']
+            ordered_keys = ['poni_version', 'detector', 'detector_config', 'dist', 'poni1', 'poni2', 'rot1', 'rot2', 'rot3', 'wavelength']
+            poni_od = OrderedDict()
+            for key in ordered_keys:
+                if key == 'detector_config':
+                    detector_od = OrderedDict()
+                    detector_od['pixel1'] = poni_grp['detector_config'].attrs['pixel1']
+                    detector_od['pixel2'] = poni_grp['detector_config'].attrs['pixel2']
+                    detector_od['max_shape'] = list(poni_grp['detector_config'].attrs['max_shape'])
+                    poni_od[key] = detector_od
+                else:
+                    poni_od[key] = poni_grp.attrs[key]
+            print('done!')
+        else:
+            recip_pos = {'tth' : None,
+                         'chi' : None,
+                         'calib_units' : None}
+            poni_od = None
+        image_data.tth = recip_pos['tth']
+        image_data.chi = recip_pos['chi']
+
+
+        # Load phases
+        phase_dict = {}
+        if 'phase_list' in base_grp.keys():
+            print('Loading saved phases...', end='', flush=True)
+            phase_grp = base_grp['phase_list']
+            if len(phase_grp) > 0:
+                for phase in phase_grp.keys():
+                    phase_dict[phase] = Phase.from_h5(phase_grp[phase],
+                                                      energy=base_md['energy'],
+                                                      tth=recip_pos['tth'])
+            print('done!')
+
+
+        # Load spots dataframe
+        spots = None
+        if 'reflections' in base_grp.keys():
+            print('Loading reflection spots...', end='', flush=True)
+            spots = pd.read_hdf(h5_path, key='xrdmap/reflections/spots')
+            print('done!')
+        
+        # Load scalars
+
+        # Load pixel positions
+    
     
     # return dictionary of useful values
+    ouput_dict = {'base_md' : base_md,
+                  'image_data': image_data,
+                  'recip_pos' : recip_pos,
+                  'poni_od' : poni_od,
+                  'phase_dict' : phase_dict,
+                  'spots' : spots}
+
+    return ouput_dict
+
+        
+
+
+
+    
+    
 
 
 

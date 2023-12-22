@@ -1,10 +1,13 @@
 import xrayutilities as xu
+from xrayutilities.materials.spacegrouplattice import sgrp_sym, SGLattice
+from xrayutilities.materials.atom import Atom
 import matplotlib
 import os
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.signal import find_peaks
 from matplotlib.widgets import Slider
+from collections import OrderedDict
 
 
 class Phase(xu.materials.Crystal):
@@ -26,7 +29,7 @@ class Phase(xu.materials.Crystal):
         return ostr
     
     def __repr__(self): # Do I need this??
-        return f'{self.name} crystal phase class\n' # This is probably backwards from what it shoudld be...
+        return f'{self.name} crystal phase class\n' # This is probably backwards from what it should be...
 
 
     @classmethod
@@ -37,16 +40,56 @@ class Phase(xu.materials.Crystal):
     
 
     @classmethod
-    def from_h5(cls, h5_group):
+    def from_h5(cls, group, **kwargs):
         # Load values to reconstruct phase instance from standard h5 group or dataset
-        # Will need to implement a save to h5 group function as well...
-        raise NotImplementedError()
-        return cls()
+        # Will need to implement a save to h5 group function as well...    
+        name = group.name.split('/')[-1]
+        
+        params = OrderedDict()
+        key_lst = ['a', 'b', 'c', 'alpha', 'beta', 'gamma']
+        for key in key_lst:
+            params[key] = group.attrs[key]
+        
+        space_group = group.attrs['space_group']
+        space_group_number = group.attrs['space_group_number']
+
+        wbase = group['WyckoffBase']
+        atom_lst = []
+        for atom_key in wbase.keys():
+            atom = Atom(atom_key, wbase[atom_key].attrs['number'])
+            #atom = Atom(atom_key, atom_dict[atom_key])
+            pos = wbase[atom_key].attrs['position']
+            if np.any(np.isnan(wbase[atom_key][0])):
+                positions = None
+            else:
+                positions = (*wbase[atom_key][:][0],)
+            atom_lst.append((atom, (pos, positions)))
+
+        args = cls.get_sym_args(space_group, params)
+        lattice = SGLattice(space_group, *args, atoms=[atom[0] for atom in atom_lst],
+                                                    pos=[atom[1] for atom in atom_lst])
+        
+        return cls(name, lattice, **kwargs)
     
 
-    def save_h5(self, h5_group):
-        raise NotImplementedError()
+    def save_to_h5(self, parent_group):
+        iphase = parent_group.require_group(self.name)
     
+        # Mostly saves lattice information...
+        for key, value in self.lattice._parameters.items():
+            iphase.attrs[key] = value
+
+        iphase.attrs['space_group'] = self.lattice.space_group
+        iphase.attrs['space_group_number'] = sgrp_sym[int(self.lattice.space_group.split(':')[0])][0]
+
+        wbase = iphase.require_group('WyckoffBase')
+        for atom in self.lattice._wbase:
+            data = np.array(atom[1][1:])
+            #data = np.array([np.nan for pos in data if pos is None else pos])
+            data = np.array([np.nan if pos is None else pos for pos in data])
+            dset = wbase.require_dataset(atom[0].name, data=data, shape=data.shape, dtype=data.dtype)
+            dset.attrs['number'] = atom[0].num
+            dset.attrs['position'] = atom[1][0]
     
 
     @property
@@ -159,6 +202,35 @@ class Phase(xu.materials.Crystal):
         # Output such that phi[0] will yield planar angles for hkl1[0]
         phi = np.diag(phi).reshape(len(hkl1), len(hkl2)).T
         return phi
+    
+    @staticmethod
+    def get_sym_args(sgrp, params):
+
+        sgrp = str(sgrp).lower()
+        sgrp = sgrp.split(':')[0]
+
+        if sgrp in ['triclinic', *[str(num) for num in range(1, 3)]]:
+            args = [params[key] for key in ['a', 'b', 'c', 'alpha', 'beta', 'gamma']]
+
+        elif sgrp in ['monoclinic', *[str(num) for num in range(3, 16)]]:
+            args = [params[key] for key in ['a', 'b', 'c', 'beta']]
+
+        elif sgrp in ['orthorhombic', *[str(num) for num in range(16, 75)]]:
+            args = [params[key] for key in ['a', 'b', 'c']]
+
+        elif sgrp in ['tetragonal', *[str(num) for num in range(75, 143)]]:
+            args = [params[key] for key in ['a', 'c']]
+
+        elif sgrp in ['trigonal', *[str(num) for num in range(143, 168)]]:
+            args = [params[key] for key in ['a', 'c']]
+
+        elif sgrp in ['hexagonal', *[str(num) for num in range(168, 195)]]:
+            args = [params[key] for key in ['a', 'c']]
+
+        elif sgrp in ['cubic', *[str(num) for num in range(195, 231)]]:
+            args = [params[key] for key in ['a']]
+
+        return args
 
 
 

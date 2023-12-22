@@ -1,6 +1,9 @@
 import numpy as np
 from skimage import restoration
 from scipy.ndimage import median_filter
+from tqdm import tqdm
+import dask
+from tqdm.dask import TqdmCallback
 
 
 
@@ -10,15 +13,15 @@ from scipy.ndimage import median_filter
 def approximate_flat_field():
     # median of full map
     # Add some qualifier to reject the output if not good
-    return
+    raise NotImplementedError()
 
 def extract_dexela_dark_field():
-    return
+    raise NotImplementedError()
 
 
 def determine_img_background():
     # for determining individual backgrounds. Should account for variations in beam intensity and non-Bragg X-ray scattering
-    return
+    raise NotImplementedError()
 
 
 def interpolate_merlin_mask(masked_img):
@@ -48,8 +51,8 @@ def find_outlier_pixels(data, size=2, tolerance=3, significance=None):
     ratio_img = np.abs(data / med_img)
     diff_img = np.abs(data - med_img)
 
-    if significance == None:
-        significance == 5 * np.std(data)
+    if significance is None:
+        significance = 5 * np.std(data)
 
     replace_mask = (ratio_img > tolerance) & (diff_img > significance)
     fixed_img = np.copy(data)
@@ -69,12 +72,12 @@ def rebin(arr, new_shape=None, bin_size=(2, 2), method='sum', keep_range=False):
 
     # Determine new image shape
     if type(new_shape) in [tuple, list, np.ndarray] and len(new_shape) == 2:
-        shape = (new_shape[0], arr.shape[0] // new_shape[0],
-                 new_shape[1], arr.shape[1] // new_shape[1])
-    elif type(new_shape) in [tuple, list, np.ndarray] and len(bin_size) == 2:
-        new_shape = (arr.shape[0] // bin_size[0], arr.shape[1] // bin_size[1])
-        shape = (new_shape[0], arr.shape[0] // new_shape[0],
-                 new_shape[1], arr.shape[1] // new_shape[1])
+        shape = (new_shape[0], int(arr.shape[0] // new_shape[0]),
+                 new_shape[1], int(arr.shape[1] // new_shape[1]))
+    elif len(bin_size) == 2:
+        new_shape = (int(arr.shape[0] // bin_size[0]), int(arr.shape[1] // bin_size[1]))
+        shape = (new_shape[0], int(arr.shape[0] // new_shape[0]),
+                 new_shape[1], int(arr.shape[1] // new_shape[1]))
     else:
         raise AttributeError("Input variable either new_shape or bin_size must be tuple, list, or numpy.ndarray of length 2")
     
@@ -102,6 +105,27 @@ def rescale_array(arr, lower=0, upper=1, arr_min=None, arr_max=None):
     
     scaled_arr = lower + ext * ((arr - arr_min) / (arr_max - arr_min))
     return scaled_arr
+
+
+def iter_rescale_array(arr, lower=0, upper=1, arr_min=None, arr_max=None):
+    # Works for arrays of any size including images!
+    if arr_min is None:
+        arr_min = np.min(arr)
+    if arr_max is None:
+        arr_max = np.max(arr)
+    ext = upper - lower
+
+    @dask.delayed
+    def delayed_rescale_array(arr, lower, ext, arr_min, arr_max):
+        return lower + ext * ((arr - arr_min) / (arr_max - arr_min))
+
+    for index in tqdm(range(np.multiply(*arr.shape[:2])), desc='Scheduling...'):
+        indices = np.unravel_index(index, arr.shape[:2])
+
+        arr[indices] = delayed_rescale_array(arr[indices], lower, ext, arr_min, arr_max)
+
+    with TqdmCallback(desc='Computing...', tqdm_class=tqdm):
+        dask.compute(*arr.ravel())
 
 
 
