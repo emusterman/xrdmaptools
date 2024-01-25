@@ -56,14 +56,14 @@ def awful_energy_rocking_curve(e_low, e_high, e_num, dwell, peakup_N=0, replicat
         logscan_detailed('BAD_ENERGY_RC')
 
 
-def energy_rocking_curve(e_low, e_high, e_num, dwell, shutter=True, xrd_dets=[]):
+def energy_rocking_curve(xrd_dets, e_low, e_high, e_num, dwell,
+                         shutter=True, peakup=True):
     # Should I use e_step or e_num??
     # One follows the xanes convention, the other the flyscanning convention
 
 
     # Define some useful variables
-    e_cen = (e_high - e_low) / 2
-    # e_num = (e_high - e_low) // e_step
+    e_cen = (e_high + e_low) / 2
     e_range = np.linspace(e_low, e_high, e_num)
 
     # Defining scan metadata
@@ -76,21 +76,26 @@ def energy_rocking_curve(e_low, e_high, e_num, dwell, shutter=True, xrd_dets=[])
     scan_md['scan']['energies'] = e_range                                   
     scan_md['scan']['start_time'] = ttime.ctime(ttime.time())
 
+    # Live Callbacks
+    livecallbacks = [LiveTable(['energy_energy', 'dexela_stats2_total']),
+                     LivePlot('dexela_stats2_total', x='energy_energy')]
+
     # Define detectors
-    if xrd_dets == []:
-        raise ValueError("Must define an xrd detector!")
-    else:
-        dets = [sclr1] + xrd_dets # include xs just for fun?
+    dets = [sclr1] + xrd_dets # include xs just for fun?
     setup_xrd_dets(dets, dwell, e_num)
 
     # Move to center energy and perform peakup
-    if shutter:
+    if peakup:
         print('Performing center energy peakup.')
         yield from mov(energy, e_cen)
         yield from peakup(shutter=shutter)
 
     
-    yield from list_scan(dets, energy, e_range, md=scan_md)
+    # yield from list_scan(dets, energy, e_range, md=scan_md)
+    yield from check_shutters(shutter, 'Open')
+    yield from subs_wrapper(list_scan(dets, energy, e_range, md=scan_md),
+                            {'all' : livecallbacks})
+    yield from check_shutters(shutter, 'Close')
     logscan_detailed('ENERGY_RC')
 
 
@@ -137,7 +142,7 @@ def setup_xrd_dets(dets, dwell, N_images):
 
     dets_by_name = {d.name : d for d in dets}
 
-    # Set up the merlin
+    # Setup merlin
     if 'merlin' in dets_by_name:
         xrd = dets_by_name['merlin']
         # Make sure we respect whatever the exposure time is set to
