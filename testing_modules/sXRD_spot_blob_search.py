@@ -2,7 +2,7 @@ import dask
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-from scipy.ndimage import center_of_mass, gaussian_filter, median_filter
+from scipy.ndimage import center_of_mass, gaussian_filter, median_filter, uniform_filter, maximum_filter, minimum_filter
 from scipy.optimize import curve_fit
 import scipy.stats as st
 from skimage.measure import label, find_contours
@@ -22,58 +22,161 @@ def estimate_map_noise(imagemap, sample_number=200):
         median_image = np.nanmedian(imagemap.images[indices], axis=(0))
     else:
         median_image = np.nanmedian(imagemap.images, axis=(0, 1))
-    bkg_noise = np.nanstd(median_image[imagemap.calibration_mask])
+    bkg_noise = np.nanstd(median_image[imagemap.mask])
     return bkg_noise
 
 
-def spot_search(image, bkg_noise=None, threshold=None, calibration_mask=None, multiplier=10, sigma=3, plotme=False):
-
-    if calibration_mask is None:
-        calibration_mask = (image != 0)
+# Must take scaled images!!!
+def spot_search(scaled_image, mask=None, threshold_method='gaussian',
+                multiplier=5, size=3, expansion=None, plotme=False):
     
-    # Consider other threshold methods
-    mask_thresh = np.median(image[calibration_mask]) + multiplier * bkg_noise
-    thresh_img = gaussian_filter(median_filter(image, size=1), sigma=sigma)
-    mask = thresh_img > mask_thresh
+    '''
+    Returns spots in image coordinates.
+    '''
 
-    #spot_img = gaussian_filter(median_filter(pixel, size=1), sigma=5)
+    if mask is None:
+       mask = (scaled_image != 0)
+
+    # Estimate individual image offset and noise
+    psuedo_peak_mask = scaled_image < 0.01
+    psuedo_peak_mask *= mask
+    image_noise = np.std(scaled_image[psuedo_peak_mask])
+    image_offset = np.median(scaled_image[psuedo_peak_mask])
+
+    # Mask image
+    mask_thresh = image_offset + multiplier * image_noise
+    
+    # Smooth image to reduce noise contributions
+    zero_image = np.copy(scaled_image)
+    zero_image[~mask] = 0 # should be redundant
+    gauss_zero = gaussian_filter(zero_image, sigma=size)
+    #gauss_zero = median_filter(zero_image, size=size)
+    #gauss_zero = uniform_filter(zero_image, size=size)
+    #gauss_zero = maximum_filter(zero_image, size=size)
+    #gauss_zero = gaussian_filter(median_filter(zero_image, size=5), sigma=size)
+
+    div_image = np.ones_like(scaled_image)
+    div_image[~mask] = 0
+    gauss_div = gaussian_filter(div_image, sigma=size)
+    #gauss_div = median_filter(div_image, size=size)
+    #gauss_div = uniform_filter(div_image, size=size)
+    #gauss_div = maximum_filter(div_image, size=size)
+    #gauss_div = gaussian_filter(median_filter(div_image, size=5), sigma=size)
+
+    thresh_img = gauss_zero / gauss_div
+    # Clean up some NaNs from median filters
+    mask[np.isnan(thresh_img)] = False
+    # Clear image from masked values. Should not matter....
+    thresh_img[~mask] = 0
+
+    # Create mask for peak search
+    peak_mask = thresh_img > mask_thresh
+    peak_mask *= mask
+
     spots = peak_local_max(thresh_img,
-                           #threshold_rel=multiplier * bkg_noise,
-                           min_distance=2, # Just a pinch more spacing
-                           labels=mask,
+                           #threshold_rel=image_noise,
+                           min_distance=3, # Just a pinch more spacing
+                           labels=peak_mask,
                            num_peaks_per_label=np.inf)
+    
+    # Expand blobs for better fitting
+    if expansion is not None:
+        peak_mask = expand_labels(peak_mask, distance=expansion)
     
     if plotme:
         fig, ax = plt.subplots(1, 1, figsize=(9, 6), dpi=200)
 
-        im = ax.imshow(image, vmin=0, vmax=10 * mask_thresh, aspect='auto')
+        im = ax.imshow(scaled_image * mask, vmin=np.min([mask_thresh, 0]), vmax=10 * mask_thresh, aspect='auto')
         fig.colorbar(im, ax=ax)
         ax.scatter(spots[:, 1], spots[:, 0], s=1, c='r')
 
         plt.show()
 
-    return spots, mask, thresh_img
+    return spots, peak_mask, thresh_img
 
 
-def find_spots(imagemap, bkg_noise=None, threshold=None, multiplier=10, sigma=3):
+# depracated
+def old_spot_search(image, bkg_noise=None, mask=None,
+                multiplier=10, sigma=3, expansion=None, plotme=False):
+
+    if mask is None:
+       mask = (image != 0)
+    
+    # Consider other threshold methods
+    mask_thresh = np.max([np.median(image[mask]), 0]) + multiplier * bkg_noise
+    image = median_filter(image, size=2)
+    #thresh_img = gaussian_filter(median_filter(image, size=2), sigma=sigma)
+
+    # Remove some outliers
+    med_image = median_filter(image, size=2)
+    
+    # Smooth image to reduce noise contributions
+    zero_image = np.copy(med_image)
+    zero_image[~mask] = 0 # should be redundant
+    gauss_zero = gaussian_filter(zero_image, sigma=sigma)
+
+    div_image = np.ones_like(med_image)
+    div_image[~mask] = 0
+    gauss_div = gaussian_filter(div_image, sigma=sigma)
+
+    thresh_img = gauss_zero / gauss_div
+    thresh_img[~mask] = 0
+
+    # Create mask for peak search
+    peak_mask = thresh_img > mask_thresh
+    peak_mask *= mask
+    if expansion is not None:
+        peak_mask = expand_labels(peak_mask, distance=expansion)
+
+    #spot_img = gaussian_filter(median_filter(pixel, size=2), sigma=5)
+    spots = peak_local_max(thresh_img,
+                           #threshold_rel=multiplier * bkg_noise,
+                           min_distance=2, # Just a pinch more spacing
+                           labels=peak_mask,
+                           num_peaks_per_label=np.inf)
+    
+    if plotme:
+        fig, ax = plt.subplots(1, 1, figsize=(9, 6), dpi=200)
+
+        im = ax.imshow(image * mask, vmin=np.min([mask_thresh, 0]), vmax=10 * mask_thresh, aspect='auto')
+        fig.colorbar(im, ax=ax)
+        ax.scatter(spots[:, 1], spots[:, 0], s=1, c='r')
+
+        plt.show()
+
+    return spots, peak_mask, thresh_img
+
+
+def find_spots(imagemap, mask=None,
+               threshold_method='gaussian',
+               multiplier=5, size=3,
+               expansion=None):
 
     # Converient way to iterate through image map
     iter_image = imagemap.images.reshape(imagemap.num_images, *imagemap.images.shape[-2:])
 
     # Dask wrapper to work wtih spot search function
     @dask.delayed
-    def dask_spot_search(image, bkg_noise=bkg_noise, threshold=threshold,
-                         multiplier=multiplier, sigma=sigma):
-        spots, mask, thresh_image = spot_search(image,
-                                                bkg_noise=bkg_noise, threshold=threshold,
-                                                multiplier=multiplier, sigma=sigma)
-        return spots, mask, # thesh_image
+    def dask_spot_search(image,
+                         mask=mask,
+                         threshold_method=threshold_method,
+                         multiplier=multiplier,
+                         size=size,
+                         expansion=expansion):
+        
+        spots, spot_mask, thresh_image = spot_search(image,
+                                                mask=mask,
+                                                threshold_method=threshold_method,
+                                                multiplier=multiplier,
+                                                size=size,
+                                                expansion=expansion)
+        return spots, spot_mask, # thesh_image
 
     # Create list of delayed tasks
     delayed_list = []
     for image in tqdm(iter_image, desc='Scheduling spot search...'):
-        output = dask_spot_search(image, bkg_noise=bkg_noise, threshold=threshold,
-                                                multiplier=multiplier, sigma=sigma)
+        output = dask_spot_search(image, mask=mask, threshold_method=threshold_method,
+                                                multiplier=multiplier, size=size)
         delayed_list.append(output)
 
     # Process delayed tasks with callback
@@ -91,7 +194,35 @@ def find_spots(imagemap, bkg_noise=None, threshold=None, multiplier=10, sigma=3)
     return spot_list, mask_list, #thresh_image_list
 
 
-def spot_stats(spot, image, radius=5, tth=None, chi=None):
+def spot_stats(spot, image, tth_arr, chi_arr, radius=5):
+    # spot should be iterable of [img_x, img_y]
+    spot_mask = circular_mask(image.shape, [*spot], radius)
+    spot_image = image * spot_mask
+
+    height = np.max(spot_image) - np.min(spot_image)
+    img_x = int(spot[0])
+    img_y = int(spot[1])
+    tth = tth_arr[*spot]
+    chi = chi_arr[*spot]
+    intensity = np.sum(spot_image)
+
+    center = arbitrary_center_or_mass(spot_image, tth_arr, chi_arr)
+    #center = estimate_polar_coords(center, tth_arr, chi_arr, method='linear')
+
+    aweights = rescale_array(image[spot_mask], lower=0, upper=1)
+    std_tth = np.sqrt(np.cov(tth_arr[spot_mask],
+                                aweights=aweights))
+    fwhm_tth = std_tth * 2 * np.sqrt(2 * np.log(2))
+    
+    std_chi = np.sqrt(np.cov(chi_arr[spot_mask],
+                                aweights=aweights))
+    fwhm_chi = std_chi * 2 * np.sqrt(2 * np.log(2))
+    
+    return [height, img_x, img_y, tth, chi, center[0], center[1], fwhm_tth, fwhm_chi, intensity]
+
+
+# deprecated
+def old_spot_stats(spot, image, radius=5, tth=None, chi=None):
     #y_coords, x_coords = np.meshgrid(chi[::-1], tth)
     x_coords, y_coords = np.meshgrid(tth, chi[::-1])
     spot_mask = circular_mask(image.shape, [*spot], radius)
@@ -107,22 +238,25 @@ def spot_stats(spot, image, radius=5, tth=None, chi=None):
     center = center_of_mass(spot_image)
     center = estimate_reciprocal_coords(center[::-1], image.shape, tth=tth, chi=chi)
 
+    aweights = rescale_array(image[spot_mask], lower=0, upper=1)
     stdx = np.sqrt(np.cov(x_coords[spot_mask],
-                                aweights=image[spot_mask]))
+                                aweights=aweights))
+    fwhm_x = stdx * 2 * np.sqrt(2 * np.log(2))
     stdy = np.sqrt(np.cov(y_coords[spot_mask],
-                                aweights=image[spot_mask]))
+                                aweights=aweights))
+    fwhm_y = stdy * 2 * np.sqrt(2 * np.log(2))
     
-    return [height, indx, indy, x, y, center[0], center[1], stdx, stdy, intensity]
+    return [height, indx, indy, x, y, center[0], center[1], fwhm_x, fwhm_y, intensity]
 
 
-def find_spot_stats(imagemap, spot_list, radius=5, tth=None, chi=None):
-    # Converient way to iterate through image map
+def find_spot_stats(imagemap, spot_list, tth_arr, chi_arr, radius=5):
+    # Convenient way to iterate through image map
     iter_image = imagemap.images.reshape(imagemap.num_images, *imagemap.images.shape[-2:])
 
     # Dask wrapper to work wtih spot search function
     @dask.delayed
-    def dask_spot_stats(spot, image, radius=radius, tth=tth, chi=chi):
-        stats = spot_stats(spot, image, radius=radius, tth=tth, chi=chi)
+    def dask_spot_stats(spot, image, tth_arr, chi_arr, radius=radius):
+        stats = spot_stats(spot, image, tth_arr, chi_arr, radius=radius)
         return stats
 
     delayed_list = []
@@ -132,13 +266,13 @@ def find_spot_stats(imagemap, spot_list, radius=5, tth=None, chi=None):
             delayed_stats = []
             if len(spots) > 0: # Ignore images without spots
                 for spot in spots:
-                    stats = dask_spot_stats(spot, image, radius=radius, tth=tth, chi=chi)
+                    stats = dask_spot_stats(spot, image, tth_arr, chi_arr, radius=radius)
                     delayed_stats.append(stats)
                     pbar.update(1)
             delayed_list.append(delayed_stats)
 
 
-    with TqdmCallback(desc='Characterizing spots...', tqdm_class=tqdm):
+    with TqdmCallback(desc='Estimating spot characteristics...', tqdm_class=tqdm):
         stats_list = dask.compute(*delayed_list)
     
     return stats_list
@@ -148,9 +282,9 @@ def make_stat_dict(stat_list, map_shape):
 
     # This might be backwards
     map_x, map_y = np.unravel_index(range(len(stat_list)), map_shape)
-    stat_keys = ['guess_height', 'guess_indx', 'guess_indy',
-                 'guess_x', 'guess_y', 'guess_cenx', 'guess_ceny',
-                 'guess_stdx', 'guess_stdy', 'guess_int']
+    stat_keys = ['guess_height', 'guess_img_x', 'guess_img_y',
+                 'guess_tth', 'guess_chi', 'guess_cen_tth', 'guess_cen_chi',
+                 'guess_fwhm_tth', 'guess_fwhm_chi', 'guess_int']
 
     #stat_dict = dict(zip(stat_keys, [[] for i in range(len(stat_keys))]))
     stat_dict = OrderedDict(zip(stat_keys, [[] for i in range(len(stat_keys))]))
@@ -194,13 +328,14 @@ def remake_spot_list(stat_df, map_shape):
         indices = np.unravel_index(index, map_shape)
         pixel_df = stat_df[(stat_df['map_x'] == indices[0])
                             & (stat_df['map_y'] == indices[1])]
-        spot_list[index] = np.asarray([list(pixel_df['guess_cenx'].values[:]),
-                            list(pixel_df['guess_ceny'].values[:])]).T
+        spot_list[index] = np.asarray([list(pixel_df['guess_cen_tth'].values[:]),
+                            list(pixel_df['guess_cen_chi'].values[:])]).T
         
     return spot_list
 
 
-def combine_nearby_spots(spots, max_dist=20, max_neighbors=np.inf):
+# are spots in image or polar coordinates?? Affects the scale of max_dist
+def combine_nearby_spots(spots, max_dist=0.5, max_neighbors=np.inf):
 
     data = label_nearest_spots(spots, max_dist=max_dist,
                                max_neighbors=max_neighbors)
@@ -215,6 +350,7 @@ def combine_nearby_spots(spots, max_dist=20, max_neighbors=np.inf):
     return np.asarray(new_spots)
 
 
+# Not used, but decent reference
 def watershed_blob_segmentation(spots, mask):
     # Generate distance image from binary blob_img
     distance = ndi.distance_transform_edt(mask)
@@ -272,6 +408,55 @@ def append_watershed_blobs(spots, mask, new_blob_image):
 
 
 def segment_blobs(xrdmap, map_indices, spots, mask, blurred_image, max_dist=0.75):
+    # TODO:
+    # Rewrite to not require xrdmap and not have separate map_indices and spots
+    tth_arr = xrdmap.tth_arr
+    chi_arr = xrdmap.chi_arr
+
+    pixel_df = xrdmap.spots[(xrdmap.spots['map_x'] == map_indices[0])
+                        & (xrdmap.spots['map_y'] == map_indices[1])]
+    
+    if len(pixel_df) < 1:
+        #print('Pixel has no spots!')
+        return
+
+    # condense spots
+    new_spots = combine_nearby_spots(spots, max_dist=max_dist)
+    reduced_coords = estimate_image_coords(new_spots, tth_arr, chi_arr, method='nearest')
+    full_coords = estimate_image_coords(spots, tth_arr, chi_arr, method='nearest')
+
+    # Segment blobs based on low intensity regions
+    blobs = gaussian_watershed_segmentation(blurred_image, reduced_coords[:, ::-1], mask)
+    blobs = append_watershed_blobs(full_coords[:, ::-1], mask, blobs)
+
+    spot_labels = np.array([blobs[*spot] for spot in full_coords[:, ::-1]])
+
+    output_list = []
+    for blob in np.unique(blobs):
+        if blob == 0:
+            continue
+
+        spot_indices = pixel_df.index[spot_labels == blob]
+
+        num_spots = len(spot_indices)
+        if num_spots == 0:
+            #print(f'No spots in blob {blob}. Proceeding to next blob.')
+            continue # Not sure about how to handle this...
+        
+        bkg_mask = [blobs != 0][0]
+        blob_mask = [blobs[bkg_mask] == blob][0]
+
+        blob_int = xrdmap.map.images[map_indices][bkg_mask][blob_mask]
+        blob_tth = tth_arr[bkg_mask][blob_mask]
+        blob_chi = chi_arr[bkg_mask][blob_mask]
+
+        output_list.append([blob_int, blob_tth, blob_chi, spot_indices])
+    
+    return output_list
+
+
+# deprecated
+def old_segment_blobs(xrdmap, map_indices, spots, mask, blurred_image, max_dist=0.75):
     x_coords, y_coords = np.meshgrid(xrdmap.tth, xrdmap.chi[::-1])
     pixel_df = xrdmap.spots[(xrdmap.spots['map_x'] == map_indices[0])
                         & (xrdmap.spots['map_y'] == map_indices[1])]
@@ -313,20 +498,20 @@ def segment_blobs(xrdmap, map_indices, spots, mask, blurred_image, max_dist=0.75
     return output_list
 
 
-def prepare_fit_spots(xrdmap, max_dist=0.75):
+def prepare_fit_spots(xrdmap, max_dist=0.75, sigma=1):
     map_shape = xrdmap.map.map_shape
     spot_list = remake_spot_list(xrdmap.spots, map_shape)
 
     @dask.delayed
-    def delayed_segment_blobs(xrdmap, map_indices, spots, mask, blurred_image, max_dist=0.75):
+    def delayed_segment_blobs(xrdmap, map_indices, spots, mask, blurred_image, max_dist=max_dist):
         return segment_blobs(xrdmap, map_indices, spots, mask, blurred_image, max_dist=max_dist)
 
     delayed_list = []
     for index in tqdm(range(len(spot_list)), desc='Scheduling blob segmentation for spot fits...'):
         indices = np.unravel_index(index, map_shape)
-        mask = xrdmap.map.masks[indices]
+        mask = xrdmap.map.spot_masks[indices]
         # Hard-coded sigma in pixel units. Not the best...
-        blurred_image = gaussian_filter(median_filter(xrdmap.map.images[indices], size=1), sigma=3)
+        blurred_image = gaussian_filter(median_filter(xrdmap.map.images[indices], size=2), sigma=sigma)
         #blurred_image = xrdmap.map.blurred_images[indices]
         
         spot_fits = delayed_segment_blobs(xrdmap, indices, spot_list[index], mask, blurred_image, max_dist)
@@ -348,9 +533,9 @@ def fit_spots(xrdmap, spot_fit_info_list, PeakModel):
 
     # Add fit results columns 
     nan_list = [np.nan,] * len(xrdmap.spots)
-    guess_labels = ['height', 'cenx', 'ceny', 'stdx', 'stdy']
+    guess_labels = ['height', 'cen_tth', 'cen_chi', 'fwhm_tth', 'fwhm_chi']
     guess_labels = [f'guess_{guess_label}' for guess_label in guess_labels]
-    fit_labels = ['amp', 'x0', 'y0', 'sigma_x', 'sigma_y', 'theta', 'offset', 'r_squared']
+    fit_labels = ['amp', 'tth0', 'chi0', 'fwhm_tth', 'fwhm_chi', 'theta', 'offset', 'r_squared']
     fit_labels = [f'fit_{fit_label}' for fit_label in fit_labels]
     for fit_label in fit_labels:
         xrdmap.spots[fit_label] = nan_list
@@ -358,42 +543,42 @@ def fit_spots(xrdmap, spot_fit_info_list, PeakModel):
     @dask.delayed
     def delayed_fit(xrdmap, fit):
 
-            fit_int = fit[0]
-            fit_x = fit[1]
-            fit_y = fit[2]
-            spots_df = xrdmap.spots.iloc[fit[3]]
-            num_spots = len(spots_df)
+        fit_int = fit[0]
+        fit_x = fit[1]
+        fit_y = fit[2]
+        spots_df = xrdmap.spots.iloc[fit[3]]
+        num_spots = len(spots_df)
 
-            if len(fit_int) / (6 * len(spots_df)) <= 1.5:
-                #print(f'More unknowns than pixels in blob {blob_num}!')
-                return [np.nan,] * (6 * len(spots_df) + 2) # Fit variables plus offset and r_squared
-
-
-            p0 = [np.min(fit_int)] # Guess offset
-            for index in spots_df.index:
-                p0.extend(list(spots_df.loc[index][guess_labels].values))
-                p0.append(0) # theta
+        if len(fit_int) / (6 * len(spots_df)) <= 1.5:
+            #print(f'More unknowns than pixels in blob {blob_num}!')
+            return [np.nan,] * (6 * len(spots_df) + 2) # Fit variables plus offset and r_squared
 
 
-            bounds = generate_bounds(p0[1:], PeakModel.func_2d, tth_step=None, chi_step=None)
-            bounds[0].insert(0, 0) # offset lower bound
-            bounds[1].insert(0, np.max(fit_int)) # offset upper bound
+        p0 = [np.min(fit_int)] # Guess offset
+        for index in spots_df.index:
+            p0.extend(list(spots_df.loc[index][guess_labels].values))
+            p0.append(0) # theta
 
-            #print(f'Fitting {num_spots} spots...')
-            try:
-                popt, pcov = curve_fit(PeakModel.multi_2d, [fit_x, fit_y], fit_int, p0=p0, bounds=bounds)
-                r_squared = compute_r_squared(fit_int, PeakModel.multi_2d([fit_x, fit_y], *popt))
-                #print(f'done! R² is {r_squared:.4f}')
-            except RuntimeError:
-                #print('Fitting failed!')
-                popt = [np.nan,] * len(p0)
-                r_squared = np.nan
 
-            # Write updates to dataframe|
-            offset = popt[0]
-            fit_arr = np.array(popt[1:]).reshape(num_spots, 6)
-            for i, spot_index in enumerate(spots_df.index):
-                xrdmap.spots.loc[spot_index, fit_labels] = [*fit_arr[i], offset, r_squared]
+        bounds = generate_bounds(p0[1:], PeakModel.func_2d, tth_step=None, chi_step=None)
+        bounds[0].insert(0, -np.inf) # offset lower bound
+        bounds[1].insert(0, np.max(fit_int)) # offset upper bound
+
+        #print(f'Fitting {num_spots} spots...')
+        try:
+            popt, _ = curve_fit(PeakModel.multi_2d, [fit_x, fit_y], fit_int, p0=p0, bounds=bounds)
+            r_squared = compute_r_squared(fit_int, PeakModel.multi_2d([fit_x, fit_y], *popt))
+            #print(f'done! R² is {r_squared:.4f}')
+        except RuntimeError:
+            #print('Fitting failed!')
+            popt = [np.nan,] * len(p0)
+            r_squared = np.nan
+
+        # Write updates to dataframe|
+        offset = popt[0]
+        fit_arr = np.array(popt[1:]).reshape(num_spots, 6)
+        for i, spot_index in enumerate(spots_df.index):
+            xrdmap.spots.loc[spot_index, fit_labels] = [*fit_arr[i], offset, r_squared]
 
     # Scheduling delayed fits
     delayed_list = []
@@ -529,7 +714,7 @@ def old_spot_search(image, bkg_noise, multiplier=10, sigma=3, plotme=False):
 
     # Consider other threshold methods
     mask_thresh = np.median(image[image != 0]) + multiplier * bkg_noise
-    thresh_img = gaussian_filter(median_filter(image, size=1), sigma=sigma)
+    thresh_img = gaussian_filter(median_filter(image, size=2), sigma=sigma)
     mask = thresh_img > mask_thresh
 
     #spot_img = gaussian_filter(median_filter(pixel, size=1), sigma=5)
@@ -551,7 +736,7 @@ def old_spot_search(image, bkg_noise, multiplier=10, sigma=3, plotme=False):
     return spots, mask, thresh_img
 
 
-def combine_nearby_spots(spots, max_dist=20, max_neighbors=np.inf):
+def old_combine_nearby_spots(spots, max_dist=20, max_neighbors=np.inf):
 
     data = label_nearest_spots(spots, max_dist=max_dist,
                                max_neighbors=max_neighbors)
@@ -566,7 +751,7 @@ def combine_nearby_spots(spots, max_dist=20, max_neighbors=np.inf):
     return np.asarray(new_spots)
 
 
-def watershed_blob_segmentation(spots, mask):
+def old_watershed_blob_segmentation(spots, mask):
     # Generate distance image from binary blob_img
     distance = ndi.distance_transform_edt(mask)
 
@@ -589,7 +774,7 @@ def watershed_blob_segmentation(spots, mask):
     return new_blob_image
 
 
-def gaussian_watershed_segmentation(blurred_image, spots, mask):
+def old_gaussian_watershed_segmentation(blurred_image, spots, mask):
     # Generate markers upon which to segment blobs
     # Number of input spots may need to be reduceds depending on blob morphology
     coords = np.asarray(spots)
@@ -610,7 +795,7 @@ def gaussian_watershed_segmentation(blurred_image, spots, mask):
     return new_blob_image   
 
 
-def append_watershed_blobs(spots, mask, new_blob_image):
+def old_append_watershed_blobs(spots, mask, new_blob_image):
     old_blob_image = label(mask)
     for spot in spots:
         if new_blob_image[*spot] == 0:
@@ -765,7 +950,7 @@ def old_find_and_fit_spots(image, bkg_noise, PeakModel,
 ##############################################################################
 
 # Depracted in favor of spot search path
-def find_blobs(img, thresh, method='gaussian_threshold',
+def old_find_blobs(img, thresh, method='gaussian_threshold',
                sigma=3,
                tth=None, chi=None,
                blob_expansion=5, min_blob_significance=500,
@@ -859,8 +1044,8 @@ def find_blobs(img, thresh, method='gaussian_threshold',
         'significance':blob_significances,
         'values':blob_values,
         'mask':blob_masks,
-        'max_coords':list(estimate_recipricol_coords(np.asarray(blob_max_coords).T[::-1], img.shape, tth=tth, chi=chi).T),
-        'center_of_mass':list(estimate_recipricol_coords(np.asarray(blob_centers_of_mass).T[::-1], img.shape, tth=tth, chi=chi).T)
+        'max_coords':list(estimate_reciprocal_coords(np.asarray(blob_max_coords).T[::-1], img.shape, tth=tth, chi=chi).T),
+        'center_of_mass':list(estimate_reciprocal_coords(np.asarray(blob_centers_of_mass).T[::-1], img.shape, tth=tth, chi=chi).T)
     })
 
     if find_contours:
@@ -902,7 +1087,7 @@ def find_blobs(img, thresh, method='gaussian_threshold',
 
 
 # Depracated in favor of spot search path
-def fit_blobs(img, thresh, blob_df, PeakModel,  tth=None, chi=None, plotme=False):
+def old_fit_blobs(img, thresh, blob_df, PeakModel,  tth=None, chi=None, plotme=False):
 
     x_coords, y_coords = np.meshgrid(tth, chi[::-1])
 
@@ -955,7 +1140,7 @@ def fit_blobs(img, thresh, blob_df, PeakModel,  tth=None, chi=None, plotme=False
 
 
 # Depracated in favor of spot search path
-def find_blob_spots(img, blob_df, tth=None, chi=None,
+def old_find_blob_spots(img, blob_df, tth=None, chi=None,
                     size=2, sigma=0.5, min_distance=3, threshold_rel=0.15,
                     plotme=False):
 
@@ -1004,7 +1189,7 @@ def find_blob_spots(img, blob_df, tth=None, chi=None,
 
 # Depracated in favor of spot search path
 # WIP
-def adaptive_spot_fitting(img, blob_df, thresh, PeakModel, tth=None, chi=None,
+def old_adaptive_spot_fitting(img, blob_df, thresh, PeakModel, tth=None, chi=None,
                           plotme=False):
     # Adaptive peak fitting within blobs
     # TODO: Allow for peak addition with residual?
@@ -1103,8 +1288,10 @@ def adaptive_spot_fitting(img, blob_df, thresh, PeakModel, tth=None, chi=None,
     return spot_df
 
 
+####################
+### Still useful ###
+####################
 
-# No longer used, but still useful
 def find_blob_contours(blob_img):
     contours = []
     for i in np.unique(blob_img):
@@ -1149,7 +1336,6 @@ def qualify_gaussian_2d_fit(r_squared, sig_threshold, guess_params, fit_params, 
     return keep_fit
 
 
-
 def generate_bounds(p0, peak_function, tth_step=None, chi_step=None):
     
     # Get function input variable names, excluding 'self', 'x' or '(xy)' and any default arguments
@@ -1163,8 +1349,48 @@ def generate_bounds(p0, peak_function, tth_step=None, chi_step=None):
     if chi_step is None: chi_step = 0.05
 
     tth_resolution, chi_resolution = 0.01, 0.01 # In degrees...
-    tth_range = np.max([tth_resolution, tth_step])
-    chi_range = np.max([chi_resolution, chi_step])
+    tth_range = np.max([tth_resolution, tth_step]) * 3 # just a bit more wiggle room
+    chi_range = np.max([chi_resolution, chi_step]) * 3 # just a bit more wiggle room
+
+    low_bounds, upr_bounds = [], []
+    for i in range(0, len(p0), len(inputs)):
+        for j, arg in enumerate(inputs):
+            if arg == 'amp':
+                low_bounds.append(0)
+                upr_bounds.append(p0[i + j] * 10) # guess intensity is probably not off by more than this
+            elif arg == 'x0':
+                low_bounds.append(p0[i + j] - tth_range) # Restricting peak shift based on guess position uncertainty
+                upr_bounds.append(p0[i + j] + tth_range)
+            elif arg == 'y0':
+                low_bounds.append(p0[i + j] - chi_range) # Restricting peak shift based on guess position uncertainty
+                upr_bounds.append(p0[i + j] + chi_range)
+            elif 'fwhm' in arg:
+                low_bounds.append(0.001)
+                upr_bounds.append(15) # should be based off of intrument resolution
+            elif arg == 'theta':
+                low_bounds.append(-45) # Prevents spinning
+                upr_bounds.append(45) # Only works for degrees...
+            else:
+                raise ValueError(f"{peak_function} uses inputs not defined by the generate_bounds function!")
+            
+    return [low_bounds, upr_bounds]
+
+
+'''def generate_bounds(p0, peak_function, tth_step=None, chi_step=None):
+    
+    # Get function input variable names, excluding 'self', 'x' or '(xy)' and any default arguments
+    inputs = list(peak_function.__code__.co_varnames[:peak_function.__code__.co_argcount])
+    if 'self' in inputs: inputs.remove('self')
+    inputs = inputs[1:] # remove the x, or xy inputs
+    if peak_function.__defaults__ is not None:
+        inputs = inputs[:-len(peak_function.__defaults__)] # remove defualts
+
+    if tth_step is None: tth_step = 0.02
+    if chi_step is None: chi_step = 0.05
+
+    tth_resolution, chi_resolution = 0.01, 0.01 # In degrees...
+    tth_range = np.max([tth_resolution, tth_step]) * 2 # just a bit more wiggle room
+    chi_range = np.max([chi_resolution, chi_step]) * 2 # just a bit more wiggle room
 
     low_bounds, upr_bounds = [], []
     for i in range(0, len(p0), len(inputs)):
@@ -1183,12 +1409,12 @@ def generate_bounds(p0, peak_function, tth_step=None, chi_step=None):
                 upr_bounds.append(2) # Base off of intrument resolution
             elif arg == 'sigma_x':
                 low_bounds.append(0.005)
-                upr_bounds.append(2) # Base off of intrument resolution
+                upr_bounds.append(5) # Base off of intrument resolution
             elif arg == 'sigma_y':
                 low_bounds.append(0.005)
-                upr_bounds.append(2) # Base off of intrument resolution
+                upr_bounds.append(5) # Base off of intrument resolution
             elif arg == 'theta':
-                low_bounds.append(-45) # Prevent spinning
+                low_bounds.append(-45) # Prevents spinning
                 upr_bounds.append(45) # Only works for degrees...
             elif arg == 'gamma':
                 low_bounds.append(0.005)
@@ -1197,15 +1423,15 @@ def generate_bounds(p0, peak_function, tth_step=None, chi_step=None):
                 low_bounds.append(0.005)
                 upr_bounds.append(1) # Base off of intrument resolution
             elif arg == 'gamma_y':
-                low_bounds.append(0)
+                low_bounds.append(0.005)
                 upr_bounds.append(1) # Base off of intrument resolution
             elif arg == 'eta':
                 low_bounds.append(0)
                 upr_bounds.append(1)
             else:
-                raise IOError(f"{peak_function} uses inputs not defined by the generate_bounds function!")
+                raise ValueError(f"{peak_function} uses inputs not defined by the generate_bounds function!")
             
-    return [low_bounds, upr_bounds]
+    return [low_bounds, upr_bounds]'''
 
 
 

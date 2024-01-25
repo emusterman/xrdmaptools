@@ -8,6 +8,7 @@ from tqdm.dask import TqdmCallback
 from tqdm import tqdm
 import warnings
 import functools
+from sklearn.metrics.pairwise import euclidean_distances
 
 # Must define this as something
 _t0 = 0
@@ -53,7 +54,6 @@ def parallel_loop(function, iterable, *args, **kwargs):
 
 
 def label_nearest_spots(spots, max_dist=25, max_neighbors=np.inf):
-    from sklearn.metrics.pairwise import euclidean_distances
     dist = euclidean_distances(spots)
 
     spot_indices = list(range(len(spots)))
@@ -109,6 +109,22 @@ def label_nearest_spots(spots, max_dist=25, max_neighbors=np.inf):
     labels = np.array(labels).astype(np.int32)
     # labels is not perfectly sequential. Why???
     return data
+
+
+def arbitrary_center_or_mass(weights, *args):
+
+    weights = np.asarray(weights)
+    for i, arg in enumerate(args):
+        arg = np.asarray(arg)
+        if weights.shape != arg.shape:
+            raise ValueError(f'Shape of arg {i + 1} does not match shape of weights!')
+        
+    val_list = []
+    for arg in args:
+        val = np.dot(weights.ravel(), arg.ravel()) / np.sum(weights)
+        val_list.append(val)
+
+    return tuple(val_list)
 
 
 def vprint(message, **kwargs):

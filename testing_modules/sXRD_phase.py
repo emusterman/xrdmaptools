@@ -119,7 +119,47 @@ class Phase(xu.materials.Crystal):
             else:
                 tth_range = (0, 90)
 
-        planes_data = xu.simpack.PowderDiffraction(self, en=energy, tt_cutoff=tth_range[1]).data
+        wavelength = energy_2_wavelength(energy)
+
+        all_refl = self.lattice.get_allowed_hkl(qmax=tth_2_q(tth_range[1], wavelength=wavelength))
+        all_q = np.linalg.norm(self.Q(*all_refl), axis=1)
+        all_q = np.round(all_q, 10) # Clean up some errors
+        sort_refl = [tuple(x) for _, x in sorted(zip(all_q, all_refl))]
+        all_q.sort()
+        F_hkl = np.abs(self.StructureFactor(sort_refl))
+        F_hkl = rescale_array(F_hkl, lower=0, upper=100)
+
+        hkl_list = []
+        q_list = []
+        int_list = []
+        tth_list = []
+        d_list = []
+
+        for index, norm_int in enumerate(F_hkl):
+            if all_q[index] not in q_list:
+                hkl_list.append(sort_refl[index]) # Only takes first hkl value
+                q_list.append(all_q[index])
+                int_list.append(norm_int)
+                tth_list.append(q_2_tth(all_q[index], wavelength=wavelength))
+                d_list.append(convert_qd(all_q[index]))
+            else:
+                int_list[-1] += norm_int # Handles multiplicity
+                if np.sum(sort_refl[index]) > np.sum(hkl_list[-1]):
+                    hkl_list[-1] = sort_refl[index] # bias towards positive hkl values
+
+        mask = (np.array(int_list) > ignore_less) & (np.array(tth_list) > tth_range[0])
+
+        data = {
+            'hkl' : np.array(hkl_list)[mask],
+            'q' : np.array(q_list)[mask],
+            'int' : np.array(int_list)[mask],
+            'tth' : np.array(tth_list)[mask],
+            'd' : np.array(d_list)[mask]
+            }
+        
+        self.reflections = data
+
+        '''planes_data = xu.simpack.PowderDiffraction(self, en=energy, tt_cutoff=tth_range[1]).data
 
         refl_lst = []
         ang_lst = []
@@ -153,9 +193,9 @@ class Phase(xu.materials.Crystal):
             'tth' : ang_lst,
             'hkl' : refl_lst,
             'int' : int_lst
-        }
+        }'''
 
-        self.reflections = data
+        
         
     
     def planeDistances(self, hkl_lst):

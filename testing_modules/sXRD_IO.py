@@ -64,9 +64,9 @@ def load_XRD_h5(filename, wd=None):
 
         # Rebuild correction dictionary
         corrections = {}
-        for key in img_grp[img_keys[recent_index]].attrs.keys():
-            # _{key}_correction
-            corrections[key[1:-11]] = img_grp[img_keys[recent_index]].attrs[key]
+        for key, value in img_grp[img_keys[recent_index]].attrs.items():
+            if key[0] == '_' and key[-11:] == '_correction':
+                corrections[key[1:-11]] = value
 
         image_data = ImageMap(image_data, title=img_keys[recent_index],
                               h5=h5_path, corrections=corrections)
@@ -78,12 +78,17 @@ def load_XRD_h5(filename, wd=None):
 
         if '_calibration_mask' in img_grp.keys():
             image_data.calibration_mask = img_grp['_calibration_mask'][:]
+
+        if '_defect_mask' in img_grp.keys():
+            image_data.defect_mask = img_grp['_defect_mask'][:]
+
+        if '_custom_mask' in img_grp.keys():
+            image_data.custom_mask = img_grp['_custom_mask'][:]
         
-        if '_masks' in img_grp.keys():
-            image_data.masks = img_grp['_masks'][:]
+        if '_spot_masks' in img_grp.keys():
+            image_data.spot_masks = img_grp['_spot_masks'][:]
         
         print('done!')
-
 
         # Recipricol positions
         if 'reciprocal_positions' in base_grp.keys():
@@ -156,10 +161,16 @@ def load_XRD_h5(filename, wd=None):
 
         # Load spots dataframe
         spots = None
+        spot_model = None
         if 'reflections' in base_grp.keys():
             print('Loading reflection spots...', end='', flush=True)
             spots = pd.read_hdf(h5_path, key='xrdmap/reflections/spots')
             print('done!')
+
+            # Load peak model
+            if 'spot_model' in f['xrdmap/reflections'].attrs.keys():
+                spot_model_name = f['xrdmap/reflections'].attrs['spot_model']
+                spot_model = _load_peak_function(spot_model_name)
         
         # Load scalars
 
@@ -172,7 +183,8 @@ def load_XRD_h5(filename, wd=None):
                   'recip_pos' : recip_pos,
                   'poni_od' : poni_od,
                   'phase_dict' : phase_dict,
-                  'spots' : spots}
+                  'spots' : spots,
+                  'spot_model' : spot_model}
 
     return ouput_dict
 

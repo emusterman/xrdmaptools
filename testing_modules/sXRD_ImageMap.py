@@ -10,32 +10,24 @@ from tqdm import tqdm
 import time as ttime
 import matplotlib.pyplot as plt
 from collections import OrderedDict
-
+import dask
+import dask.array as da
 
 
 class ImageMap:
-    # This could be useful for plotting
-    # This may be frowned upon because I am making too many classes...
     # This class is only intended for direct image manipulation
-    # Analysis and interpretation of the meaning are reserved for the XRDMap class
-
-    #def __new__(cls, input_array, dtype=None, title=None):
-    #    if dtype is not None:
-    #        obj = np.asarray(input_array, dtype=dtype).view(cls)
-    #    else:
-    #        obj = np.asarray(input_array).view(cls)
-    #    #obj = np.asarray(input_array)
-    #    if dtype is not None:
-    #        obj.dtype = dtype
-    #    obj.title = title
-    #    return obj
-
+    # Analysis and interpretation of diffraction are reserved for the XRDMap class
 
     def __init__(self, image_array, map_shape=None,
                  dtype=None, title=None, h5=None,
                  corrections=None):
         
-        image_array = np.asarray(image_array)
+        # Non-paralleized image processing
+        #image_array = np.asarray(image_array)
+
+        # Parallized image processing
+        # WIP
+        image_array = da.from_array(image_array)
 
         if map_shape is not None:
             self.images = image_array.reshape(tuple(map_shape))
@@ -58,7 +50,7 @@ class ImageMap:
         self._dtype = dtype
         
         if isinstance(corrections, dict):
-            self.correction = corrections
+            self.corrections = corrections
         else:
             self.corrections = {
                 'dark_field' : False,
@@ -98,7 +90,6 @@ class ImageMap:
     ### Class Properties and Functions ###
     ######################################
 
-
     @property
     def dtype(self):
         return self._dtype
@@ -120,11 +111,11 @@ class ImageMap:
                 setattr(self, property_name, function(self.images, axis=axes).astype(self.dtype))
                 #return getattr(self, property_name)
             
-                if hasattr(self, 'calibration_mask') and axes == (2, 3):
+                if np.any(self.mask != 1) and axes == (2, 3):
                     blank_map = np.zeros(self.map_shape)
 
-                    for i, image in enumerate(self.images.reshape(self.num_images, *self.calibrated_shape)):
-                        val = function(image[self.calibration_mask])
+                    for i, image in enumerate(self.images.reshape(self.num_images, *self.images.shape[-2:])):
+                        val = function(image[self.mask])
                         indices = np.unravel_index(i, self.map_shape)
                         blank_map[indices] = val
                     
@@ -159,7 +150,7 @@ class ImageMap:
     sum_image = projection_factory('sum_image', np.sum, (0, 1))
 
 
-    # Adaptively saves for whatever the current processing stage
+    # Adaptively saves for whatever the current processing state
     # Add other methods, or rename to something more intuitive
     # I should save this image to the h5...
     @property
@@ -175,9 +166,9 @@ class ImageMap:
 
             # Save image to h5
             self.save_images(self._composite_image,
-                             f'_{self.title}_composite',
-                             units=f'same as {self.title}',
-                             labels=f'same as {self.title}')
+                             f'_{self.title}_composite')
+                             #units=f'same as {self.title}',
+                             #labels=f'same as {self.title}')
 
             # Finally return the requested attribute
             return getattr(self, f'_{self.title}_composite')
@@ -185,27 +176,40 @@ class ImageMap:
     @composite_image.deleter
     def composite_image(self):
         delattr(self, '_composite_image')
+
     
+    @property
+    def mask(self):
+        # Generic mask with everything
+        mask = np.ones(self.images.shape[2:], dtype=np.bool_)
+
+        # Remove unused calibration pixels
+        if hasattr(self, 'calibration_mask'):
+            if self.calibration_mask.shape == mask.shape:
+                mask *= self.calibration_mask
+            else:
+                print('Warning: Calibration mask found, but shape does not match images.')
+
+        # Remove image defects
+        if hasattr(self, 'defect_mask'):
+            if self.defect_mask.shape == mask.shape:
+                mask *= self.defect_mask
+            else:
+                print('Warning: Defect mask found, but shape does not match images.')
+
+        if hasattr(self, 'custom_mask'):
+            if self.custom_mask.shape == mask.shape:
+                mask *= self.custom_mask
+            else:
+                print('Warning: Custom mask found, but shape does not match images.')
+
+        return mask
+
 
     # Function to dump accummulated processed images and maps
     # Not sure if will be needed between processing the full map
     def reset_attributes(self):
-        old_attr = list(self.__dict__.keys())
-        #for attr in old_attr:
-        #    if (attr not in ['images',
-        #                     '_dtype',
-        #                     'title',
-        #                    'shape',
-        #                    'num_images',
-        #                    'map_shape',
-        #                    'image_shape', 
-        #                    'h5',
-        #                    'dark_field_method',
-        #                    'flat_field_method',
-        #                    'calibration_mask']# Preserve certain attributes between processing
-        #        and attr[-10:] != '_composite'): 
-        #        delattr(self, attr)
-       
+        old_attr = list(self.__dict__.keys())       
         for attr in old_attr:
             if attr in ['_composite_image',
                         '_min_map', '_min_image',
@@ -231,14 +235,22 @@ class ImageMap:
         elif np.all(~np.array(list(self.corrections.values()))):
             self.title = 'raw_images' # This should not be needed...
 
-        elif (self.corrections['dark_field']):
-            self.title = 'processed_images'
+        elif any([self.corrections[key]
+                    for key in ['dark_field',
+                                'flat_field']]):
+                self.title = 'detector_corrected'
 
-            if (self.corrections['polar_calibration']):
-                self.title = 'calibrated_images'
+                if any([self.corrections[key]
+                        for key in ['lorentz',
+                                    'polarization',
+                                    'solid_angle']]):
+                    self.title = 'geometry_corrected'
 
-                if (self.corrections['background']):
-                    self.title = 'final_images'
+                    if (self.corrections['background']):
+                        self.title = 'background_corrected'
+
+                        if (self.corrections['polar_calibration']):
+                            self.title = 'calibrated_images'
         else:
             # No update
             pass
@@ -255,15 +267,25 @@ class ImageMap:
 
     def correct_dark_field(self, dark_field=None):
 
-        if dark_field is None:
+        if self.corrections['dark_field']:
+            print('''Warning: Dark-field correction already applied! 
+                  Proceeding without any changes''')
+        elif dark_field is None:
             print('No dark-field correction.')
         else:
             self.dark_field = dark_field
+            
+            # convert from integer to float if necessary
+            if (np.issubdtype(self.dtype, np.integer)
+                and np.issubdtype(self.dark_field.dtype, np.floating)):
+                self.dtype = self.dark_field.dtype
 
-            if self.dark_field.dtype > self.dtype:
+            # Switch to greater precision if necessary
+            elif self.dark_field.dtype > self.dtype:
                 self.dtype = self.dark_field.dtype
             
-            if check_precision(self.dtype)[0].min >= 0:
+            # Switch to int if uint and values will go negative
+            elif check_precision(self.dtype)[0].min >= 0:
                 # Not sure how to decide which int precision
                 # Trying to save memory if possible
                 if np.max(self.dark_field) > np.min(self.min_image):
@@ -271,10 +293,11 @@ class ImageMap:
             
             print('Correcting dark-field...', end='', flush=True)
             self.images -= self.dark_field
+
             self.save_images(self.dark_field,
                             'dark_field',
-                            units=str(self.dark_field.dtype), 
-                            labels=['img_y','img_x'])
+                            units='counts')
+            
             self.corrections['dark_field'] = True
             self.update_map_title()
             print('done!')
@@ -282,23 +305,30 @@ class ImageMap:
 
     def correct_flat_field(self, flat_field=None):
 
-        if flat_field is None:
+        if self.corrections['flat_field']:
+            print('''Warning: Flat-field correction already applied! 
+                  Proceeding without any changes''')
+        elif flat_field is None:
             print('No flat-field correction.')
         else:
             self.flat_field = flat_field
             self.dtype = np.float32
             print('Correcting flat-field...', end='', flush=True)
             self.images /= self.flat_field
+
             self.save_images(self.flat_field,
-                            'flat_field',
-                            units=str(self.flat_field.dtype), 
-                            labels=['img_y','img_x'])
+                            'flat_field')
+            
             self.corrections['flat_field'] = True
             self.update_map_title()
             print('done!')
 
 
     def correct_outliers(self, size=2, tolerance=3, significance=None):
+
+        if self.corrections['outliers']:
+            print('''Warning: Outlier correction already applied!
+                  Proceeding to find and correct new outliers:''')
         
         print('Finding and correcting image outliers...', end='', flush=True)
         for image_ind in tqdm(range(self.num_images)):
@@ -313,134 +343,313 @@ class ImageMap:
         print('done!')
 
 
-    def apply_defect_mask(self, mask):
-        raise NotImplementedError()
+    # No correction for defect mask, since is used whenever mask is called
+    def apply_defect_mask(self, min_bounds=(-np.inf, 0),
+                          max_bounds=(0, np.inf), mask=None):
+        if mask is not None:
+            self.defect_mask = np.asarray(mask).astype(np.bool_)
+        else:
+            mask = np.ones_like(self.min_image, dtype=np.bool_)
+            mask *= (self.min_image >= min_bounds[0]) & (self.min_image <= min_bounds[1])
+            mask *= (self.max_image >= max_bounds[0]) & (self.max_image <= max_bounds[1])
+            #mask *= self.min_image <= lower # Removes hot pixels
+            #mask *= self.max_image >= upper # Remove dead pixels
+            self.defect_mask = mask
+        
         self.update_map_title()
         self.corrections['pixel_defects'] = True
+        # Write mask to disk
+        self.save_images(self.defect_mask,
+                         'defect_mask')
 
 
-    # Change background to dark-field.
-    # Will need to change the estimate
-    @deprecated
-    def estimate_dark_field(self, method='min', dark_field=None):
-        method = str(method).lower()
-        if dark_field is None:
-            if method in ['min', 'minimum']:
-                print('Estimating dark-field with minimum method.')
-                self.dark_field = self.min_image # does not account for changing electronic noise
-                self.dark_field_method = 'minimum'
-            
-            elif method in ['none']:
-                print('No dark field correction will be used.')
-                self.dark_field = None
-                self.dark_field_method = 'none'
-            
-            else:
-                raise NotImplementedError("Method input not implemented!")
+    # No correction for custom mask, since is used whenever mask is called
+    def apply_custom_mask(self, mask=None):
+        if mask is not None:
+            self.custom_mask = np.asarray(mask).astype(np.bool_)
+            # Write mask to disk
+            self.save_images(self.custom_mask,
+                             'custom_mask')
         else:
-            print('User-specified dark-field.')
-            self.dark_field = dark_field
-            self.dark_field_method = 'custom'
+            print('No custom mask provided!')
+
+
+    ### Geometric corrections ###
+    # TODO: Add conditionals to allow corrections to be applied to calibrated images
+
+    def apply_lorentz_correction(self, ai, apply=True):
+
+        if self.corrections['lorentz']:
+            print('''Warning: Lorentz correction already applied! 
+                  Proceeding without any changes''')
+            return
+
+        # In radians
+        tth_arr = ai.twoThetaArray()
+
+        # Old Lorentz correction. TODO: Add conditional for calibrated images
+        #if Lorentz_correction: # Yong was disappointed I did not have this already
+        #    rad = np.radians(tth / 2)
+        #    res /=  1 / (np.sin(rad) * np.sin(2 * rad))
+
+        lorentz_correction = 1 / (np.sin(tth_arr / 2) * np.sin(tth_arr))
+        self.lorentz_correction = lorentz_correction
+        self.save_images(self.lorentz_correction,
+                            'lorentz_correction')
+        
+        if apply:
+            print('Applying Lorentz correction...', end='', flush=True)
+            self.images /= self.lorentz_correction
+            self.corrections['lorentz'] = True
+            self.update_map_title()
+            print('done!')
+
     
+    def apply_polarization_correction(self, ai, polarization=0.9, apply=True):
 
-    # This is not correct...more of a background subtraction
-    @deprecated
-    def estimate_flat_field(self, method='med', flat_field=None, **kwargs):
-        method = str(method).lower()
+        if self.corrections['polarization']:
+            print('''Warning: polarization correction already applied! 
+                  Proceeding without any changes''')
+            return
+        
+        #p = -polarization
 
-        if flat_field is None:
-            # Add method to use the scalar information too.
-            if method in ['med', 'median']:
-                print('Estimating flat-field from median values.')
-                self.flat_field = np.multiply.outer(self.med_map, self.med_image)
-                self.flat_field_method = 'median'
-                
-            elif method in ['ball', 'rolling ball', 'rolling_ball']:
-                print('Estimating flat-field with rolling ball method.')
-                self.flat_field = rolling_ball(self.images, **kwargs)
-                self.flat_field_method = 'rolling ball'
+        #tth_arr = ai.twoThetaArray()
+        #chi_arr = ai.chiArray()
 
-            elif method in ['spline', 'spline fit', 'spline_fit']:
-                raise NotImplementedError()
-                self.flat_field_method = 'spline'
+        # From GISAS-II supposedly
+        #polar = ([(1 - p) * np.cos(chi_arr)**2 + p * np.sin(chi_arr)**2] * np.cos(tth_arr)**2
+        #         + (1 - p) * np.sin(chi_arr)**2 + p * np.cos(chi_arr)**2)
+        #polar = polar.squeeze()
 
-            elif method in ['none']:
-                print('No flat field correction will be used.')
-                self.flat_field = None
-                self.flat_field_method = 'none'
-            else:
-                raise NotImplementedError("Method input not implemented!")
+        # From pyFAI
+        #cos2_tth = np.cos(tth_arr) ** 2
+        #polar = 0.5 * (1.0 + cos2_tth -
+        #                polarization * np.cos(2.0 * (chi_arr)) * (1.0 - cos2_tth))
+
+        # From pyFAI
+        polar = ai.polarization(factor=polarization)
+        self.polarization_correction = polar
+        self.save_images(self.polarization_correction,
+                            'polarization_correction')
+        
+        if apply:
+            print('Applying X-ray polarization correction...', end='', flush=True)
+            self.images /= self.polarization_correction
+            self.corrections['polarization'] = True
+            self.update_map_title()
+            print('done!')
+
+    
+    def apply_solidangle_correction(self, ai, apply=True):
+
+        if self.corrections['solid_angle']:
+            print('''Warning: Solid angle correction already applied! 
+                  Proceeding without any changes''')
+            return
+
+        #tth_arr = ai.twoThetaArray()
+        #chi_arr = ai.chiArray()
+
+        # pyFAI
+        # 'SA = pixel1 * pixel2 / dist^2 * cos(incidence)^3'
+
+        # From pyFAI
+        solidangle_correction = ai.solidAngleArray()
+        self.solidangle_correction = solidangle_correction
+        self.save_images(self.solidangle_correction,
+                            'solidangle_correction')
+        
+        if apply:
+            print('Applying solid angle correction...', end='', flush=True)
+            self.images /= self.solidangle_correction
+            self.corrections['solid_angle'] = True
+            self.update_map_title()
+            print('done!')
+
+    ### Final image corrections ###
+
+    def normalize_scaler(self, scaler_arr=None):
+        
+        if scaler_arr is None:
+            print('No scaler array given. Approximating with image medians...')
+            scaler_arr = self.med_map
+
         else:
-            print('User-specified flat-field.')
-            self.flat_field = flat_field
-            self.flat_field_method = 'custom'
-    
-    @deprecated
-    def correct_images(self, dark_method='min', flat_method='med', **kwargs):
-        # Convenience functions that will help keep track of all corrections
-        self.estimate_dark_field(method=dark_method, **kwargs)
-        self.correct_dark_field()
+            scaler_arr = np.asarray(scaler_arr)
+            if scaler_arr.shape != self.map_shape:
+                raise ValueError(f'''Scaler array of shape {scaler_arr.shape} does not 
+                                match the map shape of {self.map_shape}!''')
 
-        self.estimate_flat_field(method=flat_method, **kwargs)
-        self.correct_flat_field()
-
-        print('Image corrections complete!')
-        self.title = 'processed_images'
-
-        print('Compressing and writing processed images to disk...', end='', flush=True)
-        self.save_images(units='a.u.',
-                         labels=['x_ind',
-                                 'y_ind',
-                                 'img_y',
-                                 'img_x'],
-                    extra_attrs={'dark_field_method':self.dark_field_method,
-                                'flat_field_method':self.flat_field_method})
+        print('Normalize image scalers...', end='', flush=True)
+        self.images /= scaler_arr.reshape(*self.map_shape, 1, 1)
+        self.scaler_map = scaler_arr # Do not save to h5, since scalers should be recorded...
+        self.corrections['scaler_intensity'] = True
+        self.update_map_title()
         print('done!')
 
-        self.reset_attributes()
 
-        # Save correction methods
-        if self.h5 is not None:
-            with h5py.File(self.h5, 'a') as f:
-                dset = f[f'xrdmap/image_data/{self.title}']
-                dset.attrs['dark_field_method'] = self.dark_field_method
-                #dset.attrs['dark_field'] = self.dark_field
-                dset.attrs['flat_field_method'] = self.flat_field_method
+    def estimate_background(self, method=None, background=None, **kwargs):
+        method = str(method).lower()
+
+        if background is None:
+            # Many different background methods have been implemented
+            if method in ['med', 'median']:
+                print('Estimating background from median values.')
+                self.background = self.med_image
+                self.background_method = 'median'
+
+            elif method in ['min', 'minimum']:
+                print('Estimating background with minimum method.')
+                self.background = self.min_image
+                self.background_method = 'minimum'
+                
+            elif method in ['ball', 'rolling ball', 'rolling_ball']:
+                raise NotImplementedError('Cannot not yet exclude contribution from masked regions.')
+                print('Estimating background with rolling ball method.')
+                self.background = rolling_ball(self.images, **kwargs)
+                self.background_method = 'rolling ball'
+
+            elif method in ['spline', 'spline fit', 'spline_fit']:
+                print('Estimating background with spline fit.')
+                self.background = fit_spline_bkg(self, **kwargs)
+                self.background_method = 'spline'
+
+            elif method in ['poly', 'poly fit', 'poly_fit']:
+                print('Estimating background with polynomial fit.')
+                print('Warning: This method is slow and not very accurate.')
+                self.background = fit_poly_bkg(self, **kwargs)
+                self.background_method = 'polynomial'
+
+            elif method in ['Gaussian', 'gaussian', 'gauss']:
+                print('Estimating background with gaussian convolution.')
+                print('Note: Progress bar is unavailable for this method.')
+                self.background = masked_gaussian_background(self, **kwargs)
+                self.background_method = 'gaussian'
+
+            elif method in ['Bruckner', 'bruckner']:
+                print('Estimating background with Bruckner algorithm.')
+                self.background = masked_bruckner_background(self, **kwargs)
+                self.background_method = 'bruckner'
+
+            elif method in ['none']:
+                print('No background correction will be used.')
+                self.background = None
+                self.background_method = 'none'
+            
+            else:
+                raise NotImplementedError("Method input not implemented!")
+    
+        else:
+            print('User-specified background.')
+            self.background = background
+            self.background_method = 'custom'
     
 
-    ### Pixel to angle transformation ###
+    def remove_background(self, background=None, save_images=False):
+        if background is None:
+            if hasattr(self, 'background'):
+                background = getattr(self, 'background')
+            else:
+                print('No background removal.')
+                return
+        else:
+            self.background = background
+            
+        print('Removing background...', end='', flush=True)
+        self.images -= self.background
+        
+        # Save background if it is only one image
+        # No need to waste storage space otherwise
+        # Unlikely to be used
+        if np.squeeze(self.background).shape == self.images.shape[-2:]:
+            self.save_images(self.background,
+                             'static_background')
+        self.corrections['background'] = True
+        self.update_map_title()
+        print('done!')
+
+        if save_images:
+            print('''Compressing and writing images to disk.\nThis may take awhile...''')
+            self.save_images(extra_attrs={'background_method'
+                                          : self.background_method})
+            print('done!')
+
+
+    ### Polar correction ###
 
     # Should move to geometry.py
-    # Geometric calibration, polarization and Lorentz corrections
+    # Geometric calibration
     def calibrate_images(self, ai, title=None,
                          unit='2th_deg',
-                         tth_resolution=0.02, chi_resolution=0.05,
-                         polarization_factor=0.9,
-                         Lorentz_correction=True,
+                         tth_resolution=0.02,
+                         chi_resolution=0.05,
+                         polarization_factor=None,
+                         correctSolidAngle=None,
+                         Lorentz_correction=None,
                          **kwargs):
+        
+        # Check to see if calibration even makes sense
+        if self.corrections['polar_calibration']:
+            raise RuntimeError("""Cannot calibrate already calibrated images! 
+                            \nRevert to uncalibrated images in order to recalibrate.""")
         
         # Check the current state of the map
         self.update_map_title()
         
+        # Check other states of images
         if self.title == 'raw_images':
-            print('Warning: Calibrating unprocessed images. Proceeding without image corrections.')
+            print('Warning: Calibrating unprocessed images. Proceeding without any image corrections.')
             _ = self.composite_image
             # Maybe I should add a list of processing step performed to keep track of everything...
-
-        elif self.corrections['polar_calibration']:
-            raise RuntimeError("""Cannot calibrate already calibrated images! 
-                            \nRevert to processed images in order to recalibrate.""")
         
-        elif self.title == 'processed_images':
-            if not hasattr(self, '_processed_images_composite'):
-                print('Composite of processed images not saved. Creating composite.')
+        elif not hasattr(self, f'_{self.title}_images_composite'):
+                print('Composite of current images is not saved. Creating composite.')
                 _ = self.composite_image
-            else:
-                pass
+        
+        # Check a few other corrections which can be rolled into calibration
+        # Recommendation is to perform each correction individually
                 
-        else:
-            print('Warning: Unknown image state. Proceeding, but be cautious of results.')
+        # Polarization correction
+        if polarization_factor is not None and self.corrections['polarization']:
+            print(('Warning: Polarization factor specified, '
+                  'but images arleady corrected for polarization!'))
+            print('No polarization correction will be applied.')
+            polarization_factor = None
 
+        elif polarization_factor is None and not self.corrections['polarization']:
+            print(('Warning: No polarization correction applied or specified. '
+                  'Images will not be polarization corrected.'))
+
+        # Solid angle correction 
+        if correctSolidAngle and self.corrections['solid_angle']:
+            print(('Warning: correctSolidAngle specified, '
+                  'but images arleady corrected for solid angle!'))
+            print('No solid angle correction will be applied.')
+            correctSolidAngle = False
+
+        elif correctSolidAngle is None and not self.corrections['solid_angle']:
+            print(('Warning: No solid angle correction applied or specified. '
+                  'Images will not be corrected for solid angle.'))
+            correctSolidAngle = False
+
+        # Lorentz correction
+        if Lorentz_correction and self.corrections['lorentz']:
+            print(('Warning: Lorentz correction specified, '
+                  'but Lorentz correction already applied!'))
+            print('No Lorentz correction will be applied.')
+            Lorentz_correction = False
+
+        elif Lorentz_correction is None and not self.corrections['lorentz']:
+            print(('Warning: No Lorentz correction applied or specified. '
+                  'Images will not be Lorentz corrected.'))
+            print('Warning: The independent Lorentz correction, currently does not work on calibrated images.')
+            Lorentz_correction = False
+
+        elif Lorentz_correction:
+            self.apply_lorentz_correction(ai=ai)
+
+        
         # Set units for metadata
         self.calib_unit = unit
 
@@ -477,12 +686,14 @@ class ImageMap:
                                           self.tth_num,
                                           self.chi_num,
                                           unit=self.calib_unit,
-                                          polarization_factor=polarization_factor, 
+                                          polarization_factor=polarization_factor,
+                                          correctSolidAngle=correctSolidAngle,
                                           **kwargs)
             
-            if Lorentz_correction: # Yong was disappointed I did not have this already
-                rad = np.radians(tth / 2)
-                res /=  1 / (np.sin(rad) * np.sin(2 * rad))
+            # Lorentz_correction is deprecated in favor of an independent version
+            #if Lorentz_correction: # Yong was disappointed I did not have this already
+            #    rad = np.radians(tth / 2)
+            #    res /=  1 / (np.sin(rad) * np.sin(2 * rad))
 
             calibrated_map[i] = res
 
@@ -496,8 +707,15 @@ class ImageMap:
         self.calibrated_shape = (self.chi_num, self.tth_num) # V x H
         self.extent = [self.tth[0], self.tth[-1],
                        self.chi[0], self.chi[-1]]
+        self.corrections['polar_calibration'] = True
 
         print('done!')
+
+        if correctSolidAngle:
+            self.corrections['solid_angle'] = True
+        
+        if polarization_factor is not None:
+            self.corrections['polarization'] = True
 
         #print('''Compressing and writing calibrated images to disk.\nThis may take awhile...''')
         #self.save_images(units=self.calib_unit,
@@ -507,7 +725,7 @@ class ImageMap:
         #                                 'tth_ind'])
         
         # Add calibration positions dataset
-        print('Writing reciprocal positions...')
+        print('Writing reciprocal positions...', end='', flush=True)
         if self.h5 is not None:
             with h5py.File(self.h5, 'a') as f:
                 # This group may already exist if poni file was already initialized
@@ -537,23 +755,29 @@ class ImageMap:
         print('done!')
 
         # Acquire mask for useless pixels for subsequent analysis
-        print('Acquring and writing calibration mask...')
+        print('Acquring and writing calibration mask...', end='', flush=True)
         self.calibration_mask = self.get_calibration_mask(ai)
         self.save_images(self.calibration_mask,
-                         'calibration_mask',
-                         units=str(self.calibration_mask.dtype), 
-                         labels=['chi_ind','tth_ind'])
+                         'calibration_mask')
         
-        # internal record keeping
-        self.corrections['polar_calibration'] = True
-        if Lorentz_correction:
-            self.corrections['lorentz'] = True
-        if polarization_factor is not None:
-            self.corrections['polarization'] = True
-        if 'correctSolidAngle' in kwargs.keys():
-            self.corrections['solid_angle'] = kwargs['correctSolidAngle']
-        else:
-            self.corrections['solid_angle'] = True
+        # Update defect mask
+        if hasattr(self, 'defect_mask'):
+            if self.defect_mask.shape == self.image_shape:
+                new_mask, _, _ = ai.integrate2d_ng(self.defect_mask,
+                                                self.tth_num,
+                                                self.chi_num,
+                                                unit=self.calib_unit)
+                self.apply_defect_mask(mask=new_mask)
+        
+        # Update custom mask
+        if hasattr(self, 'custom_mask'):
+            if self.custom_mask.shape == self.image_shape:
+                new_mask, _, _ = ai.integrate2d_ng(self.custom_mask,
+                                                self.tth_num,
+                                                self.chi_num,
+                                                unit=self.calib_unit)
+                self.apply_custom_mask(mask=new_mask)
+        
         print('done!')
         
         # Direct set to avoid resetting the map images again
@@ -584,97 +808,20 @@ class ImageMap:
         return calibration_mask
     
 
-    ### Final image corrections ###
+    def rescale_images(self, lower=0, upper=100,
+                       arr_min=None, arr_max=None,
+                       mask=None):
 
-    def normalize_scaler(self, scaler_arr=None):
+        if mask is None and np.any(self.mask != 1):
+            mask = np.empty_like(self.images, dtype=np.bool_)
+            mask[:, :] = self.mask
         
-        if scaler_arr is None:
-            print('No scaler array given. Approximating with image medians...')
-            scaler_arr = self.med_map
-
-        else:
-            scaler_arr = np.asarray(scaler_arr)
-            if scaler_arr.shape != self.map_shape:
-                raise TypeError(f'''Scaler array of shape {scaler_arr.shape} does not 
-                                match the map shape of {self.map_shape}!''')
-
-        print('Normalize image scalers...', end='', flush=True)
-        self.images /= scaler_arr.reshape(*self.map_shape, 1, 1)
-        self.scaler_map = scaler_arr # Do not save to h5, since scalers should be recorded...
-        self.corrections['scaler_intensity'] = True
-        self.update_map_title()
-        print('done!')
-
-
-    def estimate_background(self, method='med', background=None, **kwargs):
-        method = str(method).lower()
-
-        if flat_field is None:
-            # Add method to use the scalar information too.
-            if method in ['med', 'median']:
-                print('Estimating background from median values.')
-                self.background = self.med_image
-                self.background_method = 'median'
-
-            elif method in ['min', 'minimum']:
-                print('Estimating dark-field with minimum method.')
-                self.background = self.min_image # does not account for changing electronic noise
-                self.background_method = 'minimum'
-                
-            elif method in ['ball', 'rolling ball', 'rolling_ball']:
-                print('Estimating background with rolling ball method.')
-                self.background = rolling_ball(self.images, **kwargs)
-                self.background_method = 'rolling ball'
-
-            elif method in ['spline', 'spline fit', 'spline_fit']:
-                raise NotImplementedError()
-                self.background_method = 'spline'
-
-            elif method in ['poly', 'poly fit', 'poly_fit']:
-                raise NotImplementedError()
-                self.background_method = 'polynomial'
-
-            elif method in ['gauss', 'gauss fit', 'gauss_fit']:
-                raise NotImplementedError()
-                self.background_method = 'gaussian'
-
-            elif method in ['none']:
-                print('No background correction will be used.')
-                self.background = None
-                self.background_method = 'none'
-            
-            else:
-                raise NotImplementedError("Method input not implemented!")
-        
-        else:
-            print('User-specified background.')
-            self.background = background
-            self.background_method = 'custom'
-    
-
-    def remove_background(self, background=None):
-        if background is None:
-            if hasattr(self, 'background'):
-                background = getattr(self, 'background')
-            else:
-                print('No background removal.')
-                return
-        else:
-            self.background = background
-            
-        print('Removing background...', end='', flush=True)
-        self.images -= self.background
-        
-        # Save background if it is only one image
-        # No need to waste storage space otherwise
-        if np.squeeze(self.background).shape == self.calibrated_shape:
-            self.save_images(self.background,
-                             'static_background',
-                             units=str(self.background.dtype), 
-                             labels=['chi_ind','tth_ind'])
-        self.corrections['background'] = True
-        self.update_map_title()
-        print('done!')
+        self.images = rescale_array(self.images,
+                                    lower=lower,
+                                    upper=upper,
+                                    arr_min=arr_min,
+                                    arr_max=arr_max,
+                                    mask=mask)
 
 
     ##########################
@@ -743,7 +890,7 @@ class ImageMap:
         print(f'Diffraction map size is {disk_size:.3f} {units}.')
 
 
-    def save_images(self, images=None, title=None, units='', labels='',
+    def save_images(self, images=None, title=None, units=None, labels=None,
                     compression=None, compression_opts=None,
                     mode='a', extra_attrs=None):
         
@@ -757,17 +904,23 @@ class ImageMap:
         
         if title is None:
             title = self.title
+
+        _units, _labels = self._get_save_labels(images.shape)
+        if units is None:
+            units = _units
+        if labels is None:
+            labels = _labels
         
         if len(images.shape) == 2:
             if title[0] != '_':
                 title = f'_{title}'
         elif len(images.shape) != 4:
-            raise IOError(f'Images input has {len(images.shape)} dimensions instead of 2 (image) or 4 (ImageMap).')
+            raise ValueError(f'Images input has {len(images.shape)} dimensions instead of 2 (image) or 4 (ImageMap).')
         elif len(images.shape) == 4 and compression is None:
             compression = 'gzip'
             compression_opts = 8
         else:
-            raise RuntimeError('Unknown image type detected!')
+            raise TypeError('Unknown image type detected!')
         
         with h5py.File(self.h5, mode) as f:
             img_grp = f['/xrdmap/image_data']
@@ -811,11 +964,27 @@ class ImageMap:
                 for key, value in self.corrections.items():
                     dset.attrs[f'_{key}_correction'] = value
 
+
+    def _get_save_labels(self, arr_shape):
+        units = 'a.u.'
+        labels = []
+
+        if len(arr_shape) == 4:
+            labels = ['x_ind',
+                      'y_ind']
+        
+        if self.corrections['polar_calibration']:
+            labels.extend(['chi_ind', 'tth_ind'])
+        else:
+            labels.extend(['img_y', 'img_x'])
+
+        return units, labels
+
     
 
     # These two functions can probably be combined...
-    @deprecated
-    def save_current_images(self, units='', labels='',
+    # @deprecated
+    """def save_current_images(self, units='', labels='',
                             compression='gzip', compression_opts=8,
                             mode='a', extra_attrs=None):
         
@@ -852,10 +1021,10 @@ class ImageMap:
                 # Add non-standard extra metadata attributes
                 if extra_attrs is not None:
                     for key, value in extra_attrs.items():
-                        dset.attrs[key] = value
+                        dset.attrs[key] = value"""
 
-    @deprecated
-    def save_single_image(self, image, title, units='', labels='', mode='a', extra_attrs=None):
+    # @deprecated
+    """def save_single_image(self, image, title, units='', labels='', mode='a', extra_attrs=None):
 
         image = np.asarray(image)
         # Prevents loading these as full image data. Maybe best to separate into groups...
@@ -892,5 +1061,5 @@ class ImageMap:
                 # Add non-standard extra metadata attributes
                 if extra_attrs is not None:
                     for key, value in extra_attrs.items():
-                        dset.attrs[key] = value
+                        dset.attrs[key] = value"""
     

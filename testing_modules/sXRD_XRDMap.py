@@ -78,7 +78,7 @@ class XRDMap():
         elif isinstance(image_map, ImageMap):
             self.map = image_map
         else:
-            raise IOError(f"Unknown image_map input type: {type(image_map)}")
+            raise TypeError(f"Unknown image_map input type: {type(image_map)}")
 
         # Immediately save to h5 if not already done so
         # Should only ever be called upon first loading of a raw dataset
@@ -178,7 +178,10 @@ class XRDMap():
 
         # Load spots
         if input_dict['spots'] is not None:
-            inst.spots = input_dict['spots']   
+            inst.spots = input_dict['spots']
+
+        if input_dict['spot_model'] is not None:
+            inst.spot_model = input_dict['spot_model']
 
         print('XRD Map loaded!')
         return inst
@@ -211,6 +214,54 @@ class XRDMap():
             self._energy = wavelength_2_energy(wavelength)
         else:
             self._wavelength = wavelength
+
+    
+    @property
+    def tth_arr(self):
+        if hasattr(self, '_tth_arr'):
+            return self._tth_arr
+
+        elif ((hasattr(self, 'map'))
+            and (self.map is not None)
+            and (self.map.corrections['polar_calibration'])):
+
+            if hasattr(self, 'tth') and hasattr(self, 'chi'):
+                tth_arr, _ = np.meshgrid(self.tth, self.chi[::-1])
+                self._tth_arr = tth_arr
+                return self._tth_arr
+
+        elif hasattr(self, 'ai') and self.ai is not None:
+            self._tth_arr = np.degrees(self.ai.twoThetaArray())
+            return self._tth_arr
+    
+    @tth_arr.deleter
+    def tth_arr(self):
+        delattr(self, '_tth_arr')
+
+    
+    @property
+    def chi_arr(self):
+        if hasattr(self, '_chi_arr'):
+            return self._chi_arr
+
+        elif ((hasattr(self, 'map'))
+            and (self.map is not None)
+            and (self.map.corrections['polar_calibration'])):
+
+            if hasattr(self, 'tth') and hasattr(self, 'chi'):
+                _, chi_arr = np.meshgrid(self.tth, self.chi[::-1])
+                self._chi_arr = chi_arr
+                return self._chi_arr
+
+        elif hasattr(self, 'ai') and self.ai is not None:
+            self._chi_arr = np.degrees(self.ai.chiArray())
+            return self._chi_arr
+    
+    @chi_arr.deleter
+    def chi_arr(self):
+        delattr(self, '_chi_arr')
+        
+
     
     ###########################################
     ### Loading and Saving Data of Instance ###
@@ -246,8 +297,6 @@ class XRDMap():
     ### Correcting Map Images ###
     #############################
 
-    def correct_images(self):
-        raise NotImplementedError()
 
     ##############################
     ### Calibrating Map Images ###
@@ -259,7 +308,7 @@ class XRDMap():
 
         if isinstance(poni_file, str):
             if not os.path.exists(f'{filedir}{poni_file}'):
-                raise IOError(f"{filedir}{poni_file} does not exist")
+                raise FileNotFoundError(f"{filedir}{poni_file} does not exist")
 
             if poni_file[-4:] != 'poni':
                 raise RuntimeError("Please provide a .poni file.")
@@ -306,8 +355,8 @@ class XRDMap():
     def calibrate_images(self, poni_file=None, filedir=None,
                          title='calibrated_images', unit='2th_deg',
                          tth_resolution = 0.02, chi_resolution = 0.05,
-                         polarization_factor=0.9,
-                         Lorentz_correction=True,
+                         polarization_factor=None,
+                         Lorentz_correction=None,
                          **kwargs):
         if poni_file is not None:
             self.set_calibration(poni_file, filedir=filedir)
@@ -334,54 +383,55 @@ class XRDMap():
         self.calibrated_shape = out[3]
         self.tth_resolution = out[4]
         self.chi_resolution = out[5]
-        
 
+        # Clean up a few cached properties. Will reset when next called
+        del self.tth_arr
+        del self.chi_arr
+        
 
     def integrate_1d(self, image=None, tth_num=4096,
                      unit='2th_deg',
-                     polarization_factor=0.9, **kwargs):
+                     polarization_factor=None, correctSolidAngle=False, **kwargs):
         # Intended for one-off temporary results
 
-        if (self.map.title == 'calibrated_images'
-            and image is None):
-            # Assumes the image input should be correct...
-            raise RuntimeError("You are trying to clibrate already clibrated images!")
-        
-        elif image is None:
-            image = self.map.composite_image
-            
+        if image is None:
+            if self.map.corrections['polar_calibration']:
+                raise RuntimeError("You are trying to calibrate already calibrated images!")
+            else:
+                image = self.map.composite_image  
         
         return self.ai.integrate1d_ng(image, tth_num,
                                       unit=unit,
                                       polarization_factor=polarization_factor,
+                                      correctSolidAngle=correctSolidAngle,
                                       **kwargs)
     
 
     def integrate_2d(self, image, tth_num, chi_num, unit='2th_deg',
-                     polarization_factor=0.9, **kwargs):
+                     polarization_factor=None, correctSolidAngle=False, **kwargs):
         # Intented for one-off temporary results
         if image is None:
-            image = self.map.composite_image
-        
-        if (self.map.title == 'calibrated_images'
-            and image is None):
-            # Assumes the image input should be correct...
-            raise RuntimeError("You are trying to clibrate already clibrated images!")
+            if self.map.corrections['polar_calibration']:
+                raise RuntimeError("You are trying to clibrate already calibrated images!")
+            else:
+                image = self.map.composite_image
        
         return self.ai.integrate2d_ng(image, tth_num, chi_num,
                                         unit=unit,
                                         polarization_factor=polarization_factor,
+                                        correctSolidAngle=correctSolidAngle,
                                         **kwargs)
     
 
-    def estimate_img_coords(self, coords):
-        return estimate_img_coords(coords, self.map.image_shape, tth=self.tth, chi=self.chi)
-
-
-    def estimate_reciprocal_coords(self, coords):
-        return estimate_reciprocal_coords(coords, self.map.image_shape, tth=self.tth, chi=self.chi)
+    # Convenience function for image to polar coordinate transformation (estimate!)
+    def estimate_polar_coords(self, coords, method='linear'):
+        return estimate_polar_coords(coords, self.tth_arr, self.chi_arr, method=method)
     
 
+    # Convenience function for polar to image coordinate transformation (estimate!)
+    def estimate_image_coords(self, coords, method='nearest'):
+        return estimate_image_coords(coords, self.tth_arr, self.chi_arr, method=method)
+    
 
     #########################################
     ### Manipulating and Selecting Phases ###
@@ -422,7 +472,7 @@ class XRDMap():
             filedir = self.wd
 
         if not os.path.exists(f'{filedir}{filename}'):
-            raise OSError(f"Specified path does not exist:\n{filedir}{filename}")
+            raise FileNotFoundError(f"Specified path does not exist:\n{filedir}{filename}")
         
         if filename[-4:] == '.cif':
             phase = Phase.fromCIF(f'{filedir}{filename}')
@@ -434,7 +484,7 @@ class XRDMap():
             raise NotImplementedError()
         else:
             raise TypeError(f'''Unsure how to read {filename}. 
-                            Either specifiy file type or this filetype is not supported.''')
+                            Either specifiy file type or this file type is not supported.''')
         
         if phase_name is not None:
             phase.name = phase_name
@@ -475,10 +525,9 @@ class XRDMap():
                       image=None, tth_num=4096,
                       unit='2th_deg', ignore_less=1,
                       save_to_h5=True):
-        # Plot phase_selector
-
+        
         if image is None:
-            if self.map.title == 'calibrated_images':
+            if self.map.corrections['polar_calibration']:
                 image = self.map._processed_images_composite
             else:
                 image = self.map.composite_image
@@ -487,6 +536,7 @@ class XRDMap():
         tth, xrd = self.integrate_1d(image=image, tth_num=tth_num, unit=unit)
         # Add background subraction??
 
+        # Plot phase_selector
         phase_vals = phase_selector(xrd, list(self.phases.values()), tth, ignore_less=ignore_less)
 
         old_phases = list(self.phases.keys())
@@ -497,28 +547,39 @@ class XRDMap():
         # Write phases to disk
         if save_to_h5:
             self.update_phases()
+
+    
+    def _get_all_reflections(self, ignore_less=1):
+        for phase in self.phases:
+            self.phases[phase].get_hkl_reflections(tth_range=(0, # Limited to zero for large d-spacing
+                                                                 # Used for indexing later
+                                                              np.max(self.tth)),
+                                                   ignore_less=ignore_less)
     
     ######################################################
     ### Blob, Ring, Peak and Spot Search and Selection ###
     ######################################################
 
-    def find_spots(self, threshold=None, multiplier=10, sigma=3, radius=5):
+    def find_spots(self, threshold_method='gaussian',
+                   multiplier=5, size=3,
+                   radius=5, expansion=None):
 
         # Estimate remaining map noise to determine peak significance
-        self.map_noise = estimate_map_noise(self.map, sample_number=200)
+        #self.map_noise = estimate_map_noise(self.map, sample_number=200)
 
         # Search each image for significant spots
         spot_list, mask_list = find_spots(self.map,
-                                          bkg_noise=self.map_noise,
-                                          threshold=threshold,
+                                          mask=self.map.mask,
+                                          threshold_method=threshold_method,
                                           multiplier=multiplier,
-                                          sigma=sigma)
+                                          size=size,
+                                          expansion=expansion)
 
         # Initial characterization of each spot
         stat_list = find_spot_stats(self.map,
                                     spot_list,
-                                    tth=self.tth,
-                                    chi=self.chi,
+                                    self.tth_arr,
+                                    self.chi_arr,
                                     radius=radius)
 
         # Convert spot stats into dict, then pandas dataframe
@@ -528,8 +589,8 @@ class XRDMap():
         # Most subsequent analysis will be built here
         # Consider wrapping it in a class like ImageMap or Phase
         self.spots = stat_df
-        self.map.masks = np.asarray(mask_list).reshape(*self.map.map_shape,
-                                                       *self.map.calibrated_shape)
+        self.map.spot_masks = np.asarray(mask_list).reshape(*self.map.map_shape,
+                                                       *self.map.images.shape[-2:])
         # Not sure about this one...
         #self.map.blurred_images = np.asarray(thresh_list).reshape(*self.map.map_shape,
         #                                                          *self.map.calibrated_shape)
@@ -540,20 +601,16 @@ class XRDMap():
             self.spots.to_hdf(self.h5, 'xrdmap/reflections/spots', format='table')
 
             # Save masks to h5
-            self.map.save_images(images=self.map.masks,
-                                 title='_masks',
-                                 units='bool', 
-                                 labels=['x_ind',
-                                         'y_ind',
-                                         'chi_ind',
-                                         'tth_ind'],
-                                 extra_attrs={'map_noise' : self.map_noise,
-                                              'sigma' : sigma,
+            self.map.save_images(images=self.map.spot_masks,
+                                 title='_spot_masks',
+                                 units='bool',
+                                 extra_attrs={'threshold_method' : threshold_method,
+                                              'size' : size,
                                               'multiplier' : multiplier,
                                               'window_radius' : radius})
 
 
-    def fit_spots(self, PeakModel, max_dist=0.75):
+    def fit_spots(self, PeakModel, max_dist=0.5, sigma=1):
 
         # Find spots in self or from h5
         if not hasattr(self, 'spots'):
@@ -562,22 +619,23 @@ class XRDMap():
                 with h5py.File(self.h5, 'r') as f:
                     if 'reflections' in f['xrdmap'].keys():
                         print('Loading reflection spots from h5...', end='', flush=True)
-                        spots = pd.read_hdf(h5_path, key='xrdmap/reflections/spots')
+                        spots = pd.read_hdf(self.h5, key='xrdmap/reflections/spots')
                         self.spots = spots
                         print('done!')
                     else:
-                        raise IOError('XRDMap does not have any reflection spots! Please find spots first.')
+                        raise AttributeError('XRDMap does not have any reflection spots! Please find spots first.')
             else:
-                raise IOError('XRDMap does not have any reflection spots! Please find spots first.')
+                raise AttributeError('XRDMap does not have any reflection spots! Please find spots first.')
 
         # Generate the base list of spots from the refined guess parameters
         #spot_list = remake_spot_list(self.spots, self.map.map_shape)
 
         # Generate list of x, y, I, and spot indices for each blob/spots fits
-        spot_fit_info_list = prepare_fit_spots(self, max_dist=max_dist)
+        spot_fit_info_list = prepare_fit_spots(self, max_dist=max_dist, sigma=sigma)
         
         # Fits spots and adds the fit results to the spots dataframe
         fit_spots(self, spot_fit_info_list, PeakModel)
+        self.spot_model = PeakModel
 
         # Save spots to h5
         if self.h5 is not None:
@@ -585,6 +643,21 @@ class XRDMap():
             #    # Check for and remove existing spots...
             #    if 'spots' in f['xrdmap/reflections']:
             #        del f['xrdmap/reflections/spots']
+            self.spots.to_hdf(self.h5, 'xrdmap/reflections/spots', format='table')
+            with h5py.File(self.h5, 'a') as f:
+                f['xrdmap/reflections'].attrs['spot_model'] = PeakModel.name
+
+
+    def initial_spot_analysis(self, PeakModel=None):
+
+        if PeakModel is None and hasattr(self, 'spot_model'):
+            PeakModel = self.spot_model
+
+        # Initial spot analysis...
+        _initial_spot_analysis(self, PeakModel=PeakModel)
+
+        # Save spots to h5
+        if self.h5 is not None:
             self.spots.to_hdf(self.h5, 'xrdmap/reflections/spots', format='table')
 
 
@@ -607,16 +680,190 @@ class XRDMap():
     ### Plotting Functions ###
     ##########################
 
-    def interactive_image_map(self, display_map=None, display_title=None):
-        # Map current images for dynamic exploration of dataset
-        raise NotImplementedError()
+    def plot_image(self, image=None, indices=None, title=None,
+                mask=None, spots=False, contours=False,
+                aspect='auto', vmin=None, 
+                return_plot=False,
+                **kwargs):
+        
+        # Check image type
+        if image is not None:
+            image = np.asarray(image)
+            if len(image.shape) == 1 and len(image) == 2:
+                indices = tuple(iter(image))
+                image = self.map.images[indices]
+            elif len(image.shape) == 2:
+                if indices is not None:
+                    indices = tuple(indices)
+            else:
+                raise ValueError(f"Incorrect image shape of {image.shape}. Should be two-dimensional.")
+        else:
+            if indices is not None:
+                indices = tuple(indices)
+                image = self.map.images[indices]
+            else:
+                i = np.random.randint(self.map.map_shape[0])
+                j = np.random.randint(self.map.map_shape[1])
+                indices = (i, j)
+                image = self.map.images[indices]
+
+        # Check for mask
+        if mask is not None:
+            if mask is True:
+                image = image * self.map.mask
+            elif np.asarray(mask).shape == image.shape:
+                image = image * mask
+            else:
+                raise RuntimeError("Error handling mask input.")
+            
+        # Plot image
+        fig, ax = plt.subplots(1, 1, figsize=(5, 5), dpi=200)
+        # Allow some flexibility for kwarg inputs
+        plot_kwargs = {'c' : 'r',
+                    'lw' : 0.5,
+                    's' : 1}
+        for key in plot_kwargs.keys():
+            if key in kwargs.keys():
+                plot_kwargs[key] = kwargs[key]
+                del kwargs[key]
+
+        if hasattr(self.map, 'extent'):
+            if vmin == None:
+                vmin = 0
+            im = ax.imshow(image, extent=self.extent, vmin=vmin, aspect=aspect, **kwargs)
+            ax.set_xlabel('Scattering Angle, 2θ [°]') # Assumes degrees. Need to change...
+            ax.set_ylabel('Azimuthal Angle, χ [°]')
+        else:
+            im = ax.imshow(image, vmin=vmin, aspect=aspect, **kwargs)
+            ax.set_xlabel('X index')
+            ax.set_ylabel('Y index')
+        fig.colorbar(im, ax=ax) 
+
+        if title is not None:
+            ax.set_title(title)
+        elif indices is not None:
+            ax.set_title(f'Row = {indices[0]}, Col = {indices[1]}')
+        elif self.map.title is not None:
+            ax.set_title(self.map.title)
+        else:
+            ax.set_title('Input Image')
+
+        if indices is not None:
+            # Set some default values
+            
+            # Plot spots
+            if spots and hasattr(self, 'spots'):
+                pixel_df = self.spots[(self.spots['map_x'] == indices[0]) & (self.spots['map_y'] == indices[1])].copy()
+                if any([x[:3] == 'fit' for x in pixel_df.keys()]):
+                    pixel_df.dropna(axis=0, inplace=True)
+                    spots = pixel_df[['fit_chi0', 'fit_tth0']].values
+                else:
+                    spots = pixel_df[['guess_cen_chi', 'guess_cen_tth']].values
+
+                if not self.map.corrections['polar_calibration']:
+                    spots = estimate_image_coords(spots[:, ::-1], self.tth_arr, self.chi_arr)[:, ::-1]
+                ax.scatter(spots[:, 1], spots[:, 0], s=plot_kwargs['s'], c=plot_kwargs['c'])
+            
+            elif spots and not hasattr(self, 'spots'):
+                print('Warning: Plotting spots requested, but xrdmap does not have any spots!')
+
+            # Plot contours
+            if contours and hasattr(self.map, 'spot_masks'):
+                blob_img = label(self.map.spot_masks[indices])
+                blob_contours = find_blob_contours(blob_img)
+                for contour in blob_contours:
+                    if self.map.corrections['polar_calibration']:
+                        contour = estimate_polar_coords(contour.T, self.tth_arr, self.chi_arr).T
+                    ax.plot(*contour, c=plot_kwargs['c'], lw=plot_kwargs['lw'])
+                
+            elif contours and not hasattr(self, 'spot_masks'):
+                print('Warning: Plotting spots requested, but xrdmap does not have any spots!')
+        
+        elif spots or contours:
+            print('Warning: Cannot request spots or contours without providing map indices!')
+
+        if return_plot:
+            return fig, ax
+        
+        plt.show()
+
+
+    def plot_reconstruction(self, indices=None, plot_residual=False, **kwargs):
+        if not hasattr(self, 'spots'):
+            raise RuntimeError('xrdmap does not have any spots!')
+
+        if indices is None:
+            i = np.random.randint(self.map.map_shape[0])
+            j = np.random.randint(self.map.map_shape[1])
+            indices = (i, j)
+        else:
+            indices = tuple(indices)
+        
+        if hasattr(self, 'spot_model'):
+            spot_model = self.spot_model
+        else:
+            print('Warning: No spot model saved. Defaulting to Gaussian.')
+            spot_model = GaussianFunctions
+        
+        pixel_df = self.spots[(self.spots['map_x'] == indices[0]) & (self.spots['map_y'] == indices[1])].copy()
+
+        if any([x[:3] == 'fit' for x in pixel_df.keys()]):
+            prefix = 'fit'
+            pixel_df.dropna(axis=0, inplace=True)
+            param_labels = [x for x in self.spots.loc[0].keys() if x[:3] == 'fit'][:6]
+        else:
+            prefix = 'guess'
+            param_labels = ['height', 'cen_tth', 'cen_chi', 'fwhm_tth', 'fwhm_chi']
+            param_labels = [f'guess_{param_label}' for param_label in param_labels]
+            spot_model = GaussianFunctions
+
+        fit_args = []
+        for index in pixel_df.index:
+            fit_args.extend(pixel_df.loc[index, param_labels].values)
+            if prefix == 'guess':
+                fit_args.append(0) # Filling in theta value
+
+        if len(fit_args) > 0:
+            #return fit_args
+            recon_image = spot_model.multi_2d([self.tth_arr.ravel(), self.chi_arr.ravel()], 0, *fit_args)
+            recon_image = recon_image.reshape(self.map.images.shape[-2:])
+        else:
+            recon_image = np.zeros(self.map.images.shape[-2:])
+
+        if not plot_residual:
+            fig, ax = self.plot_image(recon_image,
+                                return_plot=True, indices=indices,
+                                **kwargs)
+            plt.show()
+
+        else:
+            image = self.map.images[indices]
+            residual = recon_image - image
+            ext = np.max(np.abs(residual[self.map.mask]))
+            fig, ax = self.plot_image(residual,
+                                title=f'Residual of ({indices[0]}, {indices[1]})',
+                                return_plot=True, indices=indices,
+                                vmin=-ext, vmax=ext, cmap='bwr', # c='k',
+                                **kwargs)
+            plt.show()
+
+
+    def plot_interactive_map(self, tth=None, chi=None, **kwargs):
+        # I should probably rebuild these to not need tth and chi
+        if hasattr(self, 'tth') and tth is None:
+            tth = self.tth
+        if hasattr(self, 'chi') and chi is None:
+            chi = self.chi
+            
+        interactive_dynamic_2d_plot(self.map.images, tth=tth, chi=chi, **kwargs)
     
-    def interactive_integration_map(self, display_map=None, display_title=None):
+
+    def Plot_interactive_integration_map(self, display_map=None, display_title=None):
         # Map integrated patterns for dynamic exploration of dataset
         # May throw an error if data has not yet been integrated
         raise NotImplementedError()
     
-    def map_value(self, data, cmap='Viridis'):
+    def plot_map_value(self, data, cmap='viridis'):
         # Simple base mapping function for analyzed values.
         # Will expand to map phase assignment, phase integrated intensity, etc.
         raise NotImplementedError()
@@ -624,3 +871,92 @@ class XRDMap():
     # Dual plotting a map with a representation of the full data would be very interesting
     # Something like the full strain tensor which updates over each pixel
     # Or similar for dynamically updating pole figures
+
+
+    ##################################
+    ### Plot Experimental Geometry ###
+    ##################################
+
+    def plot_q_space(self, pixel_indices=None, skip=500):
+ 
+        q = get_q_vect(self.tth_arr, self.chi_arr, wavelength=self.wavelength)
+
+        if pixel_indices is not None:
+            pixel_df = self.spots[(self.spots['map_x'] == pixel_indices[0])
+                                    & (self.spots['map_y'] == pixel_indices[1])].copy()
+
+        fig, ax = plt.subplots(1, 1, figsize=(5, 5), dpi=200, subplot_kw={'projection':'3d'})
+
+        # Plot sampled Ewald sphere
+        q_mask = q[:, self.map.mask]
+        ax.plot_trisurf(q_mask[0].ravel()[::skip],
+                        q_mask[1].ravel()[::skip],
+                        q_mask[2].ravel()[::skip],
+                        alpha=0.5, label='detector')
+
+        # Plot full Ewald sphere
+        u = np.linspace(0, 2 * np.pi, 100)
+        v = np.linspace(0, np.pi, 100)
+        radius = 2 * np.pi / test.wavelength
+        x =  radius * np.outer(np.cos(u), np.sin(v))
+        y = radius * np.outer(np.sin(u), np.sin(v))
+        z = radius * np.outer(np.ones(np.size(u)), np.cos(v))
+        ax.plot_surface(x, y, z - radius, alpha=0.2, color='k', label='Ewald sphere')
+
+        if pixel_indices is not None:
+            ax.scatter(*pixel_df.loc[['qx', 'qy', 'qz']].values.T, s=1, c='r', label='spots')
+
+        # Sample geometry
+        ax.quiver([0, 0], [0, 0], [-2 * radius, -radius], [0, 0], [0, 0], [radius, radius], colors='k')
+        ax.scatter(0, 0, 0, marker='o', s=10, facecolors='none', edgecolors='k', label='transmission')
+        ax.scatter(0, 0, -radius, marker='h', s=10, c='b', label='sample')
+
+        ax.set_xlabel('qx [Å⁻¹]')
+        ax.set_ylabel('qy [Å⁻¹]')
+        ax.set_zlabel('qz [Å⁻¹]')
+        ax.set_aspect('equal')
+
+        # Initial view
+        ax.view_init(elev=-45, azim=90, roll=0)
+        plt.show()
+
+
+    def plot_detector_geometry(self, skip=300):
+
+        fig, ax = plt.subplots(1, 1, figsize=(5, 5), dpi=200, subplot_kw={'projection':'3d'})
+
+        # Plot detector position
+        xyz = self.ai.position_array()
+
+        xyz[:, :, 0] *= -1 # Transform to synchrotron standard. Not sure if correct
+
+        x = xyz[:, :, 0].ravel()[::skip]
+        y = xyz[:, :, 1].ravel()[::skip]
+        z = xyz[:, :, 2].ravel()[::skip]
+
+        ax.plot_trisurf(x, y, z,
+                        alpha=0.5, label='detector')
+
+        # X-ray beam
+        radius = self.ai.dist
+        ax.quiver([0], [0], [-radius], [0], [0], [radius], colors='k')
+        ax.scatter(0, 0, 0, marker='h', s=10, c='b', label='sample')
+
+        # Detector
+        corner_indices = np.array([[0, 0], [-1, 0], [0, -1], [-1, -1]]).T
+        corn = xyz[*corner_indices].T
+        ax.quiver([0,] * 4,
+                [0,] * 4,
+                [0,] * 4,
+                corn[0],
+                corn[1],
+                corn[2], colors='gray', lw=0.5)
+
+        ax.set_xlabel('x [m]')
+        ax.set_ylabel('y [m]')
+        ax.set_zlabel('z [m]')
+        ax.set_aspect('equal')
+
+        # Initial view
+        ax.view_init(elev=-60, azim=90, roll=0)
+        plt.show()
