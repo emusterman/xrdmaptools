@@ -367,6 +367,7 @@ def acquire_dark_fields(xrd_dets, num, param_dict=None):
 
     # Define some useful variables
     e_cen = (e_high + e_low) / 2
+    e_cen = (e_high + e_low) / 2
     e_range = np.linspace(e_low, e_high, e_num)
 
     # Defining scan metadata
