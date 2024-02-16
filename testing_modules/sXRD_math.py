@@ -94,6 +94,18 @@ def circular_mask(shape, center, radius):
     return mask
 
 
+def plane_eq(xy, a, b, c):
+
+    if len(xy) != 2:
+        raise IOError("xy input must be length 2.")
+        
+    x = xy[0]
+    y = xy[1]
+
+    return a * x + b * y + c
+    
+
+
 '''# Works for 1d and 2d peaks. Ignores arguments with defualt values
 def multi_peak_fitting(x, peak_function, *params):
     # Get function input variable names, excluding 'x' or '(xy)' and any default arguments

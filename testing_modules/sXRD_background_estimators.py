@@ -1,6 +1,7 @@
 import numpy as np
 from skimage import restoration
 from scipy.ndimage import gaussian_filter, uniform_filter, median_filter
+from skimage.transform import resize
 from scipy.optimize import curve_fit
 from scipy.interpolate import RectBivariateSpline
 from tqdm import tqdm
@@ -14,22 +15,26 @@ from tqdm.dask import TqdmCallback
 
 ### ImageMap ###
 
-
+# Unused general masked filter function
 def masked_filter(imagemap, filter, mask=None, **kwargs):
     if mask is None:
         mask = np.empty_like(imagemap.images, dtype=np.bool_)
         mask[:, :] = imagemap.mask
+    elif mask.ndim == 2:
+        image_mask = mask.copy()
+        mask = np.empty_like(imagemap.images, dtype=np.bool_)
+        mask[:, :] = image_mask
 
     for key, value in kwargs.items():
         if isinstance(value, (int, float)):
             kwargs[key] = (0, 0, value, value)
 
-    zero_image = np.copy(imagemap.images)
+    zero_image = imagemap.images.copy()
     zero_image[~mask] = 0 # should be redundant
     gauss_zero = filter(zero_image, **kwargs)
 
     # This block is redundant when calling this serveral several times...
-    div_image = 0 * np.copy(imagemap.images) + 1
+    div_image = np.ones_like(imagemap.images)
     div_image[~mask] = 0
     gauss_div = filter(div_image, **kwargs)
 
@@ -44,19 +49,23 @@ def masked_gaussian_background(imagemap, sigma=100, mask=None):
     if mask is None:
         mask = np.empty_like(imagemap.images, dtype=np.bool_)
         mask[:, :] = imagemap.mask
+    elif mask.ndim == 2:
+        image_mask = mask.copy()
+        mask = np.empty_like(imagemap.images, dtype=np.bool_)
+        mask[:, :] = image_mask
 
-    zero_image = np.copy(imagemap.images)
+    zero_image = imagemap.images.copy()
     zero_image[~mask] = 0 # should be redundant
     gauss_zero = gaussian_filter(zero_image, sigma=(0, 0, sigma, sigma))
 
-    div_image = 0 * np.copy(imagemap.images) + 1
+    div_image = np.ones_like(imagemap.images)
     div_image[~mask] = 0
     gauss_div = gaussian_filter(div_image, sigma=(0, 0, sigma, sigma))
 
     overlap = gauss_zero / gauss_div
     overlap[~mask] = 0
     
-    return overlap
+    return overlap # Always returned as ndarray. Something with gaussian_filter()
 
 
 # Very slow and not very accurate
@@ -68,6 +77,7 @@ def fit_poly_bkg(imagemap, order=3, mask=None):
         else:
             mask = np.ones_like(imagemap.images.shape[-2:])
             print('Warning: No mask could be constructed.')
+    
 
     bkg_map = np.zeros_like(imagemap.images) 
 
@@ -142,7 +152,6 @@ def fit_spline_bkg(imagemap, mask=None, sparsity=0.5, s=5000):
 def masked_bruckner_background(imagemap, size=10, max_iterations=100,
                                      binning=2, min_prominence=0.1,
                                      mask=None, verbose=False):
-    from skimage.transform import resize
 
     image_shape = imagemap.images.shape[-2:]
 

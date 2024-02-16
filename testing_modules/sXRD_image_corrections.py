@@ -1,9 +1,13 @@
 import numpy as np
 from skimage import restoration
-from scipy.ndimage import median_filter
+import scipy.ndimage as ndi
+import scipy.io as io
+from dask_image import ndfilters as dask_ndi
+from dask_image import imread as dask_io
 from tqdm import tqdm
 import dask
 from tqdm.dask import TqdmCallback
+import dask.array as da
 
 
 
@@ -19,7 +23,53 @@ def interpolate_merlin_mask(masked_img):
     return healed_img
 
 
-def find_outlier_pixels(data, size=2, tolerance=3, significance=None):
+# Now with dask support!
+def find_outlier_pixels(images, size=2, tolerance=2):
+    '''
+    images      (arr)   Input ND images. Last two dimensions should be the 2D image   
+    size        (float) Size of median window. 2 by default only accounts for nearest neighbor pixels
+    tolerance   (float) Multiplier value above which to consider a pixel as an outlier. By default 2 times the median value
+    TODO better account for significance.
+    '''
+
+    data = images.copy()
+
+    size_iter = np.ones(data.ndim, dtype=np.int8)
+    size_iter[-2:] = size, size
+
+    if isinstance(data, da.core.Array):
+        med_image = dask_ndi.median_filter(data, size=size_iter)
+    else:
+        med_image = ndi.median_filter(data, size=size_iter)
+
+    ratio_image = np.abs(data / med_image)
+
+    replace_mask = (ratio_image > tolerance)
+
+    # Replace values with median values
+    # Direct replace fails with dask arrays
+    data[replace_mask] = 0
+    med_image[~replace_mask] = 0
+    data += med_image
+
+    #masked_data = da.ma.masked_array(data, mask=replace_mask, fill_value=0)
+    #masked_med = da.ma.masked_array(med_image, mask=~replace_mask, fill_value=0)
+    #new_data = da.ma.filled(masked_data + masked_med)
+    # Conditional for dask arrays
+    #if isinstance(data, da.core.Array):
+    #    data = data.compute()
+    #    replace_mask = replace_mask.compute()
+
+    # I dont't like this, but it works
+    #replace_mask = replace_mask.compute()
+
+    #for index in zip(*np.where(replace_mask)):
+    #    data[index] = med_image[index]
+
+    return data
+
+
+def old_find_outlier_pixels(data, size=2, tolerance=3, significance=None):
     '''
     data        (arr)   Input 2D image. Cannot handle higher dimensional data yet...   
     size        (float) Size of median window. 2 by default only accounts for nearest neighbor pixels
@@ -29,7 +79,7 @@ def find_outlier_pixels(data, size=2, tolerance=3, significance=None):
     TODO better account for significance. Better account for multidimensional data...
     '''
 
-    med_img = median_filter(data, size=size, mode='mirror')
+    med_img = ndi.median_filter(data, size=size, mode='mirror')
 
     ratio_img = np.abs(data / med_img)
     diff_img = np.abs(data - med_img)

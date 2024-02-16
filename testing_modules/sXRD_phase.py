@@ -11,8 +11,9 @@ from collections import OrderedDict
 
 
 class Phase(xu.materials.Crystal):
-    # TODO: Add specifiic calls useful for this analysis
+    # TODO: Add specific calls useful for this analysis
     # Find way to generate Phase class automatically from XRD card files too
+    # Add flag to limit functionality depending on if from cif or XRD card
 
     def __init__(self, name, lat, energy=None, tth=None):
         super().__init__(name, lat, cij=None, thetaDebye=None)
@@ -24,13 +25,20 @@ class Phase(xu.materials.Crystal):
             self.tth_range = (np.min(tth), np.max(tth))
 
     def __str__(self):
-        ostr = f'{self.name} crystal phase class\n'
-        ostr += super().__repr__()
-        return ostr
+        return f'{self.name} crystal phase'
     
-    def __repr__(self): # Do I need this??
-        return f'{self.name} crystal phase class\n' # This is probably backwards from what it should be...
 
+    def __repr__(self):
+        ostr = f'{self.name} crystal phase'
+        # Gettin the lattice information is just a bit to much
+        # TODO: Parse down lattice information to sleaker format
+        #if hasattr(self, 'lattice'):
+        #    ostr += '\t'.join(self.lattice.__str__().splitlines(True))
+        return ostr
+
+
+
+    ### Class methods, Static methods, and Properties
 
     @classmethod
     def from_xrd_card(cls):
@@ -40,9 +48,9 @@ class Phase(xu.materials.Crystal):
     
 
     @classmethod
-    def from_h5(cls, group, **kwargs):
-        # Load values to reconstruct phase instance from standard h5 group or dataset
-        # Will need to implement a save to h5 group function as well...    
+    def from_hdf(cls, group, **kwargs):
+        # Load values to reconstruct phase instance from standard hdf group or dataset
+        # Will need to implement a save to hdf group function as well...    
         name = group.name.split('/')[-1]
         
         params = OrderedDict()
@@ -56,7 +64,7 @@ class Phase(xu.materials.Crystal):
         wbase = group['WyckoffBase']
         atom_lst = []
         for atom_key in wbase.keys():
-            atom = Atom(atom_key, wbase[atom_key].attrs['number'])
+            atom = Atom(atom_key.split('[')[0], wbase[atom_key].attrs['number'])
             #atom = Atom(atom_key, atom_dict[atom_key])
             pos = wbase[atom_key].attrs['position']
             if np.any(np.isnan(wbase[atom_key][0])):
@@ -72,7 +80,7 @@ class Phase(xu.materials.Crystal):
         return cls(name, lattice, **kwargs)
     
 
-    def save_to_h5(self, parent_group):
+    def save_to_hdf(self, parent_group):
         iphase = parent_group.require_group(self.name)
     
         # Mostly saves lattice information...
@@ -83,11 +91,11 @@ class Phase(xu.materials.Crystal):
         iphase.attrs['space_group_number'] = sgrp_sym[int(self.lattice.space_group.split(':')[0])][0]
 
         wbase = iphase.require_group('WyckoffBase')
-        for atom in self.lattice._wbase:
+        for i, atom in enumerate(self.lattice._wbase):
             data = np.array(atom[1][1:])
             #data = np.array([np.nan for pos in data if pos is None else pos])
             data = np.array([np.nan if pos is None else pos for pos in data])
-            dset = wbase.require_dataset(atom[0].name, data=data, shape=data.shape, dtype=data.dtype)
+            dset = wbase.require_dataset(f'{atom[0].name}[{i}]', data=data, shape=data.shape, dtype=data.dtype)
             dset.attrs['number'] = atom[0].num
             dset.attrs['position'] = atom[1][0]
     
@@ -101,12 +109,43 @@ class Phase(xu.materials.Crystal):
         if val < 1e3:
             val *= 1e3
         self._energy = val
+
         return self._energy
+
+
+    @staticmethod
+    def get_sym_args(sgrp, params):
+
+        sgrp = str(sgrp).lower()
+        sgrp = sgrp.split(':')[0]
+
+        if sgrp in ['triclinic', *[str(num) for num in range(1, 3)]]:
+            args = [params[key] for key in ['a', 'b', 'c', 'alpha', 'beta', 'gamma']]
+
+        elif sgrp in ['monoclinic', *[str(num) for num in range(3, 16)]]:
+            args = [params[key] for key in ['a', 'b', 'c', 'beta']]
+
+        elif sgrp in ['orthorhombic', *[str(num) for num in range(16, 75)]]:
+            args = [params[key] for key in ['a', 'b', 'c']]
+
+        elif sgrp in ['tetragonal', *[str(num) for num in range(75, 143)]]:
+            args = [params[key] for key in ['a', 'c']]
+
+        elif sgrp in ['trigonal', *[str(num) for num in range(143, 168)]]:
+            args = [params[key] for key in ['a', 'c']]
+
+        elif sgrp in ['hexagonal', *[str(num) for num in range(168, 195)]]:
+            args = [params[key] for key in ['a', 'c']]
+
+        elif sgrp in ['cubic', *[str(num) for num in range(195, 231)]]:
+            args = [params[key] for key in ['a']]
+
+        return args
 
 
     # This might be able to be done without invoking the simpack module...
     # May need to add a conditional to pass this function if Phase generated from XRD card
-    def get_hkl_reflections(self, tth_range=None, energy=None, ignore_less=1):
+    def get_hkl_reflections(self, tth_range=None, energy=None, ignore_less=1, save_reflections=True):
         if energy is None:
             if hasattr(self, 'energy'):
                 energy = self.energy
@@ -157,51 +196,18 @@ class Phase(xu.materials.Crystal):
             'd' : np.array(d_list)[mask]
             }
         
-        self.reflections = data
-
-        '''planes_data = xu.simpack.PowderDiffraction(self, en=energy, tt_cutoff=tth_range[1]).data
-
-        refl_lst = []
-        ang_lst = []
-        d_lst = []
-        q_lst = []
-        int_lst = []
-
-        for i, refl in enumerate(planes_data):
-            ang = 2 * planes_data[refl]['ang']
-            if ang < tth_range[0]: # Skips tth values less than lower bound
-                continue
-            d = self.planeDistance(refl)
-            q = planes_data[refl]['qpos']
-            int = planes_data[refl]['r']
-
-            refl_lst.append(refl)
-            ang_lst.append(ang)
-            d_lst.append(d)
-            q_lst.append(q)
-            int_lst.append(int)
-
-        refl_lst = np.array(refl_lst)[np.array(int_lst) > ignore_less]
-        ang_lst = np.array(ang_lst)[np.array(int_lst) > ignore_less]
-        d_lst = np.array(d_lst)[np.array(int_lst) > ignore_less]
-        q_lst = np.array(q_lst)[np.array(int_lst) > ignore_less]
-        int_lst = np.array(int_lst)[np.array(int_lst) > ignore_less]
-
-        data = {
-            'd' : d_lst,
-            'q' : q_lst,
-            'tth' : ang_lst,
-            'hkl' : refl_lst,
-            'int' : int_lst
-        }'''
-
-        
-        
+        if save_reflections:
+            self.reflections = data
+        else:
+            return data
     
+
     def planeDistances(self, hkl_lst):
         # Re-write of planeDistance to accomadate multiple plances at once
         return 2 * np.pi / np.linalg.norm(self.Q(hkl_lst), axis=1)
     
+
+    # Horribly optimized...
     def planeAngles(self, hkl1, hkl2):
         # Double-check to make sure this is still used in the final version
         a, b, c = list(self.lattice._parameters.values())[:3]
@@ -242,41 +248,16 @@ class Phase(xu.materials.Crystal):
         # Output such that phi[0] will yield planar angles for hkl1[0]
         phi = np.diag(phi).reshape(len(hkl1), len(hkl2)).T
         return phi
-    
-    @staticmethod
-    def get_sym_args(sgrp, params):
 
-        sgrp = str(sgrp).lower()
-        sgrp = sgrp.split(':')[0]
-
-        if sgrp in ['triclinic', *[str(num) for num in range(1, 3)]]:
-            args = [params[key] for key in ['a', 'b', 'c', 'alpha', 'beta', 'gamma']]
-
-        elif sgrp in ['monoclinic', *[str(num) for num in range(3, 16)]]:
-            args = [params[key] for key in ['a', 'b', 'c', 'beta']]
-
-        elif sgrp in ['orthorhombic', *[str(num) for num in range(16, 75)]]:
-            args = [params[key] for key in ['a', 'b', 'c']]
-
-        elif sgrp in ['tetragonal', *[str(num) for num in range(75, 143)]]:
-            args = [params[key] for key in ['a', 'c']]
-
-        elif sgrp in ['trigonal', *[str(num) for num in range(143, 168)]]:
-            args = [params[key] for key in ['a', 'c']]
-
-        elif sgrp in ['hexagonal', *[str(num) for num in range(168, 195)]]:
-            args = [params[key] for key in ['a', 'c']]
-
-        elif sgrp in ['cubic', *[str(num) for num in range(195, 231)]]:
-            args = [params[key] for key in ['a']]
-
-        return args
-
+#######################
+### Other Functions ###
+#######################
 
 
 # filedir and filename need conditionals
 # Should probably wrap this into the phase class as well...
 # Need to better identify and consolidate peaks with convolution as well
+# Overall this is very old and needs to be rewritten
 def write_calibration_file(mat, name=None, tt_cutoff=90, ignore_less=1,
                            filedir=None, filename=None,
                            simulate_convolution=False):
@@ -347,9 +328,9 @@ def write_calibration_file(mat, name=None, tt_cutoff=90, ignore_less=1,
 
     return header + data
 
-
+# WIP...obviously...
 def approximate_powder_xrd(xrd_map, poni, energy=None, background=None):
-    return
+    raise NotImplementedError()
 
 
 def phase_selector(xrd, phases, tth, ignore_less=1):
@@ -437,6 +418,33 @@ def phase_selector(xrd, phases, tth, ignore_less=1):
     plt.show(block=True)
     plt.pause(0.01)
     return phase_vals
+
+
+# TODO: implement into Phase class
+def generate_reciprocal_lattice(phase, tth_range=(0, 90)):
+    # Example
+    # all_hkls, all_qs, all_fs = generate_reciprocal_lattice(test.phases['Stibnite'],
+                                #tth_range=(np.min(test.tth_arr), np.max(test.tth_arr)))
+
+    reflections = phase.get_hkl_reflections(tth_range=tth_range, save_reflections=False)
+
+    all_hkls = []
+    all_qs = []
+    all_fs = []
+    for refl in reflections['hkl']:
+        equi_refl = phase.lattice.equivalent_hkls(refl)
+
+        for refl_i in equi_refl:
+            all_hkls.append(refl_i)
+            all_qs.append(phase.Q(refl_i))
+            # Q values are in 1/A
+
+    all_fs = np.abs(phase.StructureFactorForQ(all_qs, en0=phase.energy))
+    all_fs = rescale_array(all_fs, lower=1, upper=100)
+
+    return all_hkls, all_qs, all_fs
+
+
     
 
     

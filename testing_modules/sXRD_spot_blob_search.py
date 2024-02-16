@@ -12,6 +12,7 @@ from skimage.segmentation import watershed
 from scipy import ndimage as ndi
 from tqdm.dask import TqdmCallback
 from tqdm import tqdm
+import dask.array as da
 from collections import OrderedDict
 
 
@@ -45,23 +46,28 @@ def spot_search(scaled_image, mask=None, threshold_method='gaussian',
 
     # Mask image
     mask_thresh = image_offset + multiplier * image_noise
+
+    # Setup filter for the images
+    # Works okay
+    if str(threshold_method).lower() in ['gaussian', 'gauss']:
+        image_filter = lambda image : gaussian_filter(image, sigma=size)
+    # Works best
+    elif str(threshold_method).lower() in ['minimum', 'min']:
+        image_filter = lambda image : minimum_filter(gaussian_filter(image, sigma=1), size=size)
+    # Gaussian is better and faster
+    elif str(threshold_method).lower() in ['median', 'med']:
+        image_filter = lambda image : median_filter(image, size=size)
+    else:
+        raise ValueError('Unknown threshold method requested.')
     
     # Smooth image to reduce noise contributions
     zero_image = np.copy(scaled_image)
     zero_image[~mask] = 0 # should be redundant
-    gauss_zero = gaussian_filter(zero_image, sigma=size)
-    #gauss_zero = median_filter(zero_image, size=size)
-    #gauss_zero = uniform_filter(zero_image, size=size)
-    #gauss_zero = maximum_filter(zero_image, size=size)
-    #gauss_zero = gaussian_filter(median_filter(zero_image, size=5), sigma=size)
+    gauss_zero = image_filter(zero_image, sigma=size)
 
     div_image = np.ones_like(scaled_image)
     div_image[~mask] = 0
-    gauss_div = gaussian_filter(div_image, sigma=size)
-    #gauss_div = median_filter(div_image, size=size)
-    #gauss_div = uniform_filter(div_image, size=size)
-    #gauss_div = maximum_filter(div_image, size=size)
-    #gauss_div = gaussian_filter(median_filter(div_image, size=5), sigma=size)
+    gauss_div = image_filter(div_image, sigma=size)
 
     thresh_img = gauss_zero / gauss_div
     # Clean up some NaNs from median filters
@@ -72,6 +78,13 @@ def spot_search(scaled_image, mask=None, threshold_method='gaussian',
     # Create mask for peak search
     peak_mask = thresh_img > mask_thresh
     peak_mask *= mask
+
+    # Exclude edges from analysis
+    # They can be erroneous from filters
+    peak_mask[0] = 0
+    peak_mask[-1] = 0
+    peak_mask[:, 0] = 0
+    peak_mask[:, -1] = 0
 
     spots = peak_local_max(thresh_img,
                            #threshold_rel=image_noise,
@@ -174,13 +187,19 @@ def find_spots(imagemap, mask=None,
 
     # Create list of delayed tasks
     delayed_list = []
-    for image in tqdm(iter_image, desc='Scheduling spot search...'):
+    print('Scheduling spot search...')
+    for image in tqdm(iter_image):
+        # Convert dask to numpy arrays
+        if isinstance(image, da.core.Array):
+            image = image.compute()
+
         output = dask_spot_search(image, mask=mask, threshold_method=threshold_method,
                                                 multiplier=multiplier, size=size)
         delayed_list.append(output)
 
     # Process delayed tasks with callback
-    with TqdmCallback(desc='Searching images for spots...', tqdm_class=tqdm):
+    print('Searching images for spots...')
+    with TqdmCallback(tqdm_class=tqdm):
         proc_list = dask.compute(*delayed_list)
 
     # Separate outputs of original spot search function
@@ -261,8 +280,13 @@ def find_spot_stats(imagemap, spot_list, tth_arr, chi_arr, radius=5):
 
     delayed_list = []
     num_spots = np.sum([len(spots) for spots in spot_list])
-    with tqdm(total=num_spots, desc='Scheduling spot characterization...') as pbar:
+    print('Scheduling spot characterization...')
+    with tqdm(total=num_spots) as pbar:
         for spots, image in zip(spot_list, iter_image):
+            # Convert dask to numpy arrays
+            if isinstance(image, da.core.Array):
+                image = image.compute()
+
             delayed_stats = []
             if len(spots) > 0: # Ignore images without spots
                 for spot in spots:
@@ -271,8 +295,8 @@ def find_spot_stats(imagemap, spot_list, tth_arr, chi_arr, radius=5):
                     pbar.update(1)
             delayed_list.append(delayed_stats)
 
-
-    with TqdmCallback(desc='Estimating spot characteristics...', tqdm_class=tqdm):
+    print('Estimating spot characteristics...')
+    with TqdmCallback(tqdm_class=tqdm):
         stats_list = dask.compute(*delayed_list)
     
     return stats_list
@@ -335,6 +359,7 @@ def remake_spot_list(stat_df, map_shape):
 
 
 # are spots in image or polar coordinates?? Affects the scale of max_dist
+# Should take tth_arr and chi_arr arguments
 def combine_nearby_spots(spots, max_dist=0.5, max_neighbors=np.inf):
 
     data = label_nearest_spots(spots, max_dist=max_dist,
@@ -497,7 +522,9 @@ def old_segment_blobs(xrdmap, map_indices, spots, mask, blurred_image, max_dist=
     
     return output_list
 
-
+# TODO: Combine prepare_fit_spots and fit_spots in one big function with a couple of delay calls
+# in the current iteration, the the spot_fit_info_list variable can be 75% the size of the full dataset
+# this needs to be smaller or only transiently in memory
 def prepare_fit_spots(xrdmap, max_dist=0.75, sigma=1):
     map_shape = xrdmap.map.map_shape
     spot_list = remake_spot_list(xrdmap.spots, map_shape)
@@ -507,17 +534,24 @@ def prepare_fit_spots(xrdmap, max_dist=0.75, sigma=1):
         return segment_blobs(xrdmap, map_indices, spots, mask, blurred_image, max_dist=max_dist)
 
     delayed_list = []
-    for index in tqdm(range(len(spot_list)), desc='Scheduling blob segmentation for spot fits...'):
+    print('Scheduling blob segmentation for spot fits...')
+    for index in tqdm(range(len(spot_list))):
         indices = np.unravel_index(index, map_shape)
         mask = xrdmap.map.spot_masks[indices]
+        image = xrdmap.map.images[indices]
+
+        if isinstance(image, da.core.Array):
+            image = image.compute()
+            
         # Hard-coded sigma in pixel units. Not the best...
-        blurred_image = gaussian_filter(median_filter(xrdmap.map.images[indices], size=2), sigma=sigma)
+        blurred_image = gaussian_filter(median_filter(image, size=2), sigma=sigma)
         #blurred_image = xrdmap.map.blurred_images[indices]
         
         spot_fits = delayed_segment_blobs(xrdmap, indices, spot_list[index], mask, blurred_image, max_dist)
         delayed_list.append(spot_fits)
 
-    with TqdmCallback(desc='Segmenting blobs for spot fits...', tqdm_class=tqdm):
+    print('Segmenting blobs for spot fits...')
+    with TqdmCallback(tqdm_class=tqdm):
         result_list = dask.compute(*delayed_list)
 
     # Clean up the output list
@@ -529,7 +563,7 @@ def prepare_fit_spots(xrdmap, max_dist=0.75, sigma=1):
     return output_list
 
 
-def fit_spots(xrdmap, spot_fit_info_list, PeakModel):
+def fit_spots(xrdmap, spot_fit_info_list, SpotModel):
 
     # Add fit results columns 
     nan_list = [np.nan,] * len(xrdmap.spots)
@@ -553,21 +587,19 @@ def fit_spots(xrdmap, spot_fit_info_list, PeakModel):
             #print(f'More unknowns than pixels in blob {blob_num}!')
             return [np.nan,] * (6 * len(spots_df) + 2) # Fit variables plus offset and r_squared
 
-
         p0 = [np.min(fit_int)] # Guess offset
         for index in spots_df.index:
             p0.extend(list(spots_df.loc[index][guess_labels].values))
             p0.append(0) # theta
 
-
-        bounds = generate_bounds(p0[1:], PeakModel.func_2d, tth_step=None, chi_step=None)
+        bounds = generate_bounds(p0[1:], SpotModel.func_2d, tth_step=None, chi_step=None)
         bounds[0].insert(0, -np.inf) # offset lower bound
         bounds[1].insert(0, np.max(fit_int)) # offset upper bound
 
         #print(f'Fitting {num_spots} spots...')
         try:
-            popt, _ = curve_fit(PeakModel.multi_2d, [fit_x, fit_y], fit_int, p0=p0, bounds=bounds)
-            r_squared = compute_r_squared(fit_int, PeakModel.multi_2d([fit_x, fit_y], *popt))
+            popt, _ = curve_fit(SpotModel.multi_2d, [fit_x, fit_y], fit_int, p0=p0, bounds=bounds)
+            r_squared = compute_r_squared(fit_int, SpotModel.multi_2d([fit_x, fit_y], *popt))
             #print(f'done! R² is {r_squared:.4f}')
         except RuntimeError:
             #print('Fitting failed!')
@@ -582,14 +614,16 @@ def fit_spots(xrdmap, spot_fit_info_list, PeakModel):
 
     # Scheduling delayed fits
     delayed_list = []
-    with tqdm(total=len(spot_fit_info_list), desc='Scheduling spot fits...') as pbar:
+    print('Scheduling spot fits...')
+    with tqdm(total=len(spot_fit_info_list)) as pbar:
         for blob_num, fit in enumerate(spot_fit_info_list):
             delayed_list.append(delayed_fit(xrdmap, fit))
             pbar.update(1)
 
     # Computation
     #print('Fitting spots...', end='', flush=True)
-    with TqdmCallback(desc='Fitting spots in blobs...', tqdm_class=tqdm):
+    print('Fitting spots in blobs...')
+    with TqdmCallback(tqdm_class=tqdm):
             dask.compute(*delayed_list)
 
     #print('done!')
@@ -808,7 +842,7 @@ def old_append_watershed_blobs(spots, mask, new_blob_image):
 
 
 # Currently only works for Gaussian and Lorentzian peak models(based on number of inputs)
-def old_fit_spots(image, blob_image, spots, PeakModel, tth=None, chi=None, verbose=False):
+def old_fit_spots(image, blob_image, spots, SpotModel, tth=None, chi=None, verbose=False):
     global _verbose
     _verbose = verbose
 
@@ -861,30 +895,30 @@ def old_fit_spots(image, blob_image, spots, PeakModel, tth=None, chi=None, verbo
             p0.append(0.05) # sigma_y
             p0.append(0) # theta
 
-        bounds = generate_bounds(p0[1:], PeakModel.func_2d, tth_step=None, chi_step=None)
+        bounds = generate_bounds(p0[1:], SpotModel.func_2d, tth_step=None, chi_step=None)
         bounds[0].insert(0, np.min(image)) # offset lower bound
         bounds[1].insert(0, np.max(image)) # offset upper bound
 
         try:
-            popt, pcov = curve_fit(PeakModel.multi_2d, [blob_x, blob_y], blob_int, p0=p0, bounds=bounds)
+            popt, pcov = curve_fit(SpotModel.multi_2d, [blob_x, blob_y], blob_int, p0=p0, bounds=bounds)
         except RuntimeError:
             vprint('\nPrevious sigma guess too far off. Guessing again...')
             try:
                 p0[1:][3::6] = [0.1,] * num_spots
                 p0[1:][4::6] = [0.1,] * num_spots
-                popt, pcov = curve_fit(PeakModel.multi_2d, [blob_x, blob_y], blob_int, p0=p0, bounds=bounds)
+                popt, pcov = curve_fit(SpotModel.multi_2d, [blob_x, blob_y], blob_int, p0=p0, bounds=bounds)
             except RuntimeError:
                 vprint('Previous sigma guess too far off. Guessing again...')
                 try:
                     p0[1:][3::6] = [1,] * num_spots
                     p0[1:][4::6] = [1,] * num_spots
-                    popt, pcov = curve_fit(PeakModel.multi_2d, [blob_x, blob_y], blob_int, p0=p0, bounds=bounds)
+                    popt, pcov = curve_fit(SpotModel.multi_2d, [blob_x, blob_y], blob_int, p0=p0, bounds=bounds)
                 except RuntimeError:
                     vprint('Cannot fit spots!')
                     popt = [np.nan,] * len(p0)
 
-        r_squared = compute_r_squared(blob_int, PeakModel.multi_2d([blob_x, blob_y], *popt))
-        #residual = blob_int - PeakModel.multi_2d([blob_x, blob_y], *popt)
+        r_squared = compute_r_squared(blob_int, SpotModel.multi_2d([blob_x, blob_y], *popt))
+        #residual = blob_int - SpotModel.multi_2d([blob_x, blob_y], *popt)
         vprint('done!')
         vprint(f'Fitting R²: {r_squared:.4f}')
 
@@ -895,7 +929,7 @@ def old_fit_spots(image, blob_image, spots, PeakModel, tth=None, chi=None, verbo
     model_fits = np.asarray(model_fits).reshape(len(model_fits) // 6, 6)
     model_fits = np.hstack((model_fits, np.asarray(offsets).reshape(len(offsets), 1)))
 
-    #abbr = PeakModel.abbr
+    #abbr = SpotModel.abbr
     dict_labels = [f'fit_amp',
                    f'fit_{x_label}',
                    f'fit_{y_label}',
@@ -913,7 +947,7 @@ def old_fit_spots(image, blob_image, spots, PeakModel, tth=None, chi=None, verbo
 
 # Big combined function!
 # This is what would be parallelized...
-def old_find_and_fit_spots(image, bkg_noise, PeakModel,
+def old_find_and_fit_spots(image, bkg_noise, SpotModel,
                        multiplier=10, sigma=3,
                        max_dist=20, max_neighbors=np.inf,
                        tth=None, chi=None, verbose=False):
@@ -938,7 +972,7 @@ def old_find_and_fit_spots(image, bkg_noise, PeakModel,
 
     # Fit spots within each blob
     print('Fitting spots...', end='', flush=True)
-    spot_dict = old_fit_spots(image, blob_image, spots, PeakModel,
+    spot_dict = old_fit_spots(image, blob_image, spots, SpotModel,
                           tth=tth, chi=chi, verbose=verbose)
     print('done!')
     
@@ -1087,7 +1121,7 @@ def old_find_blobs(img, thresh, method='gaussian_threshold',
 
 
 # Depracated in favor of spot search path
-def old_fit_blobs(img, thresh, blob_df, PeakModel,  tth=None, chi=None, plotme=False):
+def old_fit_blobs(img, thresh, blob_df, SpotModel,  tth=None, chi=None, plotme=False):
 
     x_coords, y_coords = np.meshgrid(tth, chi[::-1])
 
@@ -1112,18 +1146,18 @@ def old_fit_blobs(img, thresh, blob_df, PeakModel,  tth=None, chi=None, plotme=F
             0 # theta
         ]
 
-        bounds = generate_bounds(p0, PeakModel.func_2d, tth_step=None, chi_step=None)
+        bounds = generate_bounds(p0, SpotModel.func_2d, tth_step=None, chi_step=None)
         
         try:
-            popt, pcov = curve_fit(PeakModel.func_2d, (x_coords[blob_df['mask'][i]], y_coords[blob_df['mask'][i]]), img[blob_df['mask'][i]], p0=p0, bounds=bounds)
-            r_squared = compute_r_squared(img[blob_df['mask'][i]], PeakModel.func_2d((x_coords[blob_df['mask'][i]], y_coords[blob_df['mask'][i]]), *popt))
+            popt, pcov = curve_fit(SpotModel.func_2d, (x_coords[blob_df['mask'][i]], y_coords[blob_df['mask'][i]]), img[blob_df['mask'][i]], p0=p0, bounds=bounds)
+            r_squared = compute_r_squared(img[blob_df['mask'][i]], SpotModel.func_2d((x_coords[blob_df['mask'][i]], y_coords[blob_df['mask'][i]]), *popt))
             if not qualify_gaussian_2d_fit(r_squared, 2.5 * np.std(img), p0, popt):
                 print(f'Peak fitting exceeds predicted behavior for blob {i}. It may not be significant.')
                 raise RuntimeError("Peak fitting exceeds expected behavior.")
-            blob_gaussian_lst.append(np.append(popt, [r_squared, PeakModel])) 
+            blob_gaussian_lst.append(np.append(popt, [r_squared, SpotModel])) 
 
             if plotme:
-                fit_data = PeakModel.func_2d((x_coords, y_coords), *popt)
+                fit_data = SpotModel.func_2d((x_coords, y_coords), *popt)
                 ax.contour(x_coords, y_coords, fit_data.reshape(*img.shape), np.linspace(thresh, popt[0], 5), colors='w', linewidths=0.5)
                 ax.scatter(popt[1], popt[2], s=1, c='r')
 
@@ -1189,7 +1223,7 @@ def old_find_blob_spots(img, blob_df, tth=None, chi=None,
 
 # Depracated in favor of spot search path
 # WIP
-def old_adaptive_spot_fitting(img, blob_df, thresh, PeakModel, tth=None, chi=None,
+def old_adaptive_spot_fitting(img, blob_df, thresh, SpotModel, tth=None, chi=None,
                           plotme=False):
     # Adaptive peak fitting within blobs
     # TODO: Allow for peak addition with residual?
@@ -1220,13 +1254,13 @@ def old_adaptive_spot_fitting(img, blob_df, thresh, PeakModel, tth=None, chi=Non
             p0.append(1) # sigma_y
             p0.append(0) # theta
 
-        bounds = generate_bounds(p0, PeakModel.func_2d, tth_step=None, chi_step=None)
+        bounds = generate_bounds(p0, SpotModel.func_2d, tth_step=None, chi_step=None)
 
         adaptive_fitting = True
         while adaptive_fitting:
             peaks_discounted = False
-            popt, pcov = curve_fit(PeakModel.multi_2d, np.vstack([x_fit, y_fit]), z_fit, p0=p0, bounds=bounds)
-            r_squared = compute_r_squared(z_fit, PeakModel.multi_2d((x_fit, y_fit), *popt))
+            popt, pcov = curve_fit(SpotModel.multi_2d, np.vstack([x_fit, y_fit]), z_fit, p0=p0, bounds=bounds)
+            r_squared = compute_r_squared(z_fit, SpotModel.multi_2d((x_fit, y_fit), *popt))
             
             old_p0 = p0.copy()
             for i in range(len(popt) // 6):
@@ -1258,7 +1292,7 @@ def old_adaptive_spot_fitting(img, blob_df, thresh, PeakModel, tth=None, chi=Non
 
         # Adds contours and peak centers if spot fitting successful and plotme=True
         if plotme and np.all(~np.isnan(popt)) and (len(popt) > 1):       
-            fit_data = PeakModel.multi_2d((x_coords.ravel(), y_coords.ravel()), *popt)
+            fit_data = SpotModel.multi_2d((x_coords.ravel(), y_coords.ravel()), *popt)
             ax.contour(x_coords, y_coords, fit_data.reshape(*img.shape), np.linspace(thresh, popt[0], 5), colors='w', linewidths=0.5)
             ax.scatter(np.asarray(popt).reshape(len(popt) // 6, 6)[:, 1], np.asarray(popt).reshape(len(popt) // 6, 6)[:, 2], s=1, c='r')
             ax.set_xlabel('Scattering Angle, 2θ [°]')
@@ -1366,7 +1400,7 @@ def generate_bounds(p0, peak_function, tth_step=None, chi_step=None):
                 upr_bounds.append(p0[i + j] + chi_range)
             elif 'fwhm' in arg:
                 low_bounds.append(0.001)
-                upr_bounds.append(15) # should be based off of intrument resolution
+                upr_bounds.append(p0[i + j] * 1.15) # should be based off of intrument resolution
             elif arg == 'theta':
                 low_bounds.append(-45) # Prevents spinning
                 upr_bounds.append(45) # Only works for degrees...

@@ -9,6 +9,7 @@ from tqdm import tqdm
 import warnings
 import functools
 from sklearn.metrics.pairwise import euclidean_distances
+from scipy.ndimage import sobel
 
 # Must define this as something
 _t0 = 0
@@ -29,6 +30,19 @@ def toc(string='', output=False):
     print(s, end='\n')
     if output:
         return dt
+    
+
+def timed_func(func):
+    # Time a function
+    
+    def wrap_func(*args, **kwargs):
+        t0 = ttime()
+        result = func(*args, **kwargs)
+        tf = ttime()
+        print(f'Function {func.__name__!r} executed in {(tf - t0):.4f}s')
+        return result
+    
+    return wrap_func
 
 
 def parallel_loop(function, iterable, *args, **kwargs):
@@ -121,10 +135,20 @@ def arbitrary_center_or_mass(weights, *args):
         
     val_list = []
     for arg in args:
+        arg = np.asarray(arg)
         val = np.dot(weights.ravel(), arg.ravel()) / np.sum(weights)
         val_list.append(val)
 
     return tuple(val_list)
+
+
+def delta_array(arr):
+    # Returns the geometric mean of the delta array
+    sobel_h = sobel(arr, 0)  # horizontal gradient
+    sobel_v = sobel(arr, 1)  # vertical gradient
+    magnitude = np.sqrt(sobel_h**2 + sobel_v**2)
+
+    return magnitude
 
 
 def vprint(message, **kwargs):

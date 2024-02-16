@@ -4,7 +4,6 @@ import h5py
 import pyFAI
 from pyFAI.io import ponifile
 from pyFAI.azimuthalIntegrator import AzimuthalIntegrator
-import skimage.io as io
 from skimage.restoration import rolling_ball
 from tqdm import tqdm
 import time as ttime
@@ -18,16 +17,27 @@ class ImageMap:
     # This class is only intended for direct image manipulation
     # Analysis and interpretation of diffraction are reserved for the XRDMap class
 
-    def __init__(self, image_array, map_shape=None,
-                 dtype=None, title=None, h5=None,
-                 corrections=None):
+    def __init__(self,
+                 image_array,
+                 map_shape=None,
+                 dtype=None,
+                 title=None,
+                 hdf_path=None,
+                 hdf=None,
+                 wd=None,
+                 corrections=None,
+                 dask_enabled=False):
         
-        # Non-paralleized image processing
-        #image_array = np.asarray(image_array)
-
-        # Parallized image processing
-        # WIP
-        image_array = da.from_array(image_array)
+        if dask_enabled:
+            # Parallized image processing
+            # Unusual chunk shapes are fixed later
+            image_array = da.asarray(image_array)
+        else:
+            # Non-paralleized image processing
+            if isinstance(image_array, da.core.Array):
+                image_array = image_array.compute()
+            else:
+                image_array = np.asarray(image_array)
 
         if map_shape is not None:
             self.images = image_array.reshape(tuple(map_shape))
@@ -44,11 +54,26 @@ class ImageMap:
             self.images = image_array
         else:
             raise RuntimeError("Input data incorrect shape or unknown type. 4D array is preferred.")
+        
+        if dask_enabled:
+            # Redo chunking along image dimensions
+            chunks = self._get_optimal_chunks()
+            self.images = self.images.rechunk(chunks=chunks)
+        
+        # Working with the many iteraction of hdf
+        # Too much information to pass back and forth
+        if isinstance(hdf, h5py._hl.files.File) and hdf_path is None:
+            try:
+                hdf_path = hdf.filename
+            except ValueError:
+                raise ValueError('ImageMap cannot be instantiated with closed hdf file!')
+        self.hdf = hdf
+        self.hdf_path = hdf_path
 
         if dtype is None:
             dtype = self.images.dtype
         self._dtype = dtype
-        
+
         if isinstance(corrections, dict):
             self.corrections = corrections
         else:
@@ -59,18 +84,82 @@ class ImageMap:
                 'pixel_defects' : False,
                 'pixel_distortions' : False,
                 'polar_calibration' : False,
-                'solid_angle' : False,
-                'polarization' : False,
                 'lorentz' : False,
+                'polarization' : False,
+                'solid_angle' : False,
+                'absorption' : False,              
                 'scaler_intensity' : False,
                 'background' : False
             }
+
+        self.update_map_title(title=title)
+
+        # Should only trigger on first call to save images to hdf
+        # Or if the title has been changed for some reason
+        if self.hdf_path is not None:
+            if not check_hdf_current_images(self.title, self.hdf_path, self.hdf):
+                print('Writing images to hdf...', end='', flush=True)
+                self.save_images(units='counts',
+                                 labels=['x_ind',
+                                         'y_ind',
+                                         'img_y',
+                                         'img_x'])
+                print('done!')
         
-        self.update_map_title(title=title)        
+        if dask_enabled:
+            if self.hdf_path is None and self.hdf is None:
+                raise RuntimeError("Cannot have dask enabled processing without specifying hdf file!")
+            elif self.hdf is None:
+                # Open and leave open hdf file object
+                self.hdf = h5py.File(self.hdf_path, 'a')
+
+            # Check for finalized images
+            if self.title == 'final_images':
+                self._hdf_store = self.hdf['xrdmap/image_data/final_images']
+
+            # Otherwise set a temporary storage location in the hdf file
+            else:
+                # Check for previously worked on data
+                if check_hdf_current_images('_temp_images', self.hdf_path, self.hdf):
+                    self._hdf_store = self.hdf['xrdmap/image_data/_temp_images']
+                    self.images = self.images.astype(self._hdf_store.dtype)
+                    self.images = self.images.rechunk(self._hdf_store.chunks)
+                else:
+                    self.images = self.images.astype(np.float32)
+                    chunks = self._get_optimal_chunks()
+                    self._hdf_store = self.hdf.require_dataset('xrdmap/image_data/_temp_images',
+                                                shape=self.images.shape,
+                                                dtype=np.float32,
+                                                chunks=chunks)
+
+                self.images = da.store(self.images, self._hdf_store,
+                                    compute=True, return_stored=True)[0]
+
+        if dtype is None:
+            dtype = self.images.dtype
+        self._dtype = dtype
+
+        if isinstance(corrections, dict):
+            self.corrections = corrections
+        else:
+            self.corrections = {
+                'dark_field' : False,
+                'flat_field' : False,
+                'outliers' : False,
+                'pixel_defects' : False,
+                'pixel_distortions' : False,
+                'polar_calibration' : False,
+                'lorentz' : False,
+                'polarization' : False,
+                'solid_angle' : False,
+                'absorption' : False,              
+                'scaler_intensity' : False,
+                'background' : False
+            }        
         
-        # Share h5, so either can write processed data to file. Will default to XRDMap
-        # This is probably not very pythonic...
-        self.h5 = h5
+        if wd is None:
+            wd = '/home/xf05id1/current_user_data/'
+        self.wd = wd
 
         #print('Defining new attributes')
         # Some redundant attributes, but maybe useful
@@ -79,12 +168,18 @@ class ImageMap:
         self.map_shape = self.shape[:2]
         self.image_shape = self.shape[2:]
 
-
+    
     def __str__(self):
-        return
+        ostr = f'ImageMap: ({self.images.shape}), dtype={self.images.dtype}'
+        return ostr
+
     
     def __repr__(self):
-        return
+        ostr = 'ImageMap:'
+        ostr += f'\n\tShape:  {self.images.shape}'
+        ostr += f'\n\tDtype:  {self.images.dtype}'
+        ostr += f'\n\tState:  {self.title}'
+        return ostr
     
     ######################################
     ### Class Properties and Functions ###
@@ -107,19 +202,37 @@ class ImageMap:
             if hasattr(self, property_name):
                 return getattr(self, property_name)
             else:
-                # This will have some precision issues depending on the specified dtype
-                setattr(self, property_name, function(self.images, axis=axes).astype(self.dtype))
-                #return getattr(self, property_name)
-            
-                if np.any(self.mask != 1) and axes == (2, 3):
-                    blank_map = np.zeros(self.map_shape)
+                # Compute any scheduled operations
+                self._dask_2_dask()
 
-                    for i, image in enumerate(self.images.reshape(self.num_images, *self.images.shape[-2:])):
-                        val = function(image[self.mask])
-                        indices = np.unravel_index(i, self.map_shape)
-                        blank_map[indices] = val
-                    
-                    setattr(self, property_name, blank_map)
+                # More complicated to account for masked values
+                if np.any(self.mask != 1) and axes == (2, 3):
+
+                    mask_map = np.empty_like(self.images, dtype=np.bool_)
+                    mask_map[:, :] = self.mask
+
+                    # Contribution
+                    zero_image = self.images.copy()
+                    zero_image[~mask_map] = 0 # should be redundant
+                    gauss_zero = function(zero_image, axis=axes)
+
+                    # This block is redundant when calling this serveral several times...
+                    div_image = np.ones_like(self.images)
+                    div_image[~mask_map] = 0
+                    gauss_div = function(div_image, axis=axes)
+
+                    val = gauss_zero / gauss_div
+                    if self._dask_enabled:
+                        val = val.compute()
+
+                    setattr(self, property_name, val)
+                else:
+                    # This will have some precision issues depending on the specified dtype
+                    # Ignores mask values since they should not vary with projection
+                    val =  function(self.images, axis=axes).astype(self.dtype)
+                    if self._dask_enabled:
+                        val = val.compute()
+                    setattr(self, property_name, val)
                 
                 return getattr(self, property_name)
 
@@ -152,7 +265,6 @@ class ImageMap:
 
     # Adaptively saves for whatever the current processing state
     # Add other methods, or rename to something more intuitive
-    # I should save this image to the h5...
     @property
     def composite_image(self):
         if hasattr(self, f'_{self.title}_composite'):
@@ -164,11 +276,9 @@ class ImageMap:
             # Set the generic value to this as well
             self._composite_image = getattr(self, f'_{self.title}_composite')
 
-            # Save image to h5
+            # Save image to hdf
             self.save_images(self._composite_image,
                              f'_{self.title}_composite')
-                             #units=f'same as {self.title}',
-                             #labels=f'same as {self.title}')
 
             # Finally return the requested attribute
             return getattr(self, f'_{self.title}_composite')
@@ -180,8 +290,10 @@ class ImageMap:
     
     @property
     def mask(self):
-        # Generic mask with everything
-        mask = np.ones(self.images.shape[2:], dtype=np.bool_)
+        # a bit redundant considering only 4D shapes are allowed
+        img_slc = (0,) * (self.images.ndim - 2) 
+        #mask = np.ones_like(self.images[img_slc], dtype=np.bool_)
+        mask = np.ones(self.images[img_slc].shape, dtype=np.bool_)
 
         # Remove unused calibration pixels
         if hasattr(self, 'calibration_mask'):
@@ -223,12 +335,7 @@ class ImageMap:
     def update_map_title(self, title=None):
         # The title will never be able to capture everything
         # This is intended to only capture major changes
-        # Will be used to create new groups when saving to h5
-        if hasattr(self, 'title'):
-            old_title = self.title
-        else:
-            old_title = None
-
+        # Will be used to create new groups when saving to hdf
         if title is not None:
             self.title = title
     
@@ -255,8 +362,54 @@ class ImageMap:
             # No update
             pass
 
-        if old_title != self.title:
-            self.reset_attributes()
+        # Clear old values everytime this is checked
+        self.reset_attributes()
+            
+
+    ### Convenience functions for working with Dask Arrays
+        
+    # Flag to check if images are dask or numpy array
+    @property
+    def _dask_enabled(self):
+        return isinstance(self.images, da.core.Array)
+    
+
+    # Return standardized chunk size around images for hdf and dask
+    def _get_optimal_chunks(self, approx_chunk_size=200):
+        return get_optimal_chunks(self.images,
+                                  approx_chunk_size=approx_chunk_size)
+
+    
+    def _dask_2_numpy(self):
+        # Computes dask to numpy array. Intended for final images
+        if self._dask_enabled:
+            self.images = self.images.compute()
+
+    def _numpy_2_dask(self):
+        # Computes numpy array into dask. Unlikely to be used
+        if not self._dask_enabled:
+            self._dask_2_hdf()
+            self.images = da.from_array(self.images)
+            self.hdf.close()
+            self.hdf = None
+
+    def _dask_2_dask(self):
+        # Computes and updates dask array to avoid too many lazy computations
+        # Will have faster compute times than _dask_2_hdf()
+        if self._dask_enabled:
+            self.images = self.images.persist()
+            
+    def _dask_2_hdf(self):
+        # Computes and stores current iteration of lazy computation to hdf file
+        # Probably the most useful
+        if self.title == 'final_images':
+            err_str = ('You are trying to update images that have already been finalized!'
+                       + '\nConsider reloading a previous image state, or reprocessing the raw images.')
+            raise ValueError(err_str)
+
+        if self.hdf is not None and self._dask_enabled:
+            self.images = da.store(self.images, self._hdf_store,
+                                   compute=True, return_stored=True)[0]
 
 
     ########################################
@@ -303,6 +456,11 @@ class ImageMap:
             print('done!')
 
 
+    # TODO: This fails if image medians are too close to zero
+    #       flat_field values near zero blow_up pixel values,
+    #       but the means/medians of the flat field and images should be similar
+    #       Consider adding a way to rescale the image array along with the flat_field
+    #       As of now, this should be done immediately after the dark field correction       
     def correct_flat_field(self, flat_field=None):
 
         if self.corrections['flat_field']:
@@ -311,9 +469,16 @@ class ImageMap:
         elif flat_field is None:
             print('No flat-field correction.')
         else:
-            self.flat_field = flat_field
             self.dtype = np.float32
             print('Correcting flat-field...', end='', flush=True)
+            
+            # Shift flat_field correction to center image map center
+            if self._dask_enabled:
+                correction = np.mean(self.images) - np.mean(flat_field)
+            else:  # Dask does not handle medians very well...
+                correction = np.median(self.images) - np.mean(flat_field)
+            
+            self.flat_field = flat_field + correction
             self.images /= self.flat_field
 
             self.save_images(self.flat_field,
@@ -324,20 +489,17 @@ class ImageMap:
             print('done!')
 
 
-    def correct_outliers(self, size=2, tolerance=3, significance=None):
+    def correct_outliers(self, size=2, tolerance=3):
 
         if self.corrections['outliers']:
             print('''Warning: Outlier correction already applied!
                   Proceeding to find and correct new outliers:''')
         
         print('Finding and correcting image outliers...', end='', flush=True)
-        for image_ind in tqdm(range(self.num_images)):
-            indices = np.unravel_index(image_ind, self.map_shape)
-            fixed_image = find_outlier_pixels(self.images[indices],
-                                              size=size,
-                                              tolerance=tolerance,
-                                              significance=significance)
-            self.images[indices] = fixed_image
+        self.images = find_outlier_pixels(self.images,
+                                          size=size,
+                                          tolerance=tolerance)
+        
         self.corrections['outliers'] = True
         self.update_map_title()
         print('done!')
@@ -352,8 +514,6 @@ class ImageMap:
             mask = np.ones_like(self.min_image, dtype=np.bool_)
             mask *= (self.min_image >= min_bounds[0]) & (self.min_image <= min_bounds[1])
             mask *= (self.max_image >= max_bounds[0]) & (self.max_image <= max_bounds[1])
-            #mask *= self.min_image <= lower # Removes hot pixels
-            #mask *= self.max_image >= upper # Remove dead pixels
             self.defect_mask = mask
         
         self.update_map_title()
@@ -377,26 +537,71 @@ class ImageMap:
     ### Geometric corrections ###
     # TODO: Add conditionals to allow corrections to be applied to calibrated images
 
-    def apply_lorentz_correction(self, ai, apply=True):
+    def apply_lorentz_correction(self, ai, experiment='single', corrections=None, custom=None, apply=True):
 
         if self.corrections['lorentz']:
             print('''Warning: Lorentz correction already applied! 
                   Proceeding without any changes''')
             return
+        elif experiment is None and corrections is None:
+            raise ValueError('No experimental conditions nore specific corrections specified!')
+        
+        lorentz_correction = 1
+        if custom is not None:
+            custom = np.asarray(custom)
+            if custom.shape != tth_arr.shape:
+                raise ValueError(f'Custom Lorentz corretion osf shape {custom.shape} does not match image shape of {tth_arr.shape}.')
+            lorentz_correction = custom
+            corrections = []
+        
+        elif corrections is not None:
+            pass
 
+        elif str(experiment.lower()) in ['all']:
+            #lorentz_correction = 1 / (np.sin(tth_arr / 2) * np.sin(tth_arr))
+            corrections = ['L1', 'L2', 'L3']
+
+        elif str(experiment).lower() in ['powder', 'poly', 'polycrystal', 'polycrystalline']:
+            corrections = ['L2', 'L3']
+
+        elif str(experiment).lower() in ['single', 'transmission']:
+            corrections = ['L3']
+        else:
+            raise ValueError(f'Experiment {experiment} unknown.')
+
+        #TODO: Add conditional for calibrated images
         # In radians
-        tth_arr = ai.twoThetaArray()
+        tth_arr = ai.twoThetaArray().astype(self.dtype)
+        chi_arr = ai.chiArray().astype(self.dtype)
 
-        # Old Lorentz correction. TODO: Add conditional for calibrated images
-        #if Lorentz_correction: # Yong was disappointed I did not have this already
-        #    rad = np.radians(tth / 2)
-        #    res /=  1 / (np.sin(rad) * np.sin(2 * rad))
+        # Check for discontinuities
+        if np.max(np.gradient(chi_arr)) > (np.pi / 6): # Semi-arbitrary cut off
+            chi_arr[chi_arr < 0] += (2 * np.pi)
 
-        lorentz_correction = 1 / (np.sin(tth_arr / 2) * np.sin(tth_arr))
+        delta_chi = delta_array(chi_arr)
+        frac_chi = delta_chi / (2 * np.pi) # fraction of circle
+
+        lorentz_dict = {}
+
+        # Rotating detector / crystal
+        lorentz_dict['L1'] = 1 / np.sin(tth_arr)
+
+        # Random powder contribution
+        lorentz_dict['L2'] = np.cos(tth_arr / 2)
+
+        # Relative Debye-Scherrer cone
+        #L3 = 1 / np.sin(tth_arr)
+        lorentz_dict['L3'] = frac_chi / np.sin(tth_arr)
+
+        # Cycle through any apply lorentz corrections
+        for corr in corrections:
+            lorentz_correction *= lorentz_dict[corr]
+        
+        # Save and apply Lorentz corrections
         self.lorentz_correction = lorentz_correction
         self.save_images(self.lorentz_correction,
                             'lorentz_correction')
-        
+    
         if apply:
             print('Applying Lorentz correction...', end='', flush=True)
             self.images /= self.lorentz_correction
@@ -411,6 +616,8 @@ class ImageMap:
             print('''Warning: polarization correction already applied! 
                   Proceeding without any changes''')
             return
+        
+        # TODO: Does not work with already calibrated images
         
         #p = -polarization
 
@@ -428,7 +635,7 @@ class ImageMap:
         #                polarization * np.cos(2.0 * (chi_arr)) * (1.0 - cos2_tth))
 
         # From pyFAI
-        polar = ai.polarization(factor=polarization)
+        polar = ai.polarization(factor=polarization).astype(self.dtype)
         self.polarization_correction = polar
         self.save_images(self.polarization_correction,
                             'polarization_correction')
@@ -448,6 +655,7 @@ class ImageMap:
                   Proceeding without any changes''')
             return
 
+        # TODO: Does not work with already calibrated images
         #tth_arr = ai.twoThetaArray()
         #chi_arr = ai.chiArray()
 
@@ -455,7 +663,7 @@ class ImageMap:
         # 'SA = pixel1 * pixel2 / dist^2 * cos(incidence)^3'
 
         # From pyFAI
-        solidangle_correction = ai.solidAngleArray()
+        solidangle_correction = ai.solidAngleArray().astype(self.dtype)
         self.solidangle_correction = solidangle_correction
         self.save_images(self.solidangle_correction,
                             'solidangle_correction')
@@ -467,11 +675,58 @@ class ImageMap:
             self.update_map_title()
             print('done!')
 
+
+    def apply_absorption_correction(self, ai, exp_dict, apply=True):
+
+        #exp_dict = {
+        #    'attenuation_length' : value,
+        #    'mode' : 'transmission',
+        #    'thickness' : value
+        #}
+
+        if self.corrections['absorption']:
+            print('''Warning: Absorption correction already applied! 
+                  Proceeding without any changes''')
+            return
+        
+        # In radians
+        tth_arr = ai.twoThetaArray()
+
+        if not all(x in list(exp_dict.keys()) for x in ['attenuation_length', 'mode', 'thickness']):
+            raise ValueError("""Experimental dictionary does not have all the necessary keys: 
+                             'attenuation_length', 'mode', and 'thickness'.""")
+
+        if exp_dict['mode'] == 'transmission':
+            t = exp_dict['thickness']
+            a = exp_dict['attenuation_length']
+            x = t / np.cos(tth_arr) # path length
+
+            abs_arr = np.exp(-x / a)
+            self.absorption_correction = abs_arr
+
+        elif exp_dict['mode'] == 'reflection':
+            raise NotImplementedError()
+        else:
+            raise ValueError(f"{exp_dict['mode']} is unknown.")
+        
+        if apply:
+            print('Correcting for absorption...', end='', flush=True)
+            self.images /= self.absorption_correction
+            self.corrections['absorption'] = True
+            self.update_map_title()
+            print('done!')
+
+
+
     ### Final image corrections ###
 
     def normalize_scaler(self, scaler_arr=None):
+
+        if self.corrections['scaler_intensity']:
+            print('''Warning: Images have already been normalized by the scaler! 
+                  Proceeding without any changes''')
         
-        if scaler_arr is None:
+        elif scaler_arr is None:
             print('No scaler array given. Approximating with image medians...')
             scaler_arr = self.med_map
 
@@ -480,15 +735,16 @@ class ImageMap:
             if scaler_arr.shape != self.map_shape:
                 raise ValueError(f'''Scaler array of shape {scaler_arr.shape} does not 
                                 match the map shape of {self.map_shape}!''')
-
+   
         print('Normalize image scalers...', end='', flush=True)
         self.images /= scaler_arr.reshape(*self.map_shape, 1, 1)
-        self.scaler_map = scaler_arr # Do not save to h5, since scalers should be recorded...
+        self.scaler_map = scaler_arr # Do not save to hdf, since scalers should be recorded...
         self.corrections['scaler_intensity'] = True
         self.update_map_title()
         print('done!')
 
 
+    # TODO: Not all of these have been enabled with dask arrays
     def estimate_background(self, method=None, background=None, **kwargs):
         method = str(method).lower()
 
@@ -505,7 +761,7 @@ class ImageMap:
                 self.background_method = 'minimum'
                 
             elif method in ['ball', 'rolling ball', 'rolling_ball']:
-                raise NotImplementedError('Cannot not yet exclude contribution from masked regions.')
+                raise NotImplementedError('Cannot yet exclude contribution from masked regions.')
                 print('Estimating background with rolling ball method.')
                 self.background = rolling_ball(self.images, **kwargs)
                 self.background_method = 'rolling ball'
@@ -538,7 +794,7 @@ class ImageMap:
                 self.background_method = 'none'
             
             else:
-                raise NotImplementedError("Method input not implemented!")
+                raise NotImplementedError(f'Method "{method}" not implemented!')
     
         else:
             print('User-specified background.')
@@ -565,6 +821,10 @@ class ImageMap:
         if np.squeeze(self.background).shape == self.images.shape[-2:]:
             self.save_images(self.background,
                              'static_background')
+        else:
+            # Delete full map background to save on memory
+            del self.background
+
         self.corrections['background'] = True
         self.update_map_title()
         print('done!')
@@ -649,6 +909,10 @@ class ImageMap:
         elif Lorentz_correction:
             self.apply_lorentz_correction(ai=ai)
 
+        # Check for dask state
+        keep_dask = False
+        if self._dask_enabled:
+            keep_dask = True
         
         # Set units for metadata
         self.calib_unit = unit
@@ -674,6 +938,10 @@ class ImageMap:
                                    self.chi_num, 
                                    self.tth_num), 
                                    dtype=(self.dtype))
+        
+        if keep_dask:
+            calibrated_map = da.from_array(calibrated_map)
+        
         
         print('Calibrating images...', end='', flush=True)
         # TODO: Parallelize this
@@ -726,8 +994,8 @@ class ImageMap:
         
         # Add calibration positions dataset
         print('Writing reciprocal positions...', end='', flush=True)
-        if self.h5 is not None:
-            with h5py.File(self.h5, 'a') as f:
+        if self.hdf_path is not None:
+            with h5py.File(self.hdf_path, 'a') as f:
                 # This group may already exist if poni file was already initialized
                 curr_grp = f[f'/xrdmap'].require_group('reciprocal_positions')
                 curr_grp.attrs['extent'] = self.extent
@@ -786,6 +1054,10 @@ class ImageMap:
         # Update title
         self.update_map_title(title=title)
 
+        # Convert back to dask if initially dask
+        #if keep_dask:
+            #self._numpy_2_dask()
+            
         # Pass these values up the line to the xrdmap
         return self.tth, self.chi, self.extent, self.calibrated_shape, self.tth_resolution, self.chi_resolution
     
@@ -822,51 +1094,52 @@ class ImageMap:
                                     arr_min=arr_min,
                                     arr_max=arr_max,
                                     mask=mask)
+        
+
+    def finalize_images(self, save_images=True):
+
+        if np.any(self.corrections.values()):
+            print('Caution: Images not corrected for:')
+        # Check corrections:
+        for key in self.corrections:
+            if not self.corrections[key]:
+                print(f'\t{key}')
+
+        # Some cleanup
+        print('Cleaning and updating image information...')
+        self._dask_2_hdf()
+        self.update_map_title(title='final_images')
+        self.disk_size()
+
+        if save_images:
+            print('''Compressing and writing images to disk.\nThis may take awhile...''')
+
+            if check_hdf_current_images('_temp_images', self.hdf_path, self.hdf):
+                # Save images to current store location. Should be _temp_images
+                self.save_images(title='_temp_images')
+                temp_dset = self.hdf['xrdmap/image_data/_temp_images']
+                
+                # Must be done explicitly outside of self.save_images()
+                for key, value in self.corrections.items():
+                    temp_dset.attrs[f'_{key}_correction'] = value
+
+                # Relabel to final images and delt temp dataset
+                self.hdf['xrdmap/image_data/final_images'] = temp_dset
+                del temp_dset
+
+                # Remap store location. Should only reference data from now on
+                self._hdf_store = self.hdf['xrdmap/image_data/final_images']
+
+            else:
+                self.save_images()
+            print('done!')
 
 
     ##########################
     ### Plotting Functions ###
     ##########################
-        
-    def interactive_map(self, tth=None, chi=None, **kwargs):
-        # I should probably rebuild these to not need tth and chi
-        if hasattr(self, 'tth') and tth is None:
-            tth = self.tth
-        if hasattr(self, 'chi') and chi is None:
-            chi = self.chi
-
-        interactive_dynamic_2d_plot(self.images, tth=tth, chi=chi, **kwargs)
-    
-
-    def plot_image(self, image=None, map_title=None, vmin=None, aspect='auto', **kwargs):
-        rand_img = False
-        if image is None:
-            i = np.random.randint(self.map_shape[0])
-            j = np.random.randint(self.map_shape[1])
-            image = self.images[i, j]
-            rand_img = True
-
-        fig, ax = plt.subplots(1, 1, figsize=(5, 5), dpi=200)
-
-        if hasattr(self, 'extent'):
-            if vmin == None:
-                vmin = 0
-            im = ax.imshow(image, extent=self.extent, vmin=vmin, aspect=aspect, **kwargs)
-            ax.set_xlabel('Scattering Angle, 2θ [°]') # Assumes degrees. Need to change...
-            ax.set_ylabel('Azimuthal Angle, χ [°]')
-        else:
-            im = ax.imshow(image, aspect=aspect)
-            ax.set_xlabel('X index')
-            ax.set_ylabel('Y index')
-        
-        if rand_img:
-            ax.set_title(f'Row = {i}, Col = {j}')
-        elif map_title is None:
-            ax.set_title('Input Image')
-        else:
-            ax.set_title(map_title)
-        fig.colorbar(im, ax=ax)
-        plt.show()
+            
+    # Moved to XRDMap class
 
     ####################
     ### IO Functions ###
@@ -889,80 +1162,127 @@ class ImageMap:
         
         print(f'Diffraction map size is {disk_size:.3f} {units}.')
 
+    @staticmethod
+    def estimate_disk_size(size):
+        # External reference function to estimate map size before acquisition
+
+        if not isinstance(size, (tuple, list, np.ndarray)):
+            raise TypeError('Size argument must be iterable of map dimensions.')
+
+        disk_size = np.prod([*size, 2])
+
 
     def save_images(self, images=None, title=None, units=None, labels=None,
                     compression=None, compression_opts=None,
                     mode='a', extra_attrs=None):
         
-        if self.h5 is None:
-            return # Should disable working with h5 if no information is provided
+        if self.hdf_path is None:
+            return # Should disable working with hdf if no information is provided
         
         if images is None:
             images = self.images
         else:
+            # This conditional is for single images mostly (e.g., dark-field)
             images = np.asarray(images)
         
         if title is None:
             title = self.title
 
+        # Get labels
         _units, _labels = self._get_save_labels(images.shape)
         if units is None:
             units = _units
         if labels is None:
             labels = _labels
         
-        if len(images.shape) == 2:
+        # Massage title based on shape
+        if images.ndim == 2:
             if title[0] != '_':
                 title = f'_{title}'
-        elif len(images.shape) != 4:
-            raise ValueError(f'Images input has {len(images.shape)} dimensions instead of 2 (image) or 4 (ImageMap).')
-        elif len(images.shape) == 4 and compression is None:
+        elif images.ndim != 4:
+            raise ValueError(f'Images input has {images.ndim} dimensions instead of 2 (image) or 4 (ImageMap).')
+        elif images.ndim == 4 and compression is None:
             compression = 'gzip'
             compression_opts = 8
         else:
             raise TypeError('Unknown image type detected!')
         
-        with h5py.File(self.h5, mode) as f:
-            img_grp = f['/xrdmap/image_data']
-            #print(f'imagemap_title is f{title}')
-            if title not in img_grp.keys():
-                dset = img_grp.require_dataset(
-                                title,
-                                data=images,
-                                shape=images.shape,
-                                dtype=images.dtype,
-                                compression=compression,
-                                compression_opts=compression_opts)
-            else: # Overwrite data. No checks are performed
-                dset = img_grp[title]
+        # Get chunks
+        chunks = self._get_optimal_chunks()
+        chunks = chunks[-images.ndim:]
+        
+        # Flag of state hdf
+        close_flag = False
+        if self.hdf is None:
+            close_flag = True
+            self.hdf = h5py.File(self.hdf_path, mode)
 
-                if dset.shape == images.shape and dset.dtype == images.dtype:
-                    dset[...] = images # Replace data if the size and shape match
-                    
-                else: # Delete and create new dataset if new size on disk
-                    del img_grp[title]
-                    dset = img_grp.create_dataset(
-                                title,
-                                data=images,
-                                shape=images.shape,
-                                dtype=images.dtype,
-                                compression=compression,
-                                compression_opts=compression_opts)
-            
-            dset.attrs['labels'] = labels
-            dset.attrs['units'] = units
-            dset.attrs['dtype'] = str(images.dtype)
-            dset.attrs['time_stamp'] = ttime.ctime()
+        # Grab some metadata
+        image_shape = images.shape
+        image_dtype = images.dtype
 
-            # Add non-standard extra metadata attributes
-            if extra_attrs is not None:
-                for key, value in extra_attrs.items():
-                    dset.attrs[key] = value
+        dask_flag=False
+        if isinstance(images, da.core.Array):
+            dask_images = images.copy()
+            images = None
+            dask_flag = True
 
-            # Add correction information to each dataset
-            if title[0] != '_':
-                for key, value in self.corrections.items():
-                    dset.attrs[f'_{key}_correction'] = value
+        img_grp = self.hdf['/xrdmap/image_data']
+        
+        if title not in img_grp.keys():
+            dset = img_grp.require_dataset(
+                            title,
+                            data=images,
+                            shape=image_shape,
+                            dtype=image_dtype,
+                            compression=compression,
+                            compression_opts=compression_opts,
+                            chunks=chunks)
+        else: # Overwrite data. No checks are performed
+            dset = img_grp[title]
+
+            if (dset.shape == image_shape
+                and dset.dtype == image_dtype
+                and dset.chunks == chunks):
+                if not dask_flag:
+                    dset[...] = images # Replace data if the size, shape and chunks match
+                else:
+                    pass # Leave the dataset for now
+            else:
+                # This is not the best, because this only deletes the flag. The data stays
+                del img_grp[title]
+                dset = img_grp.create_dataset(
+                            title,
+                            data=images,
+                            shape=image_shape,
+                            dtype=image_dtype,
+                            compression=compression,
+                            compression_opts=compression_opts,
+                            chunks=chunks)
+        
+        # Fill in data from dask after setting up the datasets
+        if dask_flag:
+            # This should ensure lazy operations
+            da.store(dask_images, dset, compute=True)
+        
+        dset.attrs['labels'] = labels
+        dset.attrs['units'] = units
+        dset.attrs['dtype'] = str(image_dtype)
+        dset.attrs['time_stamp'] = ttime.ctime()
+
+        # Add non-standard extra metadata attributes
+        if extra_attrs is not None:
+            for key, value in extra_attrs.items():
+                dset.attrs[key] = value
+
+        # Add correction information to each dataset
+        if title[0] != '_':
+            for key, value in self.corrections.items():
+                dset.attrs[f'_{key}_correction'] = value
+        
+        if close_flag:
+            self.hdf.close()
+            self.hdf = None
 
 
     def _get_save_labels(self, arr_shape):
@@ -979,87 +1299,4 @@ class ImageMap:
             labels.extend(['img_y', 'img_x'])
 
         return units, labels
-
-    
-
-    # These two functions can probably be combined...
-    # @deprecated
-    """def save_current_images(self, units='', labels='',
-                            compression='gzip', compression_opts=8,
-                            mode='a', extra_attrs=None):
-        
-        if self.h5 is not None: # Should disable working with h5 if no information is provided
-            with h5py.File(self.h5, mode) as f:
-                img_grp = f['/xrdmap/image_data']
-                if self.title not in img_grp.keys():
-                    dset = img_grp.require_dataset(
-                                    self.title,
-                                    data=self.images,
-                                    shape=self.images.shape,
-                                    dtype=self.dtype,
-                                    compression=compression,
-                                    compression_opts=compression_opts)
-                else: # Overwrite data. No checks are performed
-                    dset = img_grp[self.title]
-                    if dset.shape == self.shape and dset.dtype == self.dtype:
-                        dset[...] = self.images # Replace data if the size and shape match
-                    else: # Delete and create new dataset if new size on disk
-                        del img_grp[self.title]
-                        dset = img_grp.create_dataset(
-                                    self.title,
-                                    data=self.images,
-                                    shape=self.images.shape,
-                                    dtype=self.dtype,
-                                    compression=compression,
-                                    compression_opts=compression_opts)
-                
-                dset.attrs['labels'] = labels
-                dset.attrs['units'] = units
-                dset.attrs['dtype'] = str(self.dtype)
-                dset.attrs['time_stamp'] = ttime.ctime()
-
-                # Add non-standard extra metadata attributes
-                if extra_attrs is not None:
-                    for key, value in extra_attrs.items():
-                        dset.attrs[key] = value"""
-
-    # @deprecated
-    """def save_single_image(self, image, title, units='', labels='', mode='a', extra_attrs=None):
-
-        image = np.asarray(image)
-        # Prevents loading these as full image data. Maybe best to separate into groups...
-        if title[0] != '_':
-            title = f'_{title}'
-        
-        if self.h5 is not None: # Should disable working with h5 if no information is provided
-            with h5py.File(self.h5, mode) as f:
-                img_grp = f['/xrdmap/image_data']
-
-                if title not in img_grp.keys():
-                    dset = img_grp.require_dataset(
-                                    title,
-                                    data=image,
-                                    shape=image.shape,
-                                    dtype=image.dtype)
-                else:
-                    dset = img_grp[title]
-                    if dset.shape == image.shape and dset.dtype == image.dtype:
-                        dset[...] = image # Replace data if the size and shape match
-                    else: # Delete and create new dataset if new size on disk
-                        del img_grp[title]
-                        dset = img_grp.create_dataset(
-                                    title,
-                                    data=image,
-                                    shape=image.shape,
-                                    dtype=image.dtype)
-
-                dset.attrs['labels'] = labels
-                dset.attrs['units'] = units
-                dset.attrs['dtype'] = str(image.dtype)
-                dset.attrs['time_stamp'] = ttime.ctime()
-
-                # Add non-standard extra metadata attributes
-                if extra_attrs is not None:
-                    for key, value in extra_attrs.items():
-                        dset.attrs[key] = value"""
     

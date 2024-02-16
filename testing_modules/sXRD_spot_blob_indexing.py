@@ -118,15 +118,15 @@ def get_q_vect(tth, chi, wavelength, return_kf=False, radians=False):
     return (4 * np.pi * np.sin(np.radians(tth / 2)) / wavelength) * arr'''
 
 
-def _initial_spot_analysis(xrdmap, PeakModel=None):
+def _initial_spot_analysis(xrdmap, SpotModel=None):
 
     # Extract fit stats
-    print('Extracting more information from peak paramters...')
-    if PeakModel is not None and any([x[:3] == 'fit' for x in xrdmap.spots.loc[0].keys()]):
+    print('Extracting more information from peak parameters...')
+    if SpotModel is not None and any([x[:3] == 'fit' for x in xrdmap.spots.loc[0].keys()]):
         interested_params = [x for x in xrdmap.spots.loc[0].keys()
                              if x[:3] == 'fit'][:6]
         prefix='fit'
-    elif PeakModel is None or PeakModel == 'guess':
+    elif SpotModel is None or SpotModel == 'guess':
         interested_params = ['guess_height',
                              'guess_img_x',
                              'guess_img_y',
@@ -139,14 +139,14 @@ def _initial_spot_analysis(xrdmap, PeakModel=None):
                              'guess_int']
         prefix='guess'
 
-    for i in tqdm(xrdmap.spots.index, desc='Iterating through spots...'):
+    for i in tqdm(xrdmap.spots.index):
         spot = xrdmap.spots.loc[i]
 
         if prefix == 'fit':
             fit_params = spot[interested_params]
 
-            fwhm = PeakModel.get_2d_fwhm(*fit_params)
-            volume = PeakModel.get_volume(*fit_params)
+            fwhm = SpotModel.get_2d_fwhm(*fit_params)
+            volume = SpotModel.get_volume(*fit_params)
 
         elif prefix == 'guess':
             guess_params = spot[['guess_height',

@@ -4,12 +4,14 @@ import h5py
 import pyFAI
 from pyFAI.io import ponifile
 from pyFAI.azimuthalIntegrator import AzimuthalIntegrator
-import skimage.io as io
-from skimage.restoration import rolling_ball
 from tqdm import tqdm
 import time as ttime
 import matplotlib.pyplot as plt
 from collections import OrderedDict
+import dask.array as da
+
+import scipy.io as io
+from dask_image import imread as dask_io
 
 
 class XRDMap():
@@ -19,79 +21,97 @@ class XRDMap():
     Multiple iteratations of image processing across full map cannot be saved in memory...
     '''
 
-    def __init__(self, scanid=None, wd=None, filename=None, h5_filename=None,
-                 image_map=None, map_title=None, map_shape=None,
-                 energy=None, wavelength=None, poni_file=None,
-                 tth_resolution=None, chi_resolution=None,
-                 tth=None, chi=None,
-                 beamline='5-ID (SRX)', facility='NSLS-II',
+    def __init__(self,
+                 scanid=None,
+                 wd=None,
+                 filename=None,
+                 hdf_filename=None,
+                 hdf=None,
+                 image_map=None,
+                 map_title=None,
+                 map_shape=None,
+                 energy=None,
+                 wavelength=None,
+                 dwell=None,
+                 poni_file=None,
+                 tth_resolution=None,
+                 chi_resolution=None,
+                 tth=None,
+                 chi=None,
+                 beamline='5-ID (SRX)',
+                 facility='NSLS-II',
                  time_stamp=None,
                  extra_metadata=None,
-                 save_h5=True):
+                 save_hdf=True,
+                 dask_enabled=False):
         
         # Adding some metadata
         self.scanid = scanid
         if filename is None:
             filename = f'scan{scanid}_xrd'
         self.filename = filename
+
+        if wd is None:
+            wd = '/home/xf05id1/current_user_data/'
         self.wd = wd
+
         self.beamline = beamline
         self.facility = facility
         self.time_stamp = time_stamp
+        self.dwell = dwell
         self.extra_metadata = extra_metadata # not sure about this...
-        # Beamline.name: SRX
-        # Facility.name: NSLS-II
-        # Facility.ring_current:400.1146824791909
         # Scan.start.uid: 7469f8f8-8076-47d5-85a1-ee147fe89d3c
-        # Scan.start.time: 1677520632.6182282
         # Scan.start.ctime: Mon Feb 27 12:57:12 2023
-        # Mono.name: Si 111
         # uid: 7469f8f8-8076-47d5-85a1-ee147fe89d3c
         # sample.name: 
 
-        # Probably a better way to do this..
-        self._energy = energy
-        self._wavelength = wavelength
-        if self._energy is not None:
+        self._energy = None
+        self._wavelength = None
+        if energy is not None:
             self.energy = energy
-        elif self._wavelength is not None: # Favors energy definition
+        elif wavelength is not None: # Favors energy definition
             self.wavelength = wavelength
 
-        # Only take values from h5 when opening from the class method
-        if save_h5:
-            if h5_filename is None:
-                self.h5 = f'{wd}{filename}.h5'
-                if os.path.exists(f'{wd}{filename}.h5'):
-                    pass
-                else:
-                    initialize_xrdmap_h5(self, self.h5) # Initialize base structure
-            else: # specify specific h5 file
-                self.h5 = f'{wd}{h5_filename}'
-        else:
-            self.h5 = None
+        # Only take values from hdf when opening from the class method
+        if save_hdf:
+            if hdf is not None:
+                self.hdf_path = hdf.filename
+            elif hdf_filename is None:
+                self.hdf_path = f'{wd}{filename}.h5'
+            else:
+                self.hdf_path = f'{wd}{hdf_filename}' # TODO: Add check for .h5   
+            
+            if os.path.exists(self.hdf_path):
+                pass
+            else:
+                initialize_xrdmap_hdf(self, self.hdf_path) # Initialize base structure
 
+            # Open hdf if required
+            if dask_enabled:
+                self.hdf = h5py.File(self.hdf_path, 'a')
+        
+        elif not save_hdf and dask_enabled:
+            raise ValueError('Enabling dask requires an hdf file for storage.')
+        
+        else: # save_hdf is False and dask_enabled is False
+            self.hdf_path = None
+            self.hdf = None
 
         # Load image map
-        if isinstance(image_map, np.ndarray):
-            self.map = ImageMap(image_map, title=map_title,
-                                h5=self.h5, map_shape=map_shape)
+        if isinstance(image_map, (np.ndarray,
+                                  da.core.Array,
+                                  h5py._hl.dataset.Dataset)):
+            self.map = ImageMap(image_map,
+                                title=map_title,
+                                wd=self.wd,
+                                hdf_path=self.hdf_path,
+                                hdf=hdf,
+                                map_shape=map_shape,
+                                dask_enabled=dask_enabled)
         elif isinstance(image_map, ImageMap):
             self.map = image_map
         else:
             raise TypeError(f"Unknown image_map input type: {type(image_map)}")
-
-        # Immediately save to h5 if not already done so
-        # Should only ever be called upon first loading of a raw dataset
-        #print(f'imagemap_title is {self.map.title}')
-        if self.h5 is not None:
-            if not check_h5_current_images(self, self.h5):
-                print('Writing images to h5...', end='', flush=True)
-                self.map.save_images(units='counts',
-                                     labels=['x_ind',
-                                             'y_ind',
-                                             'img_y',
-                                             'img_x'])
-                print('done!')
             
         self.phases = {} # Place holder for potential phases
         if poni_file is not None:
@@ -107,22 +127,128 @@ class XRDMap():
             self.tth = tth
         if chi is not None:
             self.chi = chi
-    
+
 
     def __str__(self):
-        return
-    
+        ostr = f'XRDMap:  scanid= {self.scanid}, energy= {self.energy}, shape= {self.map.images.shape}'
+        return ostr
+
 
     def __repr__(self):
-        ostr = f'XRDMap'
+        # Native info
+        ostr = f'XRDMap:'
+        ostr += f'\n\tFacility:\t{self.facility}'
+        ostr += f'\n\tBeamline:\t{self.beamline}'
+        if self.scanid is not None:
+            ostr += f'\n\tScanid:\t\t{self.scanid}'
+        ostr += f'\n\tEnergy:\t\t{self.energy} keV'
+        if self.hdf_path is not None:
+            ostr += f'\n\tHDF Path:\t{self.hdf_path}\n'
+
+        # Other info
+        if hasattr(self, 'map'): # pull ImageMap info
+            #ostr += '\t' + self.map.__repr__() 
+            ostr += '\t' + '\t'.join(self.map.__repr__() .splitlines(True))
+        if hasattr(self, 'ai'): # pull geometry info
+            ostr += '\n\tGeometry:  \n'
+            ostr += '\t\t' + '\t\t'.join(self.ai.__repr__().splitlines(True))
+        if len(self.phases) > 0: # pull phase info
+            ostr += '\n\tPhases:'
+            for key in self.phases.keys():
+                ostr += '\n\t\t' + self.phases[key].__repr__()
+        if hasattr(self, 'spots'): # pull limited spot info
+            ostr += '\n\tSpots:'
+            ostr += '\n\t\tNumber:  ' + str(len(self.spots))
+            if hasattr(self, 'spot_model'):
+                ostr += '\n\t\tModel Fitting:  ' + self.spot_model.name + ' Spot Model'
         return ostr
+
 
     ################################
     ### Loading data into XRDMap ###
     ################################
 
     @classmethod # Allows me to define and initiatie the class simultaneously
-    def from_db(cls, scanid, wd=None):
+    def from_image_stack(cls, filename, wd=None,
+                         map_shape=None,
+                         map_title='raw_images',
+                         **kwargs):
+        
+        # Load from image stack
+        if wd is None:
+            wd = '/home/xf05id1/current_user_data/'
+        
+        dask_enabled=False
+        if 'dask_enabled' in kwargs:
+            dask_enabled = kwargs['dask_enabled']
+
+        print('Loading images...', end='', flush=True)
+        if dask_enabled:
+            dask_io.imread(f'{wd}{filename}')
+        else:
+            image_map = io.imread(f'{wd}{filename}')
+        print('done!')
+        return cls(image_map=image_map, wd=wd,
+                   map_title=map_title, map_shape=map_shape,
+                   **kwargs)
+
+
+    @classmethod # Allows me to define and initiatie the class simultaneously
+    def from_hdf(cls, hdf_filename, wd=None, dask_enabled=False, **kwargs):
+        if wd is None:
+            wd = '/home/xf05id1/current_user_data/'
+        # Load from previously saved data, including all processed data...
+        if os.path.exists(f'{wd}{hdf_filename}'):
+            print('Loading data from hdf file...')
+            input_dict = load_XRD_hdf(hdf_filename, wd=wd, dask_enabled=dask_enabled)
+
+            #for key in kwargs.keys():
+            #    if key in input_dict.keys():
+            #        print((f"Warning: '{key}' found in hdf file and in keyword argument. "
+            #              + "Defaulting to user-specification."))
+            #    input_dict['base_md'][key] = kwargs[key]
+
+            inst = cls(image_map=input_dict['image_data'],
+                    wd=wd, filename=hdf_filename[:-3], # remove the .h5 extention
+                    hdf_filename=hdf_filename,
+                    hdf=input_dict['image_data'].hdf,
+                    dask_enabled=dask_enabled,
+                    **input_dict['base_md'],
+                    poni_file=input_dict['poni_od'],
+                    tth_resolution=input_dict['image_data'].tth_resolution,
+                    chi_resolution=input_dict['image_data'].chi_resolution,
+                    tth=input_dict['recip_pos']['tth'],
+                    chi=input_dict['recip_pos']['chi'],
+                    **kwargs)
+            
+            # Add a few more attributes if they exist
+            if input_dict['recip_pos']['calib_units'] is not None:
+                inst.calib_units = input_dict['recip_pos']['calib_units']
+            if hasattr(inst.map, 'extent'):
+                inst.extent = inst.map.extent
+            if hasattr(inst.map, 'calibrated_shape'):
+                inst.calibrated_shape = inst.map.calibrated_shape
+            
+            # Load phases
+            if 'phase_dict' in input_dict.keys():
+                inst.phases = input_dict['phase_dict']
+
+            # Load spots
+            if input_dict['spots'] is not None:
+                inst.spots = input_dict['spots']
+
+            if input_dict['spot_model'] is not None:
+                inst.spot_model = input_dict['spot_model']
+
+            print('XRD Map loaded!')
+            return inst
+        
+        else:
+            raise FileNotFoundError('No such hdf file.')
+    
+
+    @classmethod # Allows me to define and initiatie the class simultaneously
+    def from_db(cls, scanid, wd=None, **kwargs):
         # Load from databroker
         raise NotImplementedError()
         if wd is None:
@@ -132,59 +258,14 @@ class XRDMap():
         # Get metadata from start documents
         # I'll need to call load_xrd_tiffs or something like that from IO
         return cls(scanid, energy=energy, image_map=working_map, wd=wd,
-                   map_title='raw_images')
+                   map_title='raw_images', **kwargs)
+    
 
-
-    @classmethod # Allows me to define and initiatie the class simultaneously
-    def from_image_stack(cls, filename, wd=None,
-                         map_shape=None, **kwargs):
-        # Load from image stack
-        if wd is None:
-            wd = '/home/xf05id1/current_user_data/'
-        
-        print('Loading images...', end='', flush=True)
-        image_map = io.imread(f'{wd}{filename}')
-        print('done!')
-        return cls(image_map=image_map, wd=wd, map_title='raw_images', **kwargs)
-
-
-    @classmethod # Allows me to define and initiatie the class simultaneously
-    def from_h5(cls, h5_filename, wd=None):
-        # Load from previously saved data, including all processed data...
-        print('Loading data from h5 file...')
-        input_dict = load_XRD_h5(h5_filename, wd=wd)
-
-        inst = cls(image_map=input_dict['image_data'],
-                   wd=wd, filename=h5_filename[:-3], # remove the .h5 extention
-                   h5_filename=h5_filename,
-                   **input_dict['base_md'],
-                   poni_file=input_dict['poni_od'],
-                   tth_resolution=input_dict['image_data'].tth_resolution,
-                   chi_resolution=input_dict['image_data'].chi_resolution,
-                   tth=input_dict['recip_pos']['tth'],
-                   chi=input_dict['recip_pos']['chi'])
-        
-        # Add a few more attributes if they exist
-        if input_dict['recip_pos']['calib_units'] is not None:
-            inst.calib_units = input_dict['recip_pos']['calib_units']
-        if hasattr(inst.map, 'extent'):
-            inst.extent = inst.map.extent
-        if hasattr(inst.map, 'calibrated_shape'):
-            inst.calibrated_shape = inst.map.calibrated_shape
-        
-        # Load phases
-        if 'phase_dict' in input_dict.keys():
-            inst.phases = input_dict['phase_dict']
-
-        # Load spots
-        if input_dict['spots'] is not None:
-            inst.spots = input_dict['spots']
-
-        if input_dict['spot_model'] is not None:
-            inst.spot_model = input_dict['spot_model']
-
-        print('XRD Map loaded!')
-        return inst
+    @staticmethod
+    def make_hdf(cls, scanid, wd=None):
+        # make an hdf file for the xrdmap class from the databroker
+        # without returning the instance
+        raise NotImplementedError()
     
     ##################
     ### Properties ###
@@ -201,6 +282,13 @@ class XRDMap():
             self._wavelength = energy_2_wavelength(energy)
         else:
             self._energy = energy
+        # Propogate changes...
+        if hasattr(self, 'ai'):
+            self.ai.energy = self._energy
+            self._del_arr()
+        if hasattr(self, 'phases'):
+            for key in self.phases.keys():
+                self.phases[key].energy = self._energy
 
 
     @property
@@ -214,6 +302,13 @@ class XRDMap():
             self._energy = wavelength_2_energy(wavelength)
         else:
             self._wavelength = wavelength
+        # Propogate changes...
+        if hasattr(self, 'ai'):
+            self.ai.energy = self._energy
+            self._del_arr()
+        if hasattr(self, 'phases'):
+            for key in self.phases.keys():
+                self.phases[key].energy = self._energy
 
     
     @property
@@ -236,7 +331,11 @@ class XRDMap():
     
     @tth_arr.deleter
     def tth_arr(self):
-        delattr(self, '_tth_arr')
+        self._del_arr()
+    
+    @property
+    def delta_tth(self):
+        return delta_array(self.tth_arr)
 
     
     @property
@@ -259,44 +358,139 @@ class XRDMap():
     
     @chi_arr.deleter
     def chi_arr(self):
-        delattr(self, '_chi_arr')
-        
+        self._del_arr()
+    
+    @property
+    def delta_chi(self):
+        pos_chi = self.chi_arr.copy()
+        # Check for discontinuities
+        if np.max(np.gradient(pos_chi)) > 30: # Semi-arbitrary cut off
+            pos_chi[pos_chi < 0] += 360
+
+        return delta_array(pos_chi)
 
     
-    ###########################################
-    ### Loading and Saving Data of Instance ###
-    ###########################################
+    @property
+    def q_arr(self):
+        if hasattr(self, '_q_arr'):
+            return self._q_arr
+        # This value will not be cached. It could be, but that is a lot of logic
+        q_arr = get_q_vect(self.tth_arr, self.chi_arr, wavelength=self.wavelength)
+        self._q_arr = q_arr
+        return self._q_arr
 
-    def load_images_from_h5(self, image_dataset):
-        # Only most processed images will be loaded from h5
-        # Deletes current image map and loads new values from h5
+    @q_arr.deleter
+    def q_arr(self):
+        self._del_arr()
+    
+    
+    def _del_arr(self):
+        if hasattr(self, '_tth_arr'):
+            delattr(self, '_tth_arr')
+        if hasattr(self, '_chi_arr'):
+            delattr(self, '_chi_arr')
+        if hasattr(self, '_q_arr'):
+            delattr(self, '_q_arr')
+        if hasattr(self, 'ai'):
+            self.ai._cached_array = {}
+        
+
+    ##########################
+    ### Image manipulation ###
+    ##########################
+
+
+    # TODO: test if this actually works, move to ImageMap
+    def load_images_from_hdf(self, image_dataset):
+        # Only most processed images will be loaded from hdf
+        # Deletes current image map and loads new values from hdf
         print(f'Loading {image_dataset}')
-        with h5py.File(self.h5, 'r') as f:
-            image_grp = f['xrdmap/image_data']
-            if image_dataset in image_grp.keys():
-                del(self.map.images) # Delete previous images from ImageMap to save memory
-                img_dset = image_grp[image_dataset]
-                self.map.images = img_dset[:] # Load image array into ImageMap
 
-                    # Rebuild correction dictionary
-                corrections = {}
-                for key in image_grp[image_dataset].attrs.keys():
-                    # _{key}_correction
-                    corrections[key[1:-11]] = image_grp[image_dataset].attrs[key]
-                self.map.corrections = corrections
+        # Open hdf flag
+        keep_hdf = True
+        if self.hdf is None:
+            self.hdf = h5py.File(self.hdf_path, 'r')
+            keep_hdf = False
+        
+        # Working with dask flag
+        dask_enabled = self.map._dask_enabled
+
+        # Actually load the data
+        image_grp = self.hdf['xrdmap/image_data']
+        if check_hdf_current_images(image_dataset, hdf=self.hdf):
+            del(self.map.images) # Delete previous images from ImageMap to save memory
+            img_dset = image_grp[image_dataset]
+            
+            if dask_enabled:
+                self.map.images = da.asarray(img_dset)
+            else:
+                self.map.images = np.asarray(img_dset)
+
+            # Rebuild correction dictionary
+            corrections = {}
+            for key in image_grp[image_dataset].attrs.keys():
+                # _{key}_correction
+                corrections[key[1:-11]] = image_grp[image_dataset].attrs[key]
+            self.map.corrections = corrections
+
+        # Close hdf and reset attribute
+        if not keep_hdf:
+            self.hdf.close()
+            self.hdf = None
 
         self.map.update_map_title()
+        self.map._dask_2_hdf()
 
 
     def dump_images(self):
         del(self.map)
-        # Intented to clear up memory when only working with indentified spots
+        # Intended to clear up memory when only working with indentified spots
         # May not be useful
+
+    
+    ############################
+    ### Dask / HDF Functions ###
+    ############################
+        
+    # This is to help when working with lazy loaded images
+    def _close_hdf(self):
+        if self.hdf is not None:
+            self.hdf.close()
+            self.hdf = None
+        
+        if self.map.hdf is not None:
+            self.map.hdf.close()
+            self.map.hdf = None
+
+    def _open_hdf(self, dask_enabled=False):
+        if self.hdf is not None:
+            raise ValueError('XRDMap HDF file is already open.')
+        else:
+            self.hdf = h5py.File(self.hdf_path, 'a')
+
+        if self.map.hdf is not None:
+            raise ValueError('ImageMap HDF file is already open.')
+        else:
+            self.map.hdf = self.hdf
+
+        if dask_enabled or self.map._dask_enabled: # This flag persists even when the dataset is closed!
+            img_grp = self.map.hdf['xrdmap/image_data']
+            if self.map.title == 'final_images':
+                if check_hdf_current_images(self.map.title, hdf=self.hdf):
+                    dset = img_grp[self.map.title]
+            elif check_hdf_current_images('_temp_images', hdf=self.hdf):
+                dset = img_grp['_temp_images']
+            self.map.images = da.asarray(dset).persist()
+            self.map._hdf_store = dset
+        
+        # If dask is not enabled, the images should not be lazy loaded
+            
 
     #############################
     ### Correcting Map Images ###
     #############################
 
+    # Not sure if I should wrap this here or keep it inside of the imagemap class
 
     ##############################
     ### Calibrating Map Images ###
@@ -324,31 +518,80 @@ class XRDMap():
         else:
             raise TypeError(f"{type(poni_file)} is unknown and not supported!")
 
-        # Update energy
+        # Update energy if different from poni file
         if self.energy is not None:
             self.ai.energy = self.energy # Allows calibrations acquired at any energy
         else:
-            print('Energy has not been defined. Defualting to .poni file value.')
+            print('Energy has not been defined. Defaulting to .poni file value.')
             self.energy = self.ai.energy
+
+        # Update detector shape and pixel size if different from poni file
+        if hasattr(self, 'map'):
+            try:
+                image_shape = list(self.map.image_shape)
+            except AttributeError:
+                image_shape = list(self.map.images.shape[:-2])
+
+            if self.ai.detector.shape != image_shape:
+                print('Calibration performed under different settings. Adjusting calibration.')
+
+                # Exctract old values
+                poni_shape = self.ai.detector.shape
+                poni_pixel1 = self.ai.detector.pixel1
+                poni_pixel2 = self.ai.detector.pixel2
+
+                bin_est = np.array(image_shape) / np.array(poni_shape)
+                # Forces whole number binning, either direction
+                # This would prevent custom resizing for preprocessing
+                if all([any(bin_est != np.round(bin_est, 0)),
+                        any(1 / bin_est != np.round(1 / bin_est, 0))]):
+                    err_str = ("Calibration file was performed with an "
+                               + "image that is not an integral multiple "
+                               + "of the current map's images."
+                               + "\n\t\tEnsure the calibration is for the "
+                               + "correct detector with the appropriate binning.")
+                    raise ValueError(err_str)
+
+                # Overwrite values
+                self.ai.detector.shape = image_shape
+                self.ai.detector.pixel1 = poni_pixel1 / bin_est[0]
+                self.ai.detector.pixel2 = poni_pixel2 / bin_est[1]
+
+        else:
+            print('Warning: Could not find any images to compare calibration!')
+            print('Defaulting to detectors settings used for calibration.')
 
         # Extract calibration parameters to save
         self.poni = self.ai.get_config()
         
         # Save poni files as dictionary 
-        if self.h5 is not None:
-            with h5py.File(self.h5, 'a') as f:
-                curr_grp = f[f'/xrdmap'].require_group('reciprocal_positions')
-                new_grp = curr_grp.require_group('poni_file')
-                # I don't really like saving values as attributes
-                # They are well setup for this type of thing, though
-                for key, value in self.poni.items():
-                    # For detector which is a nested ordered dictionary...
-                    if isinstance(value, OrderedDict):
-                        new_new_grp = new_grp.require_group(key)
-                        for key_i, value_i in value.items():
-                            new_new_grp.attrs[key_i] = value_i
-                    else:
-                        new_grp.attrs[key] = value
+        # Updates poni information to update detector settings
+        if self.hdf_path is not None:
+
+            # Open hdf flag
+            keep_hdf = True
+            if self.hdf is None:
+                self.hdf = h5py.File(self.hdf_path, 'a')
+                keep_hdf = False
+
+            # Write data to hdf
+            curr_grp = self.hdf[f'/xrdmap'].require_group('reciprocal_positions')
+            new_grp = curr_grp.require_group('poni_file')
+            # I don't really like saving values as attributes
+            # They are well setup for this type of thing, though
+            for key, value in self.poni.items():
+                # For detector which is a nested ordered dictionary...
+                if isinstance(value, OrderedDict):
+                    new_new_grp = new_grp.require_group(key)
+                    for key_i, value_i in value.items():
+                        new_new_grp.attrs[key_i] = value_i
+                else:
+                    new_grp.attrs[key] = value
+
+            # Close hdf and reset attribute
+            if not keep_hdf:
+                self.hdf.close()
+                self.hdf = None
 
 
     # Move this to a function in geometry??
@@ -432,7 +675,6 @@ class XRDMap():
     def estimate_image_coords(self, coords, method='nearest'):
         return estimate_image_coords(coords, self.tth_arr, self.chi_arr, method=method)
     
-
     #########################################
     ### Manipulating and Selecting Phases ###
     #########################################
@@ -500,31 +742,36 @@ class XRDMap():
 
     
     def update_phases(self):
-        if (self.h5 is not None) and (len(self.phases) > 0):
-            with h5py.File(self.h5, 'a') as f:
-                phase_grp = f['xrdmap'].require_group('phase_list')
+        if (self.hdf_path is not None) and (len(self.phases) > 0):
 
-                # Delete any no longer included phases
-                for phase in phase_grp.keys():
-                    if phase not in self.phases.keys():
-                        del(phase_grp[phase])
+            # Open hdf flag
+            keep_hdf = True
+            if self.hdf is None:
+                self.hdf = h5py.File(self.hdf_path, 'a')
+                keep_hdf = False
 
-                # Save any new phases
-                for phase in self.phases.values():
-                    phase.save_to_h5(phase_grp)
+            phase_grp = self.hdf['xrdmap'].require_group('phase_list')
 
-                #dt = h5py.string_dtype(encoding='utf-8')
-                #phase_names = np.char.encode(np.array(list(self.phases.keys())),
-                #                             encoding='utf-8', errors=None)
-                #f.require_dataset('phase_names2', data=phase_names,
-                #                  dtype=dt, shape=(len(self.phases),))
-                # phase_names = np.char.decode([string for string in phase_dataset[:]])
+            # Delete any no longer included phases
+            for phase in phase_grp.keys():
+                if phase not in self.phases.keys():
+                    del(phase_grp[phase])
+
+            # Save any new phases
+            for phase in self.phases.values():
+                phase.save_to_hdf(phase_grp)
+            
+            # Close hdf and reset attribute
+            if not keep_hdf:
+                self.hdf.close()
+                self.hdf = None
+
 
 
     def select_phases(self, remove_less_than=-1,
                       image=None, tth_num=4096,
                       unit='2th_deg', ignore_less=1,
-                      save_to_h5=True):
+                      save_to_hdf=True):
         
         if image is None:
             if self.map.corrections['polar_calibration']:
@@ -545,10 +792,11 @@ class XRDMap():
                 self.remove_phase(phase)
         
         # Write phases to disk
-        if save_to_h5:
+        if save_to_hdf:
             self.update_phases()
 
     
+    # This might be replaced with generate reciprocal lattice
     def _get_all_reflections(self, ignore_less=1):
         for phase in self.phases:
             self.phases[phase].get_hkl_reflections(tth_range=(0, # Limited to zero for large d-spacing
@@ -563,6 +811,12 @@ class XRDMap():
     def find_spots(self, threshold_method='gaussian',
                    multiplier=5, size=3,
                    radius=5, expansion=None):
+        
+        # Cleanup images as necessary
+        self.map._dask_2_numpy()
+        if np.max(self.map.images) != 100:
+            print('Rescaling images to max of 100 and min around 0.')
+            self.map.rescale_images(arr_min=0, upper=100)
 
         # Estimate remaining map noise to determine peak significance
         #self.map_noise = estimate_map_noise(self.map, sample_number=200)
@@ -595,12 +849,22 @@ class XRDMap():
         #self.map.blurred_images = np.asarray(thresh_list).reshape(*self.map.map_shape,
         #                                                          *self.map.calibrated_shape)
 
-        # Save spots to h5
-        if self.h5 is not None:
-            # Save spots to h5
-            self.spots.to_hdf(self.h5, 'xrdmap/reflections/spots', format='table')
+        # Save spots to hdf
+        if self.hdf_path is not None:
+            
+            # Open hdf flag
+            keep_hdf = True
+            if self.hdf is None:
+                self.hdf = h5py.File(self.hdf_path, 'a')
+                keep_hdf = False
 
-            # Save masks to h5
+            print('Saving spots to hdf...', end='', flush=True)
+            # Save spots to hdf
+            self._close_hdf() # pandas cannot work with already open files...
+            self.spots.to_hdf(self.hdf_path, 'xrdmap/reflections/spots', format='table')
+            self._open_hdf()
+
+            # Save masks to hdf
             self.map.save_images(images=self.map.spot_masks,
                                  title='_spot_masks',
                                  units='bool',
@@ -608,59 +872,100 @@ class XRDMap():
                                               'size' : size,
                                               'multiplier' : multiplier,
                                               'window_radius' : radius})
+            
+            # Close hdf and reset attribute
+            if not keep_hdf:
+                self.hdf.close()
+                self.hdf = None
+
+            print('done!')
 
 
-    def fit_spots(self, PeakModel, max_dist=0.5, sigma=1):
+    def fit_spots(self, SpotModel, max_dist=0.5, sigma=1):
 
-        # Find spots in self or from h5
+        # Find spots in self or from hdf
         if not hasattr(self, 'spots'):
             print('No reflection spots found...')
-            if self.h5 is not None:
-                with h5py.File(self.h5, 'r') as f:
-                    if 'reflections' in f['xrdmap'].keys():
-                        print('Loading reflection spots from h5...', end='', flush=True)
-                        spots = pd.read_hdf(self.h5, key='xrdmap/reflections/spots')
-                        self.spots = spots
-                        print('done!')
-                    else:
-                        raise AttributeError('XRDMap does not have any reflection spots! Please find spots first.')
+            if self.hdf_path is not None:
+                # Open hdf flag
+                keep_hdf = True
+                if self.hdf is None:
+                    self.hdf = h5py.File(self.hdf_path, 'r')
+                    keep_hdf = False
+
+                if 'reflections' in self.hdf['xrdmap'].keys():
+                    print('Loading reflection spots from hdf...', end='', flush=True)
+                    self._close_hdf()
+                    spots = pd.read_hdf(self.hdf_path, key='xrdmap/reflections/spots')
+                    self.spots = spots
+                    self._open_hdf()
+
+                    # Close hdf and reset attribute
+                    if not keep_hdf:
+                        self.hdf.close()
+                        self.hdf = None
+                    print('done!')
+
+                else:
+                    raise AttributeError('XRDMap does not have any reflection spots! Please find spots first.')
             else:
                 raise AttributeError('XRDMap does not have any reflection spots! Please find spots first.')
 
-        # Generate the base list of spots from the refined guess parameters
-        #spot_list = remake_spot_list(self.spots, self.map.map_shape)
-
         # Generate list of x, y, I, and spot indices for each blob/spots fits
         spot_fit_info_list = prepare_fit_spots(self, max_dist=max_dist, sigma=sigma)
+
+        # TEMP: trying to see the relative size of this variable in memory
+        self.spot_fit_info_list = spot_fit_info_list
         
         # Fits spots and adds the fit results to the spots dataframe
-        fit_spots(self, spot_fit_info_list, PeakModel)
-        self.spot_model = PeakModel
+        fit_spots(self, spot_fit_info_list, SpotModel)
+        self.spot_model = SpotModel
 
-        # Save spots to h5
-        if self.h5 is not None:
-            #with h5py.File(self.h5, 'a') as f:
+        # Save spots to hdf
+        if self.hdf_path is not None:
+            print('Saving spots to hdf...', end='', flush=True)
+            #with h5py.File(self.hdf_path, 'a') as f:
             #    # Check for and remove existing spots...
             #    if 'spots' in f['xrdmap/reflections']:
             #        del f['xrdmap/reflections/spots']
-            self.spots.to_hdf(self.h5, 'xrdmap/reflections/spots', format='table')
-            with h5py.File(self.h5, 'a') as f:
-                f['xrdmap/reflections'].attrs['spot_model'] = PeakModel.name
+
+            # Open hdf flag
+            keep_hdf = True
+            if self.hdf is None:
+                self.hdf = h5py.File(self.hdf_path, 'a')
+                keep_hdf = False
+
+            # Save to hdf
+            self._close_hdf()
+            self.spots.to_hdf(self.hdf_path, 'xrdmap/reflections/spots', format='table')
+            self._open_hdf()
+            self.hdf['xrdmap/reflections'].attrs['spot_model'] = SpotModel.name
+
+            # Close hdf and reset attribute
+            if not keep_hdf:
+                self.hdf.close()
+                self.hdf = None
+            
+            print('done!')
 
 
-    def initial_spot_analysis(self, PeakModel=None):
+    def initial_spot_analysis(self, SpotModel=None):
 
-        if PeakModel is None and hasattr(self, 'spot_model'):
-            PeakModel = self.spot_model
+        if SpotModel is None and hasattr(self, 'spot_model'):
+            SpotModel = self.spot_model
 
         # Initial spot analysis...
-        _initial_spot_analysis(self, PeakModel=PeakModel)
+        _initial_spot_analysis(self, SpotModel=SpotModel)
 
-        # Save spots to h5
-        if self.h5 is not None:
-            self.spots.to_hdf(self.h5, 'xrdmap/reflections/spots', format='table')
+        # Save spots to hdf
+        if self.hdf_path is not None:
+            self._close_hdf()
+            self.spots.to_hdf(self.hdf_path, 'xrdmap/reflections/spots', format='table')
+            self._open_hdf()
 
 
+    def trim_spots(spots, remove_less=0.1):
+        raise NotImplementedError()
 
     #################################
     ### Analysis of Selected Data ###
@@ -698,14 +1003,19 @@ class XRDMap():
             else:
                 raise ValueError(f"Incorrect image shape of {image.shape}. Should be two-dimensional.")
         else:
+            # Evaluate images
+            self.map._dask_2_dask()
+
             if indices is not None:
                 indices = tuple(indices)
                 image = self.map.images[indices]
+                image = np.asarray(image)
             else:
                 i = np.random.randint(self.map.map_shape[0])
                 j = np.random.randint(self.map.map_shape[1])
                 indices = (i, j)
                 image = self.map.images[indices]
+                image = np.asarray(image)
 
         # Check for mask
         if mask is not None:
@@ -798,6 +1108,10 @@ class XRDMap():
             indices = (i, j)
         else:
             indices = tuple(indices)
+            if (indices[0] < 0 or indices[0] > self.map.map_shape[0]):
+                raise IndexError(f'Indices ({indices}) is out of bounds along axis 0 for map shape ({self.map.map_shape})')
+            elif (indices[1] < 0 or indices[1] > self.map.map_shape[1]):
+                raise IndexError(f'Indices ({indices}) is out of bounds along axis 1 for map shape ({self.map.map_shape})')
         
         if hasattr(self, 'spot_model'):
             spot_model = self.spot_model
@@ -841,7 +1155,7 @@ class XRDMap():
             residual = recon_image - image
             ext = np.max(np.abs(residual[self.map.mask]))
             fig, ax = self.plot_image(residual,
-                                title=f'Residual of ({indices[0]}, {indices[1]})',
+                                title=f'Residual of (Row = {indices[0]}, Col = {indices[1]})',
                                 return_plot=True, indices=indices,
                                 vmin=-ext, vmax=ext, cmap='bwr', # c='k',
                                 **kwargs)
@@ -854,15 +1168,16 @@ class XRDMap():
             tth = self.tth
         if hasattr(self, 'chi') and chi is None:
             chi = self.chi
-            
-        interactive_dynamic_2d_plot(self.map.images, tth=tth, chi=chi, **kwargs)
+
+        interactive_dynamic_2d_plot(np.asarray(self.map.images), tth=tth, chi=chi, **kwargs)
     
 
-    def Plot_interactive_integration_map(self, display_map=None, display_title=None):
+    def plot_interactive_integration_map(self, display_map=None, display_title=None):
         # Map integrated patterns for dynamic exploration of dataset
         # May throw an error if data has not yet been integrated
         raise NotImplementedError()
     
+
     def plot_map_value(self, data, cmap='viridis'):
         # Simple base mapping function for analyzed values.
         # Will expand to map phase assignment, phase integrated intensity, etc.
@@ -877,7 +1192,7 @@ class XRDMap():
     ### Plot Experimental Geometry ###
     ##################################
 
-    def plot_q_space(self, pixel_indices=None, skip=500):
+    def plot_q_space(self, pixel_indices=None, skip=500, return_plot=False):
  
         q = get_q_vect(self.tth_arr, self.chi_arr, wavelength=self.wavelength)
 
@@ -897,14 +1212,14 @@ class XRDMap():
         # Plot full Ewald sphere
         u = np.linspace(0, 2 * np.pi, 100)
         v = np.linspace(0, np.pi, 100)
-        radius = 2 * np.pi / test.wavelength
+        radius = 2 * np.pi / self.wavelength
         x =  radius * np.outer(np.cos(u), np.sin(v))
         y = radius * np.outer(np.sin(u), np.sin(v))
         z = radius * np.outer(np.ones(np.size(u)), np.cos(v))
         ax.plot_surface(x, y, z - radius, alpha=0.2, color='k', label='Ewald sphere')
 
         if pixel_indices is not None:
-            ax.scatter(*pixel_df.loc[['qx', 'qy', 'qz']].values.T, s=1, c='r', label='spots')
+            ax.scatter(*pixel_df[['qx', 'qy', 'qz']].values.T, s=1, c='r', label='spots')
 
         # Sample geometry
         ax.quiver([0, 0], [0, 0], [-2 * radius, -radius], [0, 0], [0, 0], [radius, radius], colors='k')
@@ -920,8 +1235,11 @@ class XRDMap():
         ax.view_init(elev=-45, azim=90, roll=0)
         plt.show()
 
+        if return_plot:
+            return fig, ax
 
-    def plot_detector_geometry(self, skip=300):
+
+    def plot_detector_geometry(self, skip=300, return_plot=False):
 
         fig, ax = plt.subplots(1, 1, figsize=(5, 5), dpi=200, subplot_kw={'projection':'3d'})
 
@@ -960,3 +1278,6 @@ class XRDMap():
         # Initial view
         ax.view_init(elev=-60, azim=90, roll=0)
         plt.show()
+
+        if return_plot:
+            return fig, ax

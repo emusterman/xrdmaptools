@@ -10,22 +10,23 @@ import scipy.constants as constants
 
 def _load_peak_function(name):
 
-    for PeakModel in [GaussianFunctions,
+    for SpotModel in [GaussianFunctions,
                      LorentzianFunctions,
                      PseudoVoigtFunctions]:
-        if name in [PeakModel.name, PeakModel.abbr]:
-            return PeakModel
+        if name in [SpotModel.name, SpotModel.abbr]:
+            return SpotModel
         
     print(f'Given peak name: {name} is not yet supported.')
 
 
-class PeakFunctionBase():
+class SpotModelBase():
     # Must define self.func_1d() and self.func_2d()
     # Relies on standard argument input order
 
     # Useful parameters
     par_1d = ['amp', 'x0', 'fwhm']
     par_2d = ['amp', 'x0', 'y0', 'fwhm_x', 'fwhm_y', 'theta']
+
 
     @classmethod
     def multi_1d(cls, *args):
@@ -73,7 +74,7 @@ class PeakFunctionBase():
         raise NotImplementedError
 
 
-class GaussianFunctions(PeakFunctionBase):
+class GaussianFunctions(SpotModelBase):
     # Useful parameters
     name = 'Gaussian'
     abbr = 'gauss'
@@ -183,7 +184,7 @@ class GaussianFunctions(PeakFunctionBase):
         raise NotImplementedError()
 
 
-class LorentzianFunctions(PeakFunctionBase):
+class LorentzianFunctions(SpotModelBase):
     # Useful parameters
     name = 'Lorentzian'
     abbr = 'lorentz'
@@ -253,7 +254,7 @@ class LorentzianFunctions(PeakFunctionBase):
     #    return fwhm_rx, fwhm_ry, fwhm_x, fwhm_y
 
 
-class PseudoVoigtFunctions(PeakFunctionBase):
+class PseudoVoigtFunctions(SpotModelBase):
     # Note: This is the pseudo-voigt profile!
     # Useful parameters
     name = 'PseudoVoigt'
@@ -337,11 +338,10 @@ class PseudoVoigtFunctions(PeakFunctionBase):
         eta_x, fwhm_x = V._get_eta_fwhm(G_fwhm_x, L_fwhm_x)
         eta_y, fwhm_y = V._get_eta_fwhm(G_fwhm_y, L_fwhm_y)
 
-        return PeakFunctionBase.get_2d_fwhm(amp, x0, y0, fwhm_x, fwhm_y, theta, radians=radians)
-        
+        return SpotModelBase.get_2d_fwhm(amp, x0, y0, fwhm_x, fwhm_y, theta, radians=radians)
     
 
-class old_PseudoVoigtFunctions(PeakFunctionBase):
+class old_PseudoVoigtFunctions(SpotModelBase):
     # Note: This is the pseudo-voigt profile!
     # Useful parameters
     name = 'PseudoVoigt'
@@ -422,7 +422,7 @@ class old_PseudoVoigtFunctions(PeakFunctionBase):
         fwhm_x = V.get_1d_fwhm(amp, x0, G_fwhm_x, L_fwhm_x, eta)
         fwhm_y = V.get_1d_fwhm(amp, y0, G_fwhm_y, L_fwhm_y, eta)
 
-        return PeakFunctionBase.get_2d_fwhm(amp, x0, y0, fwhm_x, fwhm_y, theta, radians=radians)
+        return SpotModelBase.get_2d_fwhm(amp, x0, y0, fwhm_x, fwhm_y, theta, radians=radians)
 
         # Gaussian and Lorentzian grab from the same
         return V.G.get_2d_fwhm(amp, x0, y0, fwhm_x, fwhm_y, theta, radians=radians)

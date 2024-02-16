@@ -5,13 +5,14 @@ import h5py
 from collections import OrderedDict
 import time as ttime
 import pandas as pd
+import dask.array as da
 
 #################
-### H5 Format ###
+### HDF Format ###
 #################
 
-def initialize_xrdmap_h5(xrdmap, h5_file):
-    with h5py.File(h5_file, 'w-') as f:
+def initialize_xrdmap_hdf(xrdmap, hdf_file):
+    with h5py.File(hdf_file, 'w-') as f:
         base_grp = f.require_group('xrdmap')
         base_grp.attrs['scanid'] = xrdmap.scanid
         base_grp.attrs['beamline'] = xrdmap.beamline #'5-ID (SRX)'
@@ -32,154 +33,220 @@ def initialize_xrdmap_h5(xrdmap, h5_file):
         # Add pixel scalar values
 
 
-def check_h5_current_images(xrdmap, h5_file):
-    with h5py.File(h5_file, 'r') as f:
-        return xrdmap.map.title in f['/xrdmap/image_data']
+def check_hdf_current_images(title, hdf_file=None, hdf=None):
+    if hdf is None and hdf_file is not None:
+        with h5py.File(hdf_file, 'r') as f:
+            return title in f['/xrdmap/image_data']
+    elif hdf is not None:
+        return title in hdf['/xrdmap/image_data']
+    else:
+        raise ValueError('Must specify hdf_file or hdf.')
     
 
-def load_XRD_h5(filename, wd=None):
+def load_XRD_hdf(filename, wd=None, dask_enabled=False):
     # TODO: Add conditional to check for .h5 at end of file name
 
-    h5_path = f'{wd}{filename}'
-    with h5py.File(h5_path, 'r') as f:
-        base_grp = f['/xrdmap']
+    # Figuring out hdf file stuff
+    hdf_path = f'{wd}{filename}'
+    if not dask_enabled:
+        hdf = h5py.File(hdf_path, 'r')
+    else:
+        hdf = h5py.File(hdf_path, 'a')
+    base_grp = hdf['/xrdmap']
 
-        # Load base metadata
-        base_md = dict(base_grp.attrs.items())
+    # Load base metadata
+    base_md = dict(base_grp.attrs.items())
 
-        # Load most recent image data
-        if 'image_data' not in base_grp.keys():
-            raise RuntimeError("No image data in h5 file! Try loading from image stack or from databroker.")
-        img_grp = base_grp['image_data']
+    # Load most recent image data
+    if 'image_data' not in base_grp.keys():
+        raise RuntimeError("No image data in hdf file! Try loading from image stack or from databroker.")
+    img_grp = base_grp['image_data']
 
-        time_stamps, img_keys = [], []
-        for key in img_grp.keys():
-            if key[0] != '_':
-                time_stamps.append(img_grp[key].attrs['time_stamp'])
-                img_keys.append(key)
-        time_stamps = [ttime.mktime(ttime.strptime(x)) for x in time_stamps]
-        recent_index = np.argmax(time_stamps)
-        print(f'Loading most recent images ({img_keys[recent_index]})...', end='', flush=True)
+    time_stamps, img_keys = [], []
+    for key in img_grp.keys():
+        if key[0] != '_':
+            time_stamps.append(img_grp[key].attrs['time_stamp'])
+            img_keys.append(key)
+    time_stamps = [ttime.mktime(ttime.strptime(x)) for x in time_stamps]
+    recent_index = np.argmax(time_stamps)
+
+    print(f'Loading most recent images ({img_keys[recent_index]})...', end='', flush=True)
+    if dask_enabled:
+        # Lazy loads data
+        image_dset = img_grp[img_keys[recent_index]]
+        image_data = da.asarray(image_dset)
+    else:
+        # Fully loads data as dask array
         image_data = img_grp[img_keys[recent_index]][:]
 
-        # Rebuild correction dictionary
-        corrections = {}
-        for key, value in img_grp[img_keys[recent_index]].attrs.items():
-            if key[0] == '_' and key[-11:] == '_correction':
-                corrections[key[1:-11]] = value
+    # Rebuild correction dictionary
+    corrections = {}
+    for key, value in img_grp[img_keys[recent_index]].attrs.items():
+        if key[0] == '_' and key[-11:] == '_correction':
+            corrections[key[1:-11]] = value
 
-        image_data = ImageMap(image_data, title=img_keys[recent_index],
-                              h5=h5_path, corrections=corrections)
-        image_data.image_shape = img_grp['raw_images'].shape[2:]
-        
-        # I should look for other composite images???
-        if '_processed_images_composite' in img_grp.keys():
-            image_data._processed_images_composite = img_grp['_processed_images_composite'][:]
+    # Collect ImageMap attributes that are not instantiated...
+    image_map_attrs = {}
+    
+    #image_map.image_shape = img_grp['raw_images'].shape[2:]
+    image_map_attrs['image_shape'] = img_grp['raw_images'].shape[2:]
+    
+    # I should look for other composite images???
+    if '_processed_images_composite' in img_grp.keys():
+        #image_map._processed_images_composite = img_grp['_processed_images_composite'][:]
+        image_map_attrs['_processed_images_composite'] = img_grp['_processed_images_composite'][:]
 
-        if '_calibration_mask' in img_grp.keys():
-            image_data.calibration_mask = img_grp['_calibration_mask'][:]
+    if '_calibration_mask' in img_grp.keys():
+        #image_map.calibration_mask = img_grp['_calibration_mask'][:]
+        image_map_attrs['calibration_mask'] = img_grp['_calibration_mask'][:]
 
-        if '_defect_mask' in img_grp.keys():
-            image_data.defect_mask = img_grp['_defect_mask'][:]
+    if '_defect_mask' in img_grp.keys():
+        #image_map.defect_mask = img_grp['_defect_mask'][:]
+        image_map_attrs['defect_mask'] = img_grp['_defect_mask'][:]
 
-        if '_custom_mask' in img_grp.keys():
-            image_data.custom_mask = img_grp['_custom_mask'][:]
-        
-        if '_spot_masks' in img_grp.keys():
-            image_data.spot_masks = img_grp['_spot_masks'][:]
-        
-        print('done!')
+    if '_custom_mask' in img_grp.keys():
+        #image_map.custom_mask = img_grp['_custom_mask'][:]
+        image_map_attrs['custom_mask'] = img_grp['_custom_mask'][:]
+    
+    if '_spot_masks' in img_grp.keys():
+        #image_map.spot_masks = img_grp['_spot_masks'][:]
+        image_map_attrs['spot_masks'] = img_grp['_spot_masks'][:]
+    
+    print('done!')
 
-        # Recipricol positions
-        if 'reciprocal_positions' in base_grp.keys():
-            print('Loading reciprocal positions...', end='', flush=True)
-            recip_grp = base_grp['reciprocal_positions']
+    # Recipricol positions
+    if 'reciprocal_positions' in base_grp.keys():
+        print('Loading reciprocal positions...', end='', flush=True)
+        recip_grp = base_grp['reciprocal_positions']
 
-            if 'tth' in recip_grp.keys() and 'chi' in recip_grp.keys():
-                tth = recip_grp['tth'][:]
-                chi = recip_grp['chi'][:]
+        if 'tth' in recip_grp.keys() and 'chi' in recip_grp.keys():
+            tth = recip_grp['tth'][:]
+            chi = recip_grp['chi'][:]
 
-                recip_pos = {
-                    'tth' : tth,
-                    'chi' : chi,
-                    'calib_units' : recip_grp['tth'].attrs['units']
-                }
+            recip_pos = {
+                'tth' : tth,
+                'chi' : chi,
+                'calib_units' : recip_grp['tth'].attrs['units']
+            }
 
-                # Add some extra attributes to image_data
-                image_data.tth_resolution = recip_grp['tth'].attrs['tth_resolution']
-                image_data.chi_resolution = recip_grp['chi'].attrs['chi_resolution']
-                image_data.extent = recip_grp.attrs['extent']
-                image_data.calibrated_shape = (len(chi), len(tth))
-                image_data.chi_num = image_data.calibrated_shape[0]
-                image_data.tth_num = image_data.calibrated_shape[1]
-                
-            else:
-                recip_pos = {'tth' : None,
-                             'chi' : None,
-                             'calib_units' : None}
-                image_data.tth_resolution = None
-                image_data.chi_resolution = None
-                image_data.extent = None
-                image_data.chi_num = None
-                image_data.tth_num = None
+            # Add some extra attributes to image_map
+            #image_map.tth_resolution = recip_grp['tth'].attrs['tth_resolution']
+            #image_map.chi_resolution = recip_grp['chi'].attrs['chi_resolution']
+            #image_map.extent = recip_grp.attrs['extent']
+            #image_map.calibrated_shape = (len(chi), len(tth))
+            #image_map.chi_num = image_map.calibrated_shape[0]
+            #image_map.tth_num = image_map.calibrated_shape[1]
+            image_map_attrs['tth_resolution'] = recip_grp['tth'].attrs['tth_resolution']
+            image_map_attrs['chi_resolution'] = recip_grp['chi'].attrs['chi_resolution']
+            image_map_attrs['extent'] = recip_grp.attrs['extent']
+            image_map_attrs['calibrated_shape'] = (len(chi), len(tth))
+            image_map_attrs['chi_num'] = len(chi)
+            image_map_attrs['tth_num'] = len(tth)
 
-            # Load poni_file calibration
-            poni_grp = recip_grp['poni_file']
-            ordered_keys = ['poni_version', 'detector', 'detector_config', 'dist', 'poni1', 'poni2', 'rot1', 'rot2', 'rot3', 'wavelength']
-            poni_od = OrderedDict()
-            for key in ordered_keys:
-                if key == 'detector_config':
-                    detector_od = OrderedDict()
-                    detector_od['pixel1'] = poni_grp['detector_config'].attrs['pixel1']
-                    detector_od['pixel2'] = poni_grp['detector_config'].attrs['pixel2']
-                    detector_od['max_shape'] = list(poni_grp['detector_config'].attrs['max_shape'])
-                    poni_od[key] = detector_od
-                else:
-                    poni_od[key] = poni_grp.attrs[key]
-            print('done!')
         else:
             recip_pos = {'tth' : None,
-                         'chi' : None,
-                         'calib_units' : None}
-            poni_od = None
-        image_data.tth = recip_pos['tth']
-        image_data.chi = recip_pos['chi']
+                            'chi' : None,
+                            'calib_units' : None}
+            #image_map.tth_resolution = None
+            #image_map.chi_resolution = None
+            #image_map.extent = None
+            #image_map.chi_num = None
+            #image_map.tth_num = None
+            image_map_attrs['tth_resolution'] = None
+            image_map_attrs['chi_resolution'] = None
+            image_map_attrs['extent'] = None
+            image_map_attrs['chi_num'] = None
+            image_map_attrs['tth_num'] = None
 
+        # Load poni_file calibration
+        poni_grp = recip_grp['poni_file']
+        ordered_keys = ['poni_version', 'detector', 'detector_config', 'dist', 'poni1', 'poni2', 'rot1', 'rot2', 'rot3', 'wavelength']
+        poni_od = OrderedDict()
+        for key in ordered_keys:
+            if key == 'detector_config':
+                detector_od = OrderedDict()
+                detector_od['pixel1'] = poni_grp['detector_config'].attrs['pixel1']
+                detector_od['pixel2'] = poni_grp['detector_config'].attrs['pixel2']
+                detector_od['max_shape'] = list(poni_grp['detector_config'].attrs['max_shape'])
+                poni_od[key] = detector_od
+            else:
+                poni_od[key] = poni_grp.attrs[key]
+        print('done!')
+    else:
+        recip_pos = {'tth' : None,
+                        'chi' : None,
+                        'calib_units' : None}
+        #image_map.tth_resolution = None
+        #image_map.chi_resolution = None
+        image_map_attrs['tth_resolution'] = None
+        image_map_attrs['chi_resolution'] = None
+        poni_od = None
+    #image_map.tth = recip_pos['tth']
+    #image_map.chi = recip_pos['chi']
+    image_map_attrs['tth'] = recip_pos['tth']
+    image_map_attrs['chi'] = recip_pos['chi']
 
-        # Load phases
-        phase_dict = {}
-        if 'phase_list' in base_grp.keys():
-            print('Loading saved phases...', end='', flush=True)
-            phase_grp = base_grp['phase_list']
-            if len(phase_grp) > 0:
-                for phase in phase_grp.keys():
-                    phase_dict[phase] = Phase.from_h5(phase_grp[phase],
-                                                      energy=base_md['energy'],
-                                                      tth=recip_pos['tth'])
-            print('done!')
+    # Load phases
+    phase_dict = {}
+    if 'phase_list' in base_grp.keys():
+        print('Loading saved phases...', end='', flush=True)
+        phase_grp = base_grp['phase_list']
+        if len(phase_grp) > 0:
+            for phase in phase_grp.keys():
+                phase_dict[phase] = Phase.from_hdf(phase_grp[phase],
+                                                    energy=base_md['energy'],
+                                                    tth=recip_pos['tth'])
+        print('done!')
 
+    # Load spots dataframe
+    spots = None
+    spot_model = None
+    if 'reflections' in base_grp.keys():
+        print('Loading reflection spots...', end='', flush=True)
+        # I really dislike that pandas cannot handle an already open file
+        hdf.close()
+        spots = pd.read_hdf(hdf_path, key='xrdmap/reflections/spots')
 
-        # Load spots dataframe
-        spots = None
-        spot_model = None
-        if 'reflections' in base_grp.keys():
-            print('Loading reflection spots...', end='', flush=True)
-            spots = pd.read_hdf(h5_path, key='xrdmap/reflections/spots')
-            print('done!')
+        if dask_enabled:
+            hdf = h5py.File(hdf_path, 'a')
+            img_grp = hdf['xrdmap/image_data']
+            image_dset = img_grp[img_keys[recent_index]]
+            image_data = da.asarray(image_dset)
+        else:
+            hdf = h5py.File(hdf_path, 'r')
+        print('done!')
 
-            # Load peak model
-            if 'spot_model' in f['xrdmap/reflections'].attrs.keys():
-                spot_model_name = f['xrdmap/reflections'].attrs['spot_model']
-                spot_model = _load_peak_function(spot_model_name)
+        # Load peak model
+        if 'spot_model' in hdf['xrdmap/reflections'].attrs.keys():
+            spot_model_name = hdf['xrdmap/reflections'].attrs['spot_model']
+            spot_model = _load_peak_function(spot_model_name)
         
         # Load scalars
 
         # Load pixel positions
+            
+    if not dask_enabled:
+        hdf.close()
+        hdf = None
+
+    # Instantiate ImageMap!
+    print(f'Instantiating ImageMap...', end='', flush=True)
+    image_map = ImageMap(image_data,
+                         title=img_keys[recent_index],
+                         wd=wd,
+                         hdf_path=hdf_path,
+                         hdf=hdf,
+                         corrections=corrections,
+                         dask_enabled=dask_enabled)
     
+    # Add extra ImageMap attributes
+    for key, value in image_map_attrs.items():
+        setattr(image_map, key, value)
+    print('done!')
     
     # return dictionary of useful values
     ouput_dict = {'base_md' : base_md,
-                  'image_data': image_data,
+                  'image_data': image_map,
                   'recip_pos' : recip_pos,
                   'poni_od' : poni_od,
                   'phase_dict' : phase_dict,
@@ -187,6 +254,31 @@ def load_XRD_h5(filename, wd=None):
                   'spot_model' : spot_model}
 
     return ouput_dict
+
+
+def get_optimal_chunks(data, approx_chunk_size=200):
+    
+    data_shape = data.shape
+    data_nbytes = data[(0,) * data.ndim].nbytes
+
+    # Split images up by data size in MB that seems reasonable
+    images_per_chunk = (approx_chunk_size * 2**20) / np.prod([*data_shape[-2:], data_nbytes], dtype=np.int64)
+
+    # Try to make square chunks if possible
+    square_chunks = np.sqrt(images_per_chunk)
+
+    num_chunk_x = np.round(data_shape[0] / square_chunks, 0).astype(np.int32)
+    num_chunk_x = min(max(num_chunk_x, 1), data_shape[0])
+    chunk_x = data_shape[0] // num_chunk_x
+
+    num_chunk_y = np.round(data_shape[1] / (data_shape[0] / num_chunk_x), 0).astype(np.int32)
+    num_chunk_y = min(max(num_chunk_y, 1), data_shape[1])
+    chunk_y = data_shape[1] // num_chunk_y
+
+    # String togther, maintaining full images per chunk
+    chunk_size = (chunk_x, chunk_y, *data_shape[-2:])
+
+    return chunk_size
 
         
 
