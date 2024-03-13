@@ -119,24 +119,17 @@ def get_q_vect(tth, chi, wavelength, return_kf=False, radians=False):
 
 
 def _initial_spot_analysis(xrdmap, SpotModel=None):
+    # TODO: rewrite with spots dataframe and wavelength as inputs...
 
     # Extract fit stats
     print('Extracting more information from peak parameters...')
     if SpotModel is not None and any([x[:3] == 'fit' for x in xrdmap.spots.loc[0].keys()]):
-        interested_params = [x for x in xrdmap.spots.loc[0].keys()
+        interested_params = [x for x in xrdmap.spots.iloc[0].keys()
                              if x[:3] == 'fit'][:6]
         prefix='fit'
     elif SpotModel is None or SpotModel == 'guess':
-        interested_params = ['guess_height',
-                             'guess_img_x',
-                             'guess_img_y',
-                             'guess_tth',
-                             'guess_chi',
-                             'guess_cen_tth',
-                             'guess_cen_chi',
-                             'guess_fwhm_tth',
-                             'guess_fwhm_chi',
-                             'guess_int']
+        interested_params = [x for x in xrdmap.spots.iloc[0].keys()
+                             if x[:5] == 'guess']
         prefix='guess'
 
     for i in tqdm(xrdmap.spots.index):
@@ -162,8 +155,8 @@ def _initial_spot_analysis(xrdmap, SpotModel=None):
         labels = ['integrated',
                   'fwhm_a',
                   'fwhm_b',
-                  'fwhm_tth',
-                  'fwhm_chi']
+                  'rot_fwhm_tth',
+                  'rot_fwhm_chi']
         labels = [f'{prefix}_{label}' for label in labels]
         for ind, label in enumerate(labels):
             xrdmap.spots.loc[i, label] = more_params[ind]

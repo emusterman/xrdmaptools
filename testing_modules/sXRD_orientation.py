@@ -76,11 +76,11 @@ def euler_rotation(arr, phi1, PHI, phi2, radians=False):
 # Uninformed symmetry reductions of euler space
 # Cannot handle multiple grains
 # Does not handle missing reflections
-def iterative_dictionary_indexing(pixel_df, Phase, tth_range, cut_off=0.1, start_angle=10, angle_resolution=0.001,
+def iterative_dictionary_indexing(spot_qs, Phase, tth_range, cut_off=0.1, start_angle=10, angle_resolution=0.001,
                                   euler_bounds=[[-180, 180], [0, 180], [-180, 180]]):
     from itertools import product
 
-    spot_qs = pixel_df[['qx', 'qy', 'qz']].values
+    #spot_qs = pixel_df[['qx', 'qy', 'qz']].values
     all_hkls, all_qs, all_fs = generate_reciprocal_lattice(Phase, tth_range=tth_range)
 
     dist = euclidean_distances(all_qs)
@@ -139,6 +139,8 @@ def iterative_dictionary_indexing(pixel_df, Phase, tth_range, cut_off=0.1, start
     fit_ori.append(orientations[np.argmin(min_list)])
 
     return fit_ori, fit_min
+
+
 
 
 #########################

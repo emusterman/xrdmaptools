@@ -1,6 +1,6 @@
 import numpy as np
 from scipy.special import wofz
-import scipy.constants as constants
+import scipy.stats as stats
 
 
 ############################
@@ -162,23 +162,14 @@ class GaussianFunctions(SpotModelBase):
         sigma_x = fwhm_x / (2 * np.sqrt(2 * np.log(2)))
         sigma_y = fwhm_y / (2 * np.sqrt(2 * np.log(2)))
         return amp * 2 * np.pi * sigma_x * sigma_y
-
-    #@staticmethod
-    #def get_1d_fwhm(amp, x0, fwhm):
-        # sigma = fwhm / (2 * np.sqrt(2 * np.log(2)))
-        # return 2 * np.sqrt(2 * np.log(2)) * sigma
-    #    return fwhm
     
-    #@staticmethod
-    #def get_2d_fwhm(amp, x0, y0, fwhm_x, fwhm_y, theta, radians=False):
-    #            
-    #    if not radians:
-    #        theta = np.radians(theta)
-    #
-    #    fwhm_rx = fwhm_x * np.cos(-theta) - fwhm_y * np.sin(-theta)
-    #    fwhm_ry = fwhm_x * np.sin(-theta) + fwhm_y * np.cos(-theta)
-    #
-    #    return fwhm_rx, fwhm_ry, fwhm_x, fwhm_y
+    @staticmethod
+    def get_hyper_volume(amp, x0, y0, z0, fwhm_x, fwhm_y, fwhm_z, theta, phi, radians=False):
+        raise NotImplementedError()
+        sigma_x = fwhm_x / (2 * np.sqrt(2 * np.log(2)))
+        sigma_y = fwhm_y / (2 * np.sqrt(2 * np.log(2)))
+        sigma_z = fwhm_z / (2 * np.sqrt(2 * np.log(2)))
+        return amp * sigma_x * sigma_y * sigma_z * (2 * np.pi)**1.5
 
     def get_3d_fwhm():
         raise NotImplementedError()
@@ -234,24 +225,6 @@ class LorentzianFunctions(SpotModelBase):
         sigma_y = gamma_y * np.sqrt(np.pi / 2)
 
         return amp * 2 * np.pi * sigma_x * sigma_y
-
-    
-    #@staticmethod
-    #def get_1d_fwhm(amp, x0, fwhm):
-        #gamma = 0.5 * fwhm
-        #return 2 * gamma
-    #    return fwhm
-    
-    #@staticmethod
-    #def get_2d_fwhm(amp, x0, y0, fwhm_x, fwhm_y, theta, radians=False):
-    #            
-    #    if not radians:
-    #        theta = np.radians(theta)
-    #
-    #    fwhm_rx = fwhm_x * np.cos(-theta) - fwhm_y * np.sin(-theta)
-    #    fwhm_ry = fwhm_x * np.sin(-theta) + fwhm_y * np.cos(-theta)
-    #
-    #    return fwhm_rx, fwhm_ry, fwhm_x, fwhm_y
 
 
 class PseudoVoigtFunctions(SpotModelBase):
@@ -524,3 +497,130 @@ def multi_peak_fitting(peak_function, *args, **kwargs):
         z += peak_function(x, *arg_dict.values(), **kwargs)
     
     return z
+
+#########################
+### Related Functions ###
+#########################
+
+# Not currently used.
+def qualify_gaussian_2d_fit(r_squared, sig_threshold, guess_params, fit_params, return_reason=False):
+    # Determine euclidean distance between intitial guess and peak fit. TODO change to angular misorientation
+    offset_distance = np.sqrt((fit_params[1] - guess_params[1])**2 + (fit_params[2] - guess_params[2])**2)
+    
+    keep_fit = np.all([r_squared >= 0, # Qualify peak fit. Decent fits still do not have great r_squared, so cutoff is low
+                       fit_params[0] > sig_threshold,
+                       offset_distance < 50, # Useless when using bounded curve fit...
+                       np.abs(fit_params[3]) < 0.5, # Qualifies sigma_x to not be too diffuse
+                       np.abs(fit_params[4]) < 1.5, # Qualifies sigma_y to not be too diffuse
+                       ])
+
+    # Add qualifiers to determine if the gaussian fit is:
+    # Sufficiently good fit (in r_squared)
+    # Has sufficient amplitude to be worthwhile
+    # Has not moved too far from initial guess position
+    if return_reason:
+        return keep_fit, offset_distance
+    return keep_fit
+
+
+def generate_bounds(p0, peak_function, tth_step=None, chi_step=None):
+    
+    # Get function input variable names, excluding 'self', 'x' or '(xy)' and any default arguments
+    inputs = list(peak_function.__code__.co_varnames[:peak_function.__code__.co_argcount])
+    if 'self' in inputs: inputs.remove('self')
+    inputs = inputs[1:] # remove the x, or xy inputs
+    if peak_function.__defaults__ is not None:
+        inputs = inputs[:-len(peak_function.__defaults__)] # remove defualts
+
+    if tth_step is None: tth_step = 0.02
+    if chi_step is None: chi_step = 0.05
+
+    tth_resolution, chi_resolution = 0.01, 0.01 # In degrees...
+    tth_range = np.max([tth_resolution, tth_step]) * 3 # just a bit more wiggle room
+    chi_range = np.max([chi_resolution, chi_step]) * 3 # just a bit more wiggle room
+
+    low_bounds, upr_bounds = [], []
+    for i in range(0, len(p0), len(inputs)):
+        for j, arg in enumerate(inputs):
+            if arg == 'amp':
+                low_bounds.append(0)
+                upr_bounds.append(p0[i + j] * 10) # guess intensity is probably not off by more than this
+            elif arg == 'x0':
+                low_bounds.append(p0[i + j] - tth_range) # Restricting peak shift based on guess position uncertainty
+                upr_bounds.append(p0[i + j] + tth_range)
+            elif arg == 'y0':
+                low_bounds.append(p0[i + j] - chi_range) # Restricting peak shift based on guess position uncertainty
+                upr_bounds.append(p0[i + j] + chi_range)
+            elif 'fwhm_x' in arg:
+                low_bounds.append(0.001)
+                upr_bounds.append(p0[i + j] * 1.15) # should be based off of intrument resolution
+            elif 'fwhm_y' in arg:
+                low_bounds.append(0.001)
+                upr_bounds.append(p0[i + j] * 3) # should be based off of intrument resolution
+            elif arg == 'theta':
+                low_bounds.append(-45) # Prevents spinning
+                upr_bounds.append(45) # Only works for degrees...
+            else:
+                raise ValueError(f"{peak_function} inputs {arg} not defined by the generate_bounds function!")
+            
+    return [low_bounds, upr_bounds]
+
+
+def get_confidence_interval(data, params, pcov, alpha=0.05):
+    n = len(data)
+    p = len(params)
+
+    # Degrees of freedom
+    dof = np.max(0, n - p)
+    
+    # student-t value for the dof and confidence level
+    tval = stats.t.ppf(1 - float(alpha) / 2, dof)
+
+    ci_list = []
+    for variance in np.diag(pcov):
+        sigma = variance**2
+        ci_list.append(sigma * tval)
+
+    return ci_list
+
+
+# Confidence interval estimation
+# Nonlinear curve fit with confidence interval
+'''import numpy as np
+from scipy.optimize import curve_fit
+from scipy.stats.distributions import  t
+
+x = np.array([0.5, 0.387, 0.24, 0.136, 0.04, 0.011])
+y = np.array([1.255, 1.25, 1.189, 1.124, 0.783, 0.402])
+
+# this is the function we want to fit to our data
+def func(x, a, b):
+    'nonlinear function in a and b to fit to data'
+    return a * x / (b + x)
+
+initial_guess = [1.2, 0.03]
+pars, pcov = curve_fit(func, x, y, p0=initial_guess)
+
+alpha = 0.05 # 95% confidence interval = 100*(1-alpha)
+
+n = len(y)    # number of data points
+p = len(pars) # number of parameters
+
+dof = max(0, n - p) # number of degrees of freedom
+
+# student-t value for the dof and confidence level
+tval = t.ppf(1.0-alpha/2., dof) 
+
+for i, p,var in zip(range(n), pars, np.diag(pcov)):
+    sigma = var**0.5
+    print 'p{0}: {1} [{2}  {3}]'.format(i, p,
+                                  p - sigma*tval,
+                                  p + sigma*tval)
+
+import matplotlib.pyplot as plt
+plt.plot(x,y,'bo ')
+xfit = np.linspace(0,1)
+yfit = func(xfit, pars[0], pars[1])
+plt.plot(xfit,yfit,'b-')
+plt.legend(['data','fit'],loc='best')
+plt.savefig('images/nonlin-curve-fit-ci.png')'''

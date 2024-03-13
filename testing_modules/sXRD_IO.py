@@ -6,6 +6,23 @@ from collections import OrderedDict
 import time as ttime
 import pandas as pd
 import dask.array as da
+import psutil
+from tqdm import tqdm
+from scipy.stats import mode
+
+# Working at the beamline...
+try:
+    #print('Connecting to databrokers...', end='', flush=True)
+    from tiled.client import from_profile
+    from databroker.v1 import Broker
+
+    c = from_profile('srx')
+    db = Broker.named('srx')
+    #print('done!')
+except ModuleNotFoundError:
+    #print('failed.')
+    pass
+
 
 #################
 ### HDF Format ###
@@ -174,8 +191,8 @@ def load_XRD_hdf(filename, wd=None, dask_enabled=False):
         print('done!')
     else:
         recip_pos = {'tth' : None,
-                        'chi' : None,
-                        'calib_units' : None}
+                     'chi' : None,
+                     'calib_units' : None}
         #image_map.tth_resolution = None
         #image_map.chi_resolution = None
         image_map_attrs['tth_resolution'] = None
@@ -221,9 +238,23 @@ def load_XRD_hdf(filename, wd=None, dask_enabled=False):
             spot_model_name = hdf['xrdmap/reflections'].attrs['spot_model']
             spot_model = _load_peak_function(spot_model_name)
         
-        # Load scalars
+    # Load scalers
+    sclr_dict = None
+    if 'scalers' in base_grp.keys():
+        sclr_grp = base_grp['scalers']
+        
+        sclr_dict = {}
+        for key in sclr_grp.keys():
+            sclr_dict[key] = sclr_grp[key][:]
 
-        # Load pixel positions
+    # Load pixel positions
+    pos_dict = None
+    if 'positions' in base_grp.keys():
+        pos_grp = base_grp['positions']
+        
+        pos_dict = {}
+        for key in pos_grp.keys():
+            pos_dict[key] = pos_grp[key][:]
             
     if not dask_enabled:
         hdf.close()
@@ -251,15 +282,23 @@ def load_XRD_hdf(filename, wd=None, dask_enabled=False):
                   'poni_od' : poni_od,
                   'phase_dict' : phase_dict,
                   'spots' : spots,
-                  'spot_model' : spot_model}
+                  'spot_model' : spot_model,
+                  'sclr_dict' : sclr_dict,
+                  'pos_dict' : pos_dict}
 
     return ouput_dict
 
 
-def get_optimal_chunks(data, approx_chunk_size=200):
+def get_optimal_chunks(data, approx_chunk_size=None):
     
     data_shape = data.shape
     data_nbytes = data[(0,) * data.ndim].nbytes
+
+    if approx_chunk_size is None:
+        available_memory = psutil.virtual_memory()[1] / (2**20) # In MB
+        cpu_count = os.cpu_count()
+        approx_chunk_size = (available_memory * 0.85) / cpu_count # 15% wiggle room
+        approx_chunk_size = np.round(approx_chunk_size)
 
     # Split images up by data size in MB that seems reasonable
     images_per_chunk = (approx_chunk_size * 2**20) / np.prod([*data_shape[-2:], data_nbytes], dtype=np.int64)
@@ -280,6 +319,85 @@ def get_optimal_chunks(data, approx_chunk_size=200):
 
     return chunk_size
 
+
+def make_xrdmap_hdf(scanid=-1,
+                    broker='manual',
+                    filedir=None,
+                    filename=None,
+                    poni_file=None,
+                    return_xrdmap=False,
+                    save_hdf=True):
+    
+    pos_keys = ['enc1', 'enc2']
+    sclr_keys = ['i0', 'i0_time', 'im', 'it']
+    
+    if data_keys is None:
+        data_keys = pos_keys + sclr_keys
+
+    data_dict, scan_md, data_keys, xrd_dets = load_data(scanid=scanid,
+                                                        broker=broker,
+                                                        detectors=None,
+                                                        data_keys=None,
+                                                        returns=['data_keys',
+                                                                 'xrd_dets'])
+
+    xrd_data = [data_dict[f'{xrd_det}_image'] for xrd_det in xrd_dets]
+
+    # Make position dictionary
+    pos_dict = {key:value for key, value in data_dict.items() if key in pos_keys}
+
+    # Make scaler dictionary
+    sclr_dict = {key:value for key, value in data_dict.items() if key in sclr_keys}
+
+    if len(xrd_data) > 1:
+        pass
+        # Add more to filename to prevent overwriting...
+
+    extra_md = {}
+    for key in scan_md.keys():
+        if key not in ['scanid', 'beamline', 'energy', 'dwell', 'start_time']:
+            extra_md[key] = scan_md[key]
+    
+    xrdmaps = []
+    for xrd_data_i in xrd_data:
+        xrdmap = XRDMap(scanid=scan_md['scanid'],
+                        wd=filedir,
+                        filename=filename,
+                        #hdf_filename=None, # ???
+                        #hdf=None,
+                        image_map=xrd_data_i,
+                        #map_title=None,
+                        #map_shape=None,
+                        energy=scan_md['energy'],
+                        #wavelength=None,
+                        dwell=scan_md['dwell'],
+                        poni_file=poni_file,
+                        sclr_dict=sclr_dict,
+                        pos_dict=pos_dict,
+                        #tth_resolution=None,
+                        #chi_resolution=None,
+                        #tth=None,
+                        #chi=None,
+                        beamline=scan_md['beamline'],
+                        facility='NSLS-II',
+                        time_stamp=scan_md['start_time'],
+                        #extra_metadata=None,
+                        save_hdf=save_hdf,
+                        #dask_enabled=False
+                        )
+        
+        xrdmaps.append(xrdmap)
+
+    if return_xrdmap:
+        if len(xrdmaps) > 1:
+            return tuple(xrdmaps)
+        else:
+            # Don't bother returning a tuple or list of xrdmaps
+            return xrdmaps[0]
+
+
+def make_xrdmap_composite():
+    raise NotImplementedError()
         
 
 
@@ -295,105 +413,418 @@ def get_optimal_chunks(data, approx_chunk_size=200):
 ### Image Stacks ###
 ####################
 
+# Wrapper for all load data options...
+# Might only work for fly scans
+def load_data(scanid=-1,
+              broker='manual',
+              detectors=None,
+              data_keys=None,
+              returns=None
+              ):
 
-def load_xrd_patterns(scanid, detectors=[], return_detectors=False,
-                      filedir=None, filenames=None):
-    # This could be useful for the base class
-    h = db[int(scanid)]
+    # Load data from tiled
+    if str(broker).lower() in ['tiled']:
+        bs_run = c[int(scanid)]
 
-    if detectors == []:
-        detectors = h.start['scan']['detectors']
+        out = load_tiled_data(scanid=scanid,
+                              detectors=detectors,
+                              data_keys=data_keys,
+                              returns=returns)
+
+    # Load data from databroker
+    elif str(broker).lower() in ['db', 'databroker', 'broker']:
+        bs_run = db[int(scanid)]
+
+        out = load_db_data(scanid=scanid, 
+                           detectors=detectors,
+                           data_keys=data_keys,
+                           returns=returns)
+    
+    # Load data manually
+    elif str(broker).lower() in ['manual']:
+        try:
+            bs_run = c[int(scanid)] # defualt basic data from tiled for future proofing
+            broker = 'tiled'
+        except: # what error should this through???
+            bs_run = db[int(scanid)]
+            broker = 'db'
+
+        out = manual_load_data(scanid=scanid,
+                               broker=broker,
+                               detectors=detectors,
+                               data_keys=data_keys,
+                               returns=returns)
+
+    return out
+
+
+# Base Tiled loading function
+def load_tiled_data(scanid=-1,
+                    detectors=None,
+                    data_keys=None,
+                    returns=None):
+    
+    bs_run = c[int(scanid)]
+
+    if detectors is None:
+        detectors = bs_run.start['scan']['detectors']
+    else:
+        detectors = [detector.name if type(detector) is not str else str(detector).lower()
+                     for detector in detectors]
+    xrd_dets = [detector for detector in detectors if detector in ['merlin', 'dexela']]
+
+    scan_md = {
+        'scanid' : bs_run.start['scan_id'],
+        'scan_uid' : bs_run.start['uid'],
+        'beamline' : bs_run.start['beamline_id'],
+        'scantype' : bs_run.start['scan']['type'],
+        'detectors' : bs_run.start['scan']['detectors'],
+        'energy' : bs_run.start['scan']['energy'],
+        'dwell' : bs_run.start['scan']['dwell'],
+        'start_time' : bs_run.start['time_str']
+    }
+
+    if 'sample_name' in bs_run.start['scan'].keys():
+        scan_md['sample_name'] = bs_run.start['scan']['sample_name'] 
+
+    data_dict = {}
+    # enc1 is x for nano_scan_and_fly. Is it always the fast axis or always x??
+    if data_keys is None:
+        data_keys = ['enc1', 'enc2', 'xs_fluor', 'i0', 'i0_time', 'im', 'it']
+
+    for detector in xrd_dets:
+        data_keys.append(f'{detector}_image')
+    
+
+    for key in data_keys:
+        print(f'Loading data from {key}...', end='', flush=True)
+        data_dict[key] = np.array(bs_run['stream0']['data'][key])
+        print('done!')
+
+    out = [data_dict, scan_md]
+
+    if returns is not None:
+        if 'data_keys' in returns:
+            out.append(data_keys)
+        if 'xrd_dets' in returns:
+            out.append(xrd_dets)
+
+    return tuple(out)
+
+
+# Base function for loading data from DataBroker
+def load_db_data(scanid=-1,
+                 detectors=None,
+                 data_keys=None,
+                 returns=None):
+
+    bs_run = db[int(scanid)]
+
+    if detectors is None:
+        detectors = bs_run.start['scan']['detectors']
     else:
         detectors = [detector.name if type(detector) is not str else str(detector)
                      for detector in detectors]
-    detectors = [detector for detector in detectors if detector in ['merlin', 'dexela']]
+    xrd_dets = [detector for detector in detectors if detector in ['merlin', 'dexela']]
 
-    scantype = h.start['scan']['type']
+    scan_md = {
+        'scanid' : bs_run.start['scan_id'],
+        'scan_uid' : bs_run.start['uid'],
+        'beamline' : bs_run.start['beamline_id'],
+        'scantype' : bs_run.start['scan']['type'],
+        'detectors' : bs_run.start['scan']['detectors'],
+        'energy' : bs_run.start['scan']['energy'],
+        'dwell' : bs_run.start['scan']['dwell'],
+        'start_time' : bs_run.start['time_str']
+    }
 
-    if filedir is None:
-        filedir = '/home/xf05id1/current_user_data/'
-    if filenames is None:
-        filenames = []
-        for detector in detectors:
-            filenames.append(f'scan{scanid}_{detector}_xrd.tif')
+    if 'sample_name' in bs_run.start['scan'].keys():
+        scan_md['sample_name'] = bs_run.start['scan']['sample_name'] 
+
+    data_dict = {}
+    # enc1 is x for nano_scan_and_fly. Is it always the fast axis or always x??
+    if data_keys is None:
+        data_keys = ['enc1', 'enc2', 'xs_fluor', 'i0', 'i0_time', 'im', 'it']
+
+    for detector in xrd_dets:
+        data_keys.append(f'{detector}_image')
+
+    for key in data_keys:
+        print(f'Loading data from {key}...', end='', flush=True)
+        d = bs_run.data(key, stream_name='stream0', fill=True)
+        data_dict[key] = np.array(list(d))
+        print('done!')
+
+    out = [data_dict, scan_md]
+
+    #data = []
+    #for i, detector in enumerate(detectors):       
+    #    if 'FLY' in scantype:
+    #        d = h.data(f'{detector}_image', stream_name='stream0', fill=True)
+    #    elif 'STEP' in scantype:
+    #        d = h.data(f'{detector}_image', fill=True)
+    #    d = np.array(list(d))
+    #
+    #    if (d.size == 0):
+    #        print('Error collecting dexela data...')
+    #        return
+    #    elif len(d.shape) == 1:
+    #        print('Map is missing pixels!\nStacking all patterns together.')
+    #        flat_d = np.array([x for y in d for x in y]) # List comprehension is dumb
+    #        d = flat_d.reshape(flat_d.shape[0], 1, *flat_d.shape[-2:])
+    #    
+    #    data.append(d)
     
-    data = []
-    for i, detector in enumerate(detectors):       
-        # Check if data has already been loaded from the databroker
-        if os.path.exists(f'{filedir}{filenames[i]}'):
-            print('Found data from local drive. Loading from there.')
-            d = io.imread(f'{filedir}{filenames[i]}')
-        # Otherwise load data from databroker
-        else:
-            if 'FLY' in scantype:
-                d = h.data(f'{detector}_image', stream_name='stream0', fill=True)
-            elif 'STEP' in scantype:
-                d = h.data(f'{detector}_image', fill=True)
-            d = np.array(list(d))
+    if returns is not None:
+        if 'data_keys' in returns:
+            out.append(data_keys)
+        if 'xrd_dets' in returns:
+            out.append(xrd_dets)
 
-            if (d.size == 0):
-                print('Error collecting dexela data...')
-                return
-            elif len(d.shape) == 1:
-                print('Map is missing pixels!\nStacking all patterns together.')
-                flat_d = np.array([x for y in d for x in y]) # List comprehension is dumb
-                d = flat_d.reshape(flat_d.shape[0], 1, *flat_d.shape[-2:])
-        
-        data.append(d)
+    return out
+
+
+# Manual load data
+def manual_load_data(scanid=-1,
+                     broker='tiled',
+                     data_keys=None,
+                     detectors=None,
+                     returns=None):
+
+    if str(broker).lower() in ['tiled']:
+        bs_run = c[int(scanid)]
+    elif str(broker).lower() in ['db', 'databroker', 'broker']:
+        bs_run = db[int(scanid)]
     
-    # Helps to clear out files that somehow do not close
-    # Has yet to be tested...
-    # db._catalog._entries.cache_clear()
-    # gc.collect()
+    scan_md = {
+        'scanid' : bs_run.start['scan_id'],
+        'scan_uid' : bs_run.start['uid'],
+        'beamline' : bs_run.start['beamline_id'],
+        'scantype' : bs_run.start['scan']['type'],
+        'detectors' : bs_run.start['scan']['detectors'],
+        'energy' : bs_run.start['scan']['energy'],
+        'dwell' : bs_run.start['scan']['dwell'],
+        'start_time' : bs_run.start['time_str']
+    }
 
-    # Return the data
-    if return_detectors:
-        return tuple(data), detectors # Apparently it's bad form having different types of returns
+    if 'sample_name' in bs_run.start['scan'].keys():
+        scan_md['sample_name'] = bs_run.start['scan']['sample_name'] 
+
+    # Get relevant hdf information
+    data_keys, resource_keys, xrd_dets = _get_resource_keys(bs_run,
+                                                  data_keys=data_keys,
+                                                  detectors=detectors,
+                                                  returns=['xrd_dets'])                             
+    r_paths = _get_resource_paths(bs_run, resource_keys)
+
+    # Load data
+    _empty_lists = [[] for _ in range(len(data_keys))]
+    data_dict = dict(zip(data_keys, _empty_lists))
+
+    r_key = 'ZEBRA_HDF51'
+    if r_key in r_paths.keys():
+        print('Loading encoders...', end='', flush='True')
+        enc_keys = [value for value in data_keys if value in ['enc1', 'enc2', 'enc3', 'zebra_time']]
+        for r_path in r_paths[r_key]:
+            with h5py.File(r_path, 'r') as f:
+                for key in enc_keys:
+                    data_dict[key].append(np.array(f[key]))
+        # Stack data into array
+        for key in enc_keys:
+            data_dict[key] = np.stack(data_dict[key])
+        print('done!')
+
+    r_key = 'SIS_HDF51'
+    if r_key in r_paths.keys():
+        print('Loading scalers...', end='', flush='True')
+        enc_keys = [value for value in data_keys if value in ['i0', 'im', 'it', 'sis_time']]
+        if 'i0_time' in data_keys and 'sis_time' not in enc_keys:
+            enc_keys.append('sis_time')
+            data_dict['sis_time'] = []
+        for r_path in r_paths[r_key]:
+            with h5py.File(r_path, 'r') as f:
+                for key in enc_keys:
+                    data_dict[key].append(np.array(f[key]))
+        # Stack data into array
+        for key in enc_keys:
+            data_dict[key] = np.stack(data_dict[key])
+        if 'i0_time' in data_keys:
+            data_dict['i0_time'] = data_dict['sis_time'] / 50e6 # 50 MHz clock
+        if 'sis_time' not in data_keys and 'sis_time' in data_dict.keys():
+            del data_dict['sis_time']
+        print('done!')
+
+    r_key = 'XSP3_FLY'
+    if r_key in r_paths.keys():
+        print('Loading xspress3...', end='', flush='True')
+        key = 'xs_fluor'
+        for r_path in r_paths[r_key]:
+            with h5py.File(r_path, 'r') as f:
+                data_dict[key].append(np.array(f['entry/data/data']))
+        # Stack data into array
+        data_dict[key] = np.stack(data_dict[key])
+        print('done!')
+
+    r_key = 'DEXELA_FLY_V1'
+    if r_key in r_paths.keys():
+        print('Loading dexela...', end='', flush='True')
+        key = 'dexela_image'
+        for r_path in r_paths[r_key]:
+            with h5py.File(r_path, 'r') as f:
+                data_dict[key].append(np.array(f['entry/data/data']))
+        # Stack data into array
+        print('')
+        data_dict[key] = _check_xrd_data_shape(data_dict[key])
+        print('done!')
+
+    # Not sure if this is correct
+    r_key = 'MERLIN_FLY_V1'
+    if r_key in r_paths.keys():
+        print('Loading merlin...', end='', flush='True')
+        key = 'merlin_image'
+        for r_path in r_paths[r_key]:
+            with h5py.File(r_path, 'r') as f:
+                data_dict[key].append(np.array(f['entry/data/data']))
+        # Stack data into array
+        print('')
+        data_dict[key] = _check_xrd_data_shape(data_dict[key])
+        print('done!')
+
+    out = [data_dict, scan_md]
+
+    if returns is not None:
+        if 'data_keys' in returns:
+            out.append(data_keys)
+        if 'xrd_dets' in returns:
+            out.append(xrd_dets)
+
+    return out
+
+
+def _check_xrd_data_shape(data_list):
+
+    mode_shape = tuple(mode([d.shape for d in data_list])[0])
+
+    DROPPED_FRAMES = False
+    for row, d in enumerate(data_list):
+        # Check for bad shaped images
+        if d.shape[-2:] != mode_shape[-2:]:
+            print(f'Removing XRD data from row {row} due to incorrect image shape.')
+            data_list.pop(row)
+
+        # Then check and flag dropped frames
+        elif d.shape[0] != mode_shape[0]:
+            DROPPED_FRAMES = True
+
+    if DROPPED_FRAMES:
+        print('Map is missing pixels!\nStacking all patterns together.')
+        flat_d = np.array([x for y in data_list for x in y]) # List comprehension is dumb
+        data_list = flat_d.reshape(flat_d.shape[0], 1, *flat_d.shape[-2:])
+
+    data = np.asarray(data_list)
+
+    return data
+
+
+def _get_resource_paths(bs_run, resource_keys):
+
+    docs = list(bs_run.documents())
+
+    # Create dictionary of empty lists
+    _empty_lists = [[] for _ in range(len(resource_keys))]
+    resource_paths = dict(zip(resource_keys, _empty_lists))
+    
+    for doc in docs:
+        if doc[0] == 'resource':
+            r_key = doc[1]['spec']
+            if r_key in resource_keys:
+                resource_paths[r_key].append(doc[1]['resource_path'])
+
+    return resource_paths
+
+
+def _get_resource_keys(bs_run,
+                    data_keys=None,
+                    detectors=None,
+                    returns=None):
+    
+    # Find detectors if not specified
+    if detectors is None:
+        detectors = bs_run.start['scan']['detectors']
     else:
-        return tuple(data)
+        detectors = [detector.name if type(detector) is not str else str(detector)
+                     for detector in detectors]
+    xrd_dets = [detector for detector in detectors if detector in ['merlin', 'dexela']]
+
+    # Add default data keys
+    if data_keys is None:
+        data_keys = ['enc1', 'enc2', 'xs_fluor', 'i0', 'i0_time', 'im', 'it']
+
+    # Append XRD data keys
+    for detector in xrd_dets:
+        data_keys.append(f'{detector}_image')
+
+    # Determine actual resource keys
+    resource_keys = []
+    if any(key in ['enc1', 'enc2', 'enc3'] for key in data_keys):
+        resource_keys.append('ZEBRA_HDF51')
+
+    if any(key in ['i0', 'im', 'it'] for key in data_keys):
+        resource_keys.append('SIS_HDF51')
+
+    if any(key in ['xs_fluor'] for key in data_keys):
+        resource_keys.append('XSP3_FLY')
+
+    if any(key in ['dexela_image'] for key in data_keys):
+        resource_keys.append('DEXELA_FLY_V1')
+
+    # Not sure if this is correct???
+    if any(key in ['merlin_image'] for key in data_keys):
+        resource_keys.append('MERLIN_FLY_V1')
+
+    # Check for issues:
+    if len(resource_keys) < 1:
+        raise ValueError('No valid data resources requested.')
+
+    out = [data_keys, resource_keys]
+
+    if returns is not None:
+        if 'xrd_dets' in returns or returns == 'xrd_dets':
+            out.append(xrd_dets)
+
+    return out
 
 
-
-def load_map_parameters(scanid):
-    h = db[int(scanid)]
-
-    x = np.array(list(h.data('enc1', stream_name='stream0', fill=True)))
-    y = np.array(list(h.data('enc2', stream_name='stream0', fill=True)))
-    I0= np.array(list(h.data('i0', stream_name='stream0', fill=True)))
-
-    return (x, y, I0)
+###########################
+### Data Pre-processing ###
+###########################
 
 
-def make_composite_pattern(scanid, detectors=[],
-                           method='sum', subtract=None,
-                           return_detectors=False,
-                           filedir=None, filenames=None):
-    if return_detectors:
-        data, detectors = load_xrd_patterns(scanid, detectors=detectors,
-                                            return_detectors=return_detectors,
-                                            filedir=filedir, filenames=filenames)
-    else:
-        data = load_xrd_patterns(scanid, detectors=detectors,
-                                 filedir=filedir, filenames=filenames)
+# General function for making composite patterns
+def make_composite_pattern(xrd_data, method='sum', subtract=None):
+
+    if not isinstance(xrd_data, list):
+        xrd_data = [xrd_data]
 
     method = method.lower()
-    if subtract is not None:
-        subtract = subtract.lower()
 
+    # Can the axis variable be made to always create images along the last two images??
     comps = []
-    for xrd in data:
+    for xrd in xrd_data:
+        axis = tuple(range(xrd.ndim - 2))
+
         if method in ['sum', 'total']:
-            comp = np.sum(xrd, axis=(0, 1)) / np.multiply(*xrd.shape[:2])
+            comp = np.sum(xrd, axis=axis) / np.prod(xrd.shape[:-2])
         elif method in ['mean', 'avg', 'average']:
-            comp = np.mean(xrd, axis=(0, 1))
+            comp = np.mean(xrd, axis=axis)
         elif method in ['max', 'maximum']:
-            comp = np.max(xrd, axis=(0, 1))
+            comp = np.max(xrd, axis=axis)
         elif method in ['med', 'median']:
             if subtract in ['med', 'median']:
                 print("Composite method and subtract cannot both be 'median'!")
                 print("Changing subract to None")
-                subract = None
-            comp = np.median(xrd, axis=(0, 1))
+                subtract = None
+            comp = np.median(xrd, axis=axis)
         else:
             raise ValueError("Composite method not allowed.")
 
@@ -401,179 +832,484 @@ def make_composite_pattern(scanid, detectors=[],
             pass
         elif type(subtract) is np.ndarray:
             comp = comp - subtract
-        elif subtract in ['min', 'minimum']:
-            comp = comp - np.min(xrd, axis=(0, 1))
-        elif subtract in ['med', 'median']:
-            comp = comp - np.median(xrd, axis=(0, 1))
+        elif subtract.lower() in ['min', 'minimum']:
+            comp = comp - np.min(xrd, axis=axis)
+        elif subtract.lower() in ['med', 'median']:
+            comp = comp - np.median(xrd, axis=axis)
         else:
             print('Unknown subtract input. Proceeding without any subtraction.')
 
         comps.append(np.squeeze(comp))
     
-    if return_detectors:
-        return tuple(comps), detectors
-    else:
-        return tuple(comps)
+    return comps
 
 
-def extract_calibration_pattern(scanid, detectors=[],
-                                filedir=None, filenames=None):
+# Wrapper for composite function, specifically for calibration data
+def make_calibration_pattern(xrd_data): 
+
+    comps = make_composite_pattern(xrd_data, method='max', subtract='min')
+
+    return comps
+
+
+##################################
+### Base Saving Data Functions ###
+##################################
+
+
+# General function to save xrd data to tifs
+def _save_xrd_tifs(xrd_data, xrd_dets=None, scanid=None, filedir=None, filenames=None):
+
+    if (scanid is None and filenames is None):
+        raise ValueError('Must define scanid or filename to name the save file.')
+    elif (xrd_dets is None and filenames is None):
+        raise ValueError('Must define xrd_dets or filename to name the save file.')
+    
+    if not isinstance(xrd_data, list):
+        xrd_data = [xrd_data]
+
     if filedir is None:
-        filedir = '/home/xf05id1/current_user_data/'
-    if scanid == -1:
-        h = db[scanid]
-        scanid = int(h.start['scan_id'])
-
-    comps, detectors = make_composite_pattern(scanid, detectors=detectors,
-                                              method='max', subtract='min',
-                                              return_detectors=True,
-                                              filedir=filedir, filenames=filenames)
+        filedir = '/home/xf05id1/current_user_data/'   
     if filenames is None:
         filenames = []
-        for detector in detectors:
-            filenames.append(f'scan{scanid}_{detector}_calibration.tif')
-
-    for i, comp in enumerate(comps):
-        io.imsave(f'{filedir}{filenames[i]}', comp, check_contrast=False)
-
-
-def save_xrd_tiffs(scanid, filedir=None, filenames=None, detectors=[]):
-    if filedir is None:
-        filedir = '/home/xf05id1/current_user_data/'
-    if scanid == -1:
-        h = db[scanid]
-        scanid = int(h.start['scan_id'])
-
-    xrd_maps, detectors = load_xrd_patterns(scanid, detectors=detectors,
-                                            return_detectors=True,
-                                            filedir=filedir, filenames=filenames)
-
-    if filenames is None:
-        filenames = []
-        for detector in detectors:
+        for detector in xrd_dets:
             filenames.append(f'scan{scanid}_{detector}_xrd.tif')
+
+    if len(filenames) != len(xrd_data):
+        raise ValueError('Length of filenames does not match length of xrd_data')
     
-    for i, xrd in enumerate(xrd_maps):
+    for i, xrd in enumerate(xrd_data):
         io.imsave(f'{filedir}{filenames[i]}', xrd.astype(np.uint16), check_contrast=False)
+        # I think the data should already be an unsigned integer
+        #io.imsave(f'{filedir}{filenames[i]}', xrd, check_contrast=False)
+    print(f'Saved pattern(s) for scan {scanid}!')
 
 
-
-def save_map_parameters(scanid, filedir=None, filename=None):
-    if filedir is None:
-        filedir = '/home/xf05id1/current_user_data/'
-    if scanid == -1:
-        h = db[scanid]
-        scanid = int(h.start['scan_id'])
-    if filename is None:
-        filename = f'scan{scanid}_map_parameters.txt'
-    
-    x, y, I0 = load_map_parameters(scanid)
-
-    (N, M) = x.shape
-    x_flat = np.reshape(x, (N * M, ))
-    y_flat = np.reshape(y, (N * M, ))
-    I0_flat = np.reshape(I0, (N * M, ))
-
-    np.savetxt(f'{filedir}{filename}', np.array((x_flat, y_flat, I0_flat)))
-
-
-
-def save_composite_pattern(scanid, detectors=[],
-                           method='sum', subtract=None,
+# General function to save composite pattern as tif
+def _save_composite_pattern(comps, method, subtract,
+                           xrd_dets=None, scanid=None,
                            filedir=None, filenames=None):
-    if filedir is None:
-        filedir = '/home/xf05id1/current_user_data/'
-    if scanid == -1:
-        h = db[scanid]
-        scanid = int(h.start['scan_id'])
-    
-    comps, detectors = make_composite_pattern(scanid, detectors=detectors,
-                                              method=method, subtract=subtract,
-                                              return_detectors=True,
-                                              filedir=filedir, filenames=filenames)
-    
+
+    if subtract is None:
+        subtract = ''
+    elif isinstance(subtract, np.ndarray):
+        subtract = '-custom'
+    else:
+        subtract = f'-{subtract}'
+
     if filenames is None:
         filenames = []
-        for detector in detectors:
+        for detector in xrd_dets:
             filenames.append(f'scan{scanid}_{detector}_{method}{subtract}_composite.tif')
     
-    for i, comp in enumerate(comps):
-        io.imsave(f'{filedir}{filenames[i]}', comp, check_contrast=False)
+    print('Saving composite pattern...')
+    _save_xrd_tifs(comps, xrd_dets=xrd_dets, scanid=scanid, filedir=filedir, filenames=filenames)
 
 
-##########################
-### Original Functions ###
-##########################
+def _save_calibration_pattern(xrd_data, xrd_dets, scanid=None, filedir=None):
+
+    if not isinstance(xrd_data, list):
+        xrd_data = [xrd_data]
+    
+    if filedir is None:
+        filedir = '/home/xf05id1/current_user_data/'
+
+    filenames = []
+    for detector in xrd_dets:
+        filenames.append(f'scan{scanid}_{detector}_calibration.tif')
+    
+    print('Saving calibration pattern...')
+    _save_xrd_tifs(xrd_data, xrd_dets=xrd_dets, scanid=scanid, filedir=filedir, filenames=filenames)
 
 
-''''def make_tiff(scanid, *, scantype='', fn=''):
-        h = db[int(scanid)]
-        if scanid == -1:
-            scanid = int(h.start['scan_id'])
-    
-        if scantype == '':
-            scantype = h.start['scan']['type']
-    
-        if ('FLY' in scantype):
-            d = list(h.data('dexela_image', stream_name='stream0', fill=True))
-            d = np.array(d)
-    
-            (row, col, imgY, imgX) = d.shape
-            if (d.size == 0):
-                print('Error collecting dexela data...')
-                return
-            d = np.reshape(d, (row * col, imgY, imgX))
-        elif ('STEP' in scantype):
-            d = list(h.data('dexela_image', fill=True))
-            d = np.array(d)
-            d = np.squeeze(d)
-        # elif (scantype == 'count'):
-        #     d = list(h.data('dexela_image', fill=True))
-        #     d = np.array(d)
-        else:
-            print('I don\'t know what to do.')
-            return
-    
-        if fn == '':
-            fn = f"scan{scanid}_xrd.tiff"
-        try:
-            io.imsave(fn, d.astype('uint16'))
-        except:
-            print(f'Error writing file!')
-    
+# General function save scan metadata 
+def _save_map_parameters(data_dict, scanid, data_keys=[], filedir=None, filename=None):
 
-def export_flying_merlin2tiff(scanid=-1, wd=None):
-        if wd is None:
-            wd = '/home/xf05id1/current_user_data/'
+    if filedir is None:
+        filedir = '/home/xf05id1/current_user_data/'
+    if filename is None:
+        filename = f'scan{scanid}_map_parameters.txt'
+    if data_keys == []:
+        data_keys = ['enc1', 'enc2', 'i0', 'i0_time', 'im', 'it']
+
+    map_data = np.stack([data_dict[key].ravel() for key in data_keys])
+    np.savetxt(f'{filedir}{filename}', map_data)
+    print(f'Saved map parameters for scan {scanid}!')
+
+
+def _save_scan_md(scan_md, scanid, filedir=None, filename=None):
+    import json
+
+    if not isinstance(scan_md, dict):
+        raise TypeError('Scan metadata not provided as a dictionary.')
     
-        print('Loading data...')
-        h = db[int(scanid)]
-        d = h.data('merlin_image', stream_name='stream0', fill=True)
-        d = np.array(list(d))
-        d = np.squeeze(d)
-        d = np.array(d, dtype='float32')
-        x = np.array(list(h.data('enc1', stream_name='stream0', fill=True)))
-        y = np.array(list(h.data('enc2', stream_name='stream0', fill=True)))
-        I0= np.array(list(h.data('i0', stream_name='stream0', fill=True)))
+    if filedir is None:
+        filedir = '/home/xf05id1/current_user_data/'
+    if filename is None:
+        filename = f'scan{scanid}_scan_md.txt'
+
+    with open(f'{filedir}{filename}', 'w') as f:
+        f.write(json.dumps(scan_md))
+    print(f'Saved metadata for scan {scanid}!')
+
+
+##############################
+### General Save Functions ###
+##############################
+
+
+# Function to load and save xrd data to tifs
+def save_xrd_tifs(scanid=-1,
+                  broker='tiled',
+                  detectors=None,
+                  data_keys=[],
+                  filedir=None,
+                  filenames=None):
+
+    data_dict, scan_md, data_keys, xrd_dets = load_data(scanid=scanid,
+                                                        broker=broker,
+                                                        detectors=detectors,
+                                                        data_keys=data_keys,
+                                                        returns=['data_keys',
+                                                                 'xrd_dets'])
+
+    xrd_data = [data_dict[f'{xrd_det}_image'] for xrd_det in xrd_dets]
     
-        # Flatten arrays
-        (N, M) = x.shape
-        x_flat = np.reshape(x, (N * M, ))
-        y_flat = np.reshape(y, (N * M, ))
-        I0_flat = np.reshape(I0, (N * M, ))
+    _save_xrd_tifs(xrd_data,
+                  xrd_dets=xrd_dets,
+                  scanid=scan_md['scanid'], # Will return the correct value
+                  filedir=filedir,
+                  filenames=filenames)
+
+
+# Function to load and save composite pattern as tif
+def save_composite_pattern(scanid=-1,
+                           broker='tiled',
+                           method='sum', subtract=None,
+                           detectors=None, data_keys=[], 
+                           filedir=None, filenames=None):
+
+    data_dict, scan_md, data_keys, xrd_dets = load_data(scanid=scanid,
+                                                        broker=broker,
+                                                        detectors=detectors,
+                                                        data_keys=data_keys,
+                                                        returns=['data_keys',
+                                                                 'xrd_dets'])
+
+    xrd_data = [data_dict[f'{xrd_det}_image'] for xrd_det in xrd_dets]
     
-        # Get scanid
-        if (scanid < 0):
-            scanid = h.start['scan_id']
+    comps = make_composite_pattern(xrd_data, method=method, subtract=subtract)
+
+    _save_composite_pattern(comps,
+                            method,
+                            subtract,
+                            xrd_dets=xrd_dets,
+                            scanid=scan_md['scanid'],
+                            filedir=filedir,
+                            filenames=filenames)
+
+
+# Function to load and save calibration pattern as tif
+def save_calibration_pattern(scanid=-1,
+                             broker='tiled',
+                             detectors=None,
+                             data_keys=[], 
+                             filedir=None):
+
+    data_dict, scan_md, data_keys, xrd_dets = load_data(scanid=scanid,
+                                                        broker=broker,
+                                                        detectors=detectors,
+                                                        data_keys=data_keys,
+                                                        returns=['data_keys',
+                                                                 'xrd_dets'])
+
+    xrd_data = [data_dict[f'{xrd_det}_image'] for xrd_det in xrd_dets]
     
-        print('Writing data...')
-        fn = 'scan%d.tif' % scanid
-        fn_txt = 'scan%d.txt' % scanid
-        io.imsave(wd + fn, d)
-        np.savetxt(wd + fn_txt, np.array((x_flat, y_flat, I0_flat)))
-           # HACK to make sure we clear the cache.  The cache size is 1024 so
-        # this would eventually clear, however on this system the maximum
-        # number of open files is 1024 so we fail from resource exaustion before
-        # we evict anything.
-        db._catalog._entries.cache_clear()
-        gc.collect()'''
+    comps = make_calibration_pattern(xrd_data)
+
+    _save_calibration_pattern(comps,
+                             xrd_dets=xrd_dets,
+                             scanid=scan_md['scanid'],
+                             filedir=filedir)
+
+
+# Function load and save map parameters 
+def save_map_parameters(scanid=-1,
+                        broker='tiled',
+                        detectors=[],
+                        data_keys=['enc1',
+                                   'enc2',
+                                   'i0',
+                                   'i0_time',
+                                   'im',
+                                   'it'], 
+                        filedir=None,
+                        filename=None):
+
+    data_dict, scan_md, data_keys = load_data(scanid=scanid,
+                                              broker=broker,
+                                              detectors=detectors,
+                                              data_keys=data_keys,
+                                              returns=['data_keys'])
+
+    _save_map_parameters(data_dict,
+                        scan_md['scanid'],
+                        data_keys=[],
+                        filedir=filedir,
+                        filename=filename)
+
+
+# Function to load and save scan metatdata
+def save_scan_md(scanid=-1,
+                 broker='tiled',
+                 detectors=[],
+                 data_keys=[], 
+                 filedir=None,
+                 filename=None):
+
+    data_dict, scan_md, data_keys = load_data(scanid=scanid,
+                                              broker=broker,
+                                              detectors=detectors,
+                                              data_keys=data_keys,
+                                              returns=['data_keys'])
+
+    _save_scan_md(scan_md,
+                  scan_md['scanid'],
+                  filedir=filedir,
+                  filename=filename)
+
+# Function to load and save all scan data sans xrf for now
+def save_full_scan(scanid=-1,
+                   broker='tiled',
+                   detectors=None,
+                   data_keys=['enc1',
+                               'enc2',
+                               'i0',
+                               'i0_time',
+                               'im',
+                               'it'], 
+                   filedir=None):
+    
+    data_dict, scan_md, data_keys, xrd_dets = load_data(scanid=scanid,
+                                                        broker=broker,
+                                                        detectors=detectors,
+                                                        data_keys=data_keys,
+                                                        returns=['data_keys',
+                                                                 'xrd_dets'])
+    
+    xrd_data = [data_dict[f'{xrd_det}_image'] for xrd_det in xrd_dets]
+    
+    # Save xrd tif data
+    _save_xrd_tifs(xrd_data,
+                   xrd_dets=xrd_dets,
+                   scanid=scan_md['scanid'], # Will return the correct value
+                   filedir=filedir)
+    
+    # Save map parameters (x, y, i0, etc...)
+    _save_map_parameters(data_dict,
+                         scan_md['scanid'],
+                         data_keys=[],
+                         filedir=filedir)
+    
+    # Save metadata (scaid, uid, energy, etc...)
+    _save_scan_md(scan_md,
+                  scan_md['scanid'],
+                  filedir=filedir)
+
+
+### Energy Rocking Curve Scans ###
+
+def load_energy_rc_data(scanid=-1,
+                        detectors=None,
+                        data_keys=None,
+                        returns=None):
+
+    bs_run = c[int(scanid)]
+
+    scan_md = {
+        'scanid' : bs_run.start['scan_id'],
+        'scan_uid' : bs_run.start['uid'],
+        'beamline' : bs_run.start['beamline_id'],
+        'scantype' : bs_run.start['scan']['type'],
+        'detectors' : bs_run.start['scan']['detectors'],
+        'energy' : bs_run.start['scan']['energy'],
+        'dwell' : bs_run.start['scan']['dwell'],
+        'start_time' : bs_run.start['time_str']
+    }
+
+    docs = bs_run.documents()
+
+    data_keys = [
+        'sclr_i0',
+        'sclr_im',
+        'sclr_it',
+        'energy_energy'
+    ]
+
+    # Load data
+    _empty_lists = [[] for _ in range(len(data_keys))]
+    data_dict = dict(zip(data_keys, _empty_lists))
+
+    print('Loading scalers and energies...', end='', flush=True)
+    for doc in docs:
+        if doc[0] == 'event_page':
+            if 'dexela_image' in doc[1]['filled'].keys():
+                for key in data_keys:
+                    data_dict[key].append(doc[1]['data'][key][0])
+    print('done!')
+
+    # Fix keys
+    data_dict['energy'] = np.array(data_dict['energy_energy'])
+    data_dict['i0'] = np.array(data_dict['sclr_i0'])
+    data_dict['im'] = np.array(data_dict['sclr_im'])
+    data_dict['it'] = np.array(data_dict['sclr_it'])
+    del data_dict['energy_energy'], data_dict['sclr_i0'], data_dict['sclr_im'], data_dict['sclr_it']
+    data_keys = list(data_dict.keys())
+    #print(data_keys)
+
+    # Dexela images saved differently with count...
+    r_paths = _get_resource_paths(bs_run, ['TPX_HDF5'])
+
+    print('Loading dexela...', end='', flush='True')
+    key = 'dexela_image'
+    data_dict[key] = []
+    for r_path in r_paths['TPX_HDF5']:
+        with h5py.File(r_path, 'r') as f:
+            data_dict[key].append(np.array(f['entry/data/data']))
+    # Stack data into array
+    print('')
+    data_dict[key] = _check_xrd_data_shape(data_dict[key])
+    print('done!')
+
+    out = [data_dict, scan_md]
+
+    if returns is not None:
+        if 'data_keys' in returns:
+            out.append(data_keys)
+
+    return out
+
+
+def save_energy_rc_data(scanid=-1,
+                        filedir=None,
+                        filenames=None):
+
+    data_dict, scan_md, data_keys = load_energy_rc_data(scanid=scanid,
+                                                        returns=['data_keys'])
+    
+    xrd_dets = ['dexela']
+    xrd_data = [data_dict[f'{xrd_det}_image'] for xrd_det in xrd_dets]
+
+    if filenames is None:
+        filenames = []
+        for detector in xrd_dets:
+            filenames.append(f'scan{scanid}_{detector}_energy_rc.tif')
+    
+    _save_xrd_tifs(xrd_data,
+                  xrd_dets=xrd_dets,
+                  scanid=scan_md['scanid'], # Will return the correct value
+                  filedir=filedir,
+                  filenames=filenames)
+
+    param_filename = f'scan{scanid}_energy_rc_parameters.txt'
+    _save_map_parameters(data_dict, scanid, data_keys=data_keys,
+                         filedir=filedir, filename=param_filename)
+
+
+### Angle Rocking Curve Scans ###
+
+def load_angle_rc_data(scanid=-1,
+                        detectors=None,
+                        data_keys=None,
+                        returns=None):
+
+    bs_run = c[int(scanid)]
+
+    scan_md = {
+        'scanid' : bs_run.start['scan_id'],
+        'scan_uid' : bs_run.start['uid'],
+        'beamline' : bs_run.start['beamline_id'],
+        'scantype' : bs_run.start['scan']['type'],
+        'detectors' : bs_run.start['scan']['detectors'],
+        'energy' : bs_run.start['scan']['energy'],
+        'dwell' : bs_run.start['scan']['dwell'],
+        'start_time' : bs_run.start['time_str']
+    }
+
+    docs = bs_run.documents()
+
+    data_keys = [
+        'sclr_i0',
+        'sclr_im',
+        'sclr_it',
+        'nano_stage_th'
+    ]
+
+    # Load data
+    _empty_lists = [[] for _ in range(len(data_keys))]
+    data_dict = dict(zip(data_keys, _empty_lists))
+
+    print('Loading scalers and energies...', end='', flush=True)
+    for doc in docs:
+        if doc[0] == 'event_page':
+            if 'dexela_image' in doc[1]['filled'].keys():
+                for key in data_keys:
+                    data_dict[key].append(doc[1]['data'][key][0])
+    print('done!')
+
+    # Fix keys
+    data_dict['th'] = np.array(data_dict['nano_stage_th'])
+    data_dict['i0'] = np.array(data_dict['sclr_i0'])
+    data_dict['im'] = np.array(data_dict['sclr_im'])
+    data_dict['it'] = np.array(data_dict['sclr_it'])
+    del data_dict['nano_stage_th'], data_dict['sclr_i0'], data_dict['sclr_im'], data_dict['sclr_it']
+    data_keys = list(data_dict.keys())
+    #print(data_keys)
+
+    # Dexela images saved differently with count...
+    r_paths = _get_resource_paths(bs_run, ['TPX_HDF5'])
+
+    print('Loading dexela...', end='', flush='True')
+    key = 'dexela_image'
+    data_dict[key] = []
+    for r_path in r_paths['TPX_HDF5']:
+        with h5py.File(r_path, 'r') as f:
+            data_dict[key].append(np.array(f['entry/data/data']))
+    # Stack data into array
+    print('')
+    data_dict[key] = _check_xrd_data_shape(data_dict[key])
+    print('done!')
+
+    out = [data_dict, scan_md]
+
+    if returns is not None:
+        if 'data_keys' in returns:
+            out.append(data_keys)
+
+    return out
+
+
+def save_angle_rc_data(scanid=-1,
+                       filedir=None,
+                       filenames=None):
+
+    data_dict, scan_md, data_keys = load_angle_rc_data(scanid=scanid,
+                                                        returns=['data_keys'])
+    
+    xrd_dets = ['dexela']
+    xrd_data = [data_dict[f'{xrd_det}_image'] for xrd_det in xrd_dets]
+
+    if filenames is None:
+        filenames = []
+        for detector in xrd_dets:
+            filenames.append(f'scan{scanid}_{detector}_angle_rc.tif')
+    
+    _save_xrd_tifs(xrd_data,
+                  xrd_dets=xrd_dets,
+                  scanid=scan_md['scanid'], # Will return the correct value
+                  filedir=filedir,
+                  filenames=filenames)
+
+    param_filename = f'scan{scanid}_angle_rc_parameters.txt'
+    _save_map_parameters(data_dict, scanid, data_keys=data_keys,
+                         filedir=filedir, filename=param_filename)

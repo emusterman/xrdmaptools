@@ -125,7 +125,7 @@ def label_nearest_spots(spots, max_dist=25, max_neighbors=np.inf):
     return data
 
 
-def arbitrary_center_or_mass(weights, *args):
+def arbitrary_center_of_mass(weights, *args):
 
     weights = np.asarray(weights)
     for i, arg in enumerate(args):
@@ -151,11 +151,17 @@ def delta_array(arr):
     return magnitude
 
 
+def vector_angle(v1, v2, radians=False):
+    angle = np.arccos(np.dot(v1, v2) / (np.linalg.norm(v1) *  np.linalg.norm(v2)))
+    if not radians:
+        angle = np.degrees(angle)
+    return angle
+
+
 def vprint(message, **kwargs):
     global _verbose
     if _verbose:
         print(message, **kwargs)
-
 
 
 def deprecated(func):
@@ -168,3 +174,79 @@ def deprecated(func):
         warnings.simplefilter('default', DeprecationWarning)  # reset filter
         return func(*args, **kwargs)
     return new_func
+
+
+# Class for timing large for loops with lots of print statements that do not play nicely with tqdm
+# There probably is a way to do this with tqdm, but I have used variations of this method several times
+# Example:
+# for _ in timed_iter(iterable):
+#   some code...
+class timed_iter(object):
+    import time
+    #def __new__(cls, *_, **__):
+    #    instance = object.__new__(cls)
+    #    return instance
+
+    def __init__(self, iterable=None, iter_name=None, total=None):
+        object.__init__(self)
+
+        if total is None and iterable is not None:
+            total = len(iterable)
+
+        if iter_name is None:
+            iter_name = 'iteration'
+
+        self.iterable = iterable
+        self.total = total
+        self.iter_name = iter_name
+
+
+    def __iter__(self):
+        self.t_start = self.time.monotonic()
+        self.index = 1 # start from 1!
+
+        for obj in self.iterable:
+            self.t0 = self.time.monotonic()
+            self._print_before()
+            yield obj
+            self.tf = self.time.monotonic()
+            self._print_after()
+            self.index += 1
+
+
+    def __len__(self):
+        if self.total is not None:
+            out_len = self.total
+        else:
+            out_len = len(self.iterable)
+
+        return out_len
+
+
+    def _print_before(self):
+        print(f'Iterating though {self.iter_name} {self.index}/{self.total}.')
+
+
+    def _print_after(self):
+        # Current elapsed time
+        self.dt = self.tf - self.t0
+        self.tot_dt = self.tf - self.t_start
+        iter_rem = self.total - self.index
+        p_iter_time = self.time.strftime('%H:%M:%S', self.time.gmtime(self.dt))
+        print(f'{self.iter_name.capitalize()} {self.index} took {p_iter_time} time. {iter_rem} / {self.total} {self.iter_name}(s) remaining. ')
+
+        # Average time per iteration
+        if iter_rem != 0:
+            avg_dt = self.tot_dt / self.index
+            self.t_rem = avg_dt * iter_rem
+            p_t_rem = self.time.strftime('%H:%M:%S', self.time.gmtime(self.t_rem))
+            p_t_fin = self.time.strftime('%H:%M:%S', self.time.localtime(self.time.mktime(self.time.localtime()) + self.t_rem))
+            print(f'Estimated {p_t_rem} time remaining completing at {p_t_fin}.')
+            print('#' * 72)
+        else:
+            self._print_final()
+
+    def _print_final(self):
+        p_t_tot = self.time.strftime('%H:%M:%S', self.time.gmtime(self.tot_dt))
+        p_t_fin = self.time.strftime('%H:%M:%S', self.time.localtime())
+        print(f'Completed {self.total} / {self.total} {self.iter_name}(s) in {p_t_tot} time at {p_t_fin}')

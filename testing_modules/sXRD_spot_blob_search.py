@@ -17,14 +17,14 @@ from collections import OrderedDict
 
 
 
-def estimate_map_noise(imagemap, sample_number=200):
+'''def estimate_map_noise(imagemap, sample_number=200):
     if imagemap.num_images > sample_number:
         indices = np.unravel_index(np.random.choice(range(imagemap.num_images), size=sample_number), imagemap.map_shape)
         median_image = np.nanmedian(imagemap.images[indices], axis=(0))
     else:
         median_image = np.nanmedian(imagemap.images, axis=(0, 1))
     bkg_noise = np.nanstd(median_image[imagemap.mask])
-    return bkg_noise
+    return bkg_noise'''
 
 
 # Must take scaled images!!!
@@ -48,7 +48,7 @@ def spot_search(scaled_image, mask=None, threshold_method='gaussian',
     mask_thresh = image_offset + multiplier * image_noise
 
     # Setup filter for the images
-    # Works okay
+    # Works okay, could take no inputs...
     if str(threshold_method).lower() in ['gaussian', 'gauss']:
         image_filter = lambda image : gaussian_filter(image, sigma=size)
     # Works best
@@ -63,11 +63,11 @@ def spot_search(scaled_image, mask=None, threshold_method='gaussian',
     # Smooth image to reduce noise contributions
     zero_image = np.copy(scaled_image)
     zero_image[~mask] = 0 # should be redundant
-    gauss_zero = image_filter(zero_image, sigma=size)
+    gauss_zero = image_filter(zero_image)
 
     div_image = np.ones_like(scaled_image)
     div_image[~mask] = 0
-    gauss_div = image_filter(div_image, sigma=size)
+    gauss_div = image_filter(div_image)
 
     thresh_img = gauss_zero / gauss_div
     # Clean up some NaNs from median filters
@@ -109,7 +109,7 @@ def spot_search(scaled_image, mask=None, threshold_method='gaussian',
 
 
 # depracated
-def old_spot_search(image, bkg_noise=None, mask=None,
+'''def old_spot_search(image, bkg_noise=None, mask=None,
                 multiplier=10, sigma=3, expansion=None, plotme=False):
 
     if mask is None:
@@ -157,7 +157,7 @@ def old_spot_search(image, bkg_noise=None, mask=None,
 
         plt.show()
 
-    return spots, peak_mask, thresh_img
+    return spots, peak_mask, thresh_img'''
 
 
 def find_spots(imagemap, mask=None,
@@ -225,7 +225,7 @@ def spot_stats(spot, image, tth_arr, chi_arr, radius=5):
     chi = chi_arr[*spot]
     intensity = np.sum(spot_image)
 
-    center = arbitrary_center_or_mass(spot_image, tth_arr, chi_arr)
+    center = arbitrary_center_of_mass(spot_image, tth_arr, chi_arr)
     #center = estimate_polar_coords(center, tth_arr, chi_arr, method='linear')
 
     aweights = rescale_array(image[spot_mask], lower=0, upper=1)
@@ -241,7 +241,7 @@ def spot_stats(spot, image, tth_arr, chi_arr, radius=5):
 
 
 # deprecated
-def old_spot_stats(spot, image, radius=5, tth=None, chi=None):
+'''def old_spot_stats(spot, image, radius=5, tth=None, chi=None):
     #y_coords, x_coords = np.meshgrid(chi[::-1], tth)
     x_coords, y_coords = np.meshgrid(tth, chi[::-1])
     spot_mask = circular_mask(image.shape, [*spot], radius)
@@ -265,7 +265,7 @@ def old_spot_stats(spot, image, radius=5, tth=None, chi=None):
                                 aweights=aweights))
     fwhm_y = stdy * 2 * np.sqrt(2 * np.log(2))
     
-    return [height, indx, indy, x, y, center[0], center[1], fwhm_x, fwhm_y, intensity]
+    return [height, indx, indy, x, y, center[0], center[1], fwhm_x, fwhm_y, intensity]'''
 
 
 def find_spot_stats(imagemap, spot_list, tth_arr, chi_arr, radius=5):
@@ -376,7 +376,7 @@ def combine_nearby_spots(spots, max_dist=0.5, max_neighbors=np.inf):
 
 
 # Not used, but decent reference
-def watershed_blob_segmentation(spots, mask):
+'''def watershed_blob_segmentation(spots, mask):
     # Generate distance image from binary blob_img
     distance = ndi.distance_transform_edt(mask)
 
@@ -396,7 +396,7 @@ def watershed_blob_segmentation(spots, mask):
     # Just to make sure the background is not included
     new_blob_image *= mask
 
-    return new_blob_image
+    return new_blob_image'''
 
 
 def gaussian_watershed_segmentation(blurred_image, spots, mask):
@@ -665,7 +665,7 @@ def fit_spots(xrdmap, spot_fit_info_list, SpotModel):
 
 
 
-def old_find_spots(image, bkg_noise, multiplier=10, sigma=3,
+'''def old_find_spots(image, bkg_noise, multiplier=10, sigma=3,
                radius=5, tth=None, chi=None,
                plotme=False):
 
@@ -739,11 +739,11 @@ def old_find_spots(image, bkg_noise, multiplier=10, sigma=3,
 
     spot_dict = dict(zip(dict_labels, spot_array))
 
-    return spot_dict, mask
+    return spot_dict, mask'''
 
 
 
-def old_spot_search(image, bkg_noise, multiplier=10, sigma=3, plotme=False):
+'''def old_spot_search(image, bkg_noise, multiplier=10, sigma=3, plotme=False):
 
 
     # Consider other threshold methods
@@ -767,10 +767,10 @@ def old_spot_search(image, bkg_noise, multiplier=10, sigma=3, plotme=False):
 
         plt.show()
 
-    return spots, mask, thresh_img
+    return spots, mask, thresh_img'''
 
 
-def old_combine_nearby_spots(spots, max_dist=20, max_neighbors=np.inf):
+'''def old_combine_nearby_spots(spots, max_dist=20, max_neighbors=np.inf):
 
     data = label_nearest_spots(spots, max_dist=max_dist,
                                max_neighbors=max_neighbors)
@@ -782,10 +782,10 @@ def old_combine_nearby_spots(spots, max_dist=20, max_neighbors=np.inf):
             #new_spot = np.round(new_spot, 0)
             new_spots.append(new_spot)
 
-    return np.asarray(new_spots)
+    return np.asarray(new_spots)'''
 
 
-def old_watershed_blob_segmentation(spots, mask):
+'''def old_watershed_blob_segmentation(spots, mask):
     # Generate distance image from binary blob_img
     distance = ndi.distance_transform_edt(mask)
 
@@ -805,10 +805,10 @@ def old_watershed_blob_segmentation(spots, mask):
     # Just to make sure the background is not included
     new_blob_image *= mask
 
-    return new_blob_image
+    return new_blob_image'''
 
 
-def old_gaussian_watershed_segmentation(blurred_image, spots, mask):
+'''def old_gaussian_watershed_segmentation(blurred_image, spots, mask):
     # Generate markers upon which to segment blobs
     # Number of input spots may need to be reduceds depending on blob morphology
     coords = np.asarray(spots)
@@ -826,10 +826,10 @@ def old_gaussian_watershed_segmentation(blurred_image, spots, mask):
     # Just to make sure the background is not included
     new_blob_image *= mask
 
-    return new_blob_image   
+    return new_blob_image'''
 
 
-def old_append_watershed_blobs(spots, mask, new_blob_image):
+'''def old_append_watershed_blobs(spots, mask, new_blob_image):
     old_blob_image = label(mask)
     for spot in spots:
         if new_blob_image[*spot] == 0:
@@ -838,11 +838,11 @@ def old_append_watershed_blobs(spots, mask, new_blob_image):
     # Just to make sure the background is not included
     new_blob_image *= mask
 
-    return new_blob_image
+    return new_blob_image'''
 
 
 # Currently only works for Gaussian and Lorentzian peak models(based on number of inputs)
-def old_fit_spots(image, blob_image, spots, SpotModel, tth=None, chi=None, verbose=False):
+'''def old_fit_spots(image, blob_image, spots, SpotModel, tth=None, chi=None, verbose=False):
     global _verbose
     _verbose = verbose
 
@@ -942,12 +942,12 @@ def old_fit_spots(image, blob_image, spots, SpotModel, tth=None, chi=None, verbo
 
     vprint(f'{len(model_fits)}/{len(spots)} spots have been successfully fitted!')
 
-    return spot_dict
+    return spot_dict'''
 
 
 # Big combined function!
 # This is what would be parallelized...
-def old_find_and_fit_spots(image, bkg_noise, SpotModel,
+'''def old_find_and_fit_spots(image, bkg_noise, SpotModel,
                        multiplier=10, sigma=3,
                        max_dist=20, max_neighbors=np.inf,
                        tth=None, chi=None, verbose=False):
@@ -976,7 +976,7 @@ def old_find_and_fit_spots(image, bkg_noise, SpotModel,
                           tth=tth, chi=chi, verbose=verbose)
     print('done!')
     
-    return spot_dict
+    return spot_dict'''
 
 
 
@@ -984,13 +984,13 @@ def old_find_and_fit_spots(image, bkg_noise, SpotModel,
 ##############################################################################
 
 # Depracted in favor of spot search path
-def old_find_blobs(img, thresh, method='gaussian_threshold',
+'''def old_find_blobs(img, thresh, method='gaussian_threshold',
                sigma=3,
                tth=None, chi=None,
                blob_expansion=5, min_blob_significance=500,
                find_contours=True,
                listme=False, plotme=False):
-    '''
+    
     img                     ()
     thresh                  ()
     method                  ()
@@ -1001,7 +1001,7 @@ def old_find_blobs(img, thresh, method='gaussian_threshold',
     min_blob_significance   ()
     list_blobs              ()
     plot_blobs              ()
-    '''
+    
 
     proc_img = np.copy(img).astype(np.float32)
 
@@ -1117,11 +1117,11 @@ def old_find_blobs(img, thresh, method='gaussian_threshold',
     if listme:
         print(blob_df.loc[:, ['intensity', 'area', 'significance','center_of_mass']].head())
     
-    return blob_df
+    return blob_df'''
 
 
 # Depracated in favor of spot search path
-def old_fit_blobs(img, thresh, blob_df, SpotModel,  tth=None, chi=None, plotme=False):
+'''def old_fit_blobs(img, thresh, blob_df, SpotModel,  tth=None, chi=None, plotme=False):
 
     x_coords, y_coords = np.meshgrid(tth, chi[::-1])
 
@@ -1170,11 +1170,11 @@ def old_fit_blobs(img, thresh, blob_df, SpotModel,  tth=None, chi=None, plotme=F
             blob_gaussian_lst.append([np.nan])
     
     blob_df['fit_parameters'] = blob_gaussian_lst
-    return blob_df
+    return blob_df'''
 
 
 # Depracated in favor of spot search path
-def old_find_blob_spots(img, blob_df, tth=None, chi=None,
+'''def old_find_blob_spots(img, blob_df, tth=None, chi=None,
                     size=2, sigma=0.5, min_distance=3, threshold_rel=0.15,
                     plotme=False):
 
@@ -1218,12 +1218,12 @@ def old_find_blob_spots(img, blob_df, tth=None, chi=None,
             ax.plot(*blob_df['contour'][i], c='r', lw=0.5)
         ax.scatter(*np.array([item for sublist in blob_df['spots'].to_list() for item in sublist]).T, c='r', s=1)
 
-    return blob_df
+    return blob_df'''
 
 
 # Depracated in favor of spot search path
 # WIP
-def old_adaptive_spot_fitting(img, blob_df, thresh, SpotModel, tth=None, chi=None,
+'''def old_adaptive_spot_fitting(img, blob_df, thresh, SpotModel, tth=None, chi=None,
                           plotme=False):
     # Adaptive peak fitting within blobs
     # TODO: Allow for peak addition with residual?
@@ -1319,7 +1319,7 @@ def old_adaptive_spot_fitting(img, blob_df, thresh, SpotModel, tth=None, chi=Non
     
     spot_df.sort_values('height', ascending=False, inplace=True)
     spot_df.reset_index(inplace=True, drop=True)
-    return spot_df
+    return spot_df'''
 
 
 ####################
@@ -1348,66 +1348,6 @@ def coord_mask(coords, image, masked_image=False):
     else:
         return np.bool_(mask)
 
-
-# Not currently used.
-def qualify_gaussian_2d_fit(r_squared, sig_threshold, guess_params, fit_params, return_reason=False):
-    # Determine euclidean distance between intitial guess and peak fit. TODO change to angular misorientation
-    offset_distance = np.sqrt((fit_params[1] - guess_params[1])**2 + (fit_params[2] - guess_params[2])**2)
-    
-    keep_fit = np.all([r_squared >= 0, # Qualify peak fit. Decent fits still do not have great r_squared, so cutoff is low
-                       fit_params[0] > sig_threshold,
-                       offset_distance < 50, # Useless when using bounded curve fit...
-                       np.abs(fit_params[3]) < 0.5, # Qualifies sigma_x to not be too diffuse
-                       np.abs(fit_params[4]) < 1.5, # Qualifies sigma_y to not be too diffuse
-                       ])
-
-    # Add qualifiers to determine if the gaussian fit is:
-    # Sufficiently good fit (in r_squared)
-    # Has sufficient amplitude to be worthwhile
-    # Has not moved too far from initial guess position
-    if return_reason:
-        return keep_fit, offset_distance
-    return keep_fit
-
-
-def generate_bounds(p0, peak_function, tth_step=None, chi_step=None):
-    
-    # Get function input variable names, excluding 'self', 'x' or '(xy)' and any default arguments
-    inputs = list(peak_function.__code__.co_varnames[:peak_function.__code__.co_argcount])
-    if 'self' in inputs: inputs.remove('self')
-    inputs = inputs[1:] # remove the x, or xy inputs
-    if peak_function.__defaults__ is not None:
-        inputs = inputs[:-len(peak_function.__defaults__)] # remove defualts
-
-    if tth_step is None: tth_step = 0.02
-    if chi_step is None: chi_step = 0.05
-
-    tth_resolution, chi_resolution = 0.01, 0.01 # In degrees...
-    tth_range = np.max([tth_resolution, tth_step]) * 3 # just a bit more wiggle room
-    chi_range = np.max([chi_resolution, chi_step]) * 3 # just a bit more wiggle room
-
-    low_bounds, upr_bounds = [], []
-    for i in range(0, len(p0), len(inputs)):
-        for j, arg in enumerate(inputs):
-            if arg == 'amp':
-                low_bounds.append(0)
-                upr_bounds.append(p0[i + j] * 10) # guess intensity is probably not off by more than this
-            elif arg == 'x0':
-                low_bounds.append(p0[i + j] - tth_range) # Restricting peak shift based on guess position uncertainty
-                upr_bounds.append(p0[i + j] + tth_range)
-            elif arg == 'y0':
-                low_bounds.append(p0[i + j] - chi_range) # Restricting peak shift based on guess position uncertainty
-                upr_bounds.append(p0[i + j] + chi_range)
-            elif 'fwhm' in arg:
-                low_bounds.append(0.001)
-                upr_bounds.append(p0[i + j] * 1.15) # should be based off of intrument resolution
-            elif arg == 'theta':
-                low_bounds.append(-45) # Prevents spinning
-                upr_bounds.append(45) # Only works for degrees...
-            else:
-                raise ValueError(f"{peak_function} uses inputs not defined by the generate_bounds function!")
-            
-    return [low_bounds, upr_bounds]
 
 
 '''def generate_bounds(p0, peak_function, tth_step=None, chi_step=None):

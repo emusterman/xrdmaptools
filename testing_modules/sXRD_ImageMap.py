@@ -25,11 +25,13 @@ class ImageMap:
                  hdf_path=None,
                  hdf=None,
                  wd=None,
+                 ai=None,
+                 sclr_dict=None,
                  corrections=None,
                  dask_enabled=False):
         
+        # Parallized image processing
         if dask_enabled:
-            # Parallized image processing
             # Unusual chunk shapes are fixed later
             image_array = da.asarray(image_array)
         else:
@@ -132,12 +134,9 @@ class ImageMap:
                                                 dtype=np.float32,
                                                 chunks=chunks)
 
+                # Might be best NOT to call this to preserve previous data
                 self.images = da.store(self.images, self._hdf_store,
                                     compute=True, return_stored=True)[0]
-
-        if dtype is None:
-            dtype = self.images.dtype
-        self._dtype = dtype
 
         if isinstance(corrections, dict):
             self.corrections = corrections
@@ -160,6 +159,8 @@ class ImageMap:
         if wd is None:
             wd = '/home/xf05id1/current_user_data/'
         self.wd = wd
+        self.ai = ai
+        self.sclr_dict = sclr_dict
 
         #print('Defining new attributes')
         # Some redundant attributes, but maybe useful
@@ -364,21 +365,21 @@ class ImageMap:
 
         # Clear old values everytime this is checked
         self.reset_attributes()
-            
+    
 
-    ### Convenience functions for working with Dask Arrays
+    ######################
+    ### Dask Functions ###
+    ######################
         
     # Flag to check if images are dask or numpy array
     @property
     def _dask_enabled(self):
         return isinstance(self.images, da.core.Array)
-    
 
     # Return standardized chunk size around images for hdf and dask
-    def _get_optimal_chunks(self, approx_chunk_size=200):
+    def _get_optimal_chunks(self, approx_chunk_size=None):
         return get_optimal_chunks(self.images,
                                   approx_chunk_size=approx_chunk_size)
-
     
     def _dask_2_numpy(self):
         # Computes dask to numpy array. Intended for final images
@@ -442,7 +443,7 @@ class ImageMap:
                 # Not sure how to decide which int precision
                 # Trying to save memory if possible
                 if np.max(self.dark_field) > np.min(self.min_image):
-                    self.dtype = np.int32
+                    self.dtype = np.float32 # Go ahead and make it the final size...
             
             print('Correcting dark-field...', end='', flush=True)
             self.images -= self.dark_field
@@ -453,6 +454,7 @@ class ImageMap:
             
             self.corrections['dark_field'] = True
             self.update_map_title()
+            self._dask_2_hdf()
             print('done!')
 
 
@@ -486,6 +488,7 @@ class ImageMap:
             
             self.corrections['flat_field'] = True
             self.update_map_title()
+            self._dask_2_hdf()
             print('done!')
 
 
@@ -502,6 +505,7 @@ class ImageMap:
         
         self.corrections['outliers'] = True
         self.update_map_title()
+        self._dask_2_hdf()
         print('done!')
 
 
@@ -515,12 +519,15 @@ class ImageMap:
             mask *= (self.min_image >= min_bounds[0]) & (self.min_image <= min_bounds[1])
             mask *= (self.max_image >= max_bounds[0]) & (self.max_image <= max_bounds[1])
             self.defect_mask = mask
-        
-        self.update_map_title()
-        self.corrections['pixel_defects'] = True
+
         # Write mask to disk
         self.save_images(self.defect_mask,
-                         'defect_mask')
+                         'defect_mask') 
+        
+        self.corrections['pixel_defects'] = True
+        self.update_map_title()
+        self._dask_2_hdf()
+
 
 
     # No correction for custom mask, since is used whenever mask is called
@@ -537,7 +544,7 @@ class ImageMap:
     ### Geometric corrections ###
     # TODO: Add conditionals to allow corrections to be applied to calibrated images
 
-    def apply_lorentz_correction(self, ai, experiment='single', corrections=None, custom=None, apply=True):
+    def apply_lorentz_correction(self, experiment='single', corrections=None, custom=None, apply=True):
 
         if self.corrections['lorentz']:
             print('''Warning: Lorentz correction already applied! 
@@ -571,8 +578,8 @@ class ImageMap:
 
         #TODO: Add conditional for calibrated images
         # In radians
-        tth_arr = ai.twoThetaArray().astype(self.dtype)
-        chi_arr = ai.chiArray().astype(self.dtype)
+        tth_arr = self.ai.twoThetaArray().astype(self.dtype)
+        chi_arr = self.ai.chiArray().astype(self.dtype)
 
         # Check for discontinuities
         if np.max(np.gradient(chi_arr)) > (np.pi / 6): # Semi-arbitrary cut off
@@ -607,10 +614,11 @@ class ImageMap:
             self.images /= self.lorentz_correction
             self.corrections['lorentz'] = True
             self.update_map_title()
+            self._dask_2_hdf()
             print('done!')
 
     
-    def apply_polarization_correction(self, ai, polarization=0.9, apply=True):
+    def apply_polarization_correction(self, polarization=0.9, apply=True):
 
         if self.corrections['polarization']:
             print('''Warning: polarization correction already applied! 
@@ -635,7 +643,7 @@ class ImageMap:
         #                polarization * np.cos(2.0 * (chi_arr)) * (1.0 - cos2_tth))
 
         # From pyFAI
-        polar = ai.polarization(factor=polarization).astype(self.dtype)
+        polar = self.ai.polarization(factor=polarization).astype(self.dtype)
         self.polarization_correction = polar
         self.save_images(self.polarization_correction,
                             'polarization_correction')
@@ -645,10 +653,11 @@ class ImageMap:
             self.images /= self.polarization_correction
             self.corrections['polarization'] = True
             self.update_map_title()
+            self._dask_2_hdf()
             print('done!')
 
     
-    def apply_solidangle_correction(self, ai, apply=True):
+    def apply_solidangle_correction(self, apply=True):
 
         if self.corrections['solid_angle']:
             print('''Warning: Solid angle correction already applied! 
@@ -663,7 +672,7 @@ class ImageMap:
         # 'SA = pixel1 * pixel2 / dist^2 * cos(incidence)^3'
 
         # From pyFAI
-        solidangle_correction = ai.solidAngleArray().astype(self.dtype)
+        solidangle_correction = self.ai.solidAngleArray().astype(self.dtype)
         self.solidangle_correction = solidangle_correction
         self.save_images(self.solidangle_correction,
                             'solidangle_correction')
@@ -673,15 +682,17 @@ class ImageMap:
             self.images /= self.solidangle_correction
             self.corrections['solid_angle'] = True
             self.update_map_title()
+            self._dask_2_hdf()
             print('done!')
 
 
-    def apply_absorption_correction(self, ai, exp_dict, apply=True):
+    def apply_absorption_correction(self, exp_dict, apply=True):
 
         #exp_dict = {
         #    'attenuation_length' : value,
         #    'mode' : 'transmission',
-        #    'thickness' : value
+        #    'thickness' : value,
+        #    'theta' : value # in degrees!
         #}
 
         if self.corrections['absorption']:
@@ -690,16 +701,30 @@ class ImageMap:
             return
         
         # In radians
-        tth_arr = ai.twoThetaArray()
+        tth_arr = self.ai.twoThetaArray()
+        chi_arr = self.ai.chiArray()
 
-        if not all(x in list(exp_dict.keys()) for x in ['attenuation_length', 'mode', 'thickness']):
+        if not all(x in list(exp_dict.keys()) for x in ['attenuation_length', 'mode', 'thickness', 'theta']):
             raise ValueError("""Experimental dictionary does not have all the necessary keys: 
                              'attenuation_length', 'mode', and 'thickness'.""")
 
+        # Semi-infinite plate
         if exp_dict['mode'] == 'transmission':
             t = exp_dict['thickness']
             a = exp_dict['attenuation_length']
-            x = t / np.cos(tth_arr) # path length
+            theta = np.radians(exp_dict['theta'])
+            if theta == 0:
+                x = t / np.cos(tth_arr) # path length
+            else:
+                # OPTIMIZE ME!
+                # Intersection coordinates of lines. One for the far surface and another for the diffracted beam
+                # Origin at intersection of initial surface and transmitted beam
+                # y1 = x1 / np.tan(tth) # diffracted beam
+                # y2 = np.cos(chi) * np.tan(theta) + t / np.cos(theta) # far surface
+                xi = (t / (np.cos(theta))) / ((1 / np.tan(tth_arr)) - (np.cos(chi_arr) * np.tan(theta)))
+                yi = xi / (np.tan(tth_arr))
+                # Distance of intersection point
+                x = np.sqrt(xi**2 + yi**2)
 
             abs_arr = np.exp(-x / a)
             self.absorption_correction = abs_arr
@@ -710,15 +735,13 @@ class ImageMap:
             raise ValueError(f"{exp_dict['mode']} is unknown.")
         
         if apply:
-            print('Correcting for absorption...', end='', flush=True)
+            print('Applying absorption correction...', end='', flush=True)
             self.images /= self.absorption_correction
             self.corrections['absorption'] = True
             self.update_map_title()
+            self._dask_2_hdf()
             print('done!')
 
-
-
-    ### Final image corrections ###
 
     def normalize_scaler(self, scaler_arr=None):
 
@@ -727,20 +750,32 @@ class ImageMap:
                   Proceeding without any changes''')
         
         elif scaler_arr is None:
-            print('No scaler array given. Approximating with image medians...')
-            scaler_arr = self.med_map
+            if hasattr(self, 'sclr_dict') and self.sclr_dict is not None:
+                if 'i0' in self.sclr_dict.keys():
+                    scaler_arr = self.sclr_dict['i0']
+                elif 'im' in self.sclr_dict.keys():
+                    print('"i0" could not be found. Switching to "im".')
+                    scaler_arr = self.sclr_dict['im']
+                else:
+                    first_key = list(self.sclr_dict.keys())[0]
+                    scaler_arr = self.sclr_dict[first_key]
+                    print(f'Unrecognized scaler keys. Using "{first_key}" instead.')
+            else:
+                print('No scaler array given or found. Approximating with image medians.')
+                scaler_arr = self.med_map
 
-        else:
-            scaler_arr = np.asarray(scaler_arr)
-            if scaler_arr.shape != self.map_shape:
-                raise ValueError(f'''Scaler array of shape {scaler_arr.shape} does not 
-                                match the map shape of {self.map_shape}!''')
+        # Check shape everytime
+        scaler_arr = np.asarray(scaler_arr)
+        if scaler_arr.shape != self.map_shape:
+            raise ValueError(f'''Scaler array of shape {scaler_arr.shape} does not 
+                            match the map shape of {self.map_shape}!''')
    
         print('Normalize image scalers...', end='', flush=True)
         self.images /= scaler_arr.reshape(*self.map_shape, 1, 1)
         self.scaler_map = scaler_arr # Do not save to hdf, since scalers should be recorded...
         self.corrections['scaler_intensity'] = True
         self.update_map_title()
+        self._dask_2_hdf()
         print('done!')
 
 
@@ -827,6 +862,7 @@ class ImageMap:
 
         self.corrections['background'] = True
         self.update_map_title()
+        self._dask_2_hdf()
         print('done!')
 
         if save_images:
@@ -837,10 +873,10 @@ class ImageMap:
 
 
     ### Polar correction ###
-
-    # Should move to geometry.py
     # Geometric calibration
-    def calibrate_images(self, ai, title=None,
+    # TODO: Test with various dask implementations
+    #        Move to geometry?
+    def calibrate_images(self, title=None,
                          unit='2th_deg',
                          tth_resolution=0.02,
                          chi_resolution=0.05,
@@ -923,7 +959,7 @@ class ImageMap:
 
         # Surely there is better way to find the extent without a full calibration
         # It's fast some maybe doesn't matter
-        _, tth, chi = ai.integrate2d_ng(self.images.reshape(
+        _, tth, chi = self.ai.integrate2d_ng(self.images.reshape(
                                 self.num_images, 
                                 *self.image_shape)[0],
                                 100, 100, unit=self.calib_unit)
@@ -950,7 +986,7 @@ class ImageMap:
                                        *self.image_shape)),
                                        total=self.num_images):
             
-            res, tth, chi = ai.integrate2d_ng(pixel,
+            res, tth, chi = self.ai.integrate2d_ng(pixel,
                                           self.tth_num,
                                           self.chi_num,
                                           unit=self.calib_unit,
@@ -1031,7 +1067,7 @@ class ImageMap:
         # Update defect mask
         if hasattr(self, 'defect_mask'):
             if self.defect_mask.shape == self.image_shape:
-                new_mask, _, _ = ai.integrate2d_ng(self.defect_mask,
+                new_mask, _, _ = self.ai.integrate2d_ng(self.defect_mask,
                                                 self.tth_num,
                                                 self.chi_num,
                                                 unit=self.calib_unit)
@@ -1040,7 +1076,7 @@ class ImageMap:
         # Update custom mask
         if hasattr(self, 'custom_mask'):
             if self.custom_mask.shape == self.image_shape:
-                new_mask, _, _ = ai.integrate2d_ng(self.custom_mask,
+                new_mask, _, _ = self.ai.integrate2d_ng(self.custom_mask,
                                                 self.tth_num,
                                                 self.chi_num,
                                                 unit=self.calib_unit)
@@ -1062,7 +1098,7 @@ class ImageMap:
         return self.tth, self.chi, self.extent, self.calibrated_shape, self.tth_resolution, self.chi_resolution
     
 
-    def get_calibration_mask(self, ai, tth_num=None, chi_num=None, units='2th_deg'):
+    def get_calibration_mask(self, tth_num=None, chi_num=None, units='2th_deg'):
 
         if tth_num is None:
             tth_num = self.tth_num
@@ -1073,7 +1109,7 @@ class ImageMap:
 
         dummy_image = 100 * np.ones(self.image_shape)
 
-        image, _, _ = ai.integrate2d_ng(dummy_image, tth_num, chi_num, unit=units)
+        image, _, _ = self.ai.integrate2d_ng(dummy_image, tth_num, chi_num, unit=units)
 
         calibration_mask = (image != 0)
 
@@ -1095,6 +1131,9 @@ class ImageMap:
                                     arr_max=arr_max,
                                     mask=mask)
         
+        # Update _temp images
+        self._dask_2_hdf()
+        
 
     def finalize_images(self, save_images=True):
 
@@ -1112,27 +1151,30 @@ class ImageMap:
         self.disk_size()
 
         if save_images:
-            print('''Compressing and writing images to disk.\nThis may take awhile...''')
-
-            if check_hdf_current_images('_temp_images', self.hdf_path, self.hdf):
-                # Save images to current store location. Should be _temp_images
-                self.save_images(title='_temp_images')
-                temp_dset = self.hdf['xrdmap/image_data/_temp_images']
-                
-                # Must be done explicitly outside of self.save_images()
-                for key, value in self.corrections.items():
-                    temp_dset.attrs[f'_{key}_correction'] = value
-
-                # Relabel to final images and delt temp dataset
-                self.hdf['xrdmap/image_data/final_images'] = temp_dset
-                del temp_dset
-
-                # Remap store location. Should only reference data from now on
-                self._hdf_store = self.hdf['xrdmap/image_data/final_images']
-
+            if self.hdf_path is None and self.hdf is None:
+                print('No hdf file specified. Images will not be saved.')
             else:
-                self.save_images()
-            print('done!')
+                print('''Compressing and writing images to disk.\nThis may take awhile...''')
+
+                if check_hdf_current_images('_temp_images', self.hdf_path, self.hdf):
+                    # Save images to current store location. Should be _temp_images
+                    self.save_images(title='_temp_images')
+                    temp_dset = self.hdf['xrdmap/image_data/_temp_images']
+                    
+                    # Must be done explicitly outside of self.save_images()
+                    for key, value in self.corrections.items():
+                        temp_dset.attrs[f'_{key}_correction'] = value
+
+                    # Relabel to final images and delt temp dataset
+                    self.hdf['xrdmap/image_data/final_images'] = temp_dset
+                    del temp_dset
+
+                    # Remap store location. Should only reference data from now on
+                    self._hdf_store = self.hdf['xrdmap/image_data/final_images']
+
+                else:
+                    self.save_images()
+                print('done!')
 
 
     ##########################

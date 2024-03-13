@@ -10,7 +10,7 @@ import matplotlib.pyplot as plt
 from collections import OrderedDict
 import dask.array as da
 
-import scipy.io as io
+import skimage.io as io
 from dask_image import imread as dask_io
 
 
@@ -33,7 +33,10 @@ class XRDMap():
                  energy=None,
                  wavelength=None,
                  dwell=None,
+                 theta=None,
                  poni_file=None,
+                 sclr_dict=None,
+                 pos_dict=None,
                  tth_resolution=None,
                  chi_resolution=None,
                  tth=None,
@@ -65,13 +68,19 @@ class XRDMap():
         # uid: 7469f8f8-8076-47d5-85a1-ee147fe89d3c
         # sample.name: 
 
+        # Store energy, dwell, and theta
         self._energy = None
         self._wavelength = None
         if energy is not None:
             self.energy = energy
         elif wavelength is not None: # Favors energy definition
             self.wavelength = wavelength
-
+        
+        if dwell is not None:
+            self.dwell = dwell
+        if theta is not None:
+            self.theta = theta
+        
         # Only take values from hdf when opening from the class method
         if save_hdf:
             if hdf is not None:
@@ -89,6 +98,8 @@ class XRDMap():
             # Open hdf if required
             if dask_enabled:
                 self.hdf = h5py.File(self.hdf_path, 'a')
+            else:
+                self.hdf = None
         
         elif not save_hdf and dask_enabled:
             raise ValueError('Enabling dask requires an hdf file for storage.')
@@ -112,13 +123,22 @@ class XRDMap():
             self.map = image_map
         else:
             raise TypeError(f"Unknown image_map input type: {type(image_map)}")
-            
+        
         self.phases = {} # Place holder for potential phases
         if poni_file is not None:
             self.set_calibration(poni_file)
         else:
             self.ai = None # Place holder for calibration
-        
+            self.map.ai = None # Redundant
+
+        self.sclr_dict = None
+        if sclr_dict is not None:
+            self.set_scalers(sclr_dict)
+
+        self.pos_dict = None
+        if pos_dict is not None:
+            self.set_positions(pos_dict)
+
         if tth_resolution is not None:
             self.tth_resolution = tth_resolution
         if chi_resolution is not None:
@@ -184,7 +204,7 @@ class XRDMap():
 
         print('Loading images...', end='', flush=True)
         if dask_enabled:
-            dask_io.imread(f'{wd}{filename}')
+            image_map = dask_io.imread(f'{wd}{filename}')
         else:
             image_map = io.imread(f'{wd}{filename}')
         print('done!')
@@ -215,6 +235,8 @@ class XRDMap():
                     dask_enabled=dask_enabled,
                     **input_dict['base_md'],
                     poni_file=input_dict['poni_od'],
+                    sclr_dict=input_dict['sclr_dict'],
+                    pos_dict=input_dict['pos_dict'],
                     tth_resolution=input_dict['image_data'].tth_resolution,
                     chi_resolution=input_dict['image_data'].chi_resolution,
                     tth=input_dict['recip_pos']['tth'],
@@ -248,24 +270,23 @@ class XRDMap():
     
 
     @classmethod # Allows me to define and initiatie the class simultaneously
-    def from_db(cls, scanid, wd=None, **kwargs):
-        # Load from databroker
-        raise NotImplementedError()
-        if wd is None:
-            wd = '/home/xf05id1/current_user_data/'
+    def from_db(cls,
+                scanid=-1,
+                broker='manual',
+                filedir=None,
+                filename=None,
+                poni_file=None,
+                save_hdf=True):
+        
+        outmap = make_xrdmap_hdf(scanid=scanid,
+                                 broker=broker,
+                                 filedir=filedir,
+                                 filename=filename,
+                                 poni_file=poni_file,
+                                 return_xrdmap=True,
+                                 save_hdf=save_hdf)
 
-        h = db.start[scanid]
-        # Get metadata from start documents
-        # I'll need to call load_xrd_tiffs or something like that from IO
-        return cls(scanid, energy=energy, image_map=working_map, wd=wd,
-                   map_title='raw_images', **kwargs)
-    
-
-    @staticmethod
-    def make_hdf(cls, scanid, wd=None):
-        # make an hdf file for the xrdmap class from the databroker
-        # without returning the instance
-        raise NotImplementedError()
+        return outmap
     
     ##################
     ### Properties ###
@@ -283,9 +304,10 @@ class XRDMap():
         else:
             self._energy = energy
         # Propogate changes...
-        if hasattr(self, 'ai'):
-            self.ai.energy = self._energy
-            self._del_arr()
+        if hasattr(self, 'ai') and self.ai is not None:
+            self.ai.energy = self._energy # ai energy is not used by any methods called here
+            if hasattr(self, '_q_arr'):
+                delattr(self, '_q_arr')
         if hasattr(self, 'phases'):
             for key in self.phases.keys():
                 self.phases[key].energy = self._energy
@@ -303,9 +325,10 @@ class XRDMap():
         else:
             self._wavelength = wavelength
         # Propogate changes...
-        if hasattr(self, 'ai'):
+        if hasattr(self, 'ai') and self.ai is not None:
             self.ai.energy = self._energy
-            self._del_arr()
+            if hasattr(self, '_q_arr'):
+                delattr(self, '_q_arr')
         if hasattr(self, 'phases'):
             for key in self.phases.keys():
                 self.phases[key].energy = self._energy
@@ -486,12 +509,6 @@ class XRDMap():
         # If dask is not enabled, the images should not be lazy loaded
             
 
-    #############################
-    ### Correcting Map Images ###
-    #############################
-
-    # Not sure if I should wrap this here or keep it inside of the imagemap class
-
     ##############################
     ### Calibrating Map Images ###
     ##############################
@@ -563,6 +580,10 @@ class XRDMap():
 
         # Extract calibration parameters to save
         self.poni = self.ai.get_config()
+
+        # Share ai with ImageMap
+        if hasattr(self, 'map') and self.map is not None:
+            self.map.ai = self.ai
         
         # Save poni files as dictionary 
         # Updates poni information to update detector settings
@@ -675,6 +696,122 @@ class XRDMap():
     def estimate_image_coords(self, coords, method='nearest'):
         return estimate_image_coords(coords, self.tth_arr, self.chi_arr, method=method)
     
+    ##################################
+    ### Scaler and Position Arrays ###
+    ##################################
+
+    def set_scalers(self, sclr_dict):
+
+        # Store sclr_dict as attribute
+        self.sclr_dict = sclr_dict
+
+        # Share scalers with ImageMap
+        if hasattr(self, 'map') and self.map is not None:
+            self.map.sclr_dict = self.sclr_dict
+
+        # Write to hdf file
+        if self.hdf_path is not None:
+
+            # Open hdf flag
+            keep_hdf = True
+            if self.hdf is None:
+                self.hdf = h5py.File(self.hdf_path, 'a')
+                keep_hdf = False
+
+            # Write data to hdf
+            curr_grp = self.hdf[f'/xrdmap'].require_group('scalers')
+            curr_grp.attrs['time_stamp'] = ttime.ctime()
+
+            for key, value in self.sclr_dict.items():
+                value = np.asarray(value)
+                dset = curr_grp.require_dataset(key,
+                                                data=value,
+                                                shape=value.shape,
+                                                dtype=value.dtype)
+                
+                dset.attrs['labels'] = ['map_x', 'map_y']
+                dset.attrs['units'] = 'counts'
+                dset.attrs['dtype'] = str(value.dtype)
+
+            # Close hdf and reset attribute
+            if not keep_hdf:
+                self.hdf.close()
+                self.hdf = None
+    
+
+    def set_positions(self, pos_dict, position_units=None):
+
+        # Re-work dictionary keys into stable format
+        temp_dict = {}
+        for key in list(pos_dict.keys()):
+            if key in ['enc1', '1', 'x', 'X', 'map_x', 'map_X']:
+                temp_dict['map_x'] = pos_dict[key]
+            elif key in ['enc2', '2' 'y', 'Y', 'map_y', 'map_Y']:
+                temp_dict['map_y'] = pos_dict[key]
+        del pos_dict
+        pos_dict = temp_dict
+
+        # Store sclr_dict as attribute
+        self.pos_dict = pos_dict
+        # Positions are not shared with ImageMap...
+
+        # Set position units
+        if position_units is None:
+            position_units = 'unk.'
+        self.position_units = position_units
+
+        # Write to hdf file
+        if self.hdf_path is not None:
+
+            # Open hdf flag
+            keep_hdf = True
+            if self.hdf is None:
+                self.hdf = h5py.File(self.hdf_path, 'a')
+                keep_hdf = False
+
+            # Write data to hdf
+            curr_grp = self.hdf[f'/xrdmap'].require_group('positions')
+            curr_grp.attrs['time_stamp'] = ttime.ctime()
+
+            for key, value in self.sclr_dict.items():
+                value = np.asarray(value)
+                dset = curr_grp.require_dataset(key,
+                                                data=value,
+                                                shape=value.shape,
+                                                dtype=value.dtype)
+                
+                dset.attrs['labels'] = ['map_x', 'map_y']
+                dset.attrs['units'] = self.position_units
+                dset.attrs['dtype'] = str(value.dtype)
+
+            # Close hdf and reset attribute
+            if not keep_hdf:
+                self.hdf.close()
+                self.hdf = None
+
+
+    # Convenience function for loading scalers and positions from standard map_parameters text file
+    def load_map_parameters(self, filename, filedir=None, position_units=None):  
+        
+        if filedir is None:
+            filedir = self.wd
+    
+        arr = np.genfromtxt(f'{filedir}{filename}')
+
+        pos_dict, sclr_dict = {}, {}
+
+        pos_dict['enc1'] = arr[0]
+        pos_dict['enc2'] = arr[1]
+
+        sclr_dict['i0'] = arr[2]
+        sclr_dict['i0_time'] = arr[3]
+        sclr_dict['im'] = arr[4]
+        sclr_dict['it'] = arr[5]
+
+        self.set_positions(pos_dict, position_units)
+        self.set_scalers(sclr_dict)
+        
+    
     #########################################
     ### Manipulating and Selecting Phases ###
     #########################################
@@ -691,7 +828,7 @@ class XRDMap():
         if phase_name not in self.phases.keys():
             self.phases[phase_name] = phase
         else:
-            print(f"Did not add {phase_name} since it is already in possible phases.")
+            print(f"Did not add {phase_name} since it is already a possible phases.")
 
 
     def remove_phase(self, phase):
@@ -845,40 +982,18 @@ class XRDMap():
         self.spots = stat_df
         self.map.spot_masks = np.asarray(mask_list).reshape(*self.map.map_shape,
                                                        *self.map.images.shape[-2:])
-        # Not sure about this one...
-        #self.map.blurred_images = np.asarray(thresh_list).reshape(*self.map.map_shape,
-        #                                                          *self.map.calibrated_shape)
 
         # Save spots to hdf
-        if self.hdf_path is not None:
-            
-            # Open hdf flag
-            keep_hdf = True
-            if self.hdf is None:
-                self.hdf = h5py.File(self.hdf_path, 'a')
-                keep_hdf = False
+        self.save_spots()
 
-            print('Saving spots to hdf...', end='', flush=True)
-            # Save spots to hdf
-            self._close_hdf() # pandas cannot work with already open files...
-            self.spots.to_hdf(self.hdf_path, 'xrdmap/reflections/spots', format='table')
-            self._open_hdf()
-
-            # Save masks to hdf
-            self.map.save_images(images=self.map.spot_masks,
-                                 title='_spot_masks',
-                                 units='bool',
-                                 extra_attrs={'threshold_method' : threshold_method,
-                                              'size' : size,
-                                              'multiplier' : multiplier,
-                                              'window_radius' : radius})
-            
-            # Close hdf and reset attribute
-            if not keep_hdf:
-                self.hdf.close()
-                self.hdf = None
-
-            print('done!')
+        # Save masks to hdf
+        self.map.save_images(images=self.map.spot_masks,
+                                title='_spot_masks',
+                                units='bool',
+                                extra_attrs={'threshold_method' : threshold_method,
+                                            'size' : size,
+                                            'multiplier' : multiplier,
+                                            'window_radius' : radius})
 
 
     def fit_spots(self, SpotModel, max_dist=0.5, sigma=1):
@@ -913,40 +1028,13 @@ class XRDMap():
 
         # Generate list of x, y, I, and spot indices for each blob/spots fits
         spot_fit_info_list = prepare_fit_spots(self, max_dist=max_dist, sigma=sigma)
-
-        # TEMP: trying to see the relative size of this variable in memory
-        self.spot_fit_info_list = spot_fit_info_list
         
         # Fits spots and adds the fit results to the spots dataframe
         fit_spots(self, spot_fit_info_list, SpotModel)
         self.spot_model = SpotModel
 
         # Save spots to hdf
-        if self.hdf_path is not None:
-            print('Saving spots to hdf...', end='', flush=True)
-            #with h5py.File(self.hdf_path, 'a') as f:
-            #    # Check for and remove existing spots...
-            #    if 'spots' in f['xrdmap/reflections']:
-            #        del f['xrdmap/reflections/spots']
-
-            # Open hdf flag
-            keep_hdf = True
-            if self.hdf is None:
-                self.hdf = h5py.File(self.hdf_path, 'a')
-                keep_hdf = False
-
-            # Save to hdf
-            self._close_hdf()
-            self.spots.to_hdf(self.hdf_path, 'xrdmap/reflections/spots', format='table')
-            self._open_hdf()
-            self.hdf['xrdmap/reflections'].attrs['spot_model'] = SpotModel.name
-
-            # Close hdf and reset attribute
-            if not keep_hdf:
-                self.hdf.close()
-                self.hdf = None
-            
-            print('done!')
+        self.save_spots(extra_attrs={'spot_model' : self.spot_model.name})
 
 
     def initial_spot_analysis(self, SpotModel=None):
@@ -958,14 +1046,73 @@ class XRDMap():
         _initial_spot_analysis(self, SpotModel=SpotModel)
 
         # Save spots to hdf
+        self.save_spots()
+
+
+    def trim_spots(self, remove_less=0.01, metric='height'):
+        if not hasattr(self, 'spots') or self.spots is None:
+            raise ValueError('Cannot trim spots if XRDMap has not no spots.')
+
+        metric = str(metric).lower()
+        if any([x[:3] == 'fit' for x in self.spots.iloc[0].keys()]):
+            if metric in ['height', 'amp']:
+                significance = self.spots['fit_amp'] - self.spots['fit_offset']
+            elif metric in ['intensity', 'int', 'breadth', 'integrated', 'volume']:
+                significance = self.spots['fit_integrated'] # this should account for offset too
+            else:
+                raise ValueError('Unknown metric specification.')
+        else:
+            if metric in ['height', 'amp']:
+                significance = self.spots['guess_height']
+            elif metric in ['intensity', 'int', 'breadth', 'integrated', 'volume']:
+                significance = self.spots['guess_int']
+            else:
+                raise ValueError('Unknown metric specification.')
+
+        # Find relative indices where conditional is true
+        mask = np.where(significance.values < remove_less)[0]
+
+        # Convert relative indices into dataframe index
+        drop_indices = self.spots.iloc[mask].index.values # awful call
+
+        # Drop indices
+        self.spots.drop(index=drop_indices, inplace=True)
+        print(f'Trimmed {len(drop_indices)} spots less than {remove_less} significance.')
+    
+
+    def pixel_spots(self, map_indices):
+        # TODO: These values may need to be reversed. Check with mapping values...
+        pixel_spots = self.spots[(self.spots['map_x'] == map_indices[0])
+                               & (self.spots['map_y'] == map_indices[1])]
+        return pixel_spots
+    
+
+    def save_spots(self, extra_attrs=None):
+        # Save spots to hdf
         if self.hdf_path is not None:
+            print('Saving spots to hdf...', end='', flush=True)
+
+            # Open hdf flag
+            keep_hdf = True
+            if self.hdf is None:
+                self.hdf = h5py.File(self.hdf_path, 'a')
+                keep_hdf = False
+
+            # Save to hdf
             self._close_hdf()
             self.spots.to_hdf(self.hdf_path, 'xrdmap/reflections/spots', format='table')
-            self._open_hdf()
 
+            if extra_attrs is not None:
+                self._open_hdf()
+                for key, value in extra_attrs.items():
+                    self.hdf['xrdmap/reflections'].attrs[key] = value
 
-    def trim_spots(spots, remove_less=0.1):
-        raise NotImplementedError()
+            if keep_hdf:
+                self._open_hdf()
+            else:
+                self._close_hdf()
+            
+            print('done!')
 
     #################################
     ### Analysis of Selected Data ###
@@ -1124,7 +1271,7 @@ class XRDMap():
         if any([x[:3] == 'fit' for x in pixel_df.keys()]):
             prefix = 'fit'
             pixel_df.dropna(axis=0, inplace=True)
-            param_labels = [x for x in self.spots.loc[0].keys() if x[:3] == 'fit'][:6]
+            param_labels = [x for x in self.spots.iloc[0].keys() if x[:3] == 'fit'][:6]
         else:
             prefix = 'guess'
             param_labels = ['height', 'cen_tth', 'cen_chi', 'fwhm_tth', 'fwhm_chi']
