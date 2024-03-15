@@ -9,6 +9,11 @@ from scipy.signal import find_peaks
 from matplotlib.widgets import Slider
 from collections import OrderedDict
 
+# Local imports
+from ..utilities.math import *
+from ..utilities.image_corrections import rescale_array
+
+
 
 class Phase(xu.materials.Crystal):
     # TODO: Add specific calls useful for this analysis

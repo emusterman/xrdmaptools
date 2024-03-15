@@ -1,5 +1,4 @@
 import numpy as np
-from scipy.special import wofz
 import scipy.constants as constants
 
 

@@ -2,16 +2,41 @@ import numpy as np
 import os
 import h5py
 import pyFAI
+import pandas as pd
 from pyFAI.io import ponifile
+from enum import IntEnum # Only for ponifile orientation
 from pyFAI.azimuthalIntegrator import AzimuthalIntegrator
-from tqdm import tqdm
 import time as ttime
 import matplotlib.pyplot as plt
 from collections import OrderedDict
 import dask.array as da
-
 import skimage.io as io
+from skimage.measure import label
 from dask_image import imread as dask_io
+
+# Local imports
+from .ImageMap import ImageMap
+from .utilities.hdf_io import initialize_xrdmap_hdf, load_XRD_hdf
+from .utilities.hdf_utils import check_hdf_current_images
+from .utilities.db_io import load_data
+from .utilities.math import *
+from .utilities.utilities import delta_array
+from .utilities.interactive_plotting import interactive_dynamic_2d_plot
+
+from .reflections.spot_blob_indexing import get_q_vect, _initial_spot_analysis
+from .reflections.spot_blob_search import (
+    find_spots,
+    find_spot_stats,
+    make_stat_df,
+    prepare_fit_spots,
+    fit_spots,
+    find_blob_contours
+    )
+from .reflections.SpotModels import GaussianFunctions
+
+from .geometry.geometry import *
+
+from .crystal.Phase import Phase, phase_selector
 
 
 class XRDMap():
@@ -267,9 +292,85 @@ class XRDMap():
         
         else:
             raise FileNotFoundError('No such hdf file.')
+        
+
+    @ classmethod
+    def from_db(cls,
+                scanid=-1,
+                broker='manual',
+                filedir=None,
+                filename=None,
+                poni_file=None,
+                save_hdf=True):
+    
+        pos_keys = ['enc1', 'enc2']
+        sclr_keys = ['i0', 'i0_time', 'im', 'it']
+        
+        if data_keys is None:
+            data_keys = pos_keys + sclr_keys
+
+        data_dict, scan_md, data_keys, xrd_dets = load_data(scanid=scanid,
+                                                            broker=broker,
+                                                            detectors=None,
+                                                            data_keys=None,
+                                                            returns=['data_keys',
+                                                                     'xrd_dets'])
+
+        xrd_data = [data_dict[f'{xrd_det}_image'] for xrd_det in xrd_dets]
+
+        # Make position dictionary
+        pos_dict = {key:value for key, value in data_dict.items() if key in pos_keys}
+
+        # Make scaler dictionary
+        sclr_dict = {key:value for key, value in data_dict.items() if key in sclr_keys}
+
+        if len(xrd_data) > 1:
+            pass
+            # Add more to filename to prevent overwriting...
+
+        extra_md = {}
+        for key in scan_md.keys():
+            if key not in ['scanid', 'beamline', 'energy', 'dwell', 'start_time']:
+                extra_md[key] = scan_md[key]
+        
+        xrdmaps = []
+        for xrd_data_i in xrd_data:
+            xrdmap = cls(scanid=scan_md['scanid'],
+                         wd=filedir,
+                         filename=filename,
+                         #hdf_filename=None, # ???
+                         #hdf=None,
+                         image_map=xrd_data_i,
+                         #map_title=None,
+                         #map_shape=None,
+                         energy=scan_md['energy'],
+                         #wavelength=None,
+                         dwell=scan_md['dwell'],
+                         poni_file=poni_file,
+                         sclr_dict=sclr_dict,
+                         pos_dict=pos_dict,
+                         #tth_resolution=None,
+                         #chi_resolution=None,
+                         #tth=None,
+                         #chi=None,
+                         beamline=scan_md['beamline'],
+                         facility='NSLS-II',
+                         time_stamp=scan_md['start_time'],
+                         #extra_metadata=None,
+                         save_hdf=save_hdf,
+                         #dask_enabled=False
+                         )
+            
+            xrdmaps.append(xrdmap)
+
+        if len(xrdmaps) > 1:
+            return tuple(xrdmaps)
+        else:
+            # Don't bother returning a tuple or list of xrdmaps
+            return xrdmaps[0]
     
 
-    @classmethod # Allows me to define and initiatie the class simultaneously
+    '''@classmethod # Allows me to define and initiatie the class simultaneously
     def from_db(cls,
                 scanid=-1,
                 broker='manual',
@@ -286,7 +387,7 @@ class XRDMap():
                                  return_xrdmap=True,
                                  save_hdf=save_hdf)
 
-        return outmap
+        return outmap'''
     
     ##################
     ### Properties ###
@@ -602,11 +703,15 @@ class XRDMap():
             # They are well setup for this type of thing, though
             for key, value in self.poni.items():
                 # For detector which is a nested ordered dictionary...
-                if isinstance(value, OrderedDict):
+                if isinstance(value, (dict, OrderedDict)):
                     new_new_grp = new_grp.require_group(key)
                     for key_i, value_i in value.items():
+                        # Check for orientation value added in poni_file version 2.1
+                        if isinstance(value_i, IntEnum):
+                            value_i = value_i.value
                         new_new_grp.attrs[key_i] = value_i
                 else:
+                    #print(value)
                     new_grp.attrs[key] = value
 
             # Close hdf and reset attribute

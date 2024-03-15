@@ -1,16 +1,21 @@
 import numpy as np
-import os
 import h5py
-import pyFAI
-from pyFAI.io import ponifile
-from pyFAI.azimuthalIntegrator import AzimuthalIntegrator
 from skimage.restoration import rolling_ball
 from tqdm import tqdm
 import time as ttime
-import matplotlib.pyplot as plt
-from collections import OrderedDict
-import dask
 import dask.array as da
+
+# Local imports
+from .utilities.hdf_utils import check_hdf_current_images, get_optimal_chunks
+from .utilities.math import check_precision
+from .utilities.utilities import delta_array
+from .utilities.image_corrections import find_outlier_pixels, rescale_array
+from .utilities.background_estimators import (
+    fit_spline_bkg,
+    fit_poly_bkg,
+    masked_gaussian_background,
+    masked_bruckner_background
+)
 
 
 class ImageMap:
@@ -943,7 +948,7 @@ class ImageMap:
             Lorentz_correction = False
 
         elif Lorentz_correction:
-            self.apply_lorentz_correction(ai=ai)
+            self.apply_lorentz_correction()
 
         # Check for dask state
         keep_dask = False
@@ -1060,7 +1065,7 @@ class ImageMap:
 
         # Acquire mask for useless pixels for subsequent analysis
         print('Acquring and writing calibration mask...', end='', flush=True)
-        self.calibration_mask = self.get_calibration_mask(ai)
+        self.calibration_mask = self.get_calibration_mask()
         self.save_images(self.calibration_mask,
                          'calibration_mask')
         

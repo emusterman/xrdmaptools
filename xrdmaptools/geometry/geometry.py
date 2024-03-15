@@ -57,7 +57,7 @@ def estimate_image_coords(coords, tth_arr, chi_arr, method='nearest'):
 
 
 # deprecated
-def estimate_img_coords(coords, image_shape, tth=None, chi=None):
+'''def estimate_img_coords(coords, image_shape, tth=None, chi=None):
     if len(coords) == 0:
         return coords
     
@@ -66,11 +66,11 @@ def estimate_img_coords(coords, image_shape, tth=None, chi=None):
     chi_i = np.asarray(coords[1])
     x = (tth_i - np.min(tth)) / (np.max(tth) - np.min(tth)) * image_shape[1]
     y = image_shape[0] - (chi_i-  np.min(chi)) / (np.max(chi) - np.min(chi)) * image_shape[0]
-    return np.array([x.astype(np.int32), y.astype(np.int32)])
+    return np.array([x.astype(np.int32), y.astype(np.int32)])'''
 
 
 # deprecated
-def estimate_reciprocal_coords(coords, image_shape, tth=None, chi=None):
+'''def estimate_reciprocal_coords(coords, image_shape, tth=None, chi=None):
     if len(coords) == 0:
         return coords
     
@@ -81,4 +81,4 @@ def estimate_reciprocal_coords(coords, image_shape, tth=None, chi=None):
     # Convert image coordinates to tth and chi values
     tth_lst = np.min(tth) + (np.max(tth) - np.min(tth)) * x_i / image_shape[1]
     chi_lst = np.min(chi) + (np.max(chi) - np.min(chi)) * (image_shape[0] - y_i) / image_shape[0]
-    return np.array([tth_lst, chi_lst])
+    return np.array([tth_lst, chi_lst])'''

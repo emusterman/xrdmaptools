@@ -1,5 +1,4 @@
 import matplotlib.pyplot as plt
-import matplotlib as mpl
 import numpy as np
 from skimage import restoration
 from matplotlib.colors import Normalize, LogNorm

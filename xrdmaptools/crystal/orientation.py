@@ -2,6 +2,9 @@ import numpy as np
 from sklearn.metrics.pairwise import euclidean_distances
 from scipy.spatial.transform import Rotation
 
+# Local imports
+from .Phase import generate_reciprocal_lattice
+
 # TODO:
 # Build-up the code around more general rotations using the scipy Rotation class
 

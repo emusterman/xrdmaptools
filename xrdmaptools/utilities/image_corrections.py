@@ -1,9 +1,6 @@
 import numpy as np
-from skimage import restoration
 import scipy.ndimage as ndi
-import scipy.io as io
 from dask_image import ndfilters as dask_ndi
-from dask_image import imread as dask_io
 from tqdm import tqdm
 import dask
 from tqdm.dask import TqdmCallback
@@ -69,28 +66,28 @@ def find_outlier_pixels(images, size=2, tolerance=2):
     return data
 
 
-def old_find_outlier_pixels(data, size=2, tolerance=3, significance=None):
-    '''
-    data        (arr)   Input 2D image. Cannot handle higher dimensional data yet...   
-    size        (float) Size of median window. 2 by default only accounts for nearest neighbor pixels
-    tolerance   (float) Multiplier value above which to consider a pixel as an outlier. By default 3 times the median value
-    signficance (float) Signficance value below which to ignore contributions from noise fluctuations. 
-                        Set to 5 * data standard deviation. Causes issues with Bragg peaks currently.
-    TODO better account for significance. Better account for multidimensional data...
-    '''
-
-    med_img = ndi.median_filter(data, size=size, mode='mirror')
-
-    ratio_img = np.abs(data / med_img)
-    diff_img = np.abs(data - med_img)
-
-    if significance is None:
-        significance = 5 * np.std(data)
-
-    replace_mask = (ratio_img > tolerance) & (diff_img > significance)
-    fixed_img = np.copy(data)
-    fixed_img[replace_mask] = med_img[replace_mask]
-    return fixed_img
+#def old_find_outlier_pixels(data, size=2, tolerance=3, significance=None):
+#    '''
+#   data        (arr)   Input 2D image. Cannot handle higher dimensional data yet...   
+#   size        (float) Size of median window. 2 by default only accounts for nearest neighbor pixels
+#   tolerance   (float) Multiplier value above which to consider a pixel as an outlier. By default 3 times the median value
+#   signficance (float) Signficance value below which to ignore contributions from noise fluctuations. 
+#                        Set to 5 * data standard deviation. Causes issues with Bragg peaks currently.
+#    TODO better account for significance. Better account for multidimensional data...
+#    '''
+#
+#    med_img = ndi.median_filter(data, size=size, mode='mirror')
+#
+#    ratio_img = np.abs(data / med_img)
+#    diff_img = np.abs(data - med_img)
+#
+#    if significance is None:
+#        significance = 5 * np.std(data)
+#
+#    replace_mask = (ratio_img > tolerance) & (diff_img > significance)
+#    fixed_img = np.copy(data)
+#    fixed_img[replace_mask] = med_img[replace_mask]
+#    return fixed_img
 
 
 def rebin(arr, new_shape=None, bin_size=(2, 2), method='sum', keep_range=False):

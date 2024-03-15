@@ -2,7 +2,7 @@ import dask
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-from scipy.ndimage import center_of_mass, gaussian_filter, median_filter, uniform_filter, maximum_filter, minimum_filter
+from scipy.ndimage import gaussian_filter, median_filter, uniform_filter, maximum_filter, minimum_filter
 from scipy.optimize import curve_fit
 import scipy.stats as st
 from skimage.measure import label, find_contours
@@ -14,6 +14,14 @@ from tqdm.dask import TqdmCallback
 from tqdm import tqdm
 import dask.array as da
 from collections import OrderedDict
+
+# Local imports
+from ..utilities.math import circular_mask, compute_r_squared
+from ..utilities.utilities import arbitrary_center_of_mass, label_nearest_spots
+from ..utilities.image_corrections import rescale_array
+from ..geometry.geometry import estimate_image_coords, estimate_polar_coords
+
+from .SpotModels import generate_bounds
 
 
 
@@ -481,7 +489,7 @@ def segment_blobs(xrdmap, map_indices, spots, mask, blurred_image, max_dist=0.75
 
 
 # deprecated
-def old_segment_blobs(xrdmap, map_indices, spots, mask, blurred_image, max_dist=0.75):
+'''def old_segment_blobs(xrdmap, map_indices, spots, mask, blurred_image, max_dist=0.75):
     x_coords, y_coords = np.meshgrid(xrdmap.tth, xrdmap.chi[::-1])
     pixel_df = xrdmap.spots[(xrdmap.spots['map_x'] == map_indices[0])
                         & (xrdmap.spots['map_y'] == map_indices[1])]
@@ -520,7 +528,7 @@ def old_segment_blobs(xrdmap, map_indices, spots, mask, blurred_image, max_dist=
 
         output_list.append([blob_int, blob_x, blob_y, spot_indices])
     
-    return output_list
+    return output_list'''
 
 # TODO: Combine prepare_fit_spots and fit_spots in one big function with a couple of delay calls
 # in the current iteration, the the spot_fit_info_list variable can be 75% the size of the full dataset

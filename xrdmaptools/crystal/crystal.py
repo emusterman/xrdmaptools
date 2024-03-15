@@ -2,6 +2,9 @@ import os
 import numpy as np
 import matplotlib.pyplot as plt
 
+# Local imports
+from ..utilities.utilities import vector_angle
+
 # Assumption that all angles are in radians...
 # Reciprocal space WITHOUT the 2 * pi factor of q-space
 
@@ -280,7 +283,7 @@ class LatticeParameters():
 
 
 
-
+# This is just math...
 def are_coplanar(vecs, return_volume=False):
     from itertools import combinations
     vecs = np.asarray(vecs)

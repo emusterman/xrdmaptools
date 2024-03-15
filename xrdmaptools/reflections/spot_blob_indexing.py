@@ -1,6 +1,9 @@
 import numpy as np
 from tqdm import tqdm
 
+# Local imports
+from .SpotModels import GaussianFunctions
+
 
 '''q_dict = {}
 for spot_num in range(len(spot_df)):

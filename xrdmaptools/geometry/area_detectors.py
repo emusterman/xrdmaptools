@@ -1,4 +1,3 @@
-import numpy as np
 from pyFAI.detectors._common import Detector
 from collections import OrderedDict
 
