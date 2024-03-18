@@ -508,10 +508,13 @@ class XRDMap():
     def q_arr(self):
         if hasattr(self, '_q_arr'):
             return self._q_arr
-        # This value will not be cached. It could be, but that is a lot of logic
-        q_arr = get_q_vect(self.tth_arr, self.chi_arr, wavelength=self.wavelength)
-        self._q_arr = q_arr
-        return self._q_arr
+        elif self.tth_arr is None or self.chi_arr is None:
+            raise RuntimeError('Cannot calculate q-space without tth and chi values.')
+        else:
+            q_arr = get_q_vect(self.tth_arr, self.chi_arr, wavelength=self.wavelength)
+            self._q_arr = q_arr
+            return self._q_arr
+
 
     @q_arr.deleter
     def q_arr(self):

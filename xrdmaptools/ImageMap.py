@@ -758,16 +758,22 @@ class ImageMap:
             if hasattr(self, 'sclr_dict') and self.sclr_dict is not None:
                 if 'i0' in self.sclr_dict.keys():
                     scaler_arr = self.sclr_dict['i0']
+                    sclr_key = 'i0'
                 elif 'im' in self.sclr_dict.keys():
                     print('"i0" could not be found. Switching to "im".')
                     scaler_arr = self.sclr_dict['im']
+                    sclr_key = 'im'
                 else:
                     first_key = list(self.sclr_dict.keys())[0]
                     scaler_arr = self.sclr_dict[first_key]
                     print(f'Unrecognized scaler keys. Using "{first_key}" instead.')
+                    sclr_key = first_key
             else:
                 print('No scaler array given or found. Approximating with image medians.')
                 scaler_arr = self.med_map
+                sclr_key = 'med'
+        else:
+            sclr_key = 'input'
 
         # Check shape everytime
         scaler_arr = np.asarray(scaler_arr)
@@ -775,7 +781,7 @@ class ImageMap:
             raise ValueError(f'''Scaler array of shape {scaler_arr.shape} does not 
                             match the map shape of {self.map_shape}!''')
    
-        print('Normalize image scalers...', end='', flush=True)
+        print(f'Normalize image by {sclr_key} scaler...', end='', flush=True)
         self.images /= scaler_arr.reshape(*self.map_shape, 1, 1)
         self.scaler_map = scaler_arr # Do not save to hdf, since scalers should be recorded...
         self.corrections['scaler_intensity'] = True

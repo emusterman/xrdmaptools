@@ -222,6 +222,9 @@ def find_spots(imagemap, mask=None,
 
 
 def spot_stats(spot, image, tth_arr, chi_arr, radius=5):
+    if tth_arr is None or chi_arr is None:
+        raise ValueError('Cannot estimate all spot stats without angular values.')
+
     # spot should be iterable of [img_x, img_y]
     spot_mask = circular_mask(image.shape, [*spot], radius)
     spot_image = image * spot_mask

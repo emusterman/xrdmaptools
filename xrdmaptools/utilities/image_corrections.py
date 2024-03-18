@@ -29,25 +29,25 @@ def find_outlier_pixels(images, size=2, tolerance=2):
     TODO better account for significance.
     '''
 
-    data = images.copy()
+    #data = images.copy()
 
-    size_iter = np.ones(data.ndim, dtype=np.int8)
+    size_iter = np.ones(images.ndim, dtype=np.int8)
     size_iter[-2:] = size, size
 
-    if isinstance(data, da.core.Array):
-        med_image = dask_ndi.median_filter(data, size=size_iter)
+    if isinstance(images, da.core.Array):
+        med_image = dask_ndi.median_filter(images, size=size_iter)
     else:
-        med_image = ndi.median_filter(data, size=size_iter)
+        med_image = ndi.median_filter(images, size=size_iter)
 
-    ratio_image = np.abs(data / med_image)
+    ratio_image = np.abs(images / med_image)
 
     replace_mask = (ratio_image > tolerance)
 
     # Replace values with median values
     # Direct replace fails with dask arrays
-    data[replace_mask] = 0
+    images[replace_mask] = 0
     med_image[~replace_mask] = 0
-    data += med_image
+    images += med_image
 
     #masked_data = da.ma.masked_array(data, mask=replace_mask, fill_value=0)
     #masked_med = da.ma.masked_array(med_image, mask=~replace_mask, fill_value=0)
@@ -63,7 +63,7 @@ def find_outlier_pixels(images, size=2, tolerance=2):
     #for index in zip(*np.where(replace_mask)):
     #    data[index] = med_image[index]
 
-    return data
+    return images
 
 
 #def old_find_outlier_pixels(data, size=2, tolerance=3, significance=None):
