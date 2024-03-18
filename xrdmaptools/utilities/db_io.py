@@ -191,9 +191,10 @@ def manual_load_data(scanid=-1,
     _empty_lists = [[] for _ in range(len(data_keys))]
     data_dict = dict(zip(data_keys, _empty_lists))
 
+    dropped_rows, broken_rows = [], []
     r_key = 'ZEBRA_HDF51'
     if r_key in r_paths.keys():
-        print('Loading encoders...', end='', flush='True')
+        print('Loading encoders...')
         enc_keys = [value for value in data_keys if value in ['enc1', 'enc2', 'enc3', 'zebra_time']]
         for r_path in r_paths[r_key]:
             with h5py.File(r_path, 'r') as f:
@@ -202,65 +203,82 @@ def manual_load_data(scanid=-1,
         # Stack data into array
         for key in enc_keys:
             data_dict[key] = np.stack(data_dict[key])
-        print('done!')
+            dr_rows, br_rows = _flag_broken_rows(data_dict[key], key)
+            dropped_rows += dr_rows
+            broken_rows += br_rows
 
     r_key = 'SIS_HDF51'
     if r_key in r_paths.keys():
-        print('Loading scalers...', end='', flush='True')
-        enc_keys = [value for value in data_keys if value in ['i0', 'im', 'it', 'sis_time']]
-        if 'i0_time' in data_keys and 'sis_time' not in enc_keys:
-            enc_keys.append('sis_time')
+        print('Loading scalers...')
+        sclr_keys = [value for value in data_keys if value in ['i0', 'im', 'it', 'sis_time']]
+        if 'i0_time' in data_keys and 'sis_time' not in sclr_keys:
+            sclr_keys.append('sis_time')
             data_dict['sis_time'] = []
         for r_path in r_paths[r_key]:
             with h5py.File(r_path, 'r') as f:
-                for key in enc_keys:
+                for key in sclr_keys:
                     data_dict[key].append(np.array(f[key]))
         # Stack data into array
-        for key in enc_keys:
+        for key in sclr_keys:
             data_dict[key] = np.stack(data_dict[key])
         if 'i0_time' in data_keys:
             data_dict['i0_time'] = data_dict['sis_time'] / 50e6 # 50 MHz clock
         if 'sis_time' not in data_keys and 'sis_time' in data_dict.keys():
             del data_dict['sis_time']
-        print('done!')
+        for key in ['i0', 'im', 'it', 'i0_time']:
+            dr_rows, br_rows = _flag_broken_rows(data_dict[key], key)
+            dropped_rows += dr_rows
+            broken_rows += br_rows
 
     r_key = 'XSP3_FLY'
     if r_key in r_paths.keys():
-        print('Loading xspress3...', end='', flush='True')
+        print('Loading xspress3...')
         key = 'xs_fluor'
         for r_path in r_paths[r_key]:
             with h5py.File(r_path, 'r') as f:
                 data_dict[key].append(np.array(f['entry/data/data']))
         # Stack data into array
         data_dict[key] = np.stack(data_dict[key])
-        print('done!')
+        dr_rows, br_rows = _flag_broken_rows(data_dict[key], key)
+        dropped_rows += dr_rows
+        broken_rows += br_rows
 
     r_key = 'DEXELA_FLY_V1'
     if r_key in r_paths.keys():
-        print('Loading dexela...', end='', flush='True')
+        print('Loading dexela...')
         key = 'dexela_image'
         for r_path in r_paths[r_key]:
             with h5py.File(r_path, 'r') as f:
                 data_dict[key].append(np.array(f['entry/data/data']))
         # Stack data into array
-        print('')
-        data_dict[key] = _check_xrd_data_shape(data_dict[key],
-                                               repair_method=repair_method)
-        print('done!')
+        #data_dict[key] = _check_xrd_data_shape(data_dict[key],
+        #                                       repair_method=repair_method)
+        dr_rows, br_rows = _flag_broken_rows(data_dict[key], key)
+        dropped_rows += dr_rows
+        broken_rows += br_rows
 
     # Not sure if this is correct
     r_key = 'MERLIN_FLY_V1'
     if r_key in r_paths.keys():
-        print('Loading merlin...', end='', flush='True')
+        print('Loading merlin...')
         key = 'merlin_image'
         for r_path in r_paths[r_key]:
             with h5py.File(r_path, 'r') as f:
                 data_dict[key].append(np.array(f['entry/data/data']))
         # Stack data into array
-        print('')
-        data_dict[key] = _check_xrd_data_shape(data_dict[key],
-                                               repair_method=repair_method)
-        print('done!')
+        #data_dict[key] = _check_xrd_data_shape(data_dict[key],
+        #                                       repair_method=repair_method)
+        dr_rows, br_rows = _flag_broken_rows(data_dict[key], key)
+        dropped_rows += dr_rows
+        broken_rows += br_rows
+
+    # Repair data
+    dropped_rows = list(np.unique(dropped_rows)).sort()
+    broken_rows = list(np.unique(broken_rows)).sort()
+    data_dict = _repair_data_dict(data_dict,
+                                  dropped_rows,
+                                  broken_rows,
+                                  repair_method=repair_method)
 
     out = [data_dict, scan_md]
 
@@ -308,6 +326,84 @@ def _load_scan_metadata(bs_run, keys=None):
             scan_md['energy'] = np.round(energy, 3)
 
     return scan_md
+
+
+def _flag_broken_rows(data_list, msg):
+    # Majority of row shapes
+    mode_shape = tuple(mode([d.shape for d in data_list])[0])
+
+    dropped_rows, broken_rows = [], []
+    for row, d in enumerate(data_list):
+        # Check for image shape issues
+        if d.ndim == 4 and d.shape[-2:] != mode_shape[-2:]:
+            print(f'WARNING: {msg} data from row {row} has an incorrect image shape.')
+            dropped_rows.append(row)
+            broken_rows.append(row)
+        elif d.shape[0] != mode_shape[0]:
+            print(f'WARNING: {msg} data from row {row} captured only {d.shape[[0]]}/{mode_shape[0]} points.')
+            broken_rows.append(row)
+
+    return dropped_rows, broken_rows
+
+def _repair_data_dict(data_dict, dropped_rows, broken_rows, repair_method='fill'):
+    if len(dropped_rows) > 0 and len(broken_rows) > 0:
+        print(f'Repairing data with "{repair_method}" method.')
+    else:
+        return data_dict
+
+    if repair_method.lower() not in ['flatten', 'fill']:
+        raise ValueError('Only "flatten" and "fill" repair methods are supported.')
+    
+    keys = list(data_dict.keys())
+
+    # Check data shape
+    num_rows = -1
+    for key in keys:
+        if num_rows == -1:
+            num_rows = len(data_dict[key])
+        elif len(data_dict[key]) != num_rows:
+            raise ValueError('Data keys have different number of rows!')
+        
+    last_good_row = -1
+    queued_rows = []
+    for row in range(num_rows):
+        # Only drop rows when flattening data. Do not fill data when flattening either
+        if repair_method == 'flatten' and row in dropped_rows:
+            print(f'Removing data from row {row}.')
+            for key in keys:
+                data_dict[key].pop(row)
+            # Adjust remaining rows indices
+            for ind, rem_row in enumerate(dropped_rows):
+                if rem_row > row:
+                    dropped_rows[ind] -= 1
+        
+        # Only replace data when filling and only for broken rows
+        elif repair_method == 'fill':
+            if row in broken_rows:
+                if last_good_row == -1:
+                    queued_rows.append(row)
+                else:
+                    print(f'Data in row {row} replaced with data in row {last_good_row}.')
+                    for key in keys:
+                        data_dict[key][row] = data_dict[key][last_good_row]
+        
+            else:
+                last_good_row = row
+                if len(queued_rows) > 0:
+                    for q_row in queued_rows:
+                        print(f'Data in row {q_row} replaced with data in row {last_good_row}.')
+                        for key in keys:
+                            data_dict[key][q_row] = data_dict[key][last_good_row]
+    
+    # Do not fully flatten if only dropping some rows I guess
+    if repair_method == 'flatten' and len(broken_rows) > 0:
+        print('Map is missing pixels. Flattening data.')
+        for key in keys:
+            flat_d = np.array([x for y in data_dict[key] for x in y]) # List comprehension is dumb
+            data_dict[key] = flat_d.reshape(flat_d.shape[0], 1, *flat_d.shape[-2:])
+    
+    return data_dict
+
 
 
 def _check_xrd_data_shape(data_list, repair_method='fill'):
