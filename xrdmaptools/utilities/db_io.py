@@ -78,19 +78,7 @@ def load_tiled_data(scanid=-1,
                      for detector in detectors]
     xrd_dets = [detector for detector in detectors if detector in ['merlin', 'dexela']]
 
-    scan_md = {
-        'scanid' : bs_run.start['scan_id'],
-        'scan_uid' : bs_run.start['uid'],
-        'beamline' : bs_run.start['beamline_id'],
-        'scantype' : bs_run.start['scan']['type'],
-        'detectors' : bs_run.start['scan']['detectors'],
-        'energy' : bs_run.start['scan']['energy'],
-        'dwell' : bs_run.start['scan']['dwell'],
-        'start_time' : bs_run.start['time_str']
-    }
-
-    if 'sample_name' in bs_run.start['scan'].keys():
-        scan_md['sample_name'] = bs_run.start['scan']['sample_name'] 
+    scan_md = _load_scan_metadata(bs_run)
 
     data_dict = {}
     # enc1 is x for nano_scan_and_fly. Is it always the fast axis or always x??
@@ -100,7 +88,6 @@ def load_tiled_data(scanid=-1,
     for detector in xrd_dets:
         data_keys.append(f'{detector}_image')
     
-
     for key in data_keys:
         print(f'Loading data from {key}...', end='', flush=True)
         data_dict[key] = np.array(bs_run['stream0']['data'][key])
@@ -132,19 +119,7 @@ def load_db_data(scanid=-1,
                      for detector in detectors]
     xrd_dets = [detector for detector in detectors if detector in ['merlin', 'dexela']]
 
-    scan_md = {
-        'scanid' : bs_run.start['scan_id'],
-        'scan_uid' : bs_run.start['uid'],
-        'beamline' : bs_run.start['beamline_id'],
-        'scantype' : bs_run.start['scan']['type'],
-        'detectors' : bs_run.start['scan']['detectors'],
-        'energy' : bs_run.start['scan']['energy'],
-        'dwell' : bs_run.start['scan']['dwell'],
-        'start_time' : bs_run.start['time_str']
-    }
-
-    if 'sample_name' in bs_run.start['scan'].keys():
-        scan_md['sample_name'] = bs_run.start['scan']['sample_name'] 
+    scan_md = _load_scan_metadata(bs_run)
 
     data_dict = {}
     # enc1 is x for nano_scan_and_fly. Is it always the fast axis or always x??
@@ -201,19 +176,7 @@ def manual_load_data(scanid=-1,
     elif str(broker).lower() in ['db', 'databroker', 'broker']:
         bs_run = db[int(scanid)]
     
-    scan_md = {
-        'scanid' : bs_run.start['scan_id'],
-        'scan_uid' : bs_run.start['uid'],
-        'beamline' : bs_run.start['beamline_id'],
-        'scantype' : bs_run.start['scan']['type'],
-        'detectors' : bs_run.start['scan']['detectors'],
-        'energy' : bs_run.start['scan']['energy'],
-        'dwell' : bs_run.start['scan']['dwell'],
-        'start_time' : bs_run.start['time_str']
-    }
-
-    if 'sample_name' in bs_run.start['scan'].keys():
-        scan_md['sample_name'] = bs_run.start['scan']['sample_name'] 
+    scan_md = _load_scan_metadata(bs_run)
 
     # Get relevant hdf information
     data_keys, resource_keys, xrd_dets = _get_resource_keys(bs_run,
@@ -304,6 +267,43 @@ def manual_load_data(scanid=-1,
             out.append(xrd_dets)
 
     return out
+
+
+def _load_scan_metadata(bs_run, keys=None):
+
+    if keys is None:
+        keys = ['scan_id',
+                'uid',
+                'beamline_id',
+                'type',
+                'detectors',
+                'energy',
+                'dwell',
+                'time_str',
+                'sample_name',
+                'theta']
+
+    remaining_keys = []
+    scan_md = {}
+    for key in keys:
+        if key in bs_run.start.keys():
+            scan_md[key] = bs_run.start[key]
+        elif key in bs_run.start['scan'].keys():
+            scan_md[key] = bs_run.start['scan'][key]
+            if key == 'theta': # Not very generalizable...
+                scan_md[key] = bs_run.start['scan'][key]['val'] / 1000
+        else:
+            remaining_keys.append(key)
+        
+    for key in remaining_keys:
+        if key == 'theta':
+            theta = bs_run['baseline']['data']['nano_stage_th'][0]
+            scan_md['theta'] = theta / 1000
+        if key == 'energy':
+            energy = bs_run['baseline']['data']['energy_energy'][0]
+            scan_md['energy'] = np.round(energy, 3)
+
+    return scan_md
 
 
 def _check_xrd_data_shape(data_list):

@@ -301,8 +301,10 @@ class XRDMap():
                 filedir=None,
                 filename=None,
                 poni_file=None,
+                data_keys=None,
                 save_hdf=True):
     
+        # No fluorescence key
         pos_keys = ['enc1', 'enc2']
         sclr_keys = ['i0', 'i0_time', 'im', 'it']
         
@@ -312,7 +314,7 @@ class XRDMap():
         data_dict, scan_md, data_keys, xrd_dets = load_data(scanid=scanid,
                                                             broker=broker,
                                                             detectors=None,
-                                                            data_keys=None,
+                                                            data_keys=data_keys,
                                                             returns=['data_keys',
                                                                      'xrd_dets'])
 
@@ -330,12 +332,17 @@ class XRDMap():
 
         extra_md = {}
         for key in scan_md.keys():
-            if key not in ['scanid', 'beamline', 'energy', 'dwell', 'start_time']:
+            if key not in ['scan_id',
+                           'beamline',
+                           'energy',
+                           'dwell',
+                           'theta',
+                           'start_time']:
                 extra_md[key] = scan_md[key]
         
         xrdmaps = []
         for xrd_data_i in xrd_data:
-            xrdmap = cls(scanid=scan_md['scanid'],
+            xrdmap = cls(scanid=scan_md['scan_id'],
                          wd=filedir,
                          filename=filename,
                          #hdf_filename=None, # ???
@@ -346,6 +353,7 @@ class XRDMap():
                          energy=scan_md['energy'],
                          #wavelength=None,
                          dwell=scan_md['dwell'],
+                         theta=scan_md['theta'],
                          poni_file=poni_file,
                          sclr_dict=sclr_dict,
                          pos_dict=pos_dict,
@@ -353,10 +361,10 @@ class XRDMap():
                          #chi_resolution=None,
                          #tth=None,
                          #chi=None,
-                         beamline=scan_md['beamline'],
+                         beamline=scan_md['beamline_id'],
                          facility='NSLS-II',
-                         time_stamp=scan_md['start_time'],
-                         #extra_metadata=None,
+                         time_stamp=scan_md['time_str'],
+                         extra_metadata=extra_md,
                          save_hdf=save_hdf,
                          #dask_enabled=False
                          )
@@ -856,7 +864,7 @@ class XRDMap():
         del pos_dict
         pos_dict = temp_dict
 
-        # Store sclr_dict as attribute
+        # Store pos_dict as attribute
         self.pos_dict = pos_dict
         # Positions are not shared with ImageMap...
 
@@ -878,7 +886,7 @@ class XRDMap():
             curr_grp = self.hdf[f'/xrdmap'].require_group('positions')
             curr_grp.attrs['time_stamp'] = ttime.ctime()
 
-            for key, value in self.sclr_dict.items():
+            for key, value in self.pos_dict.items():
                 value = np.asarray(value)
                 dset = curr_grp.require_dataset(key,
                                                 data=value,
