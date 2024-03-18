@@ -302,7 +302,8 @@ class XRDMap():
                 filename=None,
                 poni_file=None,
                 data_keys=None,
-                save_hdf=True):
+                save_hdf=True,
+                repair_method='replace'):
     
         # No fluorescence key
         pos_keys = ['enc1', 'enc2']
@@ -316,7 +317,8 @@ class XRDMap():
                                                             detectors=None,
                                                             data_keys=data_keys,
                                                             returns=['data_keys',
-                                                                     'xrd_dets'])
+                                                                     'xrd_dets'],
+                                                            repair_method=repair_method)
 
         xrd_data = [data_dict[f'{xrd_det}_image'] for xrd_det in xrd_dets]
 

@@ -1250,7 +1250,7 @@ class ImageMap:
             raise ValueError(f'Images input has {images.ndim} dimensions instead of 2 (image) or 4 (ImageMap).')
         elif images.ndim == 4 and compression is None:
             compression = 'gzip'
-            compression_opts = 8
+            compression_opts = 4 # changed default from 8 to h5py default
         else:
             raise TypeError('Unknown image type detected!')
         
