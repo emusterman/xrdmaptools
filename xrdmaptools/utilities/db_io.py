@@ -6,15 +6,15 @@ from scipy.stats import mode
 
 # Working at the beamline...
 try:
-    #print('Connecting to databrokers...', end='', flush=True)
+    print('Connecting to databrokers...', end='', flush=True)
     from tiled.client import from_profile
     from databroker.v1 import Broker
 
     c = from_profile('srx')
     db = Broker.named('srx')
-    #print('done!')
+    print('done!')
 except ModuleNotFoundError:
-    #print('failed.')
+    print('failed.')
     pass
 
 
@@ -24,8 +24,8 @@ def load_data(scanid=-1,
               broker='manual',
               detectors=None,
               data_keys=None,
-              returns=None
-              ):
+              returns=None,
+              repair_method='fill'):
 
     # Load data from tiled
     if str(broker).lower() in ['tiled']:
@@ -58,7 +58,8 @@ def load_data(scanid=-1,
                                broker=broker,
                                detectors=detectors,
                                data_keys=data_keys,
-                               returns=returns)
+                               returns=returns,
+                               repair_method=repair_method)
 
     return out
 
@@ -169,7 +170,8 @@ def manual_load_data(scanid=-1,
                      broker='tiled',
                      data_keys=None,
                      detectors=None,
-                     returns=None):
+                     returns=None,
+                     repair_method='fill'):
 
     if str(broker).lower() in ['tiled']:
         bs_run = c[int(scanid)]
@@ -242,7 +244,8 @@ def manual_load_data(scanid=-1,
                 data_dict[key].append(np.array(f['entry/data/data']))
         # Stack data into array
         print('')
-        data_dict[key] = _check_xrd_data_shape(data_dict[key])
+        data_dict[key] = _check_xrd_data_shape(data_dict[key],
+                                               repair_method=repair_method)
         print('done!')
 
     # Not sure if this is correct
@@ -255,7 +258,8 @@ def manual_load_data(scanid=-1,
                 data_dict[key].append(np.array(f['entry/data/data']))
         # Stack data into array
         print('')
-        data_dict[key] = _check_xrd_data_shape(data_dict[key])
+        data_dict[key] = _check_xrd_data_shape(data_dict[key],
+                                               repair_method=repair_method)
         print('done!')
 
     out = [data_dict, scan_md]
@@ -306,22 +310,55 @@ def _load_scan_metadata(bs_run, keys=None):
     return scan_md
 
 
-def _check_xrd_data_shape(data_list):
+def _check_xrd_data_shape(data_list, repair_method='fill'):
 
+    if repair_method.lower() not in ['flatten', 'fill']:
+        raise ValueError('Only "flatten" and "fill" repair methods are supported.')
+
+    # Majority of row shapes
     mode_shape = tuple(mode([d.shape for d in data_list])[0])
 
-    DROPPED_FRAMES = False
+    # Find and fix broken data
+    last_good_row = -1
+    broken_rows = []
+    FLATTEN_FLAG = False
     for row, d in enumerate(data_list):
-        # Check for bad shaped images
-        if d.shape[-2:] != mode_shape[-2:]:
-            print(f'Removing XRD data from row {row} due to incorrect image shape.')
-            data_list.pop(row)
 
-        # Then check and flag dropped frames
-        elif d.shape[0] != mode_shape[0]:
-            DROPPED_FRAMES = True
+        # Check for broken data
+        if d.shape != mode_shape:
+            # Check image shape
+            if d.shape[-2:] != mode_shape[-2:]:
+                print(f'WARNING: XRD data from row {row} has an incorrect image shape.')
+                if repair_method == 'flatten':
+                    print(f'Removing data from row {row}.')
+                    data_list.pop(row)
 
-    if DROPPED_FRAMES:
+            # Check for dropped frames
+            elif d.shape[0] != mode_shape[0]:
+                print(f'WARNING: XRD data from row {row} captured only {d.shape[[0]]}/{mode_shape[0]} frames.')
+
+            # Figure out how to fix the data
+            if last_good_row == -1:
+                # Wait to correct rows until a good row is located
+                broken_rows.append(row)
+            else:
+                if repair_method == 'fill':
+                    data_list[row] = data_list[last_good_row]
+                    print(f'XRD data in row {row} is replaced with data in row {last_good_row}.')
+                elif repair_method == 'flatten':
+                    FLATTEN_FLAG = True
+
+        else:
+            last_good_row = row
+            if len(broken_rows) > 0:
+                if repair_method == 'fill':
+                    for b_row in broken_rows:
+                        data_list[b_row] = data_list[last_good_row]
+                        print(f'XRD data in row {b_row} is replaced with data in row {last_good_row}.')
+                elif repair_method == 'flatten':
+                    FLATTEN_FLAG = True
+    
+    if repair_method == 'flatten' and FLATTEN_FLAG:
         print('Map is missing pixels!\nStacking all patterns together.')
         flat_d = np.array([x for y in data_list for x in y]) # List comprehension is dumb
         data_list = flat_d.reshape(flat_d.shape[0], 1, *flat_d.shape[-2:])
@@ -329,6 +366,58 @@ def _check_xrd_data_shape(data_list):
     data = np.asarray(data_list)
 
     return data
+
+
+'''def old_check_xrd_data_shape(data_list, repair_method='flatten'):
+
+
+    if repair_method.lower() not in ['flatten', 'fill']:
+        raise ValueError('Only "flatten" and "fill" repair methods are supported.')
+
+    # Majority of row shape
+    mode_shape = tuple(mode([d.shape for d in data_list])[0])
+
+    # Flag rows with broken data
+    dropped_frames_rows = []
+    bad_image_rows = []
+    for row, d in enumerate(data_list):
+        # Check for bad shaped images
+        # This eliminates first row of data when bad shape issues occure
+        if d.shape[-2:] != mode_shape[-2:]:
+            print(f'WARNING: XRD data from row {row} will be removed due to incorrect image shape.')
+            bad_image_rows.append(row)
+            #data_list.pop(row)
+
+        # Then check and flag dropped frames
+        elif d.shape[0] != mode_shape[0]:
+            dropped_frames_rows.append(row)
+
+    # Drop rows with bad image shapes. Should only be first row, but can handle any
+    for row in bad_image_rows:
+        data_list.pop(row)
+        for index, other_row in enumerate(dropped_frames_rows):
+            if other_row == row:
+                # Remove from dropped frames too
+                dropped_frames_rows.pop(index)
+            if other_row > row:
+                # Shift indices down
+                dropped_frames_rows[index] -= 1
+
+    # Repair rows with dropped frames. Decently common unfortunately
+    # Flatten the data. Useful when spatial correlations do not matter (e.g., calibration, dark_field, etc.)
+    if repair_method == 'flatten' and len(dropped_frames_rows) > 0:
+        print('Map is missing pixels!\nStacking all patterns together.')
+        flat_d = np.array([x for y in data_list for x in y]) # List comprehension is dumb
+        data_list = flat_d.reshape(flat_d.shape[0], 1, *flat_d.shape[-2:])
+    
+    # Fill data. Useful when spatial correlations do matter (e.g., maps)
+    elif repair_method == 'fill' and len(dropped_frames_rows) > 0:
+        for row in dropped_frames_rows:
+            pass
+
+    data = np.asarray(data_list)
+
+    return data'''
 
 
 def _get_resource_paths(bs_run, resource_keys):
@@ -569,14 +658,16 @@ def save_xrd_tifs(scanid=-1,
                   detectors=None,
                   data_keys=[],
                   filedir=None,
-                  filenames=None):
+                  filenames=None,
+                  repair_method='fill'):
 
     data_dict, scan_md, data_keys, xrd_dets = load_data(scanid=scanid,
                                                         broker=broker,
                                                         detectors=detectors,
                                                         data_keys=data_keys,
                                                         returns=['data_keys',
-                                                                 'xrd_dets'])
+                                                                 'xrd_dets'],
+                                                        repair_method=repair_method)
 
     xrd_data = [data_dict[f'{xrd_det}_image'] for xrd_det in xrd_dets]
     
@@ -599,7 +690,8 @@ def save_composite_pattern(scanid=-1,
                                                         detectors=detectors,
                                                         data_keys=data_keys,
                                                         returns=['data_keys',
-                                                                 'xrd_dets'])
+                                                                 'xrd_dets'],
+                                                        repair_method='flatten')
 
     xrd_data = [data_dict[f'{xrd_det}_image'] for xrd_det in xrd_dets]
     
@@ -626,7 +718,8 @@ def save_calibration_pattern(scanid=-1,
                                                         detectors=detectors,
                                                         data_keys=data_keys,
                                                         returns=['data_keys',
-                                                                 'xrd_dets'])
+                                                                 'xrd_dets'],
+                                                        repair_method='flatten')
 
     xrd_data = [data_dict[f'{xrd_det}_image'] for xrd_det in xrd_dets]
     
@@ -693,14 +786,16 @@ def save_full_scan(scanid=-1,
                                'i0_time',
                                'im',
                                'it'], 
-                   filedir=None):
+                   filedir=None,
+                   repair_method='fill'):
     
     data_dict, scan_md, data_keys, xrd_dets = load_data(scanid=scanid,
                                                         broker=broker,
                                                         detectors=detectors,
                                                         data_keys=data_keys,
                                                         returns=['data_keys',
-                                                                 'xrd_dets'])
+                                                                 'xrd_dets'],
+                                                        repair_method=repair_method)
     
     xrd_data = [data_dict[f'{xrd_det}_image'] for xrd_det in xrd_dets]
     
