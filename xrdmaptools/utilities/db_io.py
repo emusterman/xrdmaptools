@@ -6,7 +6,7 @@ from scipy.stats import mode
 
 # Working at the beamline...
 try:
-    print('Connecting to databrokers...', end='', flush=True)
+    print('Connecting to databrokers...')
     from tiled.client import from_profile
     from databroker.v1 import Broker
 
@@ -25,7 +25,7 @@ def load_data(scanid=-1,
               detectors=None,
               data_keys=None,
               returns=None,
-              repair_method='fill'):
+              repair_method='replace'):
 
     # Load data from tiled
     if str(broker).lower() in ['tiled']:
@@ -171,12 +171,14 @@ def manual_load_data(scanid=-1,
                      data_keys=None,
                      detectors=None,
                      returns=None,
-                     repair_method='fill'):
+                     repair_method='replace'):
 
     if str(broker).lower() in ['tiled']:
         bs_run = c[int(scanid)]
     elif str(broker).lower() in ['db', 'databroker', 'broker']:
         bs_run = db[int(scanid)]
+
+    print(f'Manually loading data for scan {scanid}...')
     
     scan_md = _load_scan_metadata(bs_run)
 
@@ -273,8 +275,10 @@ def manual_load_data(scanid=-1,
         broken_rows += br_rows
 
     # Repair data
-    dropped_rows = list(np.unique(dropped_rows)).sort()
-    broken_rows = list(np.unique(broken_rows)).sort()
+    dropped_rows = sorted(list(np.unique(dropped_rows)))
+    broken_rows = sorted(list(np.unique(broken_rows)))
+    #print(dropped_rows)
+    #print(broken_rows)
     data_dict = _repair_data_dict(data_dict,
                                   dropped_rows,
                                   broken_rows,
@@ -288,6 +292,7 @@ def manual_load_data(scanid=-1,
         if 'xrd_dets' in returns:
             out.append(xrd_dets)
 
+    print(f'Data loaded for scan {scanid}!')
     return out
 
 
@@ -340,19 +345,19 @@ def _flag_broken_rows(data_list, msg):
             dropped_rows.append(row)
             broken_rows.append(row)
         elif d.shape[0] != mode_shape[0]:
-            print(f'WARNING: {msg} data from row {row} captured only {d.shape[[0]]}/{mode_shape[0]} points.')
+            print(f'WARNING: {msg} data from row {row} captured only {d.shape[0]}/{mode_shape[0]} points.')
             broken_rows.append(row)
 
     return dropped_rows, broken_rows
 
-def _repair_data_dict(data_dict, dropped_rows, broken_rows, repair_method='fill'):
-    if len(dropped_rows) > 0 and len(broken_rows) > 0:
+def _repair_data_dict(data_dict, dropped_rows, broken_rows, repair_method='replace'):
+    if len(dropped_rows) > 0 or len(broken_rows) > 0:
         print(f'Repairing data with "{repair_method}" method.')
     else:
         return data_dict
 
-    if repair_method.lower() not in ['flatten', 'fill']:
-        raise ValueError('Only "flatten" and "fill" repair methods are supported.')
+    if repair_method.lower() not in ['flatten', 'fill', 'replace']:
+        raise ValueError('Only "flatten", "fill", and "replace" repair methods are supported.')
     
     keys = list(data_dict.keys())
 
@@ -377,8 +382,8 @@ def _repair_data_dict(data_dict, dropped_rows, broken_rows, repair_method='fill'
                 if rem_row > row:
                     dropped_rows[ind] -= 1
         
-        # Only replace data when filling and only for broken rows
-        elif repair_method == 'fill':
+        # Only Replace data for broken rows
+        elif repair_method == 'replace':
             if row in broken_rows:
                 if last_good_row == -1:
                     queued_rows.append(row)
@@ -394,19 +399,56 @@ def _repair_data_dict(data_dict, dropped_rows, broken_rows, repair_method='fill'
                         print(f'Data in row {q_row} replaced with data in row {last_good_row}.')
                         for key in keys:
                             data_dict[key][q_row] = data_dict[key][last_good_row]
+                        queued_rows = []
+
+        # Only Fill data for broken rows
+        elif repair_method == 'fill':
+            if row in broken_rows:
+                if last_good_row == -1:
+                    queued_rows.append(row)
+                else:
+                    for key in keys:
+                        filled_pts = (len(data_dict[key][last_good_row])
+                                     - len(data_dict[key][row]))
+                        if filled_pts > 0:
+                            print(f'Filled {filled_pts} points in row {row} for {key}.')
+
+                            zero_row = np.zeros_like(np.asarray(data_dict[key][last_good_row]))
+                            #print(f'{zero_row.shape=}')
+
+                            zero_row[:len(data_dict[key][row])] = data_dict[key][row]
+                            data_dict[key][row] = zero_row
+        
+            else:
+                last_good_row = row
+                if len(queued_rows) > 0:
+                    for q_row in queued_rows:
+                        for key in keys:
+                            filled_pts = (len(data_dict[key][last_good_row])
+                                        - len(data_dict[key][q_row]))
+                            if filled_pts > 0:
+                                print(f'Filled {filled_pts} points in row {q_row} for {key}.')
+
+                                zero_row = np.zeros_like(np.asarray(data_dict[key][last_good_row]))
+                                #print(f'{zero_row.shape=}')
+
+                                zero_row[:len(data_dict[key][q_row])] = data_dict[key][q_row]
+                                data_dict[key][q_row] = zero_row
+                        queued_rows = []
     
     # Do not fully flatten if only dropping some rows I guess
     if repair_method == 'flatten' and len(broken_rows) > 0:
         print('Map is missing pixels. Flattening data.')
         for key in keys:
+            data_shape = data_dict[key][0].shape[1:]  # Grap data_shape from first not dropped row
             flat_d = np.array([x for y in data_dict[key] for x in y]) # List comprehension is dumb
-            data_dict[key] = flat_d.reshape(flat_d.shape[0], 1, *flat_d.shape[-2:])
+            data_dict[key] = flat_d.reshape(flat_d.shape[0], 1, *data_shape)
     
     return data_dict
 
 
 
-def _check_xrd_data_shape(data_list, repair_method='fill'):
+def _check_xrd_data_shape(data_list, repair_method='replace'):
 
     if repair_method.lower() not in ['flatten', 'fill']:
         raise ValueError('Only "flatten" and "fill" repair methods are supported.')
@@ -755,7 +797,7 @@ def save_xrd_tifs(scanid=-1,
                   data_keys=[],
                   filedir=None,
                   filenames=None,
-                  repair_method='fill'):
+                  repair_method='replace'):
 
     data_dict, scan_md, data_keys, xrd_dets = load_data(scanid=scanid,
                                                         broker=broker,
@@ -883,7 +925,7 @@ def save_full_scan(scanid=-1,
                                'im',
                                'it'], 
                    filedir=None,
-                   repair_method='fill'):
+                   repair_method='replace'):
     
     data_dict, scan_md, data_keys, xrd_dets = load_data(scanid=scanid,
                                                         broker=broker,
