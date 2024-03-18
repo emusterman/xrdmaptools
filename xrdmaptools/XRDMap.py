@@ -1430,6 +1430,7 @@ class XRDMap():
             chi = self.chi
 
         interactive_dynamic_2d_plot(np.asarray(self.map.images), tth=tth, chi=chi, **kwargs)
+        plt.show()
     
 
     def plot_interactive_integration_map(self, display_map=None, display_title=None):
@@ -1493,10 +1494,11 @@ class XRDMap():
 
         # Initial view
         ax.view_init(elev=-45, azim=90, roll=0)
-        plt.show()
 
         if return_plot:
             return fig, ax
+
+        plt.show()
 
 
     def plot_detector_geometry(self, skip=300, return_plot=False):
@@ -1537,7 +1539,8 @@ class XRDMap():
 
         # Initial view
         ax.view_init(elev=-60, azim=90, roll=0)
-        plt.show()
 
         if return_plot:
             return fig, ax
+
+        plt.show()

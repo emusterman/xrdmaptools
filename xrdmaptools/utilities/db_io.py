@@ -350,16 +350,21 @@ def _flag_broken_rows(data_list, msg):
 
     return dropped_rows, broken_rows
 
+
 def _repair_data_dict(data_dict, dropped_rows, broken_rows, repair_method='replace'):
+    if repair_method.lower() not in ['flatten', 'fill', 'replace']:
+            raise ValueError('Only "flatten", "fill", and "replace" repair methods are supported.')
+        
+    keys = list(data_dict.keys())
+
     if len(dropped_rows) > 0 or len(broken_rows) > 0:
         print(f'Repairing data with "{repair_method}" method.')
     else:
-        return data_dict
-
-    if repair_method.lower() not in ['flatten', 'fill', 'replace']:
-        raise ValueError('Only "flatten", "fill", and "replace" repair methods are supported.')
-    
-    keys = list(data_dict.keys())
+        for key in keys:
+            # Convert to arrays before returning
+            if not isinstance(data_dict[key], np.ndarray):
+                data_dict[key] = np.asarray(data_dict[key])
+        return data_dict  
 
     # Check data shape
     num_rows = -1
@@ -443,12 +448,18 @@ def _repair_data_dict(data_dict, dropped_rows, broken_rows, repair_method='repla
             data_shape = data_dict[key][0].shape[1:]  # Grap data_shape from first not dropped row
             flat_d = np.array([x for y in data_dict[key] for x in y]) # List comprehension is dumb
             data_dict[key] = flat_d.reshape(flat_d.shape[0], 1, *data_shape)
+
+    # Broad conversion to all arrays
+    # There is a better way to do this...
+    for key in keys:
+        if not isinstance(data_dict[key], np.ndarray):
+            data_dict[key] = np.asarray(data_dict[key])
     
     return data_dict
 
 
 
-def _check_xrd_data_shape(data_list, repair_method='replace'):
+'''def _check_xrd_data_shape(data_list, repair_method='replace'):
 
     if repair_method.lower() not in ['flatten', 'fill']:
         raise ValueError('Only "flatten" and "fill" repair methods are supported.')
@@ -503,7 +514,7 @@ def _check_xrd_data_shape(data_list, repair_method='replace'):
 
     data = np.asarray(data_list)
 
-    return data
+    return data'''
 
 
 '''def old_check_xrd_data_shape(data_list, repair_method='flatten'):
