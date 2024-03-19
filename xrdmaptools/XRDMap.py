@@ -1295,8 +1295,8 @@ class XRDMap():
         fig, ax = plt.subplots(1, 1, figsize=(5, 5), dpi=200)
         # Allow some flexibility for kwarg inputs
         plot_kwargs = {'c' : 'r',
-                    'lw' : 0.5,
-                    's' : 1}
+                       'lw' : 0.5,
+                       's' : 1}
         for key in plot_kwargs.keys():
             if key in kwargs.keys():
                 plot_kwargs[key] = kwargs[key]
@@ -1444,7 +1444,7 @@ class XRDMap():
         raise NotImplementedError()
     
 
-    def plot_map_value(self, data, cmap='viridis'):
+    def plot_map(self, data, cmap='viridis'):
         # Simple base mapping function for analyzed values.
         # Will expand to map phase assignment, phase integrated intensity, etc.
         raise NotImplementedError()

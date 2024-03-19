@@ -204,7 +204,7 @@ def manual_load_data(scanid=-1,
                     data_dict[key].append(np.array(f[key]))
         # Stack data into array
         for key in enc_keys:
-            data_dict[key] = np.stack(data_dict[key])
+            #data_dict[key] = np.stack(data_dict[key])
             dr_rows, br_rows = _flag_broken_rows(data_dict[key], key)
             dropped_rows += dr_rows
             broken_rows += br_rows
@@ -221,10 +221,11 @@ def manual_load_data(scanid=-1,
                 for key in sclr_keys:
                     data_dict[key].append(np.array(f[key]))
         # Stack data into array
-        for key in sclr_keys:
-            data_dict[key] = np.stack(data_dict[key])
+        #for key in sclr_keys:
+            #data_dict[key] = np.stack(data_dict[key])
         if 'i0_time' in data_keys:
-            data_dict['i0_time'] = data_dict['sis_time'] / 50e6 # 50 MHz clock
+            #data_dict['i0_time'] = data_dict['sis_time'] / 50e6 # 50 MHz clock
+            data_dict['i0_time'] = [d / 50e6 for d in data_dict['sis_time']] # 50 MHz clock
         if 'sis_time' not in data_keys and 'sis_time' in data_dict.keys():
             del data_dict['sis_time']
         for key in ['i0', 'im', 'it', 'i0_time']:
@@ -240,7 +241,7 @@ def manual_load_data(scanid=-1,
             with h5py.File(r_path, 'r') as f:
                 data_dict[key].append(np.array(f['entry/data/data']))
         # Stack data into array
-        data_dict[key] = np.stack(data_dict[key])
+        #data_dict[key] = np.stack(data_dict[key])
         dr_rows, br_rows = _flag_broken_rows(data_dict[key], key)
         dropped_rows += dr_rows
         broken_rows += br_rows

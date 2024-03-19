@@ -133,7 +133,9 @@ class ImageMap:
                     self.images = self.images.rechunk(self._hdf_store.chunks)
                 else:
                     self.images = self.images.astype(np.float32)
+                    # Re-do chunking with np.float32 datatype
                     chunks = self._get_optimal_chunks()
+                    self.images = self.images.rechunk(chunks=chunks)
                     self._hdf_store = self.hdf.require_dataset('xrdmap/image_data/_temp_images',
                                                 shape=self.images.shape,
                                                 dtype=np.float32,
@@ -1261,6 +1263,7 @@ class ImageMap:
             raise TypeError('Unknown image type detected!')
         
         # Get chunks
+        # Maybe just grab current chunk size to be consistent??
         chunks = self._get_optimal_chunks()
         chunks = chunks[-images.ndim:]
         

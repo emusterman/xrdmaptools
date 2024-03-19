@@ -13,6 +13,7 @@ def make_xrdmap_hdf(scanid=-1,
                     poni_file=None,
                     repair_method='replace'):
     
+    print('*' * 72)
     XRDMap.from_db(scanid=scanid,
                    broker=broker,
                    filedir=filedir,
@@ -20,6 +21,8 @@ def make_xrdmap_hdf(scanid=-1,
                    poni_file=poni_file,
                    save_hdf=True,
                    repair_method=repair_method)
+    print('*' * 72)
+    
 
 
 '''def make_xrdmap_hdf(scanid=-1,
