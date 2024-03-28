@@ -64,6 +64,7 @@ def parallel_loop(function, iterable, *args, **kwargs):
 
 
 def label_nearest_spots(spots, max_dist=25, max_neighbors=np.inf):
+    spots - np.asarray(spots)
     dist = euclidean_distances(spots)
 
     spot_indices = list(range(len(spots)))
@@ -73,7 +74,7 @@ def label_nearest_spots(spots, max_dist=25, max_neighbors=np.inf):
     dist[dist > max_dist] = np.nan
     #dist[dist == 0] = np.nan
     # Create dataset
-    data = np.empty((len(spots), 3))
+    data = np.empty((len(spots), spots.shape[-1] + 1))
     data[:] = np.nan
     data[:, :-1] = spots
 
@@ -119,6 +120,26 @@ def label_nearest_spots(spots, max_dist=25, max_neighbors=np.inf):
     labels = np.array(labels).astype(np.int32)
     # labels is not perfectly sequential. Why???
     return data
+
+
+def combine_nearby_spots(spots, *weights, max_dist, max_neighbors=np.inf):
+    # Spots are weighted by the first weight!
+    
+    labeled_spots = label_nearest_spots(spots, max_dist=max_dist, max_neighbors=max_neighbors)
+
+    combined_spots = []
+    combined_weights = []
+    for label in np.unique(labeled_spots[:, -1]):
+        label_mask = labeled_spots[:, -1] == label
+        #combined_spot = np.mean(labeled_spots[label_mask][:, :-1], axis=0)
+        combined_spot = arbitrary_center_of_mass(np.squeeze(np.asarray(weights)[0])[label_mask],
+                                                  *labeled_spots[label_mask][:, :-1].T)
+        combined_spots.append(combined_spot)
+        for weight in weights:
+            combined_weight = np.sum(weight[label_mask])
+            combined_weights.append(combined_weight)
+
+    return combined_spots, combined_weights
 
 
 def arbitrary_center_of_mass(weights, *args):

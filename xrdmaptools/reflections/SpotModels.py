@@ -1,6 +1,7 @@
 import numpy as np
 from scipy.special import wofz
 import scipy.stats as stats
+from numba import njit
 
 
 ############################
@@ -85,11 +86,13 @@ class GaussianFunctions(SpotModelBase):
               'theta', 'phi']
 
     @staticmethod
+    @njit
     def func_1d(x, amp, x0, fwhm):
         sigma = fwhm / (2 * np.sqrt(2 * np.log(2)))
         return amp * np.exp(-(x - x0)**2 / (2 * sigma**2))
     
     @staticmethod
+    @njit
     def func_2d(xy, amp, x0, y0, fwhm_x, fwhm_y, theta, radians=False):
         if len(xy) != 2:
             raise IOError("xy input must be length 2.")
@@ -117,6 +120,7 @@ class GaussianFunctions(SpotModelBase):
                             + (yp**2 / (2 * sigma_y**2))))
     
     @staticmethod
+    @njit
     def func_3d(xyz, amp,
                 x0, y0, z0,
                 fwhm_x, fwhm_y, fwhm_z,
@@ -151,12 +155,14 @@ class GaussianFunctions(SpotModelBase):
                             + (zp**2 / (2 * sigma_z**2))))
     
     @staticmethod
+    @njit
     def get_area(amp, x0, fwhm):
         # Returns area under 1d gaussian function
         sigma = fwhm / (2 * np.sqrt(2 * np.log(2)))
         return amp * np.sqrt(2 * np.pi) * sigma
     
     @staticmethod
+    @njit
     def get_volume(amp, x0, y0, fwhm_x, fwhm_y, theta, radians=False):
         # Returns volume under 2d gaussian function
         sigma_x = fwhm_x / (2 * np.sqrt(2 * np.log(2)))
@@ -164,6 +170,7 @@ class GaussianFunctions(SpotModelBase):
         return amp * 2 * np.pi * sigma_x * sigma_y
     
     @staticmethod
+    @njit
     def get_hyper_volume(amp, x0, y0, z0, fwhm_x, fwhm_y, fwhm_z, theta, phi, radians=False):
         raise NotImplementedError()
         sigma_x = fwhm_x / (2 * np.sqrt(2 * np.log(2)))
@@ -183,12 +190,14 @@ class LorentzianFunctions(SpotModelBase):
     #par_2d = ['amp', 'x0', 'y0', 'fwhm_x', 'fwhm_y', 'theta']
 
     @staticmethod
+    @njit
     def func_1d(x, amp, x0, fwhm):
         gamma = 0.5 * fwhm
         return amp * (gamma**2 / ((x - x0)**2 + gamma**2))
     
     # Not sure about this one...
     @staticmethod
+    @njit
     def func_2d(xy, amp, x0, y0, fwhm_x, fwhm_y, theta, radians=False):
         if len(xy) != 2:
             raise IOError("xy input must be length 2.")
@@ -210,11 +219,13 @@ class LorentzianFunctions(SpotModelBase):
         return amp / (1 + (xp / gamma_x)**2 + (yp/ gamma_y)**2)
     
     @staticmethod
+    @njit
     def get_area(amp, x0, fwhm):
         gamma = 0.5 * fwhm
         return amp * np.pi * gamma
     
     @staticmethod
+    @njit
     def get_volume(amp, x0, y0, fwhm_x, fwhm_y, theta):
         # Current 2D Lorentzian function does not have a finite volume
 
@@ -227,6 +238,8 @@ class LorentzianFunctions(SpotModelBase):
         return amp * 2 * np.pi * sigma_x * sigma_y
 
 
+# This class is still untested...
+# njit might break on these functions...
 class PseudoVoigtFunctions(SpotModelBase):
     # Note: This is the pseudo-voigt profile!
     # Useful parameters
@@ -242,6 +255,7 @@ class PseudoVoigtFunctions(SpotModelBase):
     L = LorentzianFunctions
 
     @staticmethod
+    @njit
     def _get_eta_fwhm(G_fwhm, L_fwhm):
         # Convolved fwhm
         fwhm = ((G_fwhm**5
@@ -259,14 +273,16 @@ class PseudoVoigtFunctions(SpotModelBase):
         return eta, fwhm
     
     @staticmethod
+    @njit
     def func_1d(x, amp, x0, G_fwhm, L_fwhm):
         V = PseudoVoigtFunctions
-        eta, fwhm = V._get_eta_fwhm(G_fwhm, L_fwhm)
+        eta, fwhm = V._get_eta_fwhm(G_fwhm, L_fwhm) # This feels wrong
         return (eta * V.G.func_1d(x, amp, x0, fwhm)
                 + (1 - eta) * V.L.func_1d(x, amp, x0, fwhm))
     
     # Not sure about this one...
     @staticmethod
+    @njit
     def func_2d(xy, amp, x0, y0, G_fwhm_x, G_fwhm_y,
                 L_fwhm_x, L_fwhm_y, theta, radians=False):
         V = PseudoVoigtFunctions
@@ -281,6 +297,7 @@ class PseudoVoigtFunctions(SpotModelBase):
                                           theta, radians=radians))
     
     @staticmethod
+    @njit
     def get_area(amp, x0, G_fwhm, L_fwhm):
         V = PseudoVoigtFunctions
         eta, fwhm = V._get_eta_fwhm(G_fwhm, L_fwhm)
@@ -288,6 +305,7 @@ class PseudoVoigtFunctions(SpotModelBase):
                 + (1 - eta) * V.L.get_area(amp, x0, fwhm))
     
     @staticmethod
+    @njit
     def get_volume(amp, x0, y0, G_fwhm_x, G_fwhm_y,
                    L_fwhm_x, L_fwhm_y, theta):
         V = PseudoVoigtFunctions
@@ -302,7 +320,7 @@ class PseudoVoigtFunctions(SpotModelBase):
         # TODO: Go back and find the original references...
         V = PseudoVoigtFunctions
         eta, fwhm = V._get_eta_fwhm(G_fwhm, L_fwhm)
-        return eta
+        return fwhm
     
     @staticmethod
     def get_2d_fwhm(amp, x0, y0, G_fwhm_x, G_fwhm_y, L_fwhm_x, L_fwhm_y, theta, radians=False):

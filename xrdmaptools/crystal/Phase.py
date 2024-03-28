@@ -148,7 +148,6 @@ class Phase(xu.materials.Crystal):
         return args
 
 
-    # This might be able to be done without invoking the simpack module...
     # May need to add a conditional to pass this function if Phase generated from XRD card
     def get_hkl_reflections(self, tth_range=None, energy=None, ignore_less=1, save_reflections=True):
         if energy is None:
@@ -171,7 +170,7 @@ class Phase(xu.materials.Crystal):
         sort_refl = [tuple(x) for _, x in sorted(zip(all_q, all_refl))]
         all_q.sort()
         F_hkl = np.abs(self.StructureFactor(sort_refl))
-        F_hkl = rescale_array(F_hkl, lower=0, upper=100)
+        #F_hkl = rescale_array(F_hkl, lower=0, upper=100)
 
         hkl_list = []
         q_list = []
@@ -191,6 +190,8 @@ class Phase(xu.materials.Crystal):
                 if np.sum(sort_refl[index]) > np.sum(hkl_list[-1]):
                     hkl_list[-1] = sort_refl[index] # bias towards positive hkl values
 
+        # Changing back to list is not necessary, but is consistent with other data
+        int_list = list(rescale_array(np.array(int_list), arr_min=0, upper=100))
         mask = (np.array(int_list) > ignore_less) & (np.array(tth_list) > tth_range[0])
 
         data = {
@@ -351,7 +352,7 @@ def phase_selector(xrd, phases, tth, ignore_less=1):
 
     [phase.get_hkl_reflections(tth_range=(np.min(tth), np.max(tth)),
                                ignore_less=ignore_less)
-        for phase in phases if phase.reflections is None];
+        for phase in phases];
 
     xrd_plot = ax.plot(tth, norm_xrd_int, label='Composite XRD', c='k', zorder=(len(phases) + 1))
     fig.subplots_adjust(right=0.75)

@@ -47,7 +47,7 @@ def load_XRD_hdf(filename, wd=None, dask_enabled=False):
         hdf = h5py.File(hdf_path, 'r')
     else:
         hdf = h5py.File(hdf_path, 'a')
-    base_grp = hdf['/xrdmap']
+    base_grp = hdf['xrdmap']
 
     # Load base metadata
     base_md = dict(base_grp.attrs.items())
@@ -69,9 +69,9 @@ def load_XRD_hdf(filename, wd=None, dask_enabled=False):
     if dask_enabled:
         # Lazy loads data
         image_dset = img_grp[img_keys[recent_index]]
-        image_data = da.asarray(image_dset)
+        image_data = da.from_array(image_dset, chunks=image_dset.chunks)
     else:
-        # Fully loads data as dask array
+        # Fully loads data
         image_data = img_grp[img_keys[recent_index]][:]
 
     # Rebuild correction dictionary
@@ -194,29 +194,6 @@ def load_XRD_hdf(filename, wd=None, dask_enabled=False):
                                                     tth=recip_pos['tth'])
         print('done!')
 
-    # Load spots dataframe
-    spots = None
-    spot_model = None
-    if 'reflections' in base_grp.keys():
-        print('Loading reflection spots...', end='', flush=True)
-        # I really dislike that pandas cannot handle an already open file
-        hdf.close()
-        spots = pd.read_hdf(hdf_path, key='xrdmap/reflections/spots')
-
-        if dask_enabled:
-            hdf = h5py.File(hdf_path, 'a')
-            img_grp = hdf['xrdmap/image_data']
-            image_dset = img_grp[img_keys[recent_index]]
-            image_data = da.asarray(image_dset)
-        else:
-            hdf = h5py.File(hdf_path, 'r')
-        print('done!')
-
-        # Load peak model
-        if 'spot_model' in hdf['xrdmap/reflections'].attrs.keys():
-            spot_model_name = hdf['xrdmap/reflections'].attrs['spot_model']
-            spot_model = _load_peak_function(spot_model_name)
-        
     # Load scalers
     sclr_dict = None
     if 'scalers' in base_grp.keys():
@@ -237,7 +214,32 @@ def load_XRD_hdf(filename, wd=None, dask_enabled=False):
         pos_dict = {}
         for key in pos_grp.keys():
             pos_dict[key] = pos_grp[key][:]
+        print('done!')    
+
+    # Load spots dataframe
+    # Should be last since it closed base_grp
+    spots = None
+    spot_model = None
+    if 'reflections' in base_grp.keys():
+        print('Loading reflection spots...', end='', flush=True)
+        # I really dislike that pandas cannot handle an already open file
+        hdf.close()
+        spots = pd.read_hdf(hdf_path, key='xrdmap/reflections/spots')
+
+        if dask_enabled:
+            # Re-point towards correct dataset
+            hdf = h5py.File(hdf_path, 'a')
+            img_grp = hdf['xrdmap/image_data']
+            image_dset = img_grp[img_keys[recent_index]]
+            image_data = da.from_array(image_dset, chunks=image_dset.chunks)
+        else:
+            hdf = h5py.File(hdf_path, 'r')
         print('done!')
+
+        # Load peak model
+        if 'spot_model' in hdf['xrdmap/reflections'].attrs.keys():
+            spot_model_name = hdf['xrdmap/reflections'].attrs['spot_model']
+            spot_model = _load_peak_function(spot_model_name)
             
     if not dask_enabled:
         hdf.close()

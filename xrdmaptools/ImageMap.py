@@ -38,6 +38,7 @@ class ImageMap:
         # Parallized image processing
         if dask_enabled:
             # Unusual chunk shapes are fixed later
+            # Not the best though....
             image_array = da.asarray(image_array)
         else:
             # Non-paralleized image processing
@@ -63,9 +64,12 @@ class ImageMap:
             raise RuntimeError("Input data incorrect shape or unknown type. 4D array is preferred.")
         
         if dask_enabled:
-            # Redo chunking along image dimensions
-            chunks = self._get_optimal_chunks()
-            self.images = self.images.rechunk(chunks=chunks)
+            # Redo chunking along image dimensions if not already
+            if self.images.chunksize[-2:] != self.images.shape[-2:]:
+                self._get_optimal_chunks()
+                self.images = self.images.rechunk(chunks=self._chunks)
+            else:
+                self._chunks = self.images.chunksize
         
         # Working with the many iteraction of hdf
         # Too much information to pass back and forth
@@ -129,17 +133,18 @@ class ImageMap:
                 # Check for previously worked on data
                 if check_hdf_current_images('_temp_images', self.hdf_path, self.hdf):
                     self._hdf_store = self.hdf['xrdmap/image_data/_temp_images']
-                    self.images = self.images.astype(self._hdf_store.dtype)
-                    self.images = self.images.rechunk(self._hdf_store.chunks)
+                    # Change datatype and chunking to match previous _temp_images
+                    if self.images.dtype != self._hdf_store.dtype:
+                        self.images = self.images.astype(self._hdf_store.dtype)
+                    if self.images.chunksize != self._hdf_store.chunks:
+                        self.images = self.images.rechunk(self._hdf_store.chunks)
                 else:
+                    # Upcast before writing to hdf
                     self.images = self.images.astype(np.float32)
-                    # Re-do chunking with np.float32 datatype
-                    chunks = self._get_optimal_chunks()
-                    self.images = self.images.rechunk(chunks=chunks)
                     self._hdf_store = self.hdf.require_dataset('xrdmap/image_data/_temp_images',
                                                 shape=self.images.shape,
                                                 dtype=np.float32,
-                                                chunks=chunks)
+                                                chunks=self._chunks)
 
                 # Might be best NOT to call this to preserve previous data
                 self.images = da.store(self.images, self._hdf_store,
@@ -199,9 +204,11 @@ class ImageMap:
 
     @dtype.setter
     def dtype(self, dtype):
-        # Used to update the main dtype. Should add a memory usage estimate as well
-        self.images = self.images.astype(dtype) # This may have to copy the array, which could be memory intensive
-        self._dtype = dtype
+        # Update datatype if different
+        if dtype != self._dtype:
+            # Unfortunately, this has to copy the dataset
+            self.images = self.images.astype(dtype)
+            self._dtype = dtype
 
     
     def projection_factory(property_name, function, axes):
@@ -220,7 +227,7 @@ class ImageMap:
                     mask_map[:, :] = self.mask
 
                     # Contribution
-                    zero_image = self.images.copy()
+                    zero_image = self.images.copy() # Expensive...
                     zero_image[~mask_map] = 0 # should be redundant
                     gauss_zero = function(zero_image, axis=axes)
 
@@ -275,8 +282,8 @@ class ImageMap:
     # Add other methods, or rename to something more intuitive
     @property
     def composite_image(self):
-        if hasattr(self, f'_{self.title}_composite'):
-            return getattr(self, f'_{self.title}_composite')
+        if hasattr(self, f'_composite_image'):
+            return getattr(self, f'_composite_image')
         else:
             setattr(self, f'_{self.title}_composite',
                     self.max_image - self.min_image)
@@ -284,12 +291,12 @@ class ImageMap:
             # Set the generic value to this as well
             self._composite_image = getattr(self, f'_{self.title}_composite')
 
-            # Save image to hdf
+            # Save image to hdf. Should update if changed
             self.save_images(self._composite_image,
                              f'_{self.title}_composite')
 
             # Finally return the requested attribute
-            return getattr(self, f'_{self.title}_composite')
+            return getattr(self, f'_composite_image')
         
     @composite_image.deleter
     def composite_image(self):
@@ -385,8 +392,9 @@ class ImageMap:
 
     # Return standardized chunk size around images for hdf and dask
     def _get_optimal_chunks(self, approx_chunk_size=None):
-        return get_optimal_chunks(self.images,
+        self._chunks =  get_optimal_chunks(self.images,
                                   approx_chunk_size=approx_chunk_size)
+        return self._chunks
     
     def _dask_2_numpy(self):
         # Computes dask to numpy array. Intended for final images
@@ -432,11 +440,15 @@ class ImageMap:
             print('''Warning: Dark-field correction already applied! 
                   Proceeding without any changes''')
         elif dark_field is None:
-            print('No dark-field correction.')
+            print('No dark-field given for correction.')
+        elif dark_field.shape != self.image_shape:
+            err_str = (f'Dark-field shape of {dark_field.shape} does '
+                      + f'not match image shape of {self.image_shape}.')
+            raise ValueError(err_str)
         else:
             self.dark_field = dark_field
             
-            # convert from integer to float if necessary
+            # Convert from integer to float if necessary
             if (np.issubdtype(self.dtype, np.integer)
                 and np.issubdtype(self.dark_field.dtype, np.floating)):
                 self.dtype = self.dark_field.dtype
@@ -449,7 +461,7 @@ class ImageMap:
             elif check_precision(self.dtype)[0].min >= 0:
                 # Not sure how to decide which int precision
                 # Trying to save memory if possible
-                if np.max(self.dark_field) > np.min(self.min_image):
+                if np.max(self.dark_field) > np.min(self.images):
                     self.dtype = np.float32 # Go ahead and make it the final size...
             
             print('Correcting dark-field...', end='', flush=True)
@@ -477,6 +489,10 @@ class ImageMap:
                   Proceeding without any changes''')
         elif flat_field is None:
             print('No flat-field correction.')
+        elif flat_field.shape != self.image_shape:
+            err_str = (f'Flat-field shape of {flat_field.shape} does '
+                      + f'not match image shape of {self.image_shape}.')
+            raise ValueError(err_str)
         else:
             self.dtype = np.float32
             print('Correcting flat-field...', end='', flush=True)
@@ -564,7 +580,7 @@ class ImageMap:
         if custom is not None:
             custom = np.asarray(custom)
             if custom.shape != tth_arr.shape:
-                raise ValueError(f'Custom Lorentz corretion osf shape {custom.shape} does not match image shape of {tth_arr.shape}.')
+                raise ValueError(f'Custom Lorentz corretion of shape {custom.shape} does not match image shape of {tth_arr.shape}.')
             lorentz_correction = custom
             corrections = []
         
@@ -755,6 +771,7 @@ class ImageMap:
         if self.corrections['scaler_intensity']:
             print('''Warning: Images have already been normalized by the scaler! 
                   Proceeding without any changes''')
+            return
         
         elif scaler_arr is None:
             if hasattr(self, 'sclr_dict') and self.sclr_dict is not None:
@@ -774,6 +791,11 @@ class ImageMap:
                 print('No scaler array given or found. Approximating with image medians.')
                 scaler_arr = self.med_map
                 sclr_key = 'med'
+
+        elif scaler_arr.shape != self.image_shape:
+            err_str = (f'Scaler array shape of {scaler_arr.shape} does '
+                      + f'not match image shape of {self.image_shape}.')
+            raise ValueError(err_str)
         else:
             sclr_key = 'input'
 
@@ -1167,7 +1189,7 @@ class ImageMap:
             if self.hdf_path is None and self.hdf is None:
                 print('No hdf file specified. Images will not be saved.')
             else:
-                print('''Compressing and writing images to disk.\nThis may take awhile...''')
+                print('Compressing and writing images to disk.\nThis may take awhile...')
 
                 if check_hdf_current_images('_temp_images', self.hdf_path, self.hdf):
                     # Save images to current store location. Should be _temp_images

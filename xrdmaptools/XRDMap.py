@@ -21,9 +21,9 @@ from .utilities.hdf_utils import check_hdf_current_images
 from .utilities.db_io import load_data
 from .utilities.math import *
 from .utilities.utilities import delta_array
-from .utilities.interactive_plotting import interactive_dynamic_2d_plot
 
 from .reflections.spot_blob_indexing import get_q_vect, _initial_spot_analysis
+from .reflections.SpotModels import GaussianFunctions
 from .reflections.spot_blob_search import (
     find_spots,
     find_spot_stats,
@@ -32,7 +32,8 @@ from .reflections.spot_blob_search import (
     fit_spots,
     find_blob_contours
     )
-from .reflections.SpotModels import GaussianFunctions
+
+from .plot.interactive_plotting import interactive_dynamic_2d_plot
 
 from .geometry.geometry import *
 
@@ -146,6 +147,9 @@ class XRDMap():
                                 dask_enabled=dask_enabled)
         elif isinstance(image_map, ImageMap):
             self.map = image_map
+            # Used to specify read-only when loading from hdf
+            if not save_hdf:
+                self.map.hdf_path = None
         else:
             raise TypeError(f"Unknown image_map input type: {type(image_map)}")
         
@@ -685,6 +689,7 @@ class XRDMap():
 
                 # Overwrite values
                 self.ai.detector.shape = image_shape
+                self.ai.detector.max_shape = image_shape # Not exactly correct, but more convenient
                 self.ai.detector.pixel1 = poni_pixel1 / bin_est[0]
                 self.ai.detector.pixel2 = poni_pixel2 / bin_est[1]
 
@@ -1015,6 +1020,8 @@ class XRDMap():
             # Save any new phases
             for phase in self.phases.values():
                 phase.save_to_hdf(phase_grp)
+
+            print('Updated phases saved in hdf.')
             
             # Close hdf and reset attribute
             if not keep_hdf:
@@ -1167,7 +1174,7 @@ class XRDMap():
         self.save_spots()
 
 
-    def trim_spots(self, remove_less=0.01, metric='height'):
+    def trim_spots(self, remove_less=0.01, metric='height', save_spots=False):
         if not hasattr(self, 'spots') or self.spots is None:
             raise ValueError('Cannot trim spots if XRDMap has not no spots.')
 
@@ -1196,6 +1203,19 @@ class XRDMap():
         # Drop indices
         self.spots.drop(index=drop_indices, inplace=True)
         print(f'Trimmed {len(drop_indices)} spots less than {remove_less} significance.')
+
+        if save_spots:
+            self.save_spots()
+
+
+    def remove_spot_fits(self):
+        drop_keys = []
+        for key in list(self.spots.keys()):
+            if 'fit' in key:
+                print(key)
+                drop_keys.append(key)
+
+        self.spots.drop(drop_keys, axis=1, inplace=True)
     
 
     def pixel_spots(self, map_indices):
@@ -1218,7 +1238,7 @@ class XRDMap():
 
             # Save to hdf
             self._close_hdf()
-            self.spots.to_hdf(self.hdf_path, 'xrdmap/reflections/spots', format='table')
+            self.spots.to_hdf(self.hdf_path, key='xrdmap/reflections/spots', format='table')
 
             if extra_attrs is not None:
                 self._open_hdf()
@@ -1511,13 +1531,11 @@ class XRDMap():
         fig, ax = plt.subplots(1, 1, figsize=(5, 5), dpi=200, subplot_kw={'projection':'3d'})
 
         # Plot detector position
-        xyz = self.ai.position_array()
+        pos_arr = self.ai.position_array()
 
-        xyz[:, :, 0] *= -1 # Transform to synchrotron standard. Not sure if correct
-
-        x = xyz[:, :, 0].ravel()[::skip]
-        y = xyz[:, :, 1].ravel()[::skip]
-        z = xyz[:, :, 2].ravel()[::skip]
+        x = pos_arr[:, :, 2].ravel()[::skip] # Switch to positive outboard
+        y = pos_arr[:, :, 1].ravel()[::skip]
+        z = pos_arr[:, :, 0].ravel()[::skip]
 
         ax.plot_trisurf(x, y, z,
                         alpha=0.5, label='detector')
@@ -1529,13 +1547,13 @@ class XRDMap():
 
         # Detector
         corner_indices = np.array([[0, 0], [-1, 0], [0, -1], [-1, -1]]).T
-        corn = xyz[*corner_indices].T
+        corn = pos_arr[*corner_indices].T
         ax.quiver([0,] * 4,
-                [0,] * 4,
-                [0,] * 4,
-                corn[0],
-                corn[1],
-                corn[2], colors='gray', lw=0.5)
+                  [0,] * 4,
+                  [0,] * 4,
+                  corn[2],
+                  corn[1],
+                  corn[0], colors='gray', lw=0.5)
 
         ax.set_xlabel('x [m]')
         ax.set_ylabel('y [m]')

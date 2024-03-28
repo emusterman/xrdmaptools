@@ -36,8 +36,14 @@ from .SpotModels import generate_bounds
 
 
 # Must take scaled images!!!
-def spot_search(scaled_image, mask=None, threshold_method='gaussian',
-                multiplier=5, size=3, expansion=None, plotme=False):
+def spot_search(scaled_image,
+                mask=None,
+                threshold_method='gaussian',
+                multiplier=5,
+                size=3,
+                min_distance=3,
+                expansion=None,
+                plotme=False):
     
     '''
     Returns spots in image coordinates.
@@ -96,7 +102,7 @@ def spot_search(scaled_image, mask=None, threshold_method='gaussian',
 
     spots = peak_local_max(thresh_img,
                            #threshold_rel=image_noise,
-                           min_distance=3, # Just a pinch more spacing
+                           min_distance=min_distance, # in pixel units...
                            labels=peak_mask,
                            num_peaks_per_label=np.inf)
     
@@ -195,8 +201,7 @@ def find_spots(imagemap, mask=None,
 
     # Create list of delayed tasks
     delayed_list = []
-    print('Scheduling spot search...')
-    for image in tqdm(iter_image):
+    for image in iter_image:
         # Convert dask to numpy arrays
         if isinstance(image, da.core.Array):
             image = image.compute()
@@ -291,20 +296,17 @@ def find_spot_stats(imagemap, spot_list, tth_arr, chi_arr, radius=5):
 
     delayed_list = []
     num_spots = np.sum([len(spots) for spots in spot_list])
-    print('Scheduling spot characterization...')
-    with tqdm(total=num_spots) as pbar:
-        for spots, image in zip(spot_list, iter_image):
-            # Convert dask to numpy arrays
-            if isinstance(image, da.core.Array):
-                image = image.compute()
+    for spots, image in zip(spot_list, iter_image):
+        # Convert dask to numpy arrays
+        if isinstance(image, da.core.Array):
+            image = image.compute()
 
-            delayed_stats = []
-            if len(spots) > 0: # Ignore images without spots
-                for spot in spots:
-                    stats = dask_spot_stats(spot, image, tth_arr, chi_arr, radius=radius)
-                    delayed_stats.append(stats)
-                    pbar.update(1)
-            delayed_list.append(delayed_stats)
+        delayed_stats = []
+        if len(spots) > 0: # Ignore images without spots
+            for spot in spots:
+                stats = dask_spot_stats(spot, image, tth_arr, chi_arr, radius=radius)
+                delayed_stats.append(stats)
+        delayed_list.append(delayed_stats)
 
     print('Estimating spot characteristics...')
     with TqdmCallback(tqdm_class=tqdm):
@@ -625,11 +627,8 @@ def fit_spots(xrdmap, spot_fit_info_list, SpotModel):
 
     # Scheduling delayed fits
     delayed_list = []
-    print('Scheduling spot fits...')
-    with tqdm(total=len(spot_fit_info_list)) as pbar:
-        for blob_num, fit in enumerate(spot_fit_info_list):
-            delayed_list.append(delayed_fit(xrdmap, fit))
-            pbar.update(1)
+    for fit in spot_fit_info_list:
+        delayed_list.append(delayed_fit(xrdmap, fit))
 
     # Computation
     #print('Fitting spots...', end='', flush=True)
@@ -642,6 +641,136 @@ def fit_spots(xrdmap, spot_fit_info_list, SpotModel):
     num_spots = len(xrdmap.spots)
     print(f'Successfully fit {fit_succ} / {num_spots} spots ( {100 * fit_succ / num_spots:.1f} % ).')
     #return proc_list
+
+
+'''def fit_spots_blob(xrdmap, fit_int, fit_x, fit_y, spot_indices, SpotModel, guess_labels, fit_labels):
+
+        spots_df = xrdmap.spots.iloc[spot_indices]
+        num_spots = len(spots_df)
+
+        if len(fit_int) / (6 * len(spots_df)) <= 1.5:
+            #print(f'More unknowns than pixels in blob {blob_num}!')
+            return [np.nan,] * (6 * len(spots_df) + 2) # Fit variables plus offset and r_squared
+
+        p0 = [np.min(fit_int)] # Guess offset
+        for index in spots_df.index:
+            p0.extend(list(spots_df.loc[index][guess_labels].values))
+            p0.append(0) # theta
+
+        bounds = generate_bounds(p0[1:], SpotModel.func_2d, tth_step=None, chi_step=None)
+        bounds[0].insert(0, -np.inf) # offset lower bound
+        bounds[1].insert(0, np.max(fit_int)) # offset upper bound
+
+        #print(f'Fitting {num_spots} spots...')
+        try:
+            popt, _ = curve_fit(SpotModel.multi_2d, [fit_x, fit_y], fit_int, p0=p0, bounds=bounds)
+            r_squared = compute_r_squared(fit_int, SpotModel.multi_2d([fit_x, fit_y], *popt))
+            #print(f'done! R² is {r_squared:.4f}')
+        except RuntimeError:
+            #print('Fitting failed!')
+            popt = [np.nan,] * len(p0)
+            r_squared = np.nan
+
+        # Write updates to dataframe|
+        offset = popt[0]
+        fit_arr = np.array(popt[1:]).reshape(num_spots, 6)
+        for i, spot_index in enumerate(spots_df.index):
+            xrdmap.spots.loc[spot_index, fit_labels] = [*fit_arr[i], offset, r_squared]'''
+
+
+
+# Combined function for lower memory requirements
+def new_fit_spots(xrdmap, SpotModel, max_dist=0.75, sigma=1):
+    # Reformmating
+    map_shape = xrdmap.map.map_shape
+    # OPTIMIZE ME: this doubles spot memory and is just reformatting
+    spot_list = remake_spot_list(xrdmap.spots, map_shape)
+
+    # Add fit results columns 
+    nan_list = [np.nan,] * len(xrdmap.spots)
+    guess_labels = ['height', 'cen_tth', 'cen_chi', 'fwhm_tth', 'fwhm_chi']
+    guess_labels = [f'guess_{guess_label}' for guess_label in guess_labels]
+    fit_labels = ['amp', 'tth0', 'chi0', 'fwhm_tth', 'fwhm_chi', 'theta', 'offset', 'r_squared']
+    fit_labels = [f'fit_{fit_label}' for fit_label in fit_labels]
+    for fit_label in fit_labels:
+        xrdmap.spots[fit_label] = nan_list
+
+    # Preparing fit information
+    @dask.delayed
+    def delayed_segment_blobs(xrdmap, map_indices, spots, mask, blurred_image, max_dist=max_dist):
+        return segment_blobs(xrdmap, map_indices, spots, mask, blurred_image, max_dist=max_dist)
+    
+    # Fitting information from above
+    # Could send the innner operations to its own function like segment_blobs
+    @dask.delayed
+    def delayed_fit(xrdmap, fit):
+
+        fit_int = fit[0]
+        fit_x = fit[1]
+        fit_y = fit[2]
+        spots_df = xrdmap.spots.iloc[fit[3]]
+        num_spots = len(spots_df)
+
+        if len(fit_int) / (6 * len(spots_df)) <= 1.5:
+            #print(f'More unknowns than pixels in blob {blob_num}!')
+            return [np.nan,] * (6 * len(spots_df) + 2) # Fit variables plus offset and r_squared
+
+        p0 = [np.min(fit_int)] # Guess offset
+        for index in spots_df.index:
+            p0.extend(list(spots_df.loc[index][guess_labels].values))
+            p0.append(0) # theta
+
+        bounds = generate_bounds(p0[1:], SpotModel.func_2d, tth_step=None, chi_step=None)
+        bounds[0].insert(0, -np.inf) # offset lower bound
+        bounds[1].insert(0, np.max(fit_int)) # offset upper bound
+
+        #print(f'Fitting {num_spots} spots...')
+        try:
+            popt, _ = curve_fit(SpotModel.multi_2d, [fit_x, fit_y], fit_int, p0=p0, bounds=bounds)
+            r_squared = compute_r_squared(fit_int, SpotModel.multi_2d([fit_x, fit_y], *popt))
+            #print(f'done! R² is {r_squared:.4f}')
+        except RuntimeError:
+            #print('Fitting failed!')
+            popt = [np.nan,] * len(p0)
+            r_squared = np.nan
+
+        # Write updates to dataframe|
+        offset = popt[0]
+        fit_arr = np.array(popt[1:]).reshape(num_spots, 6)
+        for i, spot_index in enumerate(spots_df.index):
+            xrdmap.spots.loc[spot_index, fit_labels] = [*fit_arr[i], offset, r_squared]
+
+    # Scheduling blob segmentation and spot fitting
+    delayed_list = []
+    print('Scheduling blob segmentation for spot fits...')
+    for index in tqdm(range(len(spot_list))):
+        indices = np.unravel_index(index, map_shape)
+        mask = xrdmap.map.spot_masks[indices]
+        image = xrdmap.map.images[indices]
+
+        if isinstance(image, da.core.Array):
+            image = image.compute()
+            
+        # Hard-coded sigma in pixel units. Not the best...
+        blurred_image = gaussian_filter(median_filter(image, size=2), sigma=sigma)
+        
+        # Segment and prepare blobs for fitting
+        spot_fits = delayed_segment_blobs(xrdmap, indices, spot_list[index], mask, blurred_image, max_dist)
+
+        # Iterate through the prepared fits
+        for fit in spot_fits:
+            if fit is not None:
+                delayed_list.append(delayed_fit(xrdmap, fit))
+
+    # Calculation
+    print('Segmenting blobs and fitting spots...')
+    with TqdmCallback(tqdm_class=tqdm):
+            dask.compute(*delayed_list)
+
+    # Report some stats
+    fit_succ = sum(~np.isnan(xrdmap.spots["fit_r_squared"]))
+    num_spots = len(xrdmap.spots)
+    print(f'Successfully fit {fit_succ} / {num_spots} spots ( {100 * fit_succ / num_spots:.1f} % ).')
 
 
 

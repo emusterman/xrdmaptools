@@ -8,6 +8,69 @@ from scipy.interpolate import RegularGridInterpolator
 # Not sure if it is worth the effort
 
 
+def get_q_vect(tth, chi, wavelength, return_kf=False, radians=False):
+    # Calculate q-vector
+    if not isinstance(tth, (list, tuple, np.ndarray)):
+        tth = np.asarray([tth])
+        chi = np.asarray([chi])
+    if len(tth) != len(chi):
+        raise ValueError("Length of tth does not match length of chi.")
+    
+    if not radians:
+        tth = np.radians(tth)
+        chi = np.radians(chi)
+
+    #ki_unit = np.broadcast_to(np.array([0, 0, 1]).reshape(3, 1, 1), (3, *tth.shape))
+    ki_unit = np.broadcast_to(np.array([0, 0, 1]).reshape(3, *([1,] * len(tth.shape))),
+                              (3, *tth.shape))
+
+    # kf_unit = Rz @ Ry @ ki_unit
+    # negative chi due to beamline coordinate system
+    #kf_unit = np.array([-np.sin(tth) * np.cos(-chi),
+    #                    -np.sin(tth) * np.sin(-chi),
+    #                    np.cos(tth)])
+
+    kf_unit = np.array([-np.sin(tth) * np.cos(chi),
+                        -np.sin(tth) * np.sin(chi),
+                        np.cos(tth)])
+    
+    if return_kf:
+        return 2 * np.pi / wavelength * kf_unit
+    
+    delta_k = kf_unit - ki_unit
+
+    # Scattering vector with origin set at transmission
+    q = 2 * np.pi / wavelength * delta_k
+
+    return q
+
+
+def q_2_polar(q_vect, wavelength, degrees=True):
+
+    q_vect = np.asarray(q_vect)
+    factor = 2 * np.pi / wavelength
+    norm_q = q_vect / factor
+
+    tth = np.asarray(np.arccos(norm_q[..., 2] + 1))
+
+    #chi0 = np.asarray(-np.arcsin(norm_q[..., 1] / -np.sin(tth)))
+    #chi0[q_vect[..., 0] < 0] = np.pi + chi0[q_vect[..., 0] < 0]
+    #chi0[q_vect[..., 1] < 0] = -np.abs(chi0[q_vect[..., 1] < 0])
+
+    #chi1 = np.asarray(-np.arccos(norm_q[..., 0] / -np.sin(tth)))
+    #chi1[q_vect[..., 1] < 0] = -np.abs(chi1[q_vect[..., 1] < 0])
+
+    # negative qx to switch to pyFAI coordinate system
+    chi0 = np.arctan2(norm_q[..., 1], -norm_q[..., 0])
+
+    if degrees:
+        tth = np.degrees(tth)
+        chi0 = np.degrees(chi0)
+        #chi1 = np.degrees(chi1)
+
+    return tth, chi0
+
+
 def estimate_polar_coords(coords, tth_arr, chi_arr, method='linear'):
     #coords = np.array([[0, 0], [767, 485], [x, y], ...])
     # TODO:
