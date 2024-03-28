@@ -823,7 +823,7 @@ class XRDMap():
     ### Scaler and Position Arrays ###
     ##################################
 
-    def set_scalers(self, sclr_dict):
+    def set_scalers(self, sclr_dict, scaler_units='counts'):
 
         # Store sclr_dict as attribute
         self.sclr_dict = sclr_dict
@@ -832,34 +832,12 @@ class XRDMap():
         if hasattr(self, 'map') and self.map is not None:
             self.map.sclr_dict = self.sclr_dict
 
+        self.scaler_units = scaler_units
+
         # Write to hdf file
-        if self.hdf_path is not None:
-
-            # Open hdf flag
-            keep_hdf = True
-            if self.hdf is None:
-                self.hdf = h5py.File(self.hdf_path, 'a')
-                keep_hdf = False
-
-            # Write data to hdf
-            curr_grp = self.hdf[f'/xrdmap'].require_group('scalers')
-            curr_grp.attrs['time_stamp'] = ttime.ctime()
-
-            for key, value in self.sclr_dict.items():
-                value = np.asarray(value)
-                dset = curr_grp.require_dataset(key,
-                                                data=value,
-                                                shape=value.shape,
-                                                dtype=value.dtype)
-                
-                dset.attrs['labels'] = ['map_x', 'map_y']
-                dset.attrs['units'] = 'counts'
-                dset.attrs['dtype'] = str(value.dtype)
-
-            # Close hdf and reset attribute
-            if not keep_hdf:
-                self.hdf.close()
-                self.hdf = None
+        self.save_sclr_pos('scalers',
+                            self.sclr_dict,
+                            self.scaler_units)
     
 
     def set_positions(self, pos_dict, position_units=None):
@@ -883,6 +861,31 @@ class XRDMap():
             position_units = 'unk.'
         self.position_units = position_units
 
+        # Determine fast scanning direction for map extent
+        if (np.mean(np.diff(self.pos_dict['map_x'], axis=1))
+            > np.mean(np.diff(self.pos_dict['map_x'], axis=0))):
+            map_extent = [
+                np.mean(self.pos_dict['map_x'][0]),
+                np.mean(self.pos_dict['map_x'][-1]),
+                np.mean(self.pos_dict['map_y'][:, 0]),
+                np.mean(self.pos_dict['map_y'][:, -1])
+            ]
+        else:
+            map_extent = [
+                np.mean(self.pos_dict['map_x'].T[:, 0]),
+                np.mean(self.pos_dict['map_x'].T[:, -1]),
+                np.mean(self.pos_dict['map_y'].T[0]),
+                np.mean(self.pos_dict['map_y'].T[-1])
+            ]
+        self.map_extent = map_extent
+
+        # Write to hdf file
+        self.save_sclr_pos('positions',
+                            self.pos_dict,
+                            self.position_units)
+
+    
+    def save_sclr_pos(self, group_name, map_dict, unit_name):
         # Write to hdf file
         if self.hdf_path is not None:
 
@@ -893,18 +896,36 @@ class XRDMap():
                 keep_hdf = False
 
             # Write data to hdf
-            curr_grp = self.hdf[f'/xrdmap'].require_group('positions')
+            curr_grp = self.hdf[f'/xrdmap'].require_group(group_name)
             curr_grp.attrs['time_stamp'] = ttime.ctime()
 
-            for key, value in self.pos_dict.items():
+            for key, value in map_dict.items():
                 value = np.asarray(value)
-                dset = curr_grp.require_dataset(key,
-                                                data=value,
-                                                shape=value.shape,
-                                                dtype=value.dtype)
                 
+                if key in curr_grp.keys():
+                    dset = curr_grp[key]
+                    if (value.shape == dset.shape
+                        and value.dtype == dset.dtype):
+                        dset[...] = value
+                    else:
+                        del dset # deletes flag, but not the data...
+                        dset = curr_grp.require_dataset(
+                                                    key,
+                                                    data=value,
+                                                    shape=value.shape,
+                                                    dtype=value.dtype
+                                                    )
+                else:
+                    dset = curr_grp.require_dataset(
+                                        key,
+                                        data=value,
+                                        shape=value.shape,
+                                        dtype=value.dtype
+                                        )
+                
+                # Update attrs everytime
                 dset.attrs['labels'] = ['map_x', 'map_y']
-                dset.attrs['units'] = self.position_units
+                dset.attrs['units'] = unit_name
                 dset.attrs['dtype'] = str(value.dtype)
 
             # Close hdf and reset attribute
@@ -933,7 +954,83 @@ class XRDMap():
 
         self.set_positions(pos_dict, position_units)
         self.set_scalers(sclr_dict)
+
+
+    # Method to swap axes, specifically swapping the default format of fast and slow axes
+    def swap_axes(self, exclude_imagemap=False, save_updates=False):
+        # This will break if images are loaded with dask.
+        # _temp_images will be of the wrong shape...
+        # could be called before _temp_images dataset is instantiated??
+        # exclude_imagemap included to swap axes upon instantiation
+        # Never save imagemap. Leave that for specific situations...
+
+        if self.map.title == 'final_images' and not exclude_imagemap:
+            warn_str = ('WARNING: ImageMap has been finalized.'
+                        + '\nSaving other attributes with swapped '
+                        + 'axes may create inconsistencies.')
+            print(warn_str)
+
+        if not exclude_imagemap:
+            transform_list = [self.map.images]
+        else:
+            transform_list = []
         
+        if hasattr(self, 'pos_dict'):
+            transform_list += list(self.pos_dict.keys())
+        if hasattr(self, 'sclr_dict'):
+            transform_list += list(self.sclr_dict.keys())
+
+        for arr in transform_list:
+            arr = np.swapaxes(arr, 0, 1)
+
+        # Update imagemap attrs if included
+        if not exclude_imagemap:
+            # Update shape values
+            self.map.shape = self.map.images.shape
+            #self.map.num_images = np.multiply(*self.map.images.shape[:2])
+            self.map.map_shape = self.map.shape[:2]
+            #self.map.image_shape = self.map.shape[2:]
+
+            # Delete any cached ImaegeMap maps
+            old_attr = list(self.map.__dict__.keys())       
+            for attr in old_attr:
+                if attr in ['_min_map',
+                            '_max_map',
+                            '_med_map',
+                            '_sum_map',
+                            '_mean_map',]:
+                    delattr(self.map, attr)
+
+        # Exchange map_extent
+        if hasattr(self, 'map_extent'):
+            map_extent = self.map_extent.copy()
+            self.map_extent = [map_extent[2],
+                               map_extent[3],
+                               map_extent[0],
+                               map_extent[1]]
+            
+        # Update spot map_indices
+        if hasattr(self, 'spots'):
+            map_x_ind = self.spots['map_x'].values
+            map_y_ind = self.spots['map_y'].values
+            self.spots['map_x'] = map_y_ind
+            self.spots['map_y'] = map_x_ind
+
+        if save_updates:
+            if hasattr(self, 'pos_dict'):
+                # Write to hdf file
+                self.save_sclr_pos('positions',
+                                    self.pos_dict,
+                                    self.position_units)
+                
+            if hasattr(self, 'sclr_dict'):
+                self.save_sclr_pos('scalers',
+                                    self.sclr_dict,
+                                    self.scaler_units)
+                
+            if hasattr(self, 'spots'):
+                self.save_spots()
+
     
     #########################################
     ### Manipulating and Selecting Phases ###

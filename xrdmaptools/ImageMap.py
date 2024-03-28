@@ -1239,6 +1239,7 @@ class ImageMap:
         
         print(f'Diffraction map size is {disk_size:.3f} {units}.')
 
+    # WIP apparently???
     @staticmethod
     def estimate_disk_size(size):
         # External reference function to estimate map size before acquisition
