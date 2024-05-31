@@ -66,7 +66,7 @@ def _initial_spot_analysis(xrdmap, SpotModel=None):
         spot_tth = xrdmap.spots['guess_cen_tth'].values
         spot_chi = xrdmap.spots['guess_cen_chi'].values
     
-    q_values = get_q_vect(spot_tth, spot_chi, xrdmap.wavelength)
+    q_values = get_q_vect(spot_tth, spot_chi, xrdmap.wavelength, degrees=True)
 
     for key, value in zip(['qx', 'qy', 'qz'], q_values):
         xrdmap.spots[key] = value

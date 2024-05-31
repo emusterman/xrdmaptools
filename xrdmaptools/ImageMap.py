@@ -566,7 +566,7 @@ class ImageMap:
 
     ### Geometric corrections ###
     # TODO: Add conditionals to allow corrections to be applied to calibrated images
-
+    # FIX ME!!!
     def apply_lorentz_correction(self, experiment='single', corrections=None, custom=None, apply=True):
 
         if self.corrections['lorentz']:
@@ -602,9 +602,10 @@ class ImageMap:
         #TODO: Add conditional for calibrated images
         # In radians
         tth_arr = self.ai.twoThetaArray().astype(self.dtype)
-        chi_arr = self.ai.chiArray().astype(self.dtype)
+        chi_arr = -self.ai.chiArray().astype(self.dtype)
 
         # Check for discontinuities
+        # FIX ME!!!
         if np.max(np.gradient(chi_arr)) > (np.pi / 6): # Semi-arbitrary cut off
             chi_arr[chi_arr < 0] += (2 * np.pi)
 
@@ -792,9 +793,9 @@ class ImageMap:
                 scaler_arr = self.med_map
                 sclr_key = 'med'
 
-        elif scaler_arr.shape != self.image_shape:
+        elif scaler_arr.shape != self.map_shape:
             err_str = (f'Scaler array shape of {scaler_arr.shape} does '
-                      + f'not match image shape of {self.image_shape}.')
+                      + f'not match map shape of {self.map_shape}.')
             raise ValueError(err_str)
         else:
             sclr_key = 'input'
@@ -803,7 +804,7 @@ class ImageMap:
         scaler_arr = np.asarray(scaler_arr)
         if scaler_arr.shape != self.map_shape:
             raise ValueError(f'''Scaler array of shape {scaler_arr.shape} does not 
-                            match the map shape of {self.map_shape}!''')
+                            match the map shape of {self.map_shape}.''')
    
         print(f'Normalize image by {sclr_key} scaler...', end='', flush=True)
         self.images /= scaler_arr.reshape(*self.map_shape, 1, 1)
@@ -911,7 +912,7 @@ class ImageMap:
     # Geometric calibration
     # TODO: Test with various dask implementations
     #        Move to geometry?
-    def calibrate_images(self, title=None,
+    def integrate2d_images(self, title=None,
                          unit='2th_deg',
                          tth_resolution=0.02,
                          chi_resolution=0.05,
@@ -1029,11 +1030,6 @@ class ImageMap:
                                           correctSolidAngle=correctSolidAngle,
                                           **kwargs)
             
-            # Lorentz_correction is deprecated in favor of an independent version
-            #if Lorentz_correction: # Yong was disappointed I did not have this already
-            #    rad = np.radians(tth / 2)
-            #    res /=  1 / (np.sin(rad) * np.sin(2 * rad))
-
             calibrated_map[i] = res
 
         calibrated_map = calibrated_map.reshape(*self.map_shape,
@@ -1151,8 +1147,8 @@ class ImageMap:
         return calibration_mask
     
 
-    def rescale_images(self, lower=0, upper=100,
-                       arr_min=None, arr_max=None,
+    def rescale_images(self, lower=None, upper=100,
+                       arr_min=0, arr_max=None,
                        mask=None):
 
         if mask is None and np.any(self.mask != 1):
@@ -1212,11 +1208,168 @@ class ImageMap:
                 print('done!')
 
 
-    ##########################
-    ### Plotting Functions ###
-    ##########################
+    #######################
+    ### Integrated Data ###
+    #######################
+    # Dask is not implemented for integrations...
+
+    def integrate1d_image():
+        raise NotImplementedError()
+    # Check and tag for tth, tth_num, and units
+        
+
+    def integrated1d_map():
+        raise NotImplementedError()
+    # Add warning about the state of image corrections...
+    # Save as it's own attribute
+    # Write to hdf!
+    
+
+    def integrated2d_map():
+        raise NotImplementedError()
+    # Add warning about the state of image corrections...
+    # Overwrite images attribute
+
+    ### 1D integration projections
+
+    # Calculated as the 1D integration of the image projection
+    def integration_projection_factory(property_abbreviation):
+        property_name = f'_{property_abbreviation}_integration' # This line is crucial! 
+        def get_projection(self):
+            if hasattr(self, property_name):
+                return getattr(self, property_name)
+            else:
+                # Return image projection of integration
+                projection_2d = getattr(self, f'{property_abbreviation}_image')
+
+                tth, integration = self.intergate1d_image(projection_2d)
+                setattr(self, property_name, integration)
+
+        def set_projection(self, value):
+            setattr(self, property_name, value)
+
+        def del_projection(self):
+            delattr(self, property_name)
+        
+        return property(get_projection, set_projection, del_projection)
+    
+    min_integration = integration_projection_factory('min')
+    max_integration = integration_projection_factory('max')
+    med_integration = integration_projection_factory('med')
+    mean_integration = integration_projection_factory('mean')
+
+    @property
+    def composite_integration(self):
+        if hasattr(self, f'_composite_integration'):
+            return getattr(self, f'_composite_integration')
+        else:
+            setattr(self, f'_{self.title}_composite_integration',
+                    self.max_image - self.min_image)
             
-    # Moved to XRDMap class
+            # Set the generic value to this as well
+            self._composite_integration = getattr(self, f'_{self.title}_composite_integration')
+
+            # Save image to hdf. Should update if changed
+            self.save_images(self._composite_integration,
+                             f'_{self.title}_composite_integration')
+
+            # Finally return the requested attribute
+            return getattr(self, f'_composite_integration')
+        
+    @composite_integration.deleter
+    def composite_integration(self):
+        delattr(self, '_composite_integration')
+
+    ### 1D integration corrections
+    
+    def estimate_integration_background(self, method=None, background=None, **kwargs):
+        method = str(method).lower()
+
+        if background is None:
+            # Many different background methods have been implemented
+            if method in ['med', 'median']:
+                print('Estimating background from median values.')
+                self.integration_background = self.med_integration
+                self.integration_background_method = 'median'
+
+            elif method in ['min', 'minimum']:
+                print('Estimating background with minimum method.')
+                self.integration_background = self.min_integration
+                self.integration_background_method = 'minimum'
+                
+            elif method in ['ball', 'rolling ball', 'rolling_ball']:
+                #raise NotImplementedError('Cannot yet exclude contribution from masked regions.')
+                print('Estimating background with rolling ball method.')
+                self.integration_background = rolling_ball(self.integrations, **kwargs)
+                self.integration_background_method = 'rolling ball'
+
+            elif method in ['spline', 'spline fit', 'spline_fit']:
+                raise NotImplementedError('Still need to write function for integrations.')
+                print('Estimating background with spline fit.')
+                self.integration_background = fit_spline_bkg(self, **kwargs)
+                self.integration_background_method = 'spline'
+
+            elif method in ['poly', 'poly fit', 'poly_fit']:
+                raise NotImplementedError('Still need to write function for integrations.')
+                print('Estimating background with polynomial fit.')
+                print('Warning: This method is slow and not very accurate.')
+                self.integration_background = fit_poly_bkg(self, **kwargs)
+                self.integration_background_method = 'polynomial'
+
+            elif method in ['Gaussian', 'gaussian', 'gauss']:
+                raise NotImplementedError('Still need to write function for integrations.')
+                print('Estimating background with gaussian convolution.')
+                print('Note: Progress bar is unavailable for this method.')
+                self.integration_background = masked_gaussian_background(self, **kwargs)
+                self.integration_background_method = 'gaussian'
+
+            elif method in ['Bruckner', 'bruckner']:
+                raise NotImplementedError('Still need to write function for integrations.')
+                print('Estimating background with Bruckner algorithm.')
+                self.integration_background = masked_bruckner_background(self, **kwargs)
+                self.integration_background_method = 'bruckner'
+
+            elif method in ['none']:
+                print('No background correction will be used.')
+                self.integration_background = None
+                self.integration_background_method = 'none'
+            
+            else:
+                raise NotImplementedError(f'Method "{method}" not implemented!')
+    
+        else:
+            print('User-specified background.')
+            self.integration_background = background
+            self.integration_background_method = 'custom'
+    
+
+    def remove_integration_background(background=None):
+        raise NotImplementedError()
+        if background is None:
+            if hasattr(self, 'integration_background'):
+                background = getattr(self, 'integration_background')
+            else:
+                print('No background removal.')
+                return
+        else:
+            self.integration_background = background
+            
+        print('Removing background...', end='', flush=True)
+        self.integrations -= self.integration_background
+
+        # Save updated integrations
+        self.save_integrations()
+
+        # Save backgrounds
+        # Not as costly as image backgrounds
+
+        # Remove no longer needed backgrounds
+        del self.background
+    
+
+    def rescale_integrations():
+        raise NotImplementedError()
+
 
     ####################
     ### IO Functions ###
@@ -1248,6 +1401,32 @@ class ImageMap:
             raise TypeError('Size argument must be iterable of map dimensions.')
 
         disk_size = np.prod([*size, 2])
+
+
+    def _get_save_labels(self, arr_shape):
+        units = 'a.u.'
+        labels = []
+
+        if len(arr_shape) == 4: # Image map
+            labels = ['x_ind',
+                      'y_ind']
+            if self.corrections['polar_calibration']:
+                labels.extend(['chi_ind', 'tth_ind'])
+            else:
+                labels.extend(['img_y', 'img_x'])
+
+        elif len(arr_shape) == 2: # Image
+            if self.corrections['polar_calibration']:
+                labels.extend(['chi_ind', 'tth_ind'])
+            else:
+                labels.extend(['img_y', 'img_x'])
+
+        elif len(arr_shape) == 3: # Integrations
+            labels = ['x_ind',
+                      'y_ind',
+                      'tth_ind']
+
+        return units, labels
 
 
     def save_images(self, images=None, title=None, units=None, labels=None,
@@ -1317,14 +1496,15 @@ class ImageMap:
                             compression=compression,
                             compression_opts=compression_opts,
                             chunks=chunks)
-        else: # Overwrite data. No checks are performed
+        else: # Overwrite data
             dset = img_grp[title]
-
+            
+            # Check array compatibility
             if (dset.shape == image_shape
                 and dset.dtype == image_dtype
                 and dset.chunks == chunks):
                 if not dask_flag:
-                    dset[...] = images # Replace data if the size, shape and chunks match
+                    dset[...] = images # Replace data if the size, shape, and chunks match
                 else:
                     pass # Leave the dataset for now
             else:
@@ -1364,18 +1544,88 @@ class ImageMap:
             self.hdf = None
 
 
-    def _get_save_labels(self, arr_shape):
-        units = 'a.u.'
-        labels = []
+    def save_integrations(self, integrations=None, title=None,
+                          units=None, labels=None,
+                          mode='a', extra_attrs=None):
+        # No dask support
 
-        if len(arr_shape) == 4:
-            labels = ['x_ind',
-                      'y_ind']
+        if self.hdf_path is None:
+            return # Should disable working with hdf if no information is provided
         
-        if self.corrections['polar_calibration']:
-            labels.extend(['chi_ind', 'tth_ind'])
+        if integrations is None:
+            integrations = self.integrations
         else:
-            labels.extend(['img_y', 'img_x'])
+            # This conditional is for single images mostly (e.g., dark-field)
+            integrations = np.asarray(integrations)
+        
+        if title is None:
+            title = f'{self.title}_integrations'
 
-        return units, labels
-    
+        # Get labels
+        _units, _labels = self._get_save_labels(images.shape)
+        if units is None:
+            units = _units
+        if labels is None:
+            labels = _labels
+
+        # Check shape and set title
+        if integrations.ndim != 3:
+            raise ValueError(f'Integrations must have 3 dimensions, not {len(integrations.shape)}.')
+        
+        # Flag of state hdf
+        close_flag = False
+        if self.hdf is None:
+            close_flag = True
+            self.hdf = h5py.File(self.hdf_path, mode)
+
+        # Grab some metadata
+        integrations_shape = integrations.shape
+        integrations_dtype = integrations.dtype
+
+        int_grp = self.hdf['/xrdmap/integration_data']
+        
+        if title not in int_grp.keys():
+            dset = int_grp.require_dataset(
+                            title,
+                            data=integrations,
+                            shape=integrations_shape,
+                            dtype=integrations_dtype,
+                            compression=None, # default
+                            compression_opts=None, # default
+                            chunks=None) # default
+        else: # Overwrite data. No checks are performed
+            dset = int_grp[title]
+
+            if (dset.shape == integrations_shape
+                and dset.dtype == integrations_dtype):
+                dset[...] = integrations
+            else:
+                # This is not the best, because this only deletes the flag. The data stays
+                del int_grp[title]
+                dset = int_grp.create_dataset(
+                            title,
+                            data=integrations,
+                            shape=integrations_shape,
+                            dtype=integrations_dtype,
+                            compression=None, # default
+                            compression_opts=None, # default
+                            chunks=None) # defualt
+        
+        dset.attrs['labels'] = labels
+        dset.attrs['units'] = units
+        dset.attrs['dtype'] = str(integrations_dtype)
+        dset.attrs['time_stamp'] = ttime.ctime()
+
+        # Add non-standard extra metadata attributes
+        if extra_attrs is not None:
+            for key, value in extra_attrs.items():
+                dset.attrs[key] = value
+
+        # Add correction information to each dataset
+        if title[0] != '_':
+            for key, value in self.corrections.items():
+                dset.attrs[f'_{key}_correction'] = value
+        
+        if close_flag:
+            self.hdf.close()
+            self.hdf = None

@@ -13,6 +13,7 @@ import dask.array as da
 import skimage.io as io
 from skimage.measure import label
 from dask_image import imread as dask_io
+from tqdm import tqdm
 
 # Local imports
 from .ImageMap import ImageMap
@@ -34,6 +35,7 @@ from .reflections.spot_blob_search import (
     )
 
 from .plot.interactive_plotting import interactive_dynamic_2d_plot
+from .plot.general import _parse_xrdmap, plot_map
 
 from .geometry.geometry import *
 
@@ -383,25 +385,6 @@ class XRDMap():
             # Don't bother returning a tuple or list of xrdmaps
             return xrdmaps[0]
     
-
-    '''@classmethod # Allows me to define and initiatie the class simultaneously
-    def from_db(cls,
-                scanid=-1,
-                broker='manual',
-                filedir=None,
-                filename=None,
-                poni_file=None,
-                save_hdf=True):
-        
-        outmap = make_xrdmap_hdf(scanid=scanid,
-                                 broker=broker,
-                                 filedir=filedir,
-                                 filename=filename,
-                                 poni_file=poni_file,
-                                 return_xrdmap=True,
-                                 save_hdf=save_hdf)
-
-        return outmap'''
     
     ##################
     ### Properties ###
@@ -448,6 +431,8 @@ class XRDMap():
             for key in self.phases.keys():
                 self.phases[key].energy = self._energy
 
+
+    # Convenience properties for working with the detector array
     
     @property
     def tth_arr(self):
@@ -466,6 +451,9 @@ class XRDMap():
         elif hasattr(self, 'ai') and self.ai is not None:
             self._tth_arr = np.degrees(self.ai.twoThetaArray())
             return self._tth_arr
+        
+        else:
+            raise AttributeError('AzimuthalIntegrator (ai) not specified for XRDMap.')
     
     @tth_arr.deleter
     def tth_arr(self):
@@ -491,21 +479,44 @@ class XRDMap():
                 return self._chi_arr
 
         elif hasattr(self, 'ai') and self.ai is not None:
-            self._chi_arr = np.degrees(self.ai.chiArray())
+            # Negative to convert to SRX coordinate system
+            self._chi_arr = -np.degrees(self.ai.chiArray())
             return self._chi_arr
+        
+        else:
+            raise AttributeError('AzimuthalIntegrator (ai) not specified for XRDMap.')
     
     @chi_arr.deleter
     def chi_arr(self):
         self._del_arr()
     
+    #@property
+    #def delta_chi(self):
+    #    pos_chi = self.chi_arr.copy()
+    #    # Check for discontinuities
+    #    if np.max(np.gradient(pos_chi)) > 30: # Semi-arbitrary cut off
+    #        pos_chi[pos_chi < 0] += 360
+    #
+    #    return delta_array(pos_chi)
+    
     @property
     def delta_chi(self):
-        pos_chi = self.chi_arr.copy()
-        # Check for discontinuities
-        if np.max(np.gradient(pos_chi)) > 30: # Semi-arbitrary cut off
-            pos_chi[pos_chi < 0] += 360
+        chi = self.chi_arr.copy()
 
-        return delta_array(pos_chi)
+        max_chi = np.max(np.abs(chi))
+        delta_chi = delta_array(chi)
+
+        # Modular shift values if there is a discontinuity
+        if np.max(delta_chi) > max_chi:
+            if max_chi > np.pi:
+                shift_value = 2 * 180
+            else:
+                shift_value = 2 * np.pi
+
+            chi[chi < 0] += shift_value
+
+        delta_chi = delta_array(chi)
+        return delta_chi
 
     
     @property
@@ -513,9 +524,12 @@ class XRDMap():
         if hasattr(self, '_q_arr'):
             return self._q_arr
         elif self.tth_arr is None or self.chi_arr is None:
-            raise RuntimeError('Cannot calculate q-space without tth and chi values.')
+            raise RuntimeError('Cannot calculate q-space with NoneType tth_arr or chi_arr.')
         else:
-            q_arr = get_q_vect(self.tth_arr, self.chi_arr, wavelength=self.wavelength)
+            q_arr = get_q_vect(self.tth_arr,
+                               self.chi_arr,
+                               wavelength=self.wavelength,
+                               degrees=True)
             self._q_arr = q_arr
             return self._q_arr
 
@@ -642,12 +656,15 @@ class XRDMap():
             if poni_file[-4:] != 'poni':
                 raise RuntimeError("Please provide a .poni file.")
 
+            print('Setting detector calibration...')
             self.ai = pyFAI.load(f'{filedir}{poni_file}')
         
         elif isinstance(poni_file, OrderedDict):
+            print('Setting detector calibration...')
             self.ai = AzimuthalIntegrator().set_config(poni_file)
 
         elif isinstance(poni_file, ponifile.PoniFile):
+            print('Setting detector calibration...')
             self.ai = AzimuthalIntegrator().set_config(poni_file.as_dict())
         
         else:
@@ -703,6 +720,9 @@ class XRDMap():
         # Share ai with ImageMap
         if hasattr(self, 'map') and self.map is not None:
             self.map.ai = self.ai
+
+        # reset any previous calibrated arrays
+        self._del_arr()
         
         # Save poni files as dictionary 
         # Updates poni information to update detector settings
@@ -738,76 +758,198 @@ class XRDMap():
                 self.hdf = None
 
 
-    # Move this to a function in geometry??
-    def calibrate_images(self, poni_file=None, filedir=None,
-                         title='calibrated_images', unit='2th_deg',
-                         tth_resolution = 0.02, chi_resolution = 0.05,
-                         polarization_factor=None,
-                         Lorentz_correction=None,
-                         **kwargs):
-        if poni_file is not None:
-            self.set_calibration(poni_file, filedir=filedir)
+    def integrate1d_map(self,
+                        tth_num=None,
+                        tth_resolution=0.01,
+                        unit='2th_deg',
+                        **kwargs):
+        
         if not hasattr(self, 'ai'):
             raise RuntimeError("Images cannot be calibrated without any calibration files!")
+        
+        tth_min = np.min(self.tth_arr)
+        tth_max = np.max(self.tth_arr)
+        if tth_num is None:
+            tth_num = int(np.round((tth_max - tth_min) / tth_resolution))
+        elif tth_num is not None:
+            tth_resolution = (tth_max - tth_min) / tth_num
+        elif tth_num is None and tth_resolution is None:
+            raise ValueError('Must define either tth_num or tth_resolution.')
 
+        # Set up empty array to fill
+        integrated_map1d = np.empty((self.map.num_images, 
+                                     tth_num), 
+                                     dtype=(self.map.dtype))
         
-        if hasattr(self, 'tth_resolution'):
-            tth_resolution = self.tth_resolution
-        if hasattr(self, 'chi_resolution'):
-            chi_resolution = self.chi_resolution
+        # Fill array!
+        print('Integrated images to 1D...', end='', flush=True)
+        # TODO: Parallelize this
+        for i, pixel in tqdm(enumerate(self.map.images.reshape(
+                                       self.map.num_images,
+                                       *self.map.image_shape)),
+                                       total=self.map.num_images):
         
-        out = self.map.calibrate_images(self.ai, title=title,
-                                        tth_resolution=tth_resolution,
-                                        chi_resolution=chi_resolution,
-                                        unit=unit,
-                                        polarization_factor=polarization_factor,
-                                        Lorentz_correction=Lorentz_correction,
-                                        **kwargs)
-        
-        self.tth = out[0]
-        self.chi = out[1]
-        self.extent = out[2]
-        self.calibrated_shape = out[3]
-        self.tth_resolution = out[4]
-        self.chi_resolution = out[5]
+            tth, I, = self.integrate1d_image(image=pixel,
+                                             tth_num=tth_num,
+                                             unit=unit,
+                                             **kwargs)            
 
-        # Clean up a few cached properties. Will reset when next called
-        del self.tth_arr
-        del self.chi_arr
+            integrated_map1d[i] = I
+
+        # Reshape into (map_x, map_y, 1, tth)
+        # matches tth position for 2d integration and vertical chi
+        integrated_map1d = integrated_map1d.reshape(
+                                *self.map.map_shape, 1, tth_num)
+        #self.map.images = integrated_map1d
+        self.map.integrations = integrated_map1d
+        
+        # Save a few potentially useful parameters
+        self.tth = tth
+        self.tth_num = tth_num
+        self.extent = [np.min(self.tth), np.max(self.tth)]
+        self.tth_resolution = tth_resolution
         
 
-    def integrate_1d(self, image=None, tth_num=4096,
-                     unit='2th_deg',
-                     polarization_factor=None, correctSolidAngle=False, **kwargs):
+    def integrated2d_map(self,
+                        tth_num=None,
+                        tth_resolution=0.02,
+                        chi_num=None,
+                        chi_resolution=0.05,
+                        unit='2th_deg',
+                        **kwargs):
+        
+        
+        if not hasattr(self, 'ai'):
+            raise RuntimeError("Images cannot be calibrated without any calibration files!")
+        
+        # Get tth numbers
+        tth_min = np.min(self.tth_arr)
+        tth_max = np.max(self.tth_arr)
+        if tth_num is None:
+            tth_num = int(np.round((tth_max - tth_min) / tth_resolution))
+        elif tth_num is not None:
+            tth_resolution = (tth_max - tth_min) / tth_num
+        elif tth_num is None and tth_resolution is None:
+            raise ValueError('Must define either tth_num or tth_resolution.')
+        
+        # Get chi numbers
+        chi_min = np.min(self.chi_arr)
+        chi_max = np.max(self.chi_arr)
+        if chi_num is None:
+            chi_num = int(np.round((chi_max - chi_min) / chi_resolution))
+        elif chi_num is not None:
+            chi_resolution = (chi_max - chi_min) / chi_num
+        elif chi_num is None and chi_resolution is None:
+            raise ValueError('Must define either chi_num or chi_resolution.')
+
+        # Set up empty array to fill
+        integrated_map2d = np.empty((self.map.num_images, 
+                                     chi_num, tth_num), 
+                                     dtype=(self.map.dtype))
+        
+        # Fill array!
+        print('Integrated images to 2D...', end='', flush=True)
+        # TODO: Parallelize this
+        for i, pixel in tqdm(enumerate(self.map.images.reshape(
+                                       self.map.num_images,
+                                       *self.map.image_shape)),
+                                       total=self.map.num_images):
+        
+            I, tth, chi = self.integrate2d_image(image=pixel,
+                                                 tth_num=tth_num,
+                                                 unit=unit,
+                                                 **kwargs)            
+
+            integrated_map2d[i] = I
+
+        # Reshape into (map_x, map_y, chi, tth)
+        integrated_map2d = integrated_map2d.reshape(
+                                *self.map.map_shape, chi_num, tth_num)
+        self.map.images = integrated_map2d
+        
+        # Save a few potentially useful parameters
+        self.tth = tth
+        self.tth_num = tth_num
+        self.chi = chi
+        self.chi_num = chi_num
+        self.extent = [np.min(self.tth), np.max(self.tth),
+                       np.min(self.chi), np.max(self.chi),]
+        self.tth_resolution = tth_resolution
+        self.chi_resolution = chi_resolution
+        
+    # One off 1D integration
+    def integrate1d_image(self,
+                          image=None,
+                          tth_resolution=0.01,
+                          tth_num=None,
+                          unit='2th_deg',
+                          **kwargs):
         # Intended for one-off temporary results
 
         if image is None:
             if self.map.corrections['polar_calibration']:
                 raise RuntimeError("You are trying to calibrate already calibrated images!")
             else:
-                image = self.map.composite_image  
+                image = self.map.composite_image
+
+        tth_min = np.min(self.tth_arr)
+        tth_max = np.max(self.tth_arr)
+        if tth_num is None:
+            tth_num = int(np.round((tth_max - tth_min) / tth_resolution))
+        # Not used for this particular bit
+        #elif tth_num is not None:
+        #    tth_resolution = (tth_max - tth_min) / tth_num
+        elif tth_num is None and tth_resolution is None:
+            raise ValueError('Must define either tth_num or tth_resolution.')
         
         return self.ai.integrate1d_ng(image, tth_num,
                                       unit=unit,
-                                      polarization_factor=polarization_factor,
-                                      correctSolidAngle=correctSolidAngle,
+                                      correctSolidAngle=False,
+                                      polarization_factor=None,
                                       **kwargs)
     
+    # One off 2D integration
+    def integrate2d_image(self,
+                          image,
+                          tth_num=None,
+                          tth_resolution=0.02,
+                          chi_num=None,
+                          chi_resolution=0.05,
+                          unit='2th_deg',
+                          **kwargs):
+        # Intended for one-off temporary results
 
-    def integrate_2d(self, image, tth_num, chi_num, unit='2th_deg',
-                     polarization_factor=None, correctSolidAngle=False, **kwargs):
-        # Intented for one-off temporary results
         if image is None:
             if self.map.corrections['polar_calibration']:
                 raise RuntimeError("You are trying to clibrate already calibrated images!")
             else:
                 image = self.map.composite_image
+
+        # Get tth numbers
+        tth_min = np.min(self.tth_arr)
+        tth_max = np.max(self.tth_arr)
+        if tth_num is None:
+            tth_num = int(np.round((tth_max - tth_min) / tth_resolution))
+        elif tth_num is not None:
+            tth_resolution = (tth_max - tth_min) / tth_num
+        elif tth_num is None and tth_resolution is None:
+            raise ValueError('Must define either tth_num or tth_resolution.')
+        
+        # Get chi numbers
+        chi_min = np.min(self.chi_arr)
+        chi_max = np.max(self.chi_arr)
+        if chi_num is None:
+            chi_num = int(np.round((chi_max - chi_min) / chi_resolution))
+        elif chi_num is not None:
+            chi_resolution = (chi_max - chi_min) / chi_num
+        elif chi_num is None and chi_resolution is None:
+            raise ValueError('Must define either chi_num or chi_resolution.')
        
         return self.ai.integrate2d_ng(image, tth_num, chi_num,
-                                        unit=unit,
-                                        polarization_factor=polarization_factor,
-                                        correctSolidAngle=correctSolidAngle,
-                                        **kwargs)
+                                      unit=unit,
+                                      correctSolidAngle=False,
+                                      polarization_factor=None,
+                                      **kwargs)
     
 
     # Convenience function for image to polar coordinate transformation (estimate!)
@@ -858,24 +1000,25 @@ class XRDMap():
 
         # Set position units
         if position_units is None:
-            position_units = 'unk.'
+            position_units = 'μm' # default to microns, not that reliable...
         self.position_units = position_units
 
         # Determine fast scanning direction for map extent
         if (np.mean(np.diff(self.pos_dict['map_x'], axis=1))
             > np.mean(np.diff(self.pos_dict['map_x'], axis=0))):
+            # Fast x-axis. Standard orientation.
             map_extent = [
-                np.mean(self.pos_dict['map_x'][0]),
-                np.mean(self.pos_dict['map_x'][-1]),
-                np.mean(self.pos_dict['map_y'][:, 0]),
-                np.mean(self.pos_dict['map_y'][:, -1])
+                np.mean(self.pos_dict['map_x'][:, 0]),
+                np.mean(self.pos_dict['map_x'][:, -1]),
+                np.mean(self.pos_dict['map_y'][0]),
+                np.mean(self.pos_dict['map_y'][-1])
             ]
-        else:
+        else: # Fast y-axis. Consider swapping axes???
             map_extent = [
-                np.mean(self.pos_dict['map_x'].T[:, 0]),
-                np.mean(self.pos_dict['map_x'].T[:, -1]),
-                np.mean(self.pos_dict['map_y'].T[0]),
-                np.mean(self.pos_dict['map_y'].T[-1])
+                np.mean(self.pos_dict['map_y'][:, 0]),
+                np.mean(self.pos_dict['map_y'][:, -1]),
+                np.mean(self.pos_dict['map_x'][0]),
+                np.mean(self.pos_dict['map_x'][-1])
             ]
         self.map_extent = map_extent
 
@@ -944,13 +1087,13 @@ class XRDMap():
 
         pos_dict, sclr_dict = {}, {}
 
-        pos_dict['enc1'] = arr[0]
-        pos_dict['enc2'] = arr[1]
+        pos_dict['enc1'] = arr[0].reshape(self.map.map_shape)
+        pos_dict['enc2'] = arr[1].reshape(self.map.map_shape)
 
-        sclr_dict['i0'] = arr[2]
-        sclr_dict['i0_time'] = arr[3]
-        sclr_dict['im'] = arr[4]
-        sclr_dict['it'] = arr[5]
+        sclr_dict['i0'] = arr[2].reshape(self.map.map_shape)
+        sclr_dict['i0_time'] = arr[3].reshape(self.map.map_shape)
+        sclr_dict['im'] = arr[4].reshape(self.map.map_shape)
+        sclr_dict['it'] = arr[5].reshape(self.map.map_shape)
 
         self.set_positions(pos_dict, position_units)
         self.set_scalers(sclr_dict)
@@ -970,18 +1113,16 @@ class XRDMap():
                         + 'axes may create inconsistencies.')
             print(warn_str)
 
-        if not exclude_imagemap:
-            transform_list = [self.map.images]
-        else:
-            transform_list = []
-        
-        if hasattr(self, 'pos_dict'):
-            transform_list += list(self.pos_dict.keys())
-        if hasattr(self, 'sclr_dict'):
-            transform_list += list(self.sclr_dict.keys())
+        self.map.images = self.map.images.swapaxes(0, 1)
 
-        for arr in transform_list:
-            arr = np.swapaxes(arr, 0, 1)
+        if hasattr(self, 'pos_dict'):
+            for key in list(self.pos_dict.keys()):
+                self.pos_dict[key] = self.pos_dict[key].swapaxes(0, 1)
+        if hasattr(self, 'sclr_dict'):
+            for key in list(self.sclr_dict.keys()):
+                self.sclr_dict[key] = self.sclr_dict[key].swapaxes(0, 1)
+        if hasattr(self.map, 'spot_masks'):
+            self.map.spot_masks = self.map.spot_masks.swapaxes(0, 1)
 
         # Update imagemap attrs if included
         if not exclude_imagemap:
@@ -1139,7 +1280,7 @@ class XRDMap():
                 image = self.map.composite_image
             
 
-        tth, xrd = self.integrate_1d(image=image, tth_num=tth_num, unit=unit)
+        tth, xrd = self.integrate1d_image(image=image, tth_num=tth_num, unit=unit)
         # Add background subraction??
 
         # Plot phase_selector
@@ -1419,16 +1560,9 @@ class XRDMap():
                 plot_kwargs[key] = kwargs[key]
                 del kwargs[key]
 
-        if hasattr(self.map, 'extent'):
-            if vmin == None:
-                vmin = 0
-            im = ax.imshow(image, extent=self.extent, vmin=vmin, aspect=aspect, **kwargs)
-            ax.set_xlabel('Scattering Angle, 2θ [°]') # Assumes degrees. Need to change...
-            ax.set_ylabel('Azimuthal Angle, χ [°]')
-        else:
-            im = ax.imshow(image, vmin=vmin, aspect=aspect, **kwargs)
-            ax.set_xlabel('X index')
-            ax.set_ylabel('Y index')
+        im = ax.imshow(image, vmin=vmin, aspect=aspect, **kwargs)
+        ax.set_xlabel('X index')
+        ax.set_ylabel('Y index')
         fig.colorbar(im, ax=ax) 
 
         if title is not None:
@@ -1544,6 +1678,7 @@ class XRDMap():
             plt.show()
 
 
+    # TODO: Check for display map prior so it does not alway calculate a new map...
     def plot_interactive_map(self, tth=None, chi=None, **kwargs):
         # I should probably rebuild these to not need tth and chi
         if hasattr(self, 'tth') and tth is None:
@@ -1551,7 +1686,16 @@ class XRDMap():
         if hasattr(self, 'chi') and chi is None:
             chi = self.chi
 
-        interactive_dynamic_2d_plot(np.asarray(self.map.images), tth=tth, chi=chi, **kwargs)
+        # Check for, extract, or determine displaymap
+        if 'display_map' not in kwargs.keys():
+            display_map = self.map.sum_map
+        else:
+            display_map = kwargs['display_map']
+            del kwargs['display_map']
+
+        interactive_dynamic_2d_plot(np.asarray(self.map.images), tth=tth, chi=chi,
+                                    display_map=display_map,
+                                    **kwargs)
         plt.show()
     
 
@@ -1561,11 +1705,33 @@ class XRDMap():
         raise NotImplementedError()
     
 
-    def plot_map(self, data, cmap='viridis'):
-        # Simple base mapping function for analyzed values.
-        # Will expand to map phase assignment, phase integrated intensity, etc.
-        raise NotImplementedError()
+    def plot_map(self,
+                 value,
+                 map_extent=None,
+                 position_units=None,
+                 fig=None,
+                 ax=None,
+                 return_figure=False,
+                 **kwargs):
+        
+        if map_extent is None:
+            map_extent = self.map_extent
+        if position_units is None:
+            position_units = self.position_units
+        
+        fig, ax = plot_map(value,
+                           map_extent=map_extent,
+                           position_units=position_units,
+                           fig=fig,
+                           ax=ax,
+                           **kwargs)
+        
+        if return_figure:
+            return fig, ax
+        else:
+            fig.show()
     
+
     # Dual plotting a map with a representation of the full data would be very interesting
     # Something like the full strain tensor which updates over each pixel
     # Or similar for dynamically updating pole figures

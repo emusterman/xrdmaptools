@@ -149,7 +149,7 @@ def load_XRD_hdf(filename, wd=None, dask_enabled=False):
             #image_map.tth_num = None
             image_map_attrs['tth_resolution'] = None
             image_map_attrs['chi_resolution'] = None
-            image_map_attrs['extent'] = None
+            #image_map_attrs['extent'] = None
             image_map_attrs['chi_num'] = None
             image_map_attrs['tth_num'] = None
 

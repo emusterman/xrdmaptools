@@ -21,7 +21,6 @@ def _parse_xrdmap(xrdmap, indices, mask=False, spots=False, contours=False):
         print('WARNING: Mask requested, but xrdmap.map does not have a mask!')
         out_mask = None
 
-
     # Extract spots
     if spots and hasattr(xrdmap, 'spots'):
         pixel_df = xrdmap.spots[(xrdmap.spots['map_x'] == indices[0])
@@ -74,6 +73,8 @@ def plot_image(image,
                mask=None,
                spots=None,
                contours=None,
+               fig=None,
+               ax=None,
                aspect='auto',
                **kwargs):
     
@@ -88,7 +89,11 @@ def plot_image(image,
             raise ValueError(err_str)
     
     # Plot image
-    fig, ax = plt.subplots(1, 1, figsize=(5, 5), dpi=200)
+    if fig is None and ax is None:
+        fig, ax = plt.subplots(1, 1, figsize=(5, 5), dpi=200)
+    elif fig is None and ax is not None or fig is not None and ax is None:
+        raise ValueError('Figure and axes must both provided or both None')
+    
     # Allow some flexibility for kwarg inputs
     plot_kwargs = {'c' : 'r',
                    'lw' : 0.5,
@@ -99,8 +104,8 @@ def plot_image(image,
             del kwargs[key]
 
     im = ax.imshow(image, aspect=aspect, **kwargs)
-    ax.set_xlabel('X index')
-    ax.set_ylabel('Y index')
+    ax.set_xlabel('x index')
+    ax.set_ylabel('y index')
     fig.colorbar(im, ax=ax)
 
     if title is not None:
@@ -191,5 +196,76 @@ def plot_reconstruction(self, indices=None, plot_residual=False, **kwargs):
 ####################
         
 
-def plot_map(value, map_x, map_y):
-    raise NotImplementedError()
+# Pretty simple...
+def plot_map(value, map_extent=None, position_units=None, fig=None, ax=None, **kwargs):
+
+    if fig is None and ax is None:
+        fig, ax = plt.subplots(1, 1, figsize=(5, 5), dpi=200)
+    elif fig is None and ax is not None or fig is not None and ax is None:
+        raise ValueError('Figure and axes must both provided or both None')
+
+    im = ax.imshow(value, extent=map_extent, **kwargs)
+    fig.colorbar(im, ax=ax)
+
+    # Set position_units. Map_extent must be provided to be valid
+    if position_units is None or map_extent is None:
+        position_units = 'a.u.'
+
+    ax.set_xlabel(f'x position [{position_units}]')
+    ax.set_ylabel(f'y position [{position_units}]')
+
+    ax.set_aspect('equal') # in case of non-square pixel size
+
+    return fig, ax
+
+
+##########################
+### Geometry Corrected ###
+##########################
+
+def plot_integration(intensity, tth, units=None, fig=None, ax=None, **kwargs):
+    
+    if fig is None and ax is None:
+        fig, ax = plt.subplots(1, 1, figsize=(5, 5), dpi=200)
+    elif fig is None and ax is not None or fig is not None and ax is None:
+        raise ValueError('Figure and axes must both provided or both None')
+    
+    if units is None:
+        units = 'a.u.'
+    
+    ax.plot(tth, intensity, **kwargs)
+    ax.set_xlabel(f'scattering angle, 2θ [{units}]')
+
+    return fig, ax
+
+
+
+def plot_cake(intensity, tth, chi, units=None, ax=None, **kwargs):
+
+    if fig is None and ax is None:
+        fig, ax = plt.subplots(1, 1, figsize=(5, 5), dpi=200)
+    elif fig is None and ax is not None or fig is not None and ax is None:
+        raise ValueError('Figure and axes must both provided or both None')\
+        
+    extent = [np.min(tth), np.max(tth), np.min(chi), np.max(chi)]
+
+    if units is None:
+        tth_units = 'a.u.'
+        chi_units = 'a.u.'
+    elif isinstance(units, str):
+        tth_units = units
+        chi_units = units
+    elif isinstance(units, (tuple, list, np.ndarray)):
+        tth_units = units[0]
+        chi_units = units[1]
+    else:
+        TypeError(f'Unknown units type of {type(units)}.')
+
+    im = ax.imshow(intensity, extent=extent, **kwargs)
+    fig.colorbar(im, ax=ax)
+
+    ax.set_xlabel(f'scattering angle, 2θ [{tth_units}]')
+    ax.set_ylabel(f'azimuthal angle, χ [{chi_units}]')
+
+    return fig, ax
+    

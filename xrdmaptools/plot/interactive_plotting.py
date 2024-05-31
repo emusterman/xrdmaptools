@@ -470,13 +470,21 @@ def interactive_dynamic_1d_plot(integrated_data, tth=None,
 
     # Generate plot
     fig, ax = plt.subplots(1, 2, figsize=(10, 5), dpi=200)
-    display_plot(integrated_data, axes=ax, display_map=display_map, display_title=display_title, cmap=cmap, map_vmin=map_vmin, map_vmax=map_vmax, map_norm=map_norm)
+    display_plot(integrated_data,
+                 axes=ax,
+                 display_map=display_map, 
+                 display_title=display_title,
+                 cmap=cmap,
+                 map_vmin=map_vmin,
+                 map_vmax=map_vmax,
+                 map_norm=map_norm)
 
     # Plot display map with marker
-    global marker, dynamic_toggle
-    marker = ax[0].scatter(0, 0)
-    marker.set_visible(False)
-    dynamic_toggle = False
+    #global marker, dynamic_toggle
+    #marker = ax[0].scatter(0, 0)
+    #marker.set_visible(False)
+    #dynamic_toggle = False
+    set_globals(ax)
 
     # Make interactive
     def onclick(event):
@@ -516,7 +524,14 @@ def interactive_dynamic_2d_plot(calibrated_data, tth=None, chi=None,
 
     # Generate plot
     fig, ax = plt.subplots(1, 2, figsize=(10, 5), dpi=200)
-    display_plot(calibrated_data, axes=ax, display_map=display_map, display_title=display_title, cmap=cmap, map_vmin=map_vmin, map_vmax=map_vmax, map_norm=map_norm)
+    display_plot(calibrated_data,
+                 axes=ax,
+                 display_map=display_map,
+                 display_title=display_title,
+                 cmap=cmap,
+                 map_vmin=map_vmin,
+                 map_vmax=map_vmax,
+                 map_norm=map_norm)
 
     ## Plot display map with marker
     #global marker, dynamic_toggle

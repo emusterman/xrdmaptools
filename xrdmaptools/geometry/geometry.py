@@ -2,13 +2,20 @@ import numpy as np
 from scipy.interpolate import griddata
 from scipy.interpolate import RegularGridInterpolator
 
+# Local imports
+from ..utilities.utilities import vector_angle
+
 
 # TODO: a lot
 # Should be an exact transoform between image and polar coordinates. Possibly in pyFAI for individual coordinates
 # Not sure if it is worth the effort
 
+# Create function to get wavelength, tth, and chi from q_vect
+# Create function to estimate nearest pixel from q_vect
+# Create function to estimate nearest tth and chi on detector from nearest 
 
-def get_q_vect(tth, chi, wavelength, return_kf=False, radians=False):
+
+def get_q_vect(tth, chi, wavelength, return_kf=False, degrees=False):
     # Calculate q-vector
     if not isinstance(tth, (list, tuple, np.ndarray)):
         tth = np.asarray([tth])
@@ -16,22 +23,15 @@ def get_q_vect(tth, chi, wavelength, return_kf=False, radians=False):
     if len(tth) != len(chi):
         raise ValueError("Length of tth does not match length of chi.")
     
-    if not radians:
+    if degrees:
         tth = np.radians(tth)
         chi = np.radians(chi)
 
-    #ki_unit = np.broadcast_to(np.array([0, 0, 1]).reshape(3, 1, 1), (3, *tth.shape))
     ki_unit = np.broadcast_to(np.array([0, 0, 1]).reshape(3, *([1,] * len(tth.shape))),
                               (3, *tth.shape))
 
-    # kf_unit = Rz @ Ry @ ki_unit
-    # negative chi due to beamline coordinate system
-    #kf_unit = np.array([-np.sin(tth) * np.cos(-chi),
-    #                    -np.sin(tth) * np.sin(-chi),
-    #                    np.cos(tth)])
-
-    kf_unit = np.array([-np.sin(tth) * np.cos(chi),
-                        -np.sin(tth) * np.sin(chi),
+    kf_unit = np.array([np.sin(tth) * np.cos(chi),
+                        np.sin(tth) * np.sin(chi),
                         np.cos(tth)])
     
     if return_kf:
@@ -39,37 +39,116 @@ def get_q_vect(tth, chi, wavelength, return_kf=False, radians=False):
     
     delta_k = kf_unit - ki_unit
 
-    # Scattering vector with origin set at transmission
-    q = 2 * np.pi / wavelength * delta_k
+    # Scattering vector with origin set at transmission (0, 0, 0)
+    q_vect = 2 * np.pi / wavelength * delta_k
 
-    return q
+    return q_vect
 
 
-def q_2_polar(q_vect, wavelength, degrees=True):
+def vector_angle(v1, v2, degrees=False):
+    angle = np.arccos(np.dot(v1, v2) / (np.linalg.norm(v1, axis=-1) *  np.linalg.norm(v2, axis=-1)))
+    if degrees:
+        angle = np.degrees(angle)
+    return angle
 
+
+def q_2_polar(q_vect, wavelength=None, degrees=False):
     q_vect = np.asarray(q_vect)
-    factor = 2 * np.pi / wavelength
-    norm_q = q_vect / factor
+    q_norm = np.linalg.norm(q_vect, axis=-1)
 
-    tth = np.asarray(np.arccos(norm_q[..., 2] + 1))
-
-    #chi0 = np.asarray(-np.arcsin(norm_q[..., 1] / -np.sin(tth)))
-    #chi0[q_vect[..., 0] < 0] = np.pi + chi0[q_vect[..., 0] < 0]
-    #chi0[q_vect[..., 1] < 0] = -np.abs(chi0[q_vect[..., 1] < 0])
-
-    #chi1 = np.asarray(-np.arccos(norm_q[..., 0] / -np.sin(tth)))
-    #chi1[q_vect[..., 1] < 0] = -np.abs(chi1[q_vect[..., 1] < 0])
-
-    # negative qx to switch to pyFAI coordinate system
-    chi0 = np.arctan2(norm_q[..., 1], -norm_q[..., 0])
+    # Find tth and chi
+    theta = np.pi / 2 - vector_angle(q_vect, [0, 0, -1], degrees=False) # always false
+    tth = 2 * theta
+    # Negative qx to switch to pyFAI coordinate system
+    chi = np.arctan2(q_vect[..., 1], -q_vect[..., 0])
 
     if degrees:
         tth = np.degrees(tth)
-        chi0 = np.degrees(chi0)
-        #chi1 = np.degrees(chi1)
+        chi = np.degrees(chi)
 
-    return tth, chi0
+    # Get radius of Ewald sphere and wavelength
+    if wavelength is None:
+        r = 0.5 * q_norm / np.sin(theta)
+        wavelength = 2 * np.pi / r
 
+    return tth, chi, wavelength
+
+
+# Find nearest q-space position on Ewald sphere within a certain threshold
+def nearest_q_on_ewald(q_vect, wavelength, near_thresh=None):
+    # Currently no way to bound within surface measured by detector
+    
+    q_vect = np.asarray(q_vect)
+
+    r = 2 * np.pi / wavelength # radius of Ewald sphere
+    qx = q_vect[..., 0] 
+    qy = q_vect[..., 1]
+    qz = q_vect[..., 2] + r # shift vector origin to center of Ewald sphere
+    q_norm = np.linalg.norm([qx, qy, qz], axis=0) # evil things with axis ordering
+
+    # Solving parametric equation of a vector intercepting the Ewald sphere
+    t = r / q_norm
+
+    # Nearest q_vect, with transmission center
+    qx_near = t * qx
+    qy_near = t * qy
+    qz_near = t * qz - r
+
+    # Distance normal to Ewald sphere
+    # Positive means input is outside of Ewald sphere
+    q_dist = q_norm - np.linalg.norm([qx_near, qy_near, qz_near + r], axis=0)
+
+    # Mask out values too far away from Ewald sphere
+    if near_thresh is not None:
+        dist_mask = np.abs(q_dist) > near_thresh
+        qx_near[dist_mask] = np.nan
+        qy_near[dist_mask] = np.nan
+        qz_near[dist_mask] = np.nan
+        q_dist[dist_mask] = np.nan
+
+    # Transpose necessary to maintain input shape. Maybe best to shift all q_vectors to be consistent
+    return np.array([qx_near, qy_near, qz_near]).T, q_dist
+
+
+def nearest_polar_on_ewald(q_vect, wavelength,
+                           near_thresh=None, degrees=False):
+
+    q_near, q_dist = nearest_q_on_ewald(q_vect,
+                                        wavelength,
+                                        near_thresh=near_thresh)
+    
+    tth, chi, wavelength = q_2_polar(q_near,
+                                     wavelength=wavelength,
+                                     degrees=degrees)
+    
+    return tth, chi
+
+
+def nearest_pixels_on_ewald(q_vect, wavelength, tth_arr, chi_arr,
+                            near_thresh=None, degrees=False, method='nearest'):
+    # degrees bool must match tth_arr and chi_arr input values
+    
+    tth, chi = nearest_polar_on_ewald(q_vect,
+                                      wavelength,
+                                      near_thresh=near_thresh,
+                                      degrees=degrees)
+    
+    if near_thresh is not None:
+        nan_mask = np.any([np.isnan(tth), np.isnan(chi)], axis=0)
+        tth = tth[~nan_mask]
+        chi = chi[~nan_mask]
+
+    est_img_coords = estimate_image_coords(np.array([tth, chi]).T, tth_arr, chi_arr, method)
+
+    bound_mask = np.any([
+        est_img_coords[:, 0] <= 0,
+        est_img_coords[:, -1] <= 0,
+        est_img_coords[:, 0] >= tth_arr.shape[1] - 1,
+        est_img_coords[:, -1] >= tth_arr.shape[0] - 1
+    ], axis=0)
+
+    return est_img_coords[~bound_mask]
+    
 
 def estimate_polar_coords(coords, tth_arr, chi_arr, method='linear'):
     #coords = np.array([[0, 0], [767, 485], [x, y], ...])
@@ -116,7 +195,35 @@ def estimate_image_coords(coords, tth_arr, chi_arr, method='nearest'):
     # griddata for unstructured data. Fairly slow with any method but nearest
     est_img_coords = griddata(polar_arr, img_arr, coords, method=method)
     est_img_coords = np.round(est_img_coords).astype(np.int32)
-    return est_img_coords
+    return est_img_coords # Given as [[x0, y0], [x1, y1], ...]
+
+
+# Does not yet figure wavelength
+# Intent is to find exact wavelength, tth, and chi values 
+def _q_2_polar_old(q_vect, wavelength, degrees=True):
+
+    q_vect = np.asarray(q_vect)
+    factor = 2 * np.pi / wavelength
+    norm_q = q_vect / factor
+
+    tth = np.asarray(np.arccos(norm_q[..., 2] + 1))
+
+    #chi0 = np.asarray(-np.arcsin(norm_q[..., 1] / -np.sin(tth)))
+    #chi0[q_vect[..., 0] < 0] = np.pi + chi0[q_vect[..., 0] < 0]
+    #chi0[q_vect[..., 1] < 0] = -np.abs(chi0[q_vect[..., 1] < 0])
+
+    #chi1 = np.asarray(-np.arccos(norm_q[..., 0] / -np.sin(tth)))
+    #chi1[q_vect[..., 1] < 0] = -np.abs(chi1[q_vect[..., 1] < 0])
+
+    # negative qx to switch to pyFAI coordinate system
+    chi = np.arctan2(norm_q[..., 1], -norm_q[..., 0])
+
+    if degrees:
+        tth = np.degrees(tth)
+        chi = np.degrees(chi)
+        #chi1 = np.degrees(chi1)
+
+    return tth, chi
 
 
 # deprecated

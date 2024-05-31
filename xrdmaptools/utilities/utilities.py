@@ -64,7 +64,7 @@ def parallel_loop(function, iterable, *args, **kwargs):
 
 
 def label_nearest_spots(spots, max_dist=25, max_neighbors=np.inf):
-    spots - np.asarray(spots)
+    spots = np.asarray(spots)
     dist = euclidean_distances(spots)
 
     spot_indices = list(range(len(spots)))
@@ -163,14 +163,21 @@ def delta_array(arr):
     # Returns the geometric mean of the delta array
     sobel_h = sobel(arr, 0)  # horizontal gradient
     sobel_v = sobel(arr, 1)  # vertical gradient
+
+    # Approximate edges by nearest pixels
+    sobel_h[0] = sobel_h[1] # top row
+    sobel_h[-1] = sobel_h[-2] # bottom row
+    sobel_v[:, 0] = sobel_v[:, 1] # first col
+    sobel_v[:, -1] = sobel_v[:, -2] # last col
+
     magnitude = np.sqrt(sobel_h**2 + sobel_v**2)
 
     return magnitude
 
 
-def vector_angle(v1, v2, radians=False):
-    angle = np.arccos(np.dot(v1, v2) / (np.linalg.norm(v1) *  np.linalg.norm(v2)))
-    if not radians:
+def vector_angle(v1, v2, degrees=False):
+    angle = np.arccos(np.dot(v1, v2) / (np.linalg.norm(v1, axis=-1) *  np.linalg.norm(v2, axis=-1)))
+    if degrees:
         angle = np.degrees(angle)
     return angle
 

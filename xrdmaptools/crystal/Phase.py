@@ -36,12 +36,10 @@ class Phase(xu.materials.Crystal):
     def __repr__(self):
         ostr = f'{self.name} crystal phase'
         # Gettin the lattice information is just a bit to much
-        # TODO: Parse down lattice information to sleaker format
+        # TODO: Parse down lattice information to sleeker format
         #if hasattr(self, 'lattice'):
         #    ostr += '\t'.join(self.lattice.__str__().splitlines(True))
         return ostr
-
-
 
     ### Class methods, Static methods, and Properties
 
@@ -166,10 +164,11 @@ class Phase(xu.materials.Crystal):
 
         all_refl = self.lattice.get_allowed_hkl(qmax=tth_2_q(tth_range[1], wavelength=wavelength))
         all_q = np.linalg.norm(self.Q(*all_refl), axis=1)
+        # TODO: Add conditional to remove below a qmin
         all_q = np.round(all_q, 10) # Clean up some errors
         sort_refl = [tuple(x) for _, x in sorted(zip(all_q, all_refl))]
         all_q.sort()
-        F_hkl = np.abs(self.StructureFactor(sort_refl))
+        F_hkl = np.abs(self.StructureFactor(sort_refl))**2
         #F_hkl = rescale_array(F_hkl, lower=0, upper=100)
 
         hkl_list = []
@@ -214,6 +213,7 @@ class Phase(xu.materials.Crystal):
     
 
     # Horribly optimized...
+    # OPTIMIZE ME
     def planeAngles(self, hkl1, hkl2):
         # Double-check to make sure this is still used in the final version
         a, b, c = list(self.lattice._parameters.values())[:3]
@@ -427,7 +427,24 @@ def phase_selector(xrd, phases, tth, ignore_less=1):
 
 
 # TODO: implement into Phase class
-def generate_reciprocal_lattice(phase, tth_range=(0, 90)):
+# Allow for trimming a qmin value
+# Add builtin conversion from tth to q extrema
+def generate_reciprocal_lattice(phase, qmax):
+    # Example
+    # all_hkls, all_qs, all_fs = generate_reciprocal_lattice(test.phases['Stibnite'],
+                                #tth_range=(np.min(test.tth_arr), np.max(test.tth_arr)))
+
+    # qmax=tth_2_q(tth_range[1], wavelength=test.wavelength)
+
+    all_hkls = list(phase.lattice.get_allowed_hkl(qmax=qmax))
+    all_qs = phase.Q(all_hkls)
+    all_fs = np.abs(phase.StructureFactor(all_qs))**2
+    rescale_array(all_fs, arr_min = 0, upper=100)
+
+    return all_hkls, all_qs, all_fs
+
+
+'''def generate_reciprocal_lattice(phase, tth_range=(0, 90)):
     # Example
     # all_hkls, all_qs, all_fs = generate_reciprocal_lattice(test.phases['Stibnite'],
                                 #tth_range=(np.min(test.tth_arr), np.max(test.tth_arr)))
@@ -448,17 +465,10 @@ def generate_reciprocal_lattice(phase, tth_range=(0, 90)):
     all_fs = np.abs(phase.StructureFactorForQ(all_qs, en0=phase.energy))
     all_fs = rescale_array(all_fs, lower=1, upper=100)
 
-    return all_hkls, all_qs, all_fs
+    return all_hkls, all_qs, all_fs'''
 
 
-    
-
-    
-
-
-
-
-
+ # Unused
 def find_label_peaks(theta, intensity, phase):
     '''
     Assumes uniformly spaced data...

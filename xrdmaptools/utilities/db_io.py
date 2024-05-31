@@ -6,7 +6,7 @@ from scipy.stats import mode
 
 # Working at the beamline...
 try:
-    print('Connecting to databrokers...')
+    print('Connecting to databrokers...', end='', flush=True)
     from tiled.client import from_profile
     from databroker.v1 import Broker
 
@@ -297,6 +297,8 @@ def manual_load_data(scanid=-1,
     return out
 
 
+# TODO: implement way of getting units
+# for positions, theta, and energy
 def _load_scan_metadata(bs_run, keys=None):
 
     if keys is None:
@@ -823,7 +825,7 @@ def save_xrd_tifs(scanid=-1,
     
     _save_xrd_tifs(xrd_data,
                   xrd_dets=xrd_dets,
-                  scanid=scan_md['scanid'], # Will return the correct value
+                  scanid=scan_md['scan_id'], # Will return the correct value
                   filedir=filedir,
                   filenames=filenames)
 
@@ -851,7 +853,7 @@ def save_composite_pattern(scanid=-1,
                             method,
                             subtract,
                             xrd_dets=xrd_dets,
-                            scanid=scan_md['scanid'],
+                            scanid=scan_md['scan_id'],
                             filedir=filedir,
                             filenames=filenames)
 
@@ -877,7 +879,7 @@ def save_calibration_pattern(scanid=-1,
 
     _save_calibration_pattern(comps,
                              xrd_dets=xrd_dets,
-                             scanid=scan_md['scanid'],
+                             scanid=scan_md['scan_id'],
                              filedir=filedir)
 
 
@@ -901,7 +903,7 @@ def save_map_parameters(scanid=-1,
                                               returns=['data_keys'])
 
     _save_map_parameters(data_dict,
-                        scan_md['scanid'],
+                        scan_md['scan_id'],
                         data_keys=[],
                         filedir=filedir,
                         filename=filename)
@@ -922,7 +924,7 @@ def save_scan_md(scanid=-1,
                                               returns=['data_keys'])
 
     _save_scan_md(scan_md,
-                  scan_md['scanid'],
+                  scan_md['scan_id'],
                   filedir=filedir,
                   filename=filename)
 
@@ -952,18 +954,18 @@ def save_full_scan(scanid=-1,
     # Save xrd tif data
     _save_xrd_tifs(xrd_data,
                    xrd_dets=xrd_dets,
-                   scanid=scan_md['scanid'], # Will return the correct value
+                   scanid=scan_md['scan_id'], # Will return the correct value
                    filedir=filedir)
     
     # Save map parameters (x, y, i0, etc...)
     _save_map_parameters(data_dict,
-                         scan_md['scanid'],
+                         scan_md['scan_id'],
                          data_keys=[],
                          filedir=filedir)
     
     # Save metadata (scaid, uid, energy, etc...)
     _save_scan_md(scan_md,
-                  scan_md['scanid'],
+                  scan_md['scan_id'],
                   filedir=filedir)
 
 
@@ -977,7 +979,7 @@ def load_energy_rc_data(scanid=-1,
     bs_run = c[int(scanid)]
 
     scan_md = {
-        'scanid' : bs_run.start['scan_id'],
+        'scan_id' : bs_run.start['scan_id'],
         'scan_uid' : bs_run.start['uid'],
         'beamline' : bs_run.start['beamline_id'],
         'scantype' : bs_run.start['scan']['type'],
@@ -1057,7 +1059,7 @@ def save_energy_rc_data(scanid=-1,
     
     _save_xrd_tifs(xrd_data,
                   xrd_dets=xrd_dets,
-                  scanid=scan_md['scanid'], # Will return the correct value
+                  scanid=scan_md['scan_id'], # Will return the correct value
                   filedir=filedir,
                   filenames=filenames)
 
@@ -1076,7 +1078,7 @@ def load_angle_rc_data(scanid=-1,
     bs_run = c[int(scanid)]
 
     scan_md = {
-        'scanid' : bs_run.start['scan_id'],
+        'scan_id' : bs_run.start['scan_id'],
         'scan_uid' : bs_run.start['uid'],
         'beamline' : bs_run.start['beamline_id'],
         'scantype' : bs_run.start['scan']['type'],
