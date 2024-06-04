@@ -1544,6 +1544,7 @@ class ImageMap:
             self.hdf = None
 
 
+    # TODO: update _get_save_labels to handle integrations
     def save_integrations(self, integrations=None, title=None,
                           units=None, labels=None,
                           mode='a', extra_attrs=None):

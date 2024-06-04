@@ -31,132 +31,18 @@ import matplotlib.pyplot as plt
 # Local imports
 import xrdmaptools as xmt
 from xrdmaptools.XRDMap import XRDMap
-<<<<<<< HEAD
 from xrdmaptools.utilities.db_io import (
     _get_resource_keys,
     _get_resource_paths,
     _flag_broken_rows,
     _repair_data_dict
 ) 
-=======
-from xrdmaptools.utilities.image_corrections import rescale_array
-from xrdmaptools.reflections.spot_blob_search import spot_search, spot_stats, make_stat_df
->>>>>>> de3ab004d1123aff2e090cefec1336c2210db3d7
 
 
-def _instantiate_xrdmap(scan_md, dark_field, calibration):
-
-    # From scan_md, estimate and create blank map size
-    xrdmap = XRDMap()
-
-    arr_max = 16000 # max of uint with processing...
-
-    return xrdmap, arr_max
-
-
-def _find_finished_rows(scanid):
+def pseudolive_orientation_plots(scanid, phase):
     raise NotImplementedError()
 
 
-def _load_image_row(scanid):
-    raise NotImplementedError()
-    return image_row # as a 3D array
-
-
-# OPTIMIZE ME: use dask.delayed...
-def _inline_process_row(image_row, xrdmap, arr_max,
-                        phases,
-                        mask=None,
-                        threshold_method='minimum',
-                        multiplier=5,
-                        size=3,
-                        min_distance=3,
-                        expansion=10,
-                        radius=10,
-                        ):
-
-    image_row -= xrdmap.map.dark_field
-    rescale_array(image_row, arr_min=0, arr_max=arr_max)
-
-    out_list = []
-    for image in tqdm(image_row):
-        out = spot_search(image,
-                          mask=None,
-                          threshold_method='gaussian',
-                          multiplier=5,
-                          size=3,
-                          min_distance=3,
-                          expansion=10,
-                          plotme=False)
-        
-        stat_list = []
-        for spot in out:
-        
-            stat = spot_stats(spot,
-                            image,
-                            xrdmap.tth_arr,
-                            xrdmap.chi_arr,
-                            radius=5)
-            stat_list.append(stat)
-
-        stat_df = make_stat_df(stat_list)
-
-    # Find phases in the row
-        
-    # Find orientation in the row (for a given phase)
-            
-        
-
-
-def _replot():
-    raise NotImplementedError()
-
-
-
-def _inititial_live_plot(scanid, num_plots):
-    raise NotImplementedError()
-
-    xrdmap, arr_max = _instantiate_xrdmap(scan_md, dark_field, calibration)
-
-
-    # Generate blank plots
-    fig_ax_list = []
-    for i in range(num_plots):
-        fig, ax = plt.subplots(1, 1, figsize=(5, 5))
-        fig_ax_list.append([fig, ax])
-
-        im = ax.imshow()
-        fig.colorbar(im, ax=ax)
-        fig.show()
-
-    return xrdmap, fig_ax_list
-
-
-
-def psuedolive_phase_plots(scanid, phases, method):
-    raise NotImplementedError()
-
-    xrdmap, fig_ax_list = _inititial_live_plots(scanid, len(phases))
-
-    SCAN_ACTIVE = True
-    processed_rows = []
-    num_rows = value
-    while SCAN_ACTIVE:
-        finished_rows = _find_finished_rows()
-        _load_image_row(finished_rows[-1])
-        processed_rows.append(value)
-
-        if len(processed_rows) >= num_rows:
-            SCAN_ACTIVE = False
-        
-        
-
-
-def psuedolive_orientation_plots(scanid, phase):
-    raise NotImplementedError()
-
-
-<<<<<<< HEAD
 def base_proc_func(images, ai=None, dark=None, flat=None, scalers=None):
 
     # Check inputs
@@ -227,7 +113,7 @@ def phase_corr_func(images, simulated_phases, ai=None, dark=None, flat=None, sca
 
 
 
-def base_psuedolive_plot(scanid, plot_keys, process_fuction):
+def base_pseudolive_plot(scanid, plot_keys, process_fuction):
 
     # Initial processing
     bs_run = c[int(scanid)]
@@ -388,9 +274,6 @@ def plot_map(map_params, map_data, map_title, fig=None, ax=None, **kwargs):
 
 # Read start document to build map parameters and empty arrays for plotting
 def build_map_from_start(bs_run, plot_keys):
-=======
-def live_roi_plots(scanid, roi):
->>>>>>> de3ab004d1123aff2e090cefec1336c2210db3d7
     raise NotImplementedError()
 
     start_dict = bs_run.start

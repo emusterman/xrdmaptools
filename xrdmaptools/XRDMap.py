@@ -34,7 +34,8 @@ from .reflections.spot_blob_search import (
     find_blob_contours
     )
 
-from .plot.interactive_plotting import interactive_dynamic_2d_plot
+from .plot.interactive_plotting import (interactive_dynamic_2d_plot,
+                                        interactive_dynamic_1d_plot)
 from .plot.general import _parse_xrdmap, plot_map
 
 from .geometry.geometry import *
@@ -796,10 +797,10 @@ class XRDMap():
 
             integrated_map1d[i] = I
 
-        # Reshape into (map_x, map_y, 1, tth)
-        # matches tth position for 2d integration and vertical chi
+        # Reshape into (map_x, map_y, tth)
+        # Does not explicitly match the same shape as 2d integration
         integrated_map1d = integrated_map1d.reshape(
-                                *self.map.map_shape, 1, tth_num)
+                                *self.map.map_shape, tth_num)
         #self.map.images = integrated_map1d
         self.map.integrations = integrated_map1d
         
@@ -817,7 +818,6 @@ class XRDMap():
                         chi_resolution=0.05,
                         unit='2th_deg',
                         **kwargs):
-        
         
         if not hasattr(self, 'ai'):
             raise RuntimeError("Images cannot be calibrated without any calibration files!")
@@ -1611,7 +1611,7 @@ class XRDMap():
         if return_plot:
             return fig, ax
         
-        plt.show()
+        fig.show()
 
 
     def plot_reconstruction(self, indices=None, plot_residual=False, **kwargs):
@@ -1664,7 +1664,7 @@ class XRDMap():
             fig, ax = self.plot_image(recon_image,
                                 return_plot=True, indices=indices,
                                 **kwargs)
-            plt.show()
+            fig.show()
 
         else:
             image = self.map.images[indices]
@@ -1675,16 +1675,30 @@ class XRDMap():
                                 return_plot=True, indices=indices,
                                 vmin=-ext, vmax=ext, cmap='bwr', # c='k',
                                 **kwargs)
-            plt.show()
+            fig.show()
 
 
     # TODO: Check for display map prior so it does not alway calculate a new map...
-    def plot_interactive_map(self, tth=None, chi=None, **kwargs):
+    def plot_interactive_map(self,
+                             image_data=None,
+                             xticks=None,
+                             yticks=None,
+                             **kwargs):
+
+        if image_data is not None:
+            image_data = np.asarray(image_data)
+        elif not hasattr(self, 'map'):
+            raise ValueError('Could not find ImageMap to plot data!')
+        elif self.map.images.ndim != 4:
+            raise ValueError(f'ImageMap data shape is not 4D, but {self.map.images.ndim}')
+        else:
+            image_data = self.map.images
+
         # I should probably rebuild these to not need tth and chi
-        if hasattr(self, 'tth') and tth is None:
-            tth = self.tth
-        if hasattr(self, 'chi') and chi is None:
-            chi = self.chi
+        if hasattr(self, 'tth') and xticks is None and yticks is None: # only if both, distinguishes from intergrations
+            xticks = self.tth
+        if hasattr(self, 'chi') and yticks is None:
+            yticks = self.chi
 
         # Check for, extract, or determine displaymap
         if 'display_map' not in kwargs.keys():
@@ -1693,16 +1707,45 @@ class XRDMap():
             display_map = kwargs['display_map']
             del kwargs['display_map']
 
-        interactive_dynamic_2d_plot(np.asarray(self.map.images), tth=tth, chi=chi,
-                                    display_map=display_map,
-                                    **kwargs)
-        plt.show()
+        fig, ax = interactive_dynamic_2d_plot(image_data,
+                                              xticks=xticks,
+                                              yticks=yticks,
+                                              display_map=display_map,
+                                              **kwargs)
+        fig.show()
     
 
-    def plot_interactive_integration_map(self, display_map=None, display_title=None):
+    def plot_interactive_integration_map(self,
+                                         integrated_data=None,
+                                         xticks=None,
+                                         **kwargs):
         # Map integrated patterns for dynamic exploration of dataset
         # May throw an error if data has not yet been integrated
-        raise NotImplementedError()
+        if integrated_data is not None:
+            integrated_data = np.asarray(integrated_data)
+        elif not hasattr(self, 'map'):
+            raise ValueError('Could not find ImageMap to plot data!')
+        elif not hasattr(self.map, 'integrations'):
+            raise ValueError('Could not find integrations in ImageMap to plot data!')
+        elif self.map.integrations.ndim != 3:
+            raise ValueError(f'ImageMap data shape is not 4D, but {self.map.integrations.ndim}')
+        else:
+            integrated_data = self.map.integrations
+    
+        if hasattr(self, 'tth') and xticks is None:
+            xticks = self.tth
+    
+        # Check for, extract, or determine displaymap
+        if 'display_map' not in kwargs.keys():
+            display_map = self.map.sum_map
+        else:
+            display_map = kwargs['display_map']
+            del kwargs['display_map']
+    
+        fig, ax = interactive_dynamic_1d_plot(integrated_data,
+                                              xticks=xticks,
+                                              display_map=display_map,
+                                              **kwargs)
     
 
     def plot_map(self,
@@ -1786,7 +1829,7 @@ class XRDMap():
         if return_plot:
             return fig, ax
 
-        plt.show()
+        fig.show()
 
 
     def plot_detector_geometry(self, skip=300, return_plot=False):
@@ -1829,4 +1872,4 @@ class XRDMap():
         if return_plot:
             return fig, ax
 
-        plt.show()
+        fig.show()

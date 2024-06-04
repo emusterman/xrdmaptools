@@ -53,10 +53,10 @@ def spot_search(scaled_image,
        mask = (scaled_image != 0)
 
     # Estimate individual image offset and noise
-    psuedo_peak_mask = scaled_image < 0.01
-    psuedo_peak_mask *= mask
-    image_noise = np.std(scaled_image[psuedo_peak_mask])
-    image_offset = np.median(scaled_image[psuedo_peak_mask])
+    pseudo_peak_mask = scaled_image < 0.01
+    pseudo_peak_mask *= mask
+    image_noise = np.std(scaled_image[pseudo_peak_mask])
+    image_offset = np.median(scaled_image[pseudo_peak_mask])
 
     # Mask image
     mask_thresh = image_offset + multiplier * image_noise

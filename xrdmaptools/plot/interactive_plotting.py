@@ -13,62 +13,21 @@ This will keep them all in one place to ease access later.
 
 '''
 Terms:
-tth                 (arr)   List of two theta radial angle values (in degrees or radians). Could be different between 1D and 2D outputs
-chi                 (arr)   List of chi azimuthal angle values (in degrees or radians)
-integrated_data     (arr)   (x, y, tth) array of integrated mapped data from the pyFAI 1D azimuthal integrator
-calibrated_data     (arr)   (x, y, tth, chi) array of calibrated mapped data from pyFAI 2D azimuthal integrator
+xticks                 (arr)   List of two theta radial angle values (in degrees or radians). Could be different between 1D and 2D outputs
+yticks                 (arr)   List of yticks azimuthal angle values (in degrees or radians)
+integrated_data     (arr)   (x, y, xticks) array of integrated mapped data from the pyFAI 1D azimuthal integrator
+image_data          (arr)   (x, y, xticks, yticks) array of calibrated mapped data from pyFAI 2D azimuthal integrator
 '''
-
-
-### Preprocessing Utility Functions ###
-
-def integrated_background_removal(integrated_data, bkg_removal=None, ball_size=None):
-    '''
-    bkg_removal     (str)   'None', 'local', 'global', or 'both' specifying rolling ball background removel
-    ball_size       (float) Ball size for rolling ball algorithm. Default is lenght of tth
-    '''
-
-    if ball_size == None:
-        ball_size = integrated_data.shape[2]
-
-    if bkg_removal == None:
-        return integrated_data
-    elif bkg_removal in ['global', 'both']:
-        map_bkg = restoration.rolling_ball(np.median(integrated_data, axis=(0, 1)), radius=ball_size)
-        integrated_data = integrated_data - map_bkg
-    elif bkg_removal in ['local', 'both']:
-            plt_bkgs = np.zeros((integrated_data.shape[0] * integrated_data.shape[1], integrated_data.shape[2]))
-            for i, pixel in enumerate(integrated_data.reshape(integrated_data.shape[0] * integrated_data.shape[1], integrated_data.shape[2])):
-                plt_bkgs[i] = restoration.rolling_ball(pixel, radius=ball_size)
-            plt_bkgs = plt_bkgs.reshape(*integrated_data.shape)
-            integrated_data = integrated_data - plt_bkgs
-    else:
-        raise IOError("bkg_removal must be None, 'global', 'local', or 'both'!")
-    return integrated_data
-
-
-def normalize_integrated_data(integrated_data, normalize=None):
-    '''
-    normalize       (str)   'None', 'full', 'partial' specifying how to normalize the data. 'None' as is, 'full' between (0, 100), 'partial' between (minumum, 100)
-    '''
-
-    if normalize == None:
-        return integrated_data
-    elif normalize == 'full':
-        return 100 * (integrated_data - np.min(integrated_data)) / (np.max(integrated_data) - np.min(integrated_data))
-    elif normalize == 'partial':
-        return 100 * integrated_data / np.max(integrated_data)
-    else:
-        raise IOError("normalize must be None, 'full', or 'partial'!")
 
 
 ### Utility Plotting Function ###
 
 def update_axes(event, data,
-                tth=None, chi=None,
+                xticks=None, yticks=None,
                 fig=None, axes=None,
                 cmap='viridis', marker_color='red',
                 img_vmin=None, img_vmax=None,
+                plot_min=None, plot_max=None,
                 img_norm=Normalize):
     '''
         
@@ -92,9 +51,20 @@ def update_axes(event, data,
     
     axes[1].clear()
     if len(data.shape) == 3:
-        update_plot(data, tth, axi=axes[1])
+        update_plot(data,
+                    xticks,
+                    axi=axes[1],
+                    plot_min=plot_min,
+                    plot_max=plot_max)
     elif len(data.shape) == 4:
-        update_img(data, tth, chi, axi=axes[1], cmap=cmap, img_vmin=img_vmin, img_vmax=img_vmax, img_norm=img_norm)
+        update_img(data,
+                   xticks,
+                   yticks,
+                   axi=axes[1],
+                   cmap=cmap,
+                   img_vmin=img_vmin,
+                   img_vmax=img_vmax,
+                   img_norm=img_norm)
     axes[1].set_title(f'Row = {row}, Col = {col}')
     #axes[1].set_title(f'Col: {col}, Row: {row}')
     
@@ -103,20 +73,25 @@ def update_axes(event, data,
 
 
 def update_plot(data,
-                tth, axi=None):
+                xticks,
+                plot_min=None, plot_max=None,
+                axi=None):
     '''
     
     '''
 
-    if len(tth) == len(data[row, col]):
-        axi.plot(tth, data[row, col])
+    if plot_min is None: plot_min = np.min(data) - 0.15 * np.abs(np.min(data))
+    if plot_max is None: plot_max = np.max(data) + 0.15 * np.abs(np.max(data))
+
+    if len(xticks) == len(data[row, col]):
+        axi.plot(xticks, data[row, col])
     else:
-        axi.plot(np.linspace(tth[0], tth[-1], len(data[row, col])), data[row, col])
-    axi.set_ylim(np.min(data) - 0.15 * np.abs(np.min(data)), np.max(data) + 0.15 * np.abs(np.max(data)))
+        axi.plot(np.linspace(xticks[0], xticks[-1], len(data[row, col])), data[row, col])
+    axi.set_ylim(plot_min, plot_max)
 
 
 def update_img(data,
-               tth, chi,
+               xticks, yticks,
                axi=None,
                cmap='viridis',
                img_vmin=None, img_vmax=None,
@@ -126,13 +101,17 @@ def update_img(data,
     '''
     global row, col, cbar
     plot_img = data[row, col]
-    extent = [tth[0], tth[-1], chi[0], chi[-1]]
+    extent = [xticks[0], xticks[-1], yticks[0], yticks[-1]]
     
     if img_vmin is None: img_vmin = np.min(plot_img)
     if img_vmax is None: img_vmax = np.max(plot_img)
 
     #print(f'row is {row}, col is {col}')
-    img = axi.imshow(plot_img, extent=extent, aspect='auto', cmap=cmap, norm=img_norm(vmin=img_vmin, vmax=img_vmax))
+    img = axi.imshow(plot_img,
+                     extent=extent,
+                     aspect='auto',
+                     cmap=cmap,
+                     norm=img_norm(vmin=img_vmin, vmax=img_vmax))
     #if cbar is not None and cbar.ax._axes is not None:
     #    cax = cbar.ax
     #    print('cbar removed!')
@@ -171,7 +150,9 @@ def display_plot(data,
         if map_vmin is None: map_vmin = np.min(display_map)
         if map_vmax is None: map_vmax = np.max(display_map)
 
-        axes[0].imshow(display_map, cmap=cmap, norm=map_norm(vmin=map_vmin, vmax=map_vmax))
+        axes[0].imshow(display_map,
+                       cmap=cmap,
+                       norm=map_norm(vmin=map_vmin, vmax=map_vmax))
         
         if display_title != None:
             axes[0].set_title(display_title)
@@ -185,7 +166,8 @@ def display_plot(data,
             sum_plot = np.sum(data, axis=(2, 3))
         if map_vmin is None: map_vmin = np.min(sum_plot)
         if map_vmax is None: map_vmax = np.max(sum_plot)
-        axes[0].imshow(sum_plot, cmap=cmap, norm=map_norm(vmin=map_vmin, vmax=map_vmax))
+        axes[0].imshow(sum_plot, cmap=cmap,
+                       norm=map_norm(vmin=map_vmin, vmax=map_vmax))
         axes[0].set_title('Summed Intensity')
 
     
@@ -201,9 +183,9 @@ def set_globals(ax):
 
 ### Variations of Plotting Functions ###
 
-def interactive_1d_plot(integrated_data, tth=None, 
-                        bkg_removal=None, ball_size=None, normalize=None,
+def interactive_1d_plot(integrated_data, xticks=None,
                         display_map=None, display_title=None,
+                        plot_min=None, plot_max=None,
                         map_vmin=None, map_vmax=None, map_norm=Normalize,
                         cmap='viridis', marker_color='red'):
     '''
@@ -211,18 +193,19 @@ def interactive_1d_plot(integrated_data, tth=None,
     '''
     
     # Check axes range
-    if tth is None:
-        tth = range(integrated_data.shape[-1])
-
-    # Remove background
-    integrated_data = integrated_background_removal(integrated_data, bkg_removal=bkg_removal, ball_size=ball_size)
-
-    # Normalize data
-    integrated_data = normalize_integrated_data(integrated_data, normalize=normalize)
+    if xticks is None:
+        xticks = range(integrated_data.shape[-1])
 
     # Generate plot
     fig, ax = plt.subplots(1, 2, figsize=(10, 5), dpi=200)
-    display_plot(integrated_data, axes=ax, display_map=display_map, display_title=display_title, cmap=cmap, map_vmin=map_vmin, map_vmax=map_vmax, map_norm=map_norm)
+    display_plot(integrated_data,
+                 axes=ax,
+                 display_map=display_map,
+                 display_title=display_title,
+                 cmap=cmap,
+                 map_vmin=map_vmin,
+                 map_vmax=map_vmax,
+                 map_norm=map_norm)
 
     # Plot display map with marker
     global marker, dynamic_toggle
@@ -234,13 +217,22 @@ def interactive_1d_plot(integrated_data, tth=None,
     def onclick(event):
         if event.inaxes == ax[0]:
             global dynamic_toggle, marker
-            update_axes(event, integrated_data, tth=tth, fig=fig, axes=ax, cmap=cmap, marker_color=marker_color, map_norm=map_norm)
+            update_axes(event,
+                        integrated_data,
+                        xticks=xticks,
+                        fig=fig,
+                        axes=ax, 
+                        cmap=cmap,
+                        marker_color=marker_color,
+                        plot_min=plot_min,
+                        plot_max=plot_max,
+                        map_norm=map_norm)
 
     cid = fig.canvas.mpl_connect('button_press_event', onclick)
+    return fig, ax
 
 
-
-def interactive_2d_plot(calibrated_data, tth=None, chi=None,
+def interactive_2d_plot(image_data, xticks=None, yticks=None,
                         display_map=None, display_title=None,
                         map_vmin=None, map_vmax=None, map_norm=Normalize,
                         cmap='viridis', marker_color='red',
@@ -250,14 +242,21 @@ def interactive_2d_plot(calibrated_data, tth=None, chi=None,
     '''
 
     # Check axes range
-    if tth is None:
-        tth = range(calibrated_data.shape[-1])
-    if chi is None:
-        chi = range(calibrated_data.shape[-2])
+    if xticks is None:
+        xticks = range(image_data.shape[-1])
+    if yticks is None:
+        yticks = range(image_data.shape[-2])
 
     # Generate plot
     fig, ax = plt.subplots(1, 2, figsize=(10, 5), dpi=200)
-    display_plot(calibrated_data, axes=ax, display_map=display_map, display_title=display_title, cmap=cmap, map_vmin=map_vmin, map_vmax=map_vmax, map_norm=map_norm)
+    display_plot(image_data,
+                 axes=ax,
+                 display_map=display_map,
+                 display_title=display_title,
+                 cmap=cmap,
+                 map_vmin=map_vmin,
+                 map_vmax=map_vmax,
+                 map_norm=map_norm)
 
     # Plot display map with marker
     global marker, dynamic_toggle
@@ -269,16 +268,26 @@ def interactive_2d_plot(calibrated_data, tth=None, chi=None,
     def onclick(event):
         if event.inaxes == ax[0]:
             global dynamic_toggle, marker
-            update_axes(event, calibrated_data, tth=tth, chi=chi, fig=fig, axes=ax,
-                        cmap=cmap, marker_color=marker_color, img_vmin=img_vmin, img_vmax=img_vmax, img_norm=img_norm)
+            update_axes(event,
+                        image_data,
+                        xticks=xticks,
+                        yticks=yticks,
+                        fig=fig,
+                        axes=ax,
+                        cmap=cmap,
+                        marker_color=marker_color,
+                        img_vmin=img_vmin,
+                        img_vmax=img_vmax,
+                        img_norm=img_norm)
 
     cid = fig.canvas.mpl_connect('button_press_event', onclick)
+    return fig, ax
 
 
-def interactive_combined_plot(integrated_data, calibrated_data, tth=None, chi=None,
-                              bkg_removal=None, ball_size=None, normalize=None,
+def interactive_combined_plot(integrated_data, image_data, xticks=None, yticks=None,
                               display_map=None, display_title=None,
                               map_vmin=None, map_vmax=None, map_norm=Normalize,
+                              plot_min=None, plot_max=None,
                               cmap='viridis', marker_color='red',
                               img_vmin=None, img_vmax=None, img_norm=Normalize):
     '''
@@ -286,16 +295,10 @@ def interactive_combined_plot(integrated_data, calibrated_data, tth=None, chi=No
     '''
 
     # Check axes range
-    if tth is None:
-        tth = range(calibrated_data.shape[-1])
-    if chi is None:
-        chi = range(calibrated_data.shape[-2])
-
-    # Remove background
-    integrated_data = integrated_background_removal(integrated_data, bkg_removal=bkg_removal, ball_size=ball_size)
-
-    # Normalize data
-    integrated_data = normalize_integrated_data(integrated_data, normalize=normalize)
+    if xticks is None:
+        xticks = range(image_data.shape[-1])
+    if yticks is None:
+        yticks = range(image_data.shape[-2])
 
     # Generate plot
     fig = plt.figure(figsize=(8, 7), dpi=200)
@@ -303,7 +306,14 @@ def interactive_combined_plot(integrated_data, calibrated_data, tth=None, chi=No
     ax = [subfigs[0].subplots(1, 1),
           *subfigs[1].subplots(2, 1, gridspec_kw={'height_ratios': [3, 1]}, sharex=True)]
     subfigs[1].subplots_adjust(hspace=0)
-    display_plot(integrated_data, axes=ax, display_map=display_map, display_title=display_title, cmap=cmap, map_vmin=map_vmin, map_vmax=map_vmax, map_norm=map_norm)
+    display_plot(integrated_data,
+                 axes=ax,
+                 display_map=display_map,
+                 display_title=display_title,
+                 cmap=cmap,
+                 map_vmin=map_vmin,
+                 map_vmax=map_vmax,
+                 map_norm=map_norm)
 
     # Plot display map with marker
     global marker, dynamic_toggle
@@ -315,36 +325,55 @@ def interactive_combined_plot(integrated_data, calibrated_data, tth=None, chi=No
     def onclick(event):
         if event.inaxes == ax[0]:
             global dynamic_toggle, marker
-            update_axes(event, integrated_data, tth=tth, fig=fig, axes=[ax[0], ax[2]], cmap=cmap, marker_color=marker_color)
-            update_axes(event, calibrated_data, tth=tth, chi=chi, fig=fig, axes=ax,
-                        cmap=cmap, marker_color=marker_color, img_vmin=img_vmin, img_vmax=img_vmax, img_norm=img_norm)
+            update_axes(event,
+                        integrated_data,
+                        xticks=xticks,
+                        fig=fig,
+                        axes=[ax[0], ax[2]],
+                        cmap=cmap,
+                        marker_color=marker_color,
+                        plot_min=plot_min,
+                        plot_max=plot_max)
+            update_axes(event,
+                        image_data,
+                        xticks=xticks,
+                        yticks=yticks,
+                        fig=fig,
+                        axes=ax,
+                        cmap=cmap,
+                        marker_color=marker_color,
+                        img_vmin=img_vmin,
+                        img_vmax=img_vmax,
+                        img_norm=img_norm)
             ax[2].set_title('')          
 
     cid = fig.canvas.mpl_connect('button_press_event', onclick)
+    return fig, ax
 
 
-def dynamic_1d_plot(integrated_data, tth=None, 
-                    bkg_removal=None, ball_size=None, normalize=None,
+def dynamic_1d_plot(integrated_data, xticks=None,
                     display_map=None, display_title=None,
                     map_vmin=None, map_vmax=None, map_norm=Normalize,
+                    plot_min=None, plot_max=None,
                     cmap='viridis', marker_color='red'):
     '''
     
     '''
 
     # Check axes range
-    if tth is None:
-        tth = range(integrated_data.shape[-1])
-
-    # Remove background
-    integrated_data = integrated_background_removal(integrated_data, bkg_removal=bkg_removal, ball_size=ball_size)
-
-    # Normalize data
-    integrated_data = normalize_integrated_data(integrated_data, normalize=normalize)
+    if xticks is None:
+        xticks = range(integrated_data.shape[-1])
 
     # Generate plot
     fig, ax = plt.subplots(1, 2, figsize=(10, 5), dpi=200)
-    display_plot(integrated_data, axes=ax, display_map=display_map, display_title=display_title, cmap=cmap, map_vmin=map_vmin, map_vmax=map_vmax, map_norm=map_norm)
+    display_plot(integrated_data,
+                 axes=ax,
+                 display_map=display_map,
+                 display_title=display_title,
+                 cmap=cmap,
+                 map_vmin=map_vmin,
+                 map_vmax=map_vmax,
+                 map_norm=map_norm)
 
     # Plot display map with marker
     global marker, dynamic_toggle
@@ -357,13 +386,22 @@ def dynamic_1d_plot(integrated_data, tth=None,
         global dynamic_toggle
         if dynamic_toggle:
             if event.inaxes == ax[0]:
-                update_axes(event, integrated_data, tth=tth, fig=fig, axes=ax, cmap=cmap, marker_color=marker_color)
+                update_axes(event,
+                            integrated_data,
+                            xticks=xticks,
+                            fig=fig,
+                            axes=ax,
+                            cmap=cmap,
+                            marker_color=marker_color,
+                            plot_min=plot_min,
+                            plot_max=plot_max)
                 fig.canvas.draw_idle()
 
     binding_id = plt.connect('motion_notify_event', onmove)
+    return fig, ax
 
 
-def dynamic_2d_plot(calibrated_data, tth=None, chi=None,
+def dynamic_2d_plot(image_data, xticks=None, yticks=None,
                         display_map=None, display_title=None,
                         cmap='viridis', marker_color='red',
                         map_vmin=None, map_vmax=None, map_norm=Normalize,
@@ -373,14 +411,21 @@ def dynamic_2d_plot(calibrated_data, tth=None, chi=None,
     '''
 
     # Check axes range
-    if tth is None:
-        tth = range(calibrated_data.shape[-1])
-    if chi is None:
-        chi = range(calibrated_data.shape[-2])
+    if xticks is None:
+        xticks = range(image_data.shape[-1])
+    if yticks is None:
+        yticks = range(image_data.shape[-2])
 
     # Generate plot
     fig, ax = plt.subplots(1, 2, figsize=(10, 5), dpi=200)
-    display_plot(calibrated_data, axes=ax, display_map=display_map, display_title=display_title, cmap=cmap, map_vmin=map_vmin, map_vmax=map_vmax, map_norm=map_norm)
+    display_plot(image_data,
+                 axes=ax,
+                 display_map=display_map,
+                 display_title=display_title,
+                 cmap=cmap,
+                 map_vmin=map_vmin,
+                 map_vmax=map_vmax,
+                 map_norm=map_norm)
 
     # Plot display map with marker
     global marker, dynamic_toggle
@@ -393,34 +438,38 @@ def dynamic_2d_plot(calibrated_data, tth=None, chi=None,
         global dynamic_toggle
         if dynamic_toggle:
             if event.inaxes == ax[0]:
-                update_axes(event, calibrated_data, tth=tth, chi=chi, fig=fig, axes=ax,
-                            cmap=cmap, marker_color=marker_color, img_vmin=img_vmin, img_vmax=img_vmax, img_norm=img_norm)
+                update_axes(event,
+                            image_data,
+                            xticks=xticks, 
+                            yticks=yticks,
+                            fig=fig,
+                            axes=ax,
+                            cmap=cmap,
+                            marker_color=marker_color,
+                            img_vmin=img_vmin,
+                            img_vmax=img_vmax,
+                            img_norm=img_norm)
                 fig.canvas.draw_idle()
 
     binding_id = plt.connect('motion_notify_event', onmove)
+    return fig, ax
 
 
-def dynamic_combined_plot(integrated_data, calibrated_data, tth=None, chi=None,
-                              bkg_removal=None, ball_size=None, normalize=None,
+def dynamic_combined_plot(integrated_data, image_data, xticks=None, yticks=None,
                               display_map=None, display_title=None,
                               map_vmin=None, map_vmax=None, map_norm=Normalize,
                               cmap='viridis', marker_color='red',
-                              img_vmin=None, img_vmax=None, img_norm=Normalize):
+                              img_vmin=None, img_vmax=None, img_norm=Normalize,
+                              plot_min=None, plot_max=None):
     '''
     
     '''
 
     # Check axes range
-    if tth is None:
-        tth = range(calibrated_data.shape[-1])
-    if chi is None:
-        chi = range(calibrated_data.shape[-2])
-
-    # Remove background
-    integrated_data = integrated_background_removal(integrated_data, bkg_removal=bkg_removal, ball_size=ball_size)
-
-    # Normalize data
-    integrated_data = normalize_integrated_data(integrated_data, normalize=normalize)
+    if xticks is None:
+        xticks = range(image_data.shape[-1])
+    if yticks is None:
+        yticks = range(image_data.shape[-2])
 
     # Generate plot
     fig = plt.figure(figsize=(8, 7), dpi=200)
@@ -428,7 +477,14 @@ def dynamic_combined_plot(integrated_data, calibrated_data, tth=None, chi=None,
     ax = [subfigs[0].subplots(1, 1),
           *subfigs[1].subplots(2, 1, gridspec_kw={'height_ratios': [3, 1]}, sharex=True)]
     subfigs[1].subplots_adjust(hspace=0)
-    display_plot(integrated_data, axes=ax, display_map=display_map, display_title=display_title, cmap=cmap, map_vmin=map_vmin, map_vmax=map_vmax, map_norm=map_norm)
+    display_plot(integrated_data,
+                 axes=ax,
+                 display_map=display_map,
+                 display_title=display_title,
+                 cmap=cmap,
+                 map_vmin=map_vmin,
+                 map_vmax=map_vmax,
+                 map_norm=map_norm)
 
     # Plot display map with marker
     global marker, dynamic_toggle
@@ -441,32 +497,44 @@ def dynamic_combined_plot(integrated_data, calibrated_data, tth=None, chi=None,
         global dynamic_toggle
         if dynamic_toggle:
             if event.inaxes == ax[0]:
-                update_axes(event, integrated_data, tth=tth, fig=fig, axes=[ax[0], ax[2]], cmap=cmap, marker_color=marker_color)
-                update_axes(event, calibrated_data, tth=tth, chi=chi, fig=fig, axes=ax,
-                            cmap=cmap, marker_color=marker_color, img_vmin=img_vmin, img_vmax=img_vmax, img_norm=img_norm)
+                update_axes(event,
+                            integrated_data,
+                            xticks=xticks,
+                            fig=fig,
+                            axes=[ax[0], ax[2]],
+                            cmap=cmap,
+                            marker_color=marker_color,
+                            plot_min=plot_min,
+                            plot_max=plot_max)
+                update_axes(event,
+                            image_data,
+                            xticks=xticks,
+                            yticks=yticks,
+                            fig=fig,
+                            axes=ax,
+                            cmap=cmap,
+                            marker_color=marker_color,
+                            img_vmin=img_vmin,
+                            img_vmax=img_vmax,
+                            img_norm=img_norm)
                 ax[2].set_title('')  
 
     binding_id = plt.connect('motion_notify_event', onmove)
+    return fig, ax
 
 
-def interactive_dynamic_1d_plot(integrated_data, tth=None, 
-                                bkg_removal=None, ball_size=None, normalize=None,
+def interactive_dynamic_1d_plot(integrated_data, xticks=None,
                                 display_map=None, display_title=None,
                                 map_vmin=None, map_vmax=None, map_norm=Normalize,
+                                plot_min=None, plot_max=None,
                                 cmap='viridis', marker_color='red'):
     '''
     
     '''
 
     # Check axes range
-    if tth is None:
-        tth = range(integrated_data.shape[-1])
-
-    # Remove background
-    integrated_data = integrated_background_removal(integrated_data, bkg_removal=bkg_removal, ball_size=ball_size)
-
-    # Normalize data
-    integrated_data = normalize_integrated_data(integrated_data, normalize=normalize)
+    if xticks is None:
+        xticks = range(integrated_data.shape[-1])
 
     # Generate plot
     fig, ax = plt.subplots(1, 2, figsize=(10, 5), dpi=200)
@@ -491,23 +559,39 @@ def interactive_dynamic_1d_plot(integrated_data, tth=None,
         if event.inaxes == ax[0]:
             global dynamic_toggle, marker
             dynamic_toggle = not dynamic_toggle
-            update_axes(event, integrated_data, tth=tth, fig=fig, axes=ax, cmap=cmap, marker_color=marker_color)
+            update_axes(event,
+                        integrated_data,
+                        xticks=xticks,
+                        fig=fig,
+                        axes=ax,
+                        cmap=cmap,
+                        marker_color=marker_color,
+                        plot_min=plot_min,
+                        plot_max=plot_max)
 
     # Make dynamic
     def onmove(event):
         global dynamic_toggle
         if dynamic_toggle:
             if event.inaxes == ax[0]:
-                update_axes(event, integrated_data, tth=tth, fig=fig, axes=ax, cmap=cmap, marker_color=marker_color)
+                update_axes(event,
+                            integrated_data,
+                            xticks=xticks,
+                            fig=fig,
+                            axes=ax,
+                            cmap=cmap,
+                            marker_color=marker_color,
+                            plot_min=plot_min,
+                            plot_max=plot_max)
                 fig.canvas.draw_idle()
 
 
     cid = fig.canvas.mpl_connect('button_press_event', onclick)
     binding_id = plt.connect('motion_notify_event', onmove)
+    return fig, ax
 
 
-
-def interactive_dynamic_2d_plot(calibrated_data, tth=None, chi=None,
+def interactive_dynamic_2d_plot(image_data, xticks=None, yticks=None,
                         display_map=None, display_title=None,
                         map_vmin=None, map_vmax=None, map_norm=Normalize,
                         cmap='viridis', marker_color='red',
@@ -517,14 +601,14 @@ def interactive_dynamic_2d_plot(calibrated_data, tth=None, chi=None,
     '''
 
     # Check axes range
-    if tth is None:
-        tth = range(calibrated_data.shape[-1])
-    if chi is None:
-        chi = range(calibrated_data.shape[-2])
+    if xticks is None:
+        xticks = range(image_data.shape[-1])
+    if yticks is None:
+        yticks = range(image_data.shape[-2])
 
     # Generate plot
     fig, ax = plt.subplots(1, 2, figsize=(10, 5), dpi=200)
-    display_plot(calibrated_data,
+    display_plot(image_data,
                  axes=ax,
                  display_map=display_map,
                  display_title=display_title,
@@ -545,43 +629,56 @@ def interactive_dynamic_2d_plot(calibrated_data, tth=None, chi=None,
         if event.inaxes == ax[0]:
             global dynamic_toggle, marker
             dynamic_toggle = not dynamic_toggle
-            update_axes(event, calibrated_data, tth=tth, chi=chi, fig=fig, axes=ax,
-                        cmap=cmap, marker_color=marker_color, img_vmin=img_vmin, img_vmax=img_vmax, img_norm=img_norm)
+            update_axes(event,
+                        image_data,
+                        xticks=xticks,
+                        yticks=yticks,
+                        fig=fig,
+                        axes=ax,
+                        cmap=cmap,
+                        marker_color=marker_color,
+                        img_vmin=img_vmin,
+                        img_vmax=img_vmax,
+                        img_norm=img_norm)
     
     # Make dynamic
     def onmove(event):
         global dynamic_toggle
         if dynamic_toggle:
             if event.inaxes == ax[0]:
-                update_axes(event, calibrated_data, tth=tth, chi=chi, fig=fig, axes=ax,
-                            cmap=cmap, marker_color=marker_color, img_vmin=img_vmin, img_vmax=img_vmax, img_norm=img_norm)
+                update_axes(event,
+                            image_data,
+                            xticks=xticks,
+                            yticks=yticks,
+                            fig=fig,
+                            axes=ax,
+                            cmap=cmap,
+                            marker_color=marker_color,
+                            img_vmin=img_vmin,
+                            img_vmax=img_vmax,
+                            img_norm=img_norm)
                 fig.canvas.draw_idle()
     
     cid = fig.canvas.mpl_connect('button_press_event', onclick)
     binding_id = plt.connect('motion_notify_event', onmove)
+    return fig, ax
 
 
-def interactive_dynamic_combined_plot(integrated_data, calibrated_data, tth=None, chi=None,
-                              bkg_removal=None, ball_size=None, normalize=None,
+def interactive_dynamic_combined_plot(integrated_data, image_data, xticks=None, yticks=None,
                               display_map=None, display_title=None,
                               map_vmin=None, map_vmax=None, map_norm=Normalize,
                               cmap='viridis', marker_color='red',
-                              img_vmin=None, img_vmax=None, img_norm=Normalize):
+                              img_vmin=None, img_vmax=None, img_norm=Normalize,
+                              plot_min=None, plot_max=None,):
     '''
     
     '''
 
     # Check axes range
-    if tth is None:
-        tth = range(calibrated_data.shape[-1])
-    if chi is None:
-        chi = range(calibrated_data.shape[-2])
-
-    # Remove background
-    integrated_data = integrated_background_removal(integrated_data, bkg_removal=bkg_removal, ball_size=ball_size)
-
-    # Normalize data
-    integrated_data = normalize_integrated_data(integrated_data, normalize=normalize)
+    if xticks is None:
+        xticks = range(image_data.shape[-1])
+    if yticks is None:
+        yticks = range(image_data.shape[-2])
 
     # Generate plot
     fig = plt.figure(figsize=(8, 7), dpi=200)
@@ -589,7 +686,14 @@ def interactive_dynamic_combined_plot(integrated_data, calibrated_data, tth=None
     ax = [subfigs[0].subplots(1, 1),
           *subfigs[1].subplots(2, 1, gridspec_kw={'height_ratios': [3, 1]}, sharex=True)]
     subfigs[1].subplots_adjust(hspace=0)
-    display_plot(integrated_data, axes=ax, display_map=display_map, display_title=display_title, cmap=cmap, map_vmin=map_vmin, map_vmax=map_vmax, map_norm=map_norm)
+    display_plot(integrated_data,
+                 axes=ax,
+                 display_map=display_map,
+                 display_title=display_title,
+                 cmap=cmap,
+                 map_vmin=map_vmin,
+                 map_vmax=map_vmax,
+                 map_norm=map_norm)
 
     # Plot display map with marker
     global marker, dynamic_toggle
@@ -602,9 +706,26 @@ def interactive_dynamic_combined_plot(integrated_data, calibrated_data, tth=None
         if event.inaxes == ax[0]:
             global dynamic_toggle, marker
             dynamic_toggle = not dynamic_toggle
-            update_axes(event, integrated_data, tth=tth, fig=fig, axes=[ax[0], ax[2]], cmap=cmap, marker_color=marker_color)
-            update_axes(event, calibrated_data, tth=tth, chi=chi, fig=fig, axes=ax,
-                        cmap=cmap, marker_color=marker_color, img_vmin=img_vmin, img_vmax=img_vmax, img_norm=img_norm)
+            update_axes(event,
+                        integrated_data,
+                        xticks=xticks,
+                        fig=fig,
+                        axes=[ax[0], ax[2]],
+                        cmap=cmap,
+                        marker_color=marker_color,
+                        plot_min=plot_min,
+                        plot_max=plot_max)
+            update_axes(event,
+                        image_data,
+                        xticks=xticks,
+                        yticks=yticks,
+                        fig=fig,
+                        axes=ax,
+                        cmap=cmap,
+                        marker_color=marker_color,
+                        img_vmin=img_vmin,
+                        img_vmax=img_vmax,
+                        img_norm=img_norm)
             ax[2].set_title('')      
 
     # Make dynamic
@@ -612,10 +733,28 @@ def interactive_dynamic_combined_plot(integrated_data, calibrated_data, tth=None
         global dynamic_toggle
         if dynamic_toggle:
             if event.inaxes == ax[0]:
-                update_axes(event, integrated_data, tth=tth, fig=fig, axes=[ax[0], ax[2]], cmap=cmap, marker_color=marker_color)
-                update_axes(event, calibrated_data, tth=tth, chi=chi, fig=fig, axes=ax,
-                            cmap=cmap, marker_color=marker_color, img_vmin=img_vmin, img_vmax=img_vmax, img_norm=img_norm)
+                update_axes(event,
+                            integrated_data,
+                            xticks=xticks,
+                            fig=fig,
+                            axes=[ax[0], ax[2]],
+                            cmap=cmap,
+                            marker_color=marker_color,
+                            plot_min=plot_min,
+                            plot_max=plot_max)
+                update_axes(event,
+                            image_data,
+                            xticks=xticks,
+                            yticks=yticks,
+                            fig=fig,
+                            axes=ax,
+                            cmap=cmap,
+                            marker_color=marker_color,
+                            img_vmin=img_vmin,
+                            img_vmax=img_vmax,
+                            img_norm=img_norm)
                 ax[2].set_title('')  
 
     cid = fig.canvas.mpl_connect('button_press_event', onclick)
     binding_id = plt.connect('motion_notify_event', onmove)
+    return fig, ax
