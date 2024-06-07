@@ -12,16 +12,17 @@ from ..reflections.spot_blob_search import find_blob_contours
 ######################
 
 # Grabs and formats data from xrdmap if requested
-def _parse_xrdmap(xrdmap, indices, mask=False, spots=False, contours=False):
+def _plot_parse_xrdmap(xrdmap, indices, mask=False, spots=False, contours=False):
 
     # Extract mask
+    out_mask = None
     if mask and hasattr(xrdmap.map, 'mask'):
         out_mask = xrdmap.map.mask
-    else:
+    elif mask and not hasattr(xrdmap.map, 'mask'):
         print('WARNING: Mask requested, but xrdmap.map does not have a mask!')
-        out_mask = None
 
     # Extract spots
+    out_spots = None
     if spots and hasattr(xrdmap, 'spots'):
         pixel_df = xrdmap.spots[(xrdmap.spots['map_x'] == indices[0])
                                 & (xrdmap.spots['map_y'] == indices[1])].copy()
@@ -37,11 +38,11 @@ def _parse_xrdmap(xrdmap, indices, mask=False, spots=False, contours=False):
                                               xrdmap.tth_arr,
                                               xrdmap.chi_arr)[:, ::-1]
 
-    else:
+    elif spots and not hasattr(xrdmap, 'spots'):
         print('WARNING: Spots requested, but xrdmap does not have any spots!')
-        out_spots = None
 
     # Extract contours
+    out_contour_list = None
     if contours and hasattr(xrdmap.map, 'spot_masks'):
         blob_img = label(xrdmap.map.spot_masks[indices])
         blob_contours = find_blob_contours(blob_img)
@@ -52,19 +53,75 @@ def _parse_xrdmap(xrdmap, indices, mask=False, spots=False, contours=False):
                                                               xrdmap.tth_arr,
                                                               xrdmap.chi_arr).T)
 
-    else:
+    elif contours and hasattr(xrdmap.map, 'spot_masks'):
         print('WARNING: Contours requested, but xrdmap does not have any spot masks to draw contours!')
-        out_contour_list = None
 
-    out = []
-    kwargs = [mask, spots, contours]
-    out_values = [out_mask, out_spots, out_contour_list]
+    return tuple([out_mask, out_spots, out_contour_list])
 
-    for kwarg, out_value in zip(kwargs, out_values):
-        if kwarg:
-            out.append(out_value)
 
-    return tuple(out)
+def _xrdmap_image(xrdmap,
+                  image=None,
+                  indices=None):
+    # Check image type
+    if image is not None:
+        image = np.asarray(image)
+        if len(image.shape) == 1 and len(image) == 2:
+            indices = tuple(iter(image))
+            image = xrdmap.map.images[indices]
+        elif len(image.shape) == 2:
+            if indices is not None:
+                indices = tuple(indices)
+        else:
+            raise ValueError(f"Incorrect image shape of {image.shape}. Should be two-dimensional.")
+    else:
+        # Evaluate images
+        xrdmap.map._dask_2_dask()
+
+        if indices is not None:
+            indices = tuple(indices)
+            image = xrdmap.map.images[indices]
+            image = np.asarray(image)
+        else:
+            i = np.random.randint(xrdmap.map.map_shape[0])
+            j = np.random.randint(xrdmap.map.map_shape[1])
+            indices = (i, j)
+            image = xrdmap.map.images[indices]
+            image = np.asarray(image)
+
+    return image, indices
+
+
+def _xrdmap_integration(xrdmap,
+                        integration=None,
+                        indices=None):
+
+    # Check image type
+    if integration is not None:
+        integration = np.asarray(integration)
+        if len(integration.shape) == 1 and len(integration) == 2:
+            indices = tuple(iter(integration))
+            integration = xrdmap.map.integrations[indices]
+        elif len(integration.shape) == 1:
+            if indices is not None:
+                indices = tuple(indices)
+        else:
+            raise ValueError(f"Incorrect image shape of {integration.shape}. Should be one-dimensional.")
+    else:
+        if not hasattr(xrdmap.map, 'integrations'):
+            raise ValueError("Integration has not been specified and XRDMap does not have any integrations calculated!")
+
+        if indices is not None:
+            indices = tuple(indices)
+            integration = xrdmap.map.integrations[indices]
+            integration = np.asarray(integration)
+        else:
+            i = np.random.randint(xrdmap.map.map_shape[0])
+            j = np.random.randint(xrdmap.map.map_shape[1])
+            indices = (i, j)
+            integration = xrdmap.map.integrations[indices]
+            integration = np.asarray(integration)
+
+    return integration, indices
 
 
 def plot_image(image,
@@ -78,6 +135,12 @@ def plot_image(image,
                aspect='auto',
                **kwargs):
     
+    # Plot image
+    if fig is None and ax is None:
+        fig, ax = plt.subplots(1, 1, figsize=(5, 5), dpi=200)
+    elif fig is None and ax is not None or fig is not None and ax is None:
+        raise ValueError('Figure and axes must both provided or both None')
+    
     if mask is not None:
         mask = np.asarray(mask)
         if mask.shape == image.shape:
@@ -87,12 +150,6 @@ def plot_image(image,
             err_str = (f'Mask shape of {mask.shape} does not match '
                        + f'image shape of {image.shape}')
             raise ValueError(err_str)
-    
-    # Plot image
-    if fig is None and ax is None:
-        fig, ax = plt.subplots(1, 1, figsize=(5, 5), dpi=200)
-    elif fig is None and ax is not None or fig is not None and ax is None:
-        raise ValueError('Figure and axes must both provided or both None')
     
     # Allow some flexibility for kwarg inputs
     plot_kwargs = {'c' : 'r',
@@ -126,7 +183,12 @@ def plot_image(image,
     return fig, ax
 
 
-def plot_reconstruction(self, indices=None, plot_residual=False, **kwargs):
+def plot_reconstruction(self,
+                        indices=None,
+                        plot_residual=False,
+                        fig=None,
+                        ax=None,
+                        **kwargs):
     raise NotImplementedError()
     if not hasattr(self, 'spots'):
         raise RuntimeError('xrdmap does not have any spots!')
@@ -197,7 +259,12 @@ def plot_reconstruction(self, indices=None, plot_residual=False, **kwargs):
         
 
 # Pretty simple...
-def plot_map(value, map_extent=None, position_units=None, fig=None, ax=None, **kwargs):
+def plot_map(value,
+             map_extent=None,
+             position_units=None,
+             fig=None,
+             ax=None,
+             **kwargs):
 
     if fig is None and ax is None:
         fig, ax = plt.subplots(1, 1, figsize=(5, 5), dpi=200)
@@ -223,7 +290,16 @@ def plot_map(value, map_extent=None, position_units=None, fig=None, ax=None, **k
 ### Geometry Corrected ###
 ##########################
 
-def plot_integration(intensity, tth, units=None, fig=None, ax=None, **kwargs):
+def plot_integration(intensity,
+                     indices=None,
+                     tth=None,
+                     units=None,
+                     title=None,
+                     fig=None,
+                     ax=None,
+                     y_min=None,
+                     y_max=None,
+                     **kwargs):
     
     if fig is None and ax is None:
         fig, ax = plt.subplots(1, 1, figsize=(5, 5), dpi=200)
@@ -232,20 +308,39 @@ def plot_integration(intensity, tth, units=None, fig=None, ax=None, **kwargs):
     
     if units is None:
         units = 'a.u.'
+
+    if tth is None:
+        tth = range(len(intensity))
     
     ax.plot(tth, intensity, **kwargs)
-    ax.set_xlabel(f'scattering angle, 2θ [{units}]')
+    ax.set_xlabel(f'Scattering Angle, 2θ [{units}]')
+    # Direct access to scaling!
+    ax.set_ylim(y_min, y_max)
+
+    if title is not None:
+        ax.set_title(title)
+    elif indices is not None:
+        ax.set_title(f'Row = {indices[0]}, Col = {indices[1]}')
+    else:
+        ax.set_title('Input Integration')
 
     return fig, ax
 
 
-
-def plot_cake(intensity, tth, chi, units=None, ax=None, **kwargs):
+def plot_cake(intensity,
+              tth,
+              chi,
+              units=None,
+              fig=None, 
+              ax=None,
+              **kwargs):
+    
+    raise NotImplementedError()
 
     if fig is None and ax is None:
         fig, ax = plt.subplots(1, 1, figsize=(5, 5), dpi=200)
     elif fig is None and ax is not None or fig is not None and ax is None:
-        raise ValueError('Figure and axes must both provided or both None')\
+        raise ValueError('Figure and axes must both provided or both None')
         
     extent = [np.min(tth), np.max(tth), np.min(chi), np.max(chi)]
 

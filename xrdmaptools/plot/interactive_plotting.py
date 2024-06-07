@@ -27,7 +27,7 @@ def update_axes(event, data,
                 fig=None, axes=None,
                 cmap='viridis', marker_color='red',
                 img_vmin=None, img_vmax=None,
-                plot_min=None, plot_max=None,
+                y_min=None, y_max=None,
                 img_norm=Normalize):
     '''
         
@@ -54,8 +54,8 @@ def update_axes(event, data,
         update_plot(data,
                     xticks,
                     axi=axes[1],
-                    plot_min=plot_min,
-                    plot_max=plot_max)
+                    y_min=y_min,
+                    y_max=y_max)
     elif len(data.shape) == 4:
         update_img(data,
                    xticks,
@@ -74,20 +74,20 @@ def update_axes(event, data,
 
 def update_plot(data,
                 xticks,
-                plot_min=None, plot_max=None,
+                y_min=None, y_max=None,
                 axi=None):
     '''
     
     '''
 
-    if plot_min is None: plot_min = np.min(data) - 0.15 * np.abs(np.min(data))
-    if plot_max is None: plot_max = np.max(data) + 0.15 * np.abs(np.max(data))
+    if y_min is None: y_min = np.min(data) - 0.15 * np.abs(np.min(data))
+    if y_max is None: y_max = np.max(data) + 0.15 * np.abs(np.max(data))
 
     if len(xticks) == len(data[row, col]):
         axi.plot(xticks, data[row, col])
     else:
         axi.plot(np.linspace(xticks[0], xticks[-1], len(data[row, col])), data[row, col])
-    axi.set_ylim(plot_min, plot_max)
+    axi.set_ylim(y_min, y_max)
 
 
 def update_img(data,
@@ -185,7 +185,7 @@ def set_globals(ax):
 
 def interactive_1d_plot(integrated_data, xticks=None,
                         display_map=None, display_title=None,
-                        plot_min=None, plot_max=None,
+                        y_min=None, y_max=None,
                         map_vmin=None, map_vmax=None, map_norm=Normalize,
                         cmap='viridis', marker_color='red'):
     '''
@@ -224,8 +224,8 @@ def interactive_1d_plot(integrated_data, xticks=None,
                         axes=ax, 
                         cmap=cmap,
                         marker_color=marker_color,
-                        plot_min=plot_min,
-                        plot_max=plot_max,
+                        y_min=y_min,
+                        y_max=y_max,
                         map_norm=map_norm)
 
     cid = fig.canvas.mpl_connect('button_press_event', onclick)
@@ -287,7 +287,7 @@ def interactive_2d_plot(image_data, xticks=None, yticks=None,
 def interactive_combined_plot(integrated_data, image_data, xticks=None, yticks=None,
                               display_map=None, display_title=None,
                               map_vmin=None, map_vmax=None, map_norm=Normalize,
-                              plot_min=None, plot_max=None,
+                              y_min=None, y_max=None,
                               cmap='viridis', marker_color='red',
                               img_vmin=None, img_vmax=None, img_norm=Normalize):
     '''
@@ -332,8 +332,8 @@ def interactive_combined_plot(integrated_data, image_data, xticks=None, yticks=N
                         axes=[ax[0], ax[2]],
                         cmap=cmap,
                         marker_color=marker_color,
-                        plot_min=plot_min,
-                        plot_max=plot_max)
+                        y_min=y_min,
+                        y_max=y_max)
             update_axes(event,
                         image_data,
                         xticks=xticks,
@@ -354,7 +354,7 @@ def interactive_combined_plot(integrated_data, image_data, xticks=None, yticks=N
 def dynamic_1d_plot(integrated_data, xticks=None,
                     display_map=None, display_title=None,
                     map_vmin=None, map_vmax=None, map_norm=Normalize,
-                    plot_min=None, plot_max=None,
+                    y_min=None, y_max=None,
                     cmap='viridis', marker_color='red'):
     '''
     
@@ -393,8 +393,8 @@ def dynamic_1d_plot(integrated_data, xticks=None,
                             axes=ax,
                             cmap=cmap,
                             marker_color=marker_color,
-                            plot_min=plot_min,
-                            plot_max=plot_max)
+                            y_min=y_min,
+                            y_max=y_max)
                 fig.canvas.draw_idle()
 
     binding_id = plt.connect('motion_notify_event', onmove)
@@ -460,7 +460,7 @@ def dynamic_combined_plot(integrated_data, image_data, xticks=None, yticks=None,
                               map_vmin=None, map_vmax=None, map_norm=Normalize,
                               cmap='viridis', marker_color='red',
                               img_vmin=None, img_vmax=None, img_norm=Normalize,
-                              plot_min=None, plot_max=None):
+                              y_min=None, y_max=None):
     '''
     
     '''
@@ -504,8 +504,8 @@ def dynamic_combined_plot(integrated_data, image_data, xticks=None, yticks=None,
                             axes=[ax[0], ax[2]],
                             cmap=cmap,
                             marker_color=marker_color,
-                            plot_min=plot_min,
-                            plot_max=plot_max)
+                            y_min=y_min,
+                            y_max=y_max)
                 update_axes(event,
                             image_data,
                             xticks=xticks,
@@ -526,7 +526,7 @@ def dynamic_combined_plot(integrated_data, image_data, xticks=None, yticks=None,
 def interactive_dynamic_1d_plot(integrated_data, xticks=None,
                                 display_map=None, display_title=None,
                                 map_vmin=None, map_vmax=None, map_norm=Normalize,
-                                plot_min=None, plot_max=None,
+                                y_min=None, y_max=None,
                                 cmap='viridis', marker_color='red'):
     '''
     
@@ -566,8 +566,8 @@ def interactive_dynamic_1d_plot(integrated_data, xticks=None,
                         axes=ax,
                         cmap=cmap,
                         marker_color=marker_color,
-                        plot_min=plot_min,
-                        plot_max=plot_max)
+                        y_min=y_min,
+                        y_max=y_max)
 
     # Make dynamic
     def onmove(event):
@@ -581,8 +581,8 @@ def interactive_dynamic_1d_plot(integrated_data, xticks=None,
                             axes=ax,
                             cmap=cmap,
                             marker_color=marker_color,
-                            plot_min=plot_min,
-                            plot_max=plot_max)
+                            y_min=y_min,
+                            y_max=y_max)
                 fig.canvas.draw_idle()
 
 
@@ -669,7 +669,7 @@ def interactive_dynamic_combined_plot(integrated_data, image_data, xticks=None, 
                               map_vmin=None, map_vmax=None, map_norm=Normalize,
                               cmap='viridis', marker_color='red',
                               img_vmin=None, img_vmax=None, img_norm=Normalize,
-                              plot_min=None, plot_max=None,):
+                              y_min=None, y_max=None,):
     '''
     
     '''
@@ -713,8 +713,8 @@ def interactive_dynamic_combined_plot(integrated_data, image_data, xticks=None, 
                         axes=[ax[0], ax[2]],
                         cmap=cmap,
                         marker_color=marker_color,
-                        plot_min=plot_min,
-                        plot_max=plot_max)
+                        y_min=y_min,
+                        y_max=y_max)
             update_axes(event,
                         image_data,
                         xticks=xticks,
@@ -740,8 +740,8 @@ def interactive_dynamic_combined_plot(integrated_data, image_data, xticks=None, 
                             axes=[ax[0], ax[2]],
                             cmap=cmap,
                             marker_color=marker_color,
-                            plot_min=plot_min,
-                            plot_max=plot_max)
+                            y_min=y_min,
+                            y_max=y_max)
                 update_axes(event,
                             image_data,
                             xticks=xticks,

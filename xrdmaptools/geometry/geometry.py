@@ -16,7 +16,7 @@ from ..utilities.utilities import vector_angle
 
 
 def get_q_vect(tth, chi, wavelength, return_kf=False, degrees=False):
-    # Calculate q-vector
+    # Calculate q-vector from arrays of tth and chi polar coordinates and wavelength
     if not isinstance(tth, (list, tuple, np.ndarray)):
         tth = np.asarray([tth])
         chi = np.asarray([chi])
@@ -27,9 +27,11 @@ def get_q_vect(tth, chi, wavelength, return_kf=False, degrees=False):
         tth = np.radians(tth)
         chi = np.radians(chi)
 
+    # Incident wavevector
     ki_unit = np.broadcast_to(np.array([0, 0, 1]).reshape(3, *([1,] * len(tth.shape))),
                               (3, *tth.shape))
 
+    # Diffracted wavevector
     kf_unit = np.array([np.sin(tth) * np.cos(chi),
                         np.sin(tth) * np.sin(chi),
                         np.cos(tth)])

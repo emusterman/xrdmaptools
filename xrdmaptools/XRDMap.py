@@ -36,7 +36,17 @@ from .reflections.spot_blob_search import (
 
 from .plot.interactive_plotting import (interactive_dynamic_2d_plot,
                                         interactive_dynamic_1d_plot)
-from .plot.general import _parse_xrdmap, plot_map
+from .plot.general import (
+    _plot_parse_xrdmap,
+    _xrdmap_image,
+    _xrdmap_integration,
+    plot_image,
+    plot_integration,
+    plot_reconstruction,
+    plot_map,
+    plot_cake
+)
+from .plot.geometry import plot_q_space, plot_detector_geometry
 
 from .geometry.geometry import *
 
@@ -172,7 +182,7 @@ class XRDMap():
         
         # Default units and flags
         # Not fully implemented
-        self._azimuthal_units = 'deg' # 'rad' or 'deg'
+        self._polar_units = 'deg' # 'rad' or 'deg'
         self._scattering_units = 'deg' # 'rad', 'deg', 'nm^-1', 'A^-1'
         self._integration_scale = 'linear' # 'linear' or 'log'
         self._image_scale = 'linear' # 'linear' or 'log'
@@ -460,8 +470,8 @@ class XRDMap():
 
     scattering_units = angle_units_factory('scattering_units',
                                            ['rad', 'deg', '1/nm', '1/A'])
-    azimuthal_units = angle_units_factory('azimuthal_units',
-                                           ['rad', 'deg'])
+    polar_units = angle_units_factory('polar_units',
+                                      ['rad', 'deg'])
     
 
     def scale_property_factory(property_name):
@@ -499,7 +509,7 @@ class XRDMap():
                     return getattr(self, f'_{arr_name}')
             elif hasattr(self, 'ai') and self.ai is not None:
                 ai_arr = getattr(self.ai, ai_arr_name)() # default is radians
-                if arr_name is 'chi_arr':
+                if arr_name == 'chi_arr':
                     ai_arr = -ai_arr # Negative to match SRX coordinates
 
                 if getattr(self, units) == 'rad':
@@ -521,7 +531,7 @@ class XRDMap():
             delattr(self, f'_{arr_name}')
 
         # Delta arrays are not cached
-        def get_delta_array(self, arr_name):
+        def get_delta_array(self):
             arr = getattr(self, arr_name) # should call the property
 
             max_arr = np.max(np.abs(arr))
@@ -547,107 +557,24 @@ class XRDMap():
 
     tth_arr, delta_tth = detector_angle_array_factory('tth_arr',
                                            'twoThetaArray',
-                                           'scattering_units')
+                                           'polar_units')
     chi_arr, delta_chi = detector_angle_array_factory('chi_arr',
                                            'chiArray',
-                                           'azimuthal_units')
+                                           'polar_units')
 
-    '''@property
-    def tth_arr(self):
-        if hasattr(self, '_tth_arr'):
-            return self._tth_arr
-
-        elif ((hasattr(self, 'map'))
-            and (self.map is not None)
-            and (self.map.corrections['polar_calibration'])):
-
-            if hasattr(self, 'tth') and hasattr(self, 'chi'):
-                tth_arr, _ = np.meshgrid(self.tth, self.chi[::-1])
-                self._tth_arr = tth_arr
-                return self._tth_arr
-
-        elif hasattr(self, 'ai') and self.ai is not None:
-            self._tth_arr = np.degrees(self.ai.twoThetaArray())
-            return self._tth_arr
-        
-        else:
-            raise AttributeError('AzimuthalIntegrator (ai) not specified for XRDMap.')
-    
-    @tth_arr.deleter
-    def tth_arr(self):
-        self._del_arr()
-    
-    @property
-    def delta_tth(self):
-        return delta_array(self.tth_arr)
-
-    
-    @property
-    def chi_arr(self):
-        if hasattr(self, '_chi_arr'):
-            return self._chi_arr
-
-        elif ((hasattr(self, 'map'))
-            and (self.map is not None)
-            and (self.map.corrections['polar_calibration'])):
-
-            if hasattr(self, 'tth') and hasattr(self, 'chi'):
-                _, chi_arr = np.meshgrid(self.tth, self.chi[::-1])
-                self._chi_arr = chi_arr
-                return self._chi_arr
-
-        elif hasattr(self, 'ai') and self.ai is not None:
-            # Negative to convert to SRX coordinate system
-            self._chi_arr = -np.degrees(self.ai.chiArray())
-            return self._chi_arr
-        
-        else:
-            raise AttributeError('AzimuthalIntegrator (ai) not specified for XRDMap.')
-    
-    @chi_arr.deleter
-    def chi_arr(self):
-        self._del_arr()
-    
-    #@property
-    #def delta_chi(self):
-    #    pos_chi = self.chi_arr.copy()
-    #    # Check for discontinuities
-    #    if np.max(np.gradient(pos_chi)) > 30: # Semi-arbitrary cut off
-    #        pos_chi[pos_chi < 0] += 360
-    #
-    #    return delta_array(pos_chi)
-    
-    @property
-    def delta_chi(self):
-        chi = self.chi_arr.copy()
-
-        max_chi = np.max(np.abs(chi))
-        delta_chi = delta_array(chi)
-
-        # Modular shift values if there is a discontinuity
-        if np.max(delta_chi) > max_chi:
-            if max_chi > np.pi:
-                shift_value = 2 * 180
-            else:
-                shift_value = 2 * np.pi
-
-            chi[chi < 0] += shift_value
-
-        delta_chi = delta_array(chi)
-        return delta_chi'''
 
     # Full q-vector, not just magnitude
     @property
     def q_arr(self):
         if hasattr(self, '_q_arr'):
             return self._q_arr
-        elif self.tth_arr is None or self.chi_arr is None:
-            raise RuntimeError('Cannot calculate q-space with NoneType tth_arr or chi_arr.')
+        elif not hasattr(self, 'ai'):
+            raise RuntimeError('Cannot calculate q-space without calibration.')
         else:
             q_arr = get_q_vect(self.tth_arr,
                                self.chi_arr,
                                wavelength=self.wavelength,
-                               degrees=True)
+                               degrees=self.polar_units == 'deg')
             self._q_arr = q_arr
             return self._q_arr
 
@@ -1798,7 +1725,7 @@ class XRDMap():
     def pixel_spots(self, map_indices):
         # TODO: These values may need to be reversed. Check with mapping values...
         pixel_spots = self.spots[(self.spots['map_x'] == map_indices[0])
-                               & (self.spots['map_y'] == map_indices[1])]
+                               & (self.spots['map_y'] == map_indices[1])].copy()
         return pixel_spots
     
 
@@ -1846,15 +1773,16 @@ class XRDMap():
             and xrf_name is None
             and self.xrf_path is not None):
             xrf_path = self.xrf_path
+        else:
+            if xrf_dir is None:
+                xrf_dir = self.wd
 
-        if xrf_dir is None:
-            xrf_dir = self.wd
+            # Try default name for SRX
+            if xrf_name is None:
+                xrf_name =  f'scan2D_{self.scanid}_xs_sum8ch'
 
-        # Try default name for SRX
-        if xrf_name is None:
-            xrf_name =  f'scan2D_{self.scanid}_xs_sum8ch'
+            xrf_path = f'{xrf_dir}{xrf_name}.h5'
 
-        xrf_path = f'{xrf_dir}{xrf_name}.h5'
         if not os.path.exists(xrf_path):
             raise FileNotFoundError(f"{xrf_path} does not exist.")
         else:
@@ -1906,181 +1834,92 @@ class XRDMap():
     ### Plotting Functions ###
     ##########################
 
-    def plot_image(self, image=None, indices=None, title=None,
-                mask=None, spots=False, contours=False,
-                aspect='auto', vmin=None, 
-                return_plot=False,
-                **kwargs):
+    def plot_image(self,
+                   image=None,
+                   indices=None,
+                   title=None,
+                   mask=False,
+                   spots=False,
+                   contours=False,
+                   fig=None,
+                   ax=None,
+                   aspect='auto',
+                   return_plot=False,
+                   **kwargs):
         
-        # Check image type
-        if image is not None:
-            image = np.asarray(image)
-            if len(image.shape) == 1 and len(image) == 2:
-                indices = tuple(iter(image))
-                image = self.map.images[indices]
-            elif len(image.shape) == 2:
-                if indices is not None:
-                    indices = tuple(indices)
-            else:
-                raise ValueError(f"Incorrect image shape of {image.shape}. Should be two-dimensional.")
-        else:
-            # Evaluate images
-            self.map._dask_2_dask()
-
-            if indices is not None:
-                indices = tuple(indices)
-                image = self.map.images[indices]
-                image = np.asarray(image)
-            else:
-                i = np.random.randint(self.map.map_shape[0])
-                j = np.random.randint(self.map.map_shape[1])
-                indices = (i, j)
-                image = self.map.images[indices]
-                image = np.asarray(image)
-
-        # Check for mask
-        if mask is not None:
-            if mask is True:
-                image = image * self.map.mask
-            elif np.asarray(mask).shape == image.shape:
-                image = image * mask
-            else:
-                raise RuntimeError("Error handling mask input.")
-            
-        # Plot image
-        fig, ax = plt.subplots(1, 1, figsize=(5, 5), dpi=200)
-        # Allow some flexibility for kwarg inputs
-        plot_kwargs = {'c' : 'r',
-                       'lw' : 0.5,
-                       's' : 1}
-        for key in plot_kwargs.keys():
-            if key in kwargs.keys():
-                plot_kwargs[key] = kwargs[key]
-                del kwargs[key]
-
-        im = ax.imshow(image, vmin=vmin, aspect=aspect, **kwargs)
-        ax.set_xlabel('X index')
-        ax.set_ylabel('Y index')
-        fig.colorbar(im, ax=ax) 
-
-        if title is not None:
-            ax.set_title(title)
-        elif indices is not None:
-            ax.set_title(f'Row = {indices[0]}, Col = {indices[1]}')
-        elif self.map.title is not None:
-            ax.set_title(self.map.title)
-        else:
-            ax.set_title('Input Image')
-
-        if indices is not None:
-            # Set some default values
-            
-            # Plot spots
-            if spots and hasattr(self, 'spots'):
-                pixel_df = self.spots[(self.spots['map_x'] == indices[0]) & (self.spots['map_y'] == indices[1])].copy()
-                if any([x[:3] == 'fit' for x in pixel_df.keys()]):
-                    pixel_df.dropna(axis=0, inplace=True)
-                    spots = pixel_df[['fit_chi0', 'fit_tth0']].values
-                else:
-                    spots = pixel_df[['guess_cen_chi', 'guess_cen_tth']].values
-
-                if not self.map.corrections['polar_calibration']:
-                    spots = estimate_image_coords(spots[:, ::-1], self.tth_arr, self.chi_arr)[:, ::-1]
-                ax.scatter(spots[:, 1], spots[:, 0], s=plot_kwargs['s'], c=plot_kwargs['c'])
-            
-            elif spots and not hasattr(self, 'spots'):
-                print('Warning: Plotting spots requested, but xrdmap does not have any spots!')
-
-            # Plot contours
-            if contours and hasattr(self.map, 'spot_masks'):
-                blob_img = label(self.map.spot_masks[indices])
-                blob_contours = find_blob_contours(blob_img)
-                for contour in blob_contours:
-                    if self.map.corrections['polar_calibration']:
-                        contour = estimate_polar_coords(contour.T, self.tth_arr, self.chi_arr).T
-                    ax.plot(*contour, c=plot_kwargs['c'], lw=plot_kwargs['lw'])
-                
-            elif contours and not hasattr(self, 'spot_masks'):
-                print('Warning: Plotting spots requested, but xrdmap does not have any spots!')
+        image, indices = _xrdmap_image(self,
+                                       image=image,
+                                       indices=indices)
         
-        elif spots or contours:
-            print('Warning: Cannot request spots or contours without providing map indices!')
+        out = _plot_parse_xrdmap(self,
+                                 indices,
+                                 mask=mask,
+                                 spots=spots,
+                                 contours=contours)
 
+        fig, ax = plot_image(image,
+                             indices=indices,
+                             title=title,
+                             mask=out[0],
+                             spots=out[1],
+                             contours=out[2],
+                             fig=fig,
+                             ax=ax,
+                             aspect=aspect,
+                             **kwargs)
+        
         if return_plot:
             return fig, ax
-        
-        fig.show()
-
-
-    def plot_reconstruction(self, indices=None, plot_residual=False, **kwargs):
-        if not hasattr(self, 'spots'):
-            raise RuntimeError('xrdmap does not have any spots!')
-
-        if indices is None:
-            i = np.random.randint(self.map.map_shape[0])
-            j = np.random.randint(self.map.map_shape[1])
-            indices = (i, j)
         else:
-            indices = tuple(indices)
-            if (indices[0] < 0 or indices[0] > self.map.map_shape[0]):
-                raise IndexError(f'Indices ({indices}) is out of bounds along axis 0 for map shape ({self.map.map_shape})')
-            elif (indices[1] < 0 or indices[1] > self.map.map_shape[1]):
-                raise IndexError(f'Indices ({indices}) is out of bounds along axis 1 for map shape ({self.map.map_shape})')
-        
-        if hasattr(self, 'spot_model'):
-            spot_model = self.spot_model
-        else:
-            print('Warning: No spot model saved. Defaulting to Gaussian.')
-            spot_model = GaussianFunctions
-        
-        pixel_df = self.spots[(self.spots['map_x'] == indices[0]) & (self.spots['map_y'] == indices[1])].copy()
-
-        if any([x[:3] == 'fit' for x in pixel_df.keys()]):
-            prefix = 'fit'
-            pixel_df.dropna(axis=0, inplace=True)
-            param_labels = [x for x in self.spots.iloc[0].keys() if x[:3] == 'fit'][:6]
-        else:
-            prefix = 'guess'
-            param_labels = ['height', 'cen_tth', 'cen_chi', 'fwhm_tth', 'fwhm_chi']
-            param_labels = [f'guess_{param_label}' for param_label in param_labels]
-            spot_model = GaussianFunctions
-
-        fit_args = []
-        for index in pixel_df.index:
-            fit_args.extend(pixel_df.loc[index, param_labels].values)
-            if prefix == 'guess':
-                fit_args.append(0) # Filling in theta value
-
-        if len(fit_args) > 0:
-            #return fit_args
-            recon_image = spot_model.multi_2d([self.tth_arr.ravel(), self.chi_arr.ravel()], 0, *fit_args)
-            recon_image = recon_image.reshape(self.map.images.shape[-2:])
-        else:
-            recon_image = np.zeros(self.map.images.shape[-2:])
-
-        if not plot_residual:
-            fig, ax = self.plot_image(recon_image,
-                                return_plot=True, indices=indices,
-                                **kwargs)
-            fig.show()
-
-        else:
-            image = self.map.images[indices]
-            residual = recon_image - image
-            ext = np.max(np.abs(residual[self.map.mask]))
-            fig, ax = self.plot_image(residual,
-                                title=f'Residual of (Row = {indices[0]}, Col = {indices[1]})',
-                                return_plot=True, indices=indices,
-                                vmin=-ext, vmax=ext, cmap='bwr', # c='k',
-                                **kwargs)
             fig.show()
 
 
-    # TODO: Check for display map prior so it does not alway calculate a new map...
+    def plot_integration(self,
+                         integration=None,
+                         indices=None,
+                         tth=None,
+                         units=None,
+                         title=None,
+                         fig=None,
+                         ax=None,
+                         y_min=None,
+                         y_max=None,
+                         return_plot=False,
+                         **kwargs):
+        
+        if tth is None:
+            tth = self.tth
+        
+        if units is None:
+            units = self.scattering_units
+        
+        integration, indices = _xrdmap_integration(self,
+                                       integration=integration,
+                                       indices=indices)
+
+        fig, ax = plot_integration(integration,
+                                   indices=indices,
+                                   tth=tth,
+                                   units=units,
+                                   title=title,
+                                   fig=fig,
+                                   ax=ax,
+                                   y_min=y_min,
+                                   y_max=y_max,
+                                   **kwargs)
+        
+        if return_plot:
+            return fig, ax
+        else:
+            fig.show()
+
+    # Interactive plots do not currently accept fig, ax inputs
+
     def plot_interactive_map(self,
                              image_data=None,
                              xticks=None,
                              yticks=None,
+                             return_plot=False,
                              **kwargs):
 
         if image_data is not None:
@@ -2092,11 +1931,11 @@ class XRDMap():
         else:
             image_data = self.map.images
 
-        # I should probably rebuild these to not need tth and chi
-        if hasattr(self, 'tth') and xticks is None and yticks is None: # only if both, distinguishes from intergrations
-            xticks = self.tth
-        if hasattr(self, 'chi') and yticks is None:
-            yticks = self.chi
+        if xticks is None and self.map.correction['polar_calibration']:
+            if hasattr(self, 'tth') and self.tth is not None:
+                xticks = self.tth
+            if hasattr(self, 'chi') and self.chi is not None:
+                yticks = self.chi
 
         # Check for, extract, or determine displaymap
         if 'display_map' not in kwargs.keys():
@@ -2110,12 +1949,16 @@ class XRDMap():
                                               yticks=yticks,
                                               display_map=display_map,
                                               **kwargs)
-        fig.show()
+        if return_plot:
+            return fig, ax
+        else:
+            fig.show()
     
 
     def plot_interactive_integration_map(self,
                                          integrated_data=None,
                                          xticks=None,
+                                         return_plot=False,
                                          **kwargs):
         # Map integrated patterns for dynamic exploration of dataset
         # May throw an error if data has not yet been integrated
@@ -2129,9 +1972,10 @@ class XRDMap():
             raise ValueError(f'ImageMap data shape is not 4D, but {self.map.integrations.ndim}')
         else:
             integrated_data = self.map.integrations
-    
-        if hasattr(self, 'tth') and xticks is None:
-            xticks = self.tth
+
+        if xticks is not None:
+            if hasattr(self, 'tth') and self.tth is not None:
+                xticks = self.tth
     
         # Check for, extract, or determine displaymap
         if 'display_map' not in kwargs.keys():
@@ -2144,7 +1988,10 @@ class XRDMap():
                                               xticks=xticks,
                                               display_map=display_map,
                                               **kwargs)
-        fig.show()
+        if return_plot:
+            return fig, ax
+        else:
+            fig.show()
     
 
     def plot_map(self,
@@ -2153,7 +2000,7 @@ class XRDMap():
                  position_units=None,
                  fig=None,
                  ax=None,
-                 return_figure=False,
+                 return_plot=False,
                  **kwargs):
         
         if map_extent is None:
@@ -2168,7 +2015,7 @@ class XRDMap():
                            ax=ax,
                            **kwargs)
         
-        if return_figure:
+        if return_plot:
             return fig, ax
         else:
             fig.show()
@@ -2183,92 +2030,43 @@ class XRDMap():
     ### Plot Experimental Geometry ###
     ##################################
 
-    def plot_q_space(self, pixel_indices=None, skip=500, return_plot=False):
+    def plot_q_space(self,
+                     indices=None,
+                     skip=500,
+                     detector=True,
+                     Ewald_sphere=True,
+                     beam_path=True,
+                     fig=None,
+                     ax=None,
+                     return_plot=False):
  
-        q = get_q_vect(self.tth_arr, self.chi_arr, wavelength=self.wavelength)
-
-        if pixel_indices is not None:
-            pixel_df = self.spots[(self.spots['map_x'] == pixel_indices[0])
-                                    & (self.spots['map_y'] == pixel_indices[1])].copy()
-
-        fig, ax = plt.subplots(1, 1, figsize=(5, 5), dpi=200, subplot_kw={'projection':'3d'})
-
-        # Plot sampled Ewald sphere
-        q_mask = q[:, self.map.mask]
-        ax.plot_trisurf(q_mask[0].ravel()[::skip],
-                        q_mask[1].ravel()[::skip],
-                        q_mask[2].ravel()[::skip],
-                        alpha=0.5, label='detector')
-
-        # Plot full Ewald sphere
-        u = np.linspace(0, 2 * np.pi, 100)
-        v = np.linspace(0, np.pi, 100)
-        radius = 2 * np.pi / self.wavelength
-        x =  radius * np.outer(np.cos(u), np.sin(v))
-        y = radius * np.outer(np.sin(u), np.sin(v))
-        z = radius * np.outer(np.ones(np.size(u)), np.cos(v))
-        ax.plot_surface(x, y, z - radius, alpha=0.2, color='k', label='Ewald sphere')
-
-        if pixel_indices is not None:
-            ax.scatter(*pixel_df[['qx', 'qy', 'qz']].values.T, s=1, c='r', label='spots')
-
-        # Sample geometry
-        ax.quiver([0, 0], [0, 0], [-2 * radius, -radius], [0, 0], [0, 0], [radius, radius], colors='k')
-        ax.scatter(0, 0, 0, marker='o', s=10, facecolors='none', edgecolors='k', label='transmission')
-        ax.scatter(0, 0, -radius, marker='h', s=10, c='b', label='sample')
-
-        ax.set_xlabel('qx [Å⁻¹]')
-        ax.set_ylabel('qy [Å⁻¹]')
-        ax.set_zlabel('qz [Å⁻¹]')
-        ax.set_aspect('equal')
-
-        # Initial view
-        ax.view_init(elev=-45, azim=90, roll=0)
-
+        fig, ax = plot_q_space(self,
+                               indices=indices,
+                               skip=skip,
+                               detector=detector,
+                               Ewald_sphere=Ewald_sphere,
+                               beam_path=beam_path,
+                               fig=fig,
+                               ax=ax)
+        
         if return_plot:
             return fig, ax
+        else:
+            fig.show()
 
-        fig.show()
 
-
-    def plot_detector_geometry(self, skip=300, return_plot=False):
-
-        fig, ax = plt.subplots(1, 1, figsize=(5, 5), dpi=200, subplot_kw={'projection':'3d'})
-
-        # Plot detector position
-        pos_arr = self.ai.position_array()
-
-        x = pos_arr[:, :, 2].ravel()[::skip] # Switch to positive outboard
-        y = pos_arr[:, :, 1].ravel()[::skip]
-        z = pos_arr[:, :, 0].ravel()[::skip]
-
-        ax.plot_trisurf(x, y, z,
-                        alpha=0.5, label='detector')
-
-        # X-ray beam
-        radius = self.ai.dist
-        ax.quiver([0], [0], [-radius], [0], [0], [radius], colors='k')
-        ax.scatter(0, 0, 0, marker='h', s=10, c='b', label='sample')
-
-        # Detector
-        corner_indices = np.array([[0, 0], [-1, 0], [0, -1], [-1, -1]]).T
-        corn = pos_arr[*corner_indices].T
-        ax.quiver([0,] * 4,
-                  [0,] * 4,
-                  [0,] * 4,
-                  corn[2],
-                  corn[1],
-                  corn[0], colors='gray', lw=0.5)
-
-        ax.set_xlabel('x [m]')
-        ax.set_ylabel('y [m]')
-        ax.set_zlabel('z [m]')
-        ax.set_aspect('equal')
-
-        # Initial view
-        ax.view_init(elev=-60, azim=90, roll=0)
-
+    def plot_detector_geometry(self,
+                               skip=300,
+                               fig=None,
+                               ax=None,
+                               return_plot=False):
+        
+        fig, ax = plot_detector_geometry(self,
+                                         skip=skip,
+                                         fig=fig,
+                                         ax=ax)
+        
         if return_plot:
             return fig, ax
-
-        fig.show()
+        else:
+            fig.show()
