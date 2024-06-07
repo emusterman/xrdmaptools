@@ -56,7 +56,8 @@ class XRDMap():
                  filename=None,
                  hdf_filename=None,
                  hdf=None,
-                 image_map=None,
+                 image_data=None,
+                 integration_data=None,
                  map_title=None,
                  map_shape=None,
                  energy=None,
@@ -66,8 +67,8 @@ class XRDMap():
                  poni_file=None,
                  sclr_dict=None,
                  pos_dict=None,
-                 tth_resolution=None,
-                 chi_resolution=None,
+                 tth_resolution=0.01,
+                 chi_resolution=0.05,
                  tth=None,
                  chi=None,
                  beamline='5-ID (SRX)',
@@ -75,7 +76,8 @@ class XRDMap():
                  time_stamp=None,
                  extra_metadata=None,
                  save_hdf=True,
-                 dask_enabled=False):
+                 dask_enabled=False,
+                 xrf_path=None):
         
         # Adding some metadata
         self.scanid = scanid
@@ -109,52 +111,46 @@ class XRDMap():
             self.dwell = dwell
         if theta is not None:
             self.theta = theta
-        
-        # Only take values from hdf when opening from the class method
-        if save_hdf:
-            if hdf is not None:
-                self.hdf_path = hdf.filename
-            elif hdf_filename is None:
-                self.hdf_path = f'{wd}{filename}.h5'
-            else:
-                self.hdf_path = f'{wd}{hdf_filename}' # TODO: Add check for .h5   
-            
-            if os.path.exists(self.hdf_path):
-                pass
-            else:
-                initialize_xrdmap_hdf(self, self.hdf_path) # Initialize base structure
 
-            # Open hdf if required
+        if not save_hdf:
             if dask_enabled:
-                self.hdf = h5py.File(self.hdf_path, 'a')
+                raise ValueError('Enabling dask requires an hdf file for storage.')
             else:
+                self.hdf_path = None
                 self.hdf = None
-        
-        elif not save_hdf and dask_enabled:
-            raise ValueError('Enabling dask requires an hdf file for storage.')
-        
-        else: # save_hdf is False and dask_enabled is False
-            self.hdf_path = None
-            self.hdf = None
+        else:
+            self.save_hdf(hdf=hdf,
+                          hdf_filename=hdf_filename,
+                          dask_enabled=dask_enabled,
+                          save_current=False)
 
         # Load image map
-        if isinstance(image_map, (np.ndarray,
+        if (isinstance(image_data, (np.ndarray,
                                   da.core.Array,
-                                  h5py._hl.dataset.Dataset)):
-            self.map = ImageMap(image_map,
+                                  h5py._hl.dataset.Dataset))
+            or isinstance(integration_data, (np.ndarray,
+                                  da.core.Array,
+                                  h5py._hl.dataset.Dataset))):
+            
+            self.map = ImageMap(image_data=image_data,
+                                integration_data=integration_data,
                                 title=map_title,
                                 wd=self.wd,
                                 hdf_path=self.hdf_path,
                                 hdf=hdf,
                                 map_shape=map_shape,
                                 dask_enabled=dask_enabled)
-        elif isinstance(image_map, ImageMap):
-            self.map = image_map
+        
+        #elif image_data is None and integration_data is None:
+            # Placeholder for instantiating blank map
+            
+        elif isinstance(image_data, ImageMap):
+            self.map = image_data
             # Used to specify read-only when loading from hdf
             if not save_hdf:
                 self.map.hdf_path = None
         else:
-            raise TypeError(f"Unknown image_map input type: {type(image_map)}")
+            raise TypeError(f"Unknown image_data input type: {type(image_data)}")
         
         self.phases = {} # Place holder for potential phases
         if poni_file is not None:
@@ -171,14 +167,24 @@ class XRDMap():
         if pos_dict is not None:
             self.set_positions(pos_dict)
 
-        if tth_resolution is not None:
-            self.tth_resolution = tth_resolution
-        if chi_resolution is not None:
-            self.chi_resolution = chi_resolution
-        if tth is not None:
-            self.tth = tth
-        if chi is not None:
-            self.chi = chi
+        # Save xrf_path location. Do not load unless explicitly called
+        self.xrf_path = xrf_path
+        
+        # Default units and flags
+        # Not fully implemented
+        self._azimuthal_units = 'deg' # 'rad' or 'deg'
+        self._scattering_units = 'deg' # 'rad', 'deg', 'nm^-1', 'A^-1'
+        self._integration_scale = 'linear' # 'linear' or 'log'
+        self._image_scale = 'linear' # 'linear' or 'log'
+
+        if tth is not None and len(tth) == 0:
+            tth = None
+        self.tth = tth
+        self.tth_resolution = tth_resolution
+        if chi is not None and len(chi) == 0:
+            chi = None
+        self.chi = chi
+        self.chi_resolution = chi_resolution
 
 
     def __str__(self):
@@ -236,11 +242,11 @@ class XRDMap():
 
         print('Loading images...', end='', flush=True)
         if dask_enabled:
-            image_map = dask_io.imread(f'{wd}{filename}')
+            image_data = dask_io.imread(f'{wd}{filename}')
         else:
-            image_map = io.imread(f'{wd}{filename}')
+            image_data = io.imread(f'{wd}{filename}')
         print('done!')
-        return cls(image_map=image_map, wd=wd,
+        return cls(image_data=image_data, wd=wd,
                    map_title=map_title, map_shape=map_shape,
                    **kwargs)
 
@@ -260,24 +266,23 @@ class XRDMap():
             #              + "Defaulting to user-specification."))
             #    input_dict['base_md'][key] = kwargs[key]
 
-            inst = cls(image_map=input_dict['image_data'],
-                    wd=wd, filename=hdf_filename[:-3], # remove the .h5 extention
+            inst = cls(image_data=input_dict['image_data'],
+                    wd=wd,
+                    filename=hdf_filename[:-3], # remove the .h5 extention
                     hdf_filename=hdf_filename,
-                    hdf=input_dict['image_data'].hdf,
+                    hdf=input_dict['image_data'].hdf, # Will always be None
                     dask_enabled=dask_enabled,
                     **input_dict['base_md'],
                     poni_file=input_dict['poni_od'],
                     sclr_dict=input_dict['sclr_dict'],
                     pos_dict=input_dict['pos_dict'],
-                    tth_resolution=input_dict['image_data'].tth_resolution,
-                    chi_resolution=input_dict['image_data'].chi_resolution,
+                    tth_resolution=input_dict['recip_pos']['tth_resolution'],
+                    chi_resolution=input_dict['recip_pos']['chi_resolution'],
                     tth=input_dict['recip_pos']['tth'],
                     chi=input_dict['recip_pos']['chi'],
                     **kwargs)
             
             # Add a few more attributes if they exist
-            if input_dict['recip_pos']['calib_units'] is not None:
-                inst.calib_units = input_dict['recip_pos']['calib_units']
             if hasattr(inst.map, 'extent'):
                 inst.extent = inst.map.extent
             if hasattr(inst.map, 'calibrated_shape'):
@@ -432,10 +437,122 @@ class XRDMap():
             for key in self.phases.keys():
                 self.phases[key].energy = self._energy
 
+    # Flags for units and scales
 
-    # Convenience properties for working with the detector array
+    def angle_units_factory(property_name, options):
+        def get_angle_units(self):
+            return getattr(self, f'_{property_name}')
+        
+        def set_angle_units(self, val):
+            if val in options:
+                setattr(self, f'_{property_name}', val)
+                # Delete old arrays in case units changed
+                self._del_arr() # Deletes everything else too...
+            else:
+                err_str = 'Only '
+                for option in options:
+                    err_str += f'{option}, '
+                err_str = err_str[:-2] + f' are supported for {property_name}' 
+                raise ValueError(err_str)
+        
+        return property(get_angle_units, set_angle_units)
     
-    @property
+
+    scattering_units = angle_units_factory('scattering_units',
+                                           ['rad', 'deg', '1/nm', '1/A'])
+    azimuthal_units = angle_units_factory('azimuthal_units',
+                                           ['rad', 'deg'])
+    
+
+    def scale_property_factory(property_name):
+        def get_scale(self):
+            return getattr(self, f'_{property_name}')
+
+        def set_scale(self, val):
+            if val in ['linear', 'log']:
+                setattr(self, f'_{property_name}', val)
+            else:
+                raise ValueError(f"{property_name} can only have "
+                                 "'linear' or 'log' scales.")
+            
+        return property(get_scale, set_scale)
+    
+
+    image_scale = scale_property_factory('image_scale')
+    integration_scale = scale_property_factory('integration_scale')
+
+    # Convenience properties for working with the detector arrays
+    # These are mostly wrappers for pyFAI functions
+
+    def detector_angle_array_factory(arr_name, ai_arr_name, units):
+        def get_angle_array(self):
+            if hasattr(self, f'_{arr_name}'):
+                return getattr(self, f'_{arr_name}')
+            elif ((hasattr(self, 'map'))
+                  and (self.map is not None)
+                  and (self.map.corrections['polar_calibration'])): # I should rename...
+                if hasattr(self, 'tth') and hasattr(self, 'chi'):
+                    # Set both tth and chi!
+                    tth_arr, chi_arr = np.meshgrid(self.tth, self.chi[::-1])
+                    self._tth_arr = tth_arr
+                    self._chi_arr = chi_arr
+                    return getattr(self, f'_{arr_name}')
+            elif hasattr(self, 'ai') and self.ai is not None:
+                ai_arr = getattr(self.ai, ai_arr_name)() # default is radians
+                if arr_name is 'chi_arr':
+                    ai_arr = -ai_arr # Negative to match SRX coordinates
+
+                if getattr(self, units) == 'rad':
+                    pass
+                elif getattr(self, units) == 'deg':
+                    ai_arr = np.degrees(ai_arr)
+                elif getattr(self, units) == '1/nm':
+                    raise NotImplementedError('1/nm units not yet fully supported.')
+                elif getattr(self, units) == '1/A':
+                    raise NotImplementedError('1/A units not yet fully supported.')
+                else:
+                    raise ValueError('Unknown units specified.')
+
+                setattr(self, f'_{arr_name}', ai_arr)
+                return getattr(self, f'_{arr_name}')
+            raise AttributeError('AzimuthalIntegrator (ai) not specified for XRDMap.')
+
+        def del_angle_array(self):
+            delattr(self, f'_{arr_name}')
+
+        # Delta arrays are not cached
+        def get_delta_array(self, arr_name):
+            arr = getattr(self, arr_name) # should call the property
+
+            max_arr = np.max(np.abs(arr))
+            delta_arr = delta_array(arr)
+
+            # Modular shift values if there is a discontinuity
+            # Should only be for chi_arr between 180 and -180 degrees
+            # I could just shift everything...
+            if np.max(delta_arr) > max_arr:
+                # Degrees
+                if max_arr > np.pi: shift_value = 2 * 180
+                # Radians
+                else: shift_value = 2 * np.pi
+                # Shift and recalculate
+                arr[arr < 0] += shift_value
+                delta_arr = delta_array(arr)
+
+            return delta_arr
+
+        return (property(get_angle_array, None, del_angle_array),
+                property(get_delta_array))
+    
+
+    tth_arr, delta_tth = detector_angle_array_factory('tth_arr',
+                                           'twoThetaArray',
+                                           'scattering_units')
+    chi_arr, delta_chi = detector_angle_array_factory('chi_arr',
+                                           'chiArray',
+                                           'azimuthal_units')
+
+    '''@property
     def tth_arr(self):
         if hasattr(self, '_tth_arr'):
             return self._tth_arr
@@ -517,9 +634,9 @@ class XRDMap():
             chi[chi < 0] += shift_value
 
         delta_chi = delta_array(chi)
-        return delta_chi
+        return delta_chi'''
 
-    
+    # Full q-vector, not just magnitude
     @property
     def q_arr(self):
         if hasattr(self, '_q_arr'):
@@ -607,19 +724,166 @@ class XRDMap():
     ############################
     ### Dask / HDF Functions ###
     ############################
+
+    def save_hdf(self,
+                 hdf=None,
+                 hdf_filename=None,
+                 hdf_path=None,
+                 dask_enabled=False,
+                 save_current=False):
         
-    # This is to help when working with lazy loaded images
-    def _close_hdf(self):
+        # Check for previous iterations
+        if ((hasattr(self, 'hdf') and self.hdf is not None)
+            or (hasattr(self, 'hdf_path') and self.hdf_path is not None)):
+            os_str = ('WARNING: Trying to save to hdf, but a '
+                      'file or location has already been specified!'
+                      '\nSwitching save files or locations should '
+                      'use the "switch_hdf" function.'
+                      '\nProceeding without changes.')
+            print(os_str)
+            return
+        
+        # If nothing is provided, it should be able to build a default location if properly saved
+        #if hdf is None and hdf_path is None and hdf_filename is None:
+        #    raise ValueError('Cannot write to hdf without specifying a file or location.')
+
+        # Specify hdf path and name
+        if hdf is not None:# biases towards already open hdf
+            # This might break if hdf is a close file and not None
+            self.hdf_path = hdf.filename
+        elif hdf_filename is None:
+            if hdf_path is None:
+                self.hdf_path = f'{self.wd}{self.filename}.h5'
+            else:
+                self.hdf_path = f'{hdf_path}{self.filename}.h5'
+        else:
+            if hdf_path is None:
+                self.hdf_path = f'{self.wd}{hdf_filename}' # TODO: Add check for .h5
+            else:
+                self.hdf_path = f'{hdf_path}{hdf_filename}.h5'
+
+        # Check for hdf and initialize if new            
+        if os.path.exists(self.hdf_path):
+            pass
+        else:
+            initialize_xrdmap_hdf(self, self.hdf_path) # Initialize base structure
+
+        # Open hdf if required
+        if dask_enabled:
+            self.hdf = h5py.File(self.hdf_path, 'a')
+        else:
+            self.hdf = None
+        
+        # Saves current images, integrations, phases, calibration, etc.
+        if save_current:
+            self.save_current_xrdmap()
+
+
+    # Saves current major features of the current xrdmap
+    def save_current_xrdmap(self):
+        if hasattr(self, 'map') and self.map is not None:
+            # Save images
+            if hasattr(self.map, 'images'):
+                if self.map._dask_enabled:
+                    self.map.dask_2_hdf()
+                else:
+                    self.map.save_images()
+            # Save integrations
+            if (hasattr(self.map, 'integrations')
+                and self.map.integrations is not None):
+                self.map.save_integrations()
+        
+        if hasattr(self, 'poni') and self.poni is not None:
+            self.save_calibration()
+
+        # Save positions
+        if hasattr(self, 'pos_dict') and self.pos_dict is not None:
+            # Write to hdf file
+            self.save_sclr_pos('positions',
+                                self.pos_dict,
+                                self.position_units)
+
+        # Save scalers
+        if hasattr(self, 'sclr_dict') and self.sclr_dict is not None:
+            self.save_sclr_pos('scalers',
+                                self.sclr_dict,
+                                self.scaler_units)
+        
+        # Save phases
+        if hasattr(self, 'phases') and self.phases is not None:
+            self.update_phases()
+
+        # Save spots
+        if hasattr(self, 'spots'):
+            self.save_spots()
+
+    
+    # Ability to toggle hdf saving and proceed without writing to disk.
+    def stop_saving_hdf(self):
+
+        if hasattr(self, 'map') and self.map._dask_enabled:
+            err_str = ('WARNING: Image data is lazy loaded. '
+                       'Stopping or switching hdf is likely to cause problems.'
+                       '\nSave progress and close the hdf with "close_hdf" '
+                       'function before changing save location.')
+            raise RuntimeError(err_str)
+        
+        self.close_hdf()
+        self.hdf_path = None
+        self.map.hdf_path
+    
+
+    def switch_hdf(self, hdf=None, hdf_path=None, hdf_filename=None, dask_enabled=False):
+
+        # Check to make sure the change is appropriate and correct.
+        # Not sure if this should raise and error or just print a warning
+        if hdf is None and hdf_path is None:
+            os_str = ('Neither hdf nor hdf_path were provided. '
+                       'Cannot switch hdf save locations without providing alternative.')
+            print(os_str)
+            return
+        
+        elif hdf == self.hdf:
+            os_str = (f'WARNING: provided hdf ({self.hdf.filename}) is already the current save location. '
+                      'Proceeding without changes')
+            print(os_str)
+            return
+        
+        elif hdf_path == self.hdf_path:
+            os_str = (f'WARNING: provided hdf_path ({self.hdf_path}) is already the current save location. '
+                      'Proceeding without changes')
+            print(os_str)
+            return
+        
+        else:
+            # Success actually changes the write location
+            # And likely initializes a new hdf
+            self.stop_saving_hdf()
+            self.save_hdf(hdf=hdf,
+                          hdf_path=hdf_path,
+                          hdf_filename=hdf_filename,
+                          dask_enabled=dask_enabled)
+    
+    ### Helper functions for lazy loading with Dask ###
+
+    # This function does NOT stop saving to hdf
+    # It only closes open hdf locations and stops lazy loading images
+    def close_hdf(self):
         if self.hdf is not None:
             self.hdf.close()
             self.hdf = None
         
         if self.map.hdf is not None:
+            self.map._dask_2_hdf()
+            # If using dask, probably shouldn't try to load data
+            # self.map._dask_2_numpy()
             self.map.hdf.close()
             self.map.hdf = None
 
-    def _open_hdf(self, dask_enabled=False):
+
+    def open_hdf(self, dask_enabled=False):
         if self.hdf is not None:
+            # Should this raise errors or just pring warnings
             raise ValueError('XRDMap HDF file is already open.')
         else:
             self.hdf = h5py.File(self.hdf_path, 'a')
@@ -638,8 +902,6 @@ class XRDMap():
                 dset = img_grp['_temp_images']
             self.map.images = da.asarray(dset).persist()
             self.map._hdf_store = dset
-        
-        # If dask is not enabled, the images should not be lazy loaded
             
 
     ##############################
@@ -727,8 +989,11 @@ class XRDMap():
         
         # Save poni files as dictionary 
         # Updates poni information to update detector settings
-        if self.hdf_path is not None:
+        self.save_calibration()
+    
 
+    def save_calibration(self):
+        if self.hdf_path is not None:
             # Open hdf flag
             keep_hdf = True
             if self.hdf is None:
@@ -757,16 +1022,19 @@ class XRDMap():
             if not keep_hdf:
                 self.hdf.close()
                 self.hdf = None
-
+        
 
     def integrate1d_map(self,
                         tth_num=None,
-                        tth_resolution=0.01,
+                        tth_resolution=None,
                         unit='2th_deg',
                         **kwargs):
         
         if not hasattr(self, 'ai'):
             raise RuntimeError("Images cannot be calibrated without any calibration files!")
+        
+        if tth_resolution is None:
+            tth_resolution = self.tth_resolution
         
         tth_min = np.min(self.tth_arr)
         tth_max = np.max(self.tth_arr)
@@ -806,21 +1074,33 @@ class XRDMap():
         
         # Save a few potentially useful parameters
         self.tth = tth
-        self.tth_num = tth_num
         self.extent = [np.min(self.tth), np.max(self.tth)]
         self.tth_resolution = tth_resolution
+
+        # Save integrations to hdf
+        if self.hdf_path is not None:
+            print('Compressing and writing integrations to disk...')
+            self.map.save_integrations()
+            print('done!')
+            self.save_reciprocal_positions()
         
 
+    # Briefly doubles memory. No Dask support
     def integrated2d_map(self,
                         tth_num=None,
-                        tth_resolution=0.02,
+                        tth_resolution=None,
                         chi_num=None,
-                        chi_resolution=0.05,
+                        chi_resolution=None,
                         unit='2th_deg',
                         **kwargs):
         
         if not hasattr(self, 'ai'):
             raise RuntimeError("Images cannot be calibrated without any calibration files!")
+        
+        if tth_resolution is None:
+            tth_resolution = self.tth_resolution
+        if chi_resolution is None:
+            chi_resolution = self.chi_resolution
         
         # Get tth numbers
         tth_min = np.min(self.tth_arr)
@@ -869,18 +1149,19 @@ class XRDMap():
         
         # Save a few potentially useful parameters
         self.tth = tth
-        self.tth_num = tth_num
         self.chi = chi
-        self.chi_num = chi_num
         self.extent = [np.min(self.tth), np.max(self.tth),
-                       np.min(self.chi), np.max(self.chi),]
+                       np.min(self.chi), np.max(self.chi)]
         self.tth_resolution = tth_resolution
         self.chi_resolution = chi_resolution
+
+        # Save recirpocal space positions
+        self.save_reciprocal_positions()
         
     # One off 1D integration
     def integrate1d_image(self,
                           image=None,
-                          tth_resolution=0.01,
+                          tth_resolution=None,
                           tth_num=None,
                           unit='2th_deg',
                           **kwargs):
@@ -891,6 +1172,9 @@ class XRDMap():
                 raise RuntimeError("You are trying to calibrate already calibrated images!")
             else:
                 image = self.map.composite_image
+        
+        if tth_resolution is None:
+            tth_resolution = self.tth_resolution
 
         tth_min = np.min(self.tth_arr)
         tth_max = np.max(self.tth_arr)
@@ -912,9 +1196,9 @@ class XRDMap():
     def integrate2d_image(self,
                           image,
                           tth_num=None,
-                          tth_resolution=0.02,
+                          tth_resolution=None,
                           chi_num=None,
-                          chi_resolution=0.05,
+                          chi_resolution=None,
                           unit='2th_deg',
                           **kwargs):
         # Intended for one-off temporary results
@@ -924,6 +1208,11 @@ class XRDMap():
                 raise RuntimeError("You are trying to clibrate already calibrated images!")
             else:
                 image = self.map.composite_image
+
+        if tth_resolution is None:
+            tth_resolution = self.tth_resolution
+        if chi_resolution is None:
+            chi_resolution = self.chi_resolution
 
         # Get tth numbers
         tth_min = np.min(self.tth_arr)
@@ -951,6 +1240,57 @@ class XRDMap():
                                       polarization_factor=None,
                                       **kwargs)
     
+
+    def save_reciprocal_positions(self):
+        
+        if self.hdf_path is not None:
+            # Check for values to save
+            if self.tth is None and self.chi is None:
+                return
+
+            print('Writing reciprocal positions to disk...', end='', flush=True)
+            # Open hdf flag
+            keep_hdf = True
+            if self.hdf is None:
+                self.hdf = h5py.File(self.hdf_path, 'a')
+                keep_hdf = False
+
+            # This group may already exist if poni file was already initialized
+            curr_grp = self.hdf[f'/xrdmap'].require_group('reciprocal_positions')
+            if hasattr(self, 'extent'):
+                curr_grp.attrs['extent'] = self.extent
+
+            labels = ['tth_pos', 'chi_pos']
+            comments = [''''tth', is the two theta scattering angle''',
+                        ''''chi' is the azimuthal angle''']
+            keys = ['tth', 'chi']
+            data = [self.tth, self.chi]
+            resolution = [self.tth_resolution, self.chi_resolution]
+
+            for i, key in enumerate(keys):
+                # Skip values that are None
+                if data[i] is None:
+                    data[i] = np.array([])
+
+                if key in curr_grp.keys():
+                    del curr_grp[key]
+                dset = curr_grp.require_dataset(key,
+                                                data=data[i],
+                                                dtype=data[i].dtype,
+                                                shape=data[i].shape)
+                dset.attrs['labels'] = labels[i]
+                dset.attrs['comments'] = comments[i]
+                #dset.attrs['units'] = self.calib_unit #'° [deg.]'
+                dset.attrs['dtype'] = str(data[i].dtype)
+                dset.attrs['time_stamp'] = ttime.ctime()
+                dset.attrs[f'{key}_resolution'] = resolution[i]
+
+            # Close hdf and reset attribute
+            if not keep_hdf:
+                self.hdf.close()
+                self.hdf = None
+            print('done!')
+
 
     # Convenience function for image to polar coordinate transformation (estimate!)
     def estimate_polar_coords(self, coords, method='linear'):
@@ -1267,7 +1607,6 @@ class XRDMap():
                 self.hdf = None
 
 
-
     def select_phases(self, remove_less_than=-1,
                       image=None, tth_num=4096,
                       unit='2th_deg', ignore_less=1,
@@ -1304,9 +1643,9 @@ class XRDMap():
                                                               np.max(self.tth)),
                                                    ignore_less=ignore_less)
     
-    ######################################################
-    ### Blob, Ring, Peak and Spot Search and Selection ###
-    ######################################################
+    #################################
+    ### Spot Search and Selection ###
+    #################################
 
     def find_spots(self, threshold_method='gaussian',
                    multiplier=5, size=3,
@@ -1373,10 +1712,10 @@ class XRDMap():
 
                 if 'reflections' in self.hdf['xrdmap'].keys():
                     print('Loading reflection spots from hdf...', end='', flush=True)
-                    self._close_hdf()
+                    self.close_hdf()
                     spots = pd.read_hdf(self.hdf_path, key='xrdmap/reflections/spots')
                     self.spots = spots
-                    self._open_hdf()
+                    self.open_hdf()
 
                     # Close hdf and reset attribute
                     if not keep_hdf:
@@ -1475,18 +1814,18 @@ class XRDMap():
                 keep_hdf = False
 
             # Save to hdf
-            self._close_hdf()
+            self.close_hdf()
             self.spots.to_hdf(self.hdf_path, key='xrdmap/reflections/spots', format='table')
 
             if extra_attrs is not None:
-                self._open_hdf()
+                self.open_hdf()
                 for key, value in extra_attrs.items():
                     self.hdf['xrdmap/reflections'].attrs[key] = value
 
             if keep_hdf:
-                self._open_hdf()
+                self.open_hdf()
             else:
-                self._close_hdf()
+                self.close_hdf()
             
             print('done!')
 
@@ -1496,13 +1835,72 @@ class XRDMap():
         
 
 
-    ############################################################
-    ### Interfacing with Fluorescence Data and pyxrf Results ###
-    ############################################################
+    #############################################################
+    ### Interfacing with Fluorescence Data from pyxrf Results ###
+    #############################################################
     
-    def incorporate_xrf_map():
-        raise NotImplementedError()
-        # Allow for plotting of xrf results from pyXRF
+    def load_xrfmap(self, xrf_dir=None, xrf_name=None, full_data=True):
+
+        # Look for path if no information is provided
+        if (xrf_dir is None
+            and xrf_name is None
+            and self.xrf_path is not None):
+            xrf_path = self.xrf_path
+
+        if xrf_dir is None:
+            xrf_dir = self.wd
+
+        # Try default name for SRX
+        if xrf_name is None:
+            xrf_name =  f'scan2D_{self.scanid}_xs_sum8ch'
+
+        xrf_path = f'{xrf_dir}{xrf_name}.h5'
+        if not os.path.exists(xrf_path):
+            raise FileNotFoundError(f"{xrf_path} does not exist.")
+        else:
+            self.xrf_path = xrf_path
+
+        # Load the data
+        xrf = {}
+        with h5py.File(self.xrf_path, 'r') as f:
+            
+            if full_data:
+                xrf['data'] = f['xrfmap/detsum/counts'][:]
+                xrf['energy'] = np.arange(xrf['data'].shape[-1]) / 100
+
+            xrf_fit_names = [d.decode('utf-8') for d in f['xrfmap/detsum/xrf_fit_name'][:]]
+            xrf_fit = f['xrfmap/detsum/xrf_fit'][:]
+
+            i0 = f['xrfmap/scalers/val'][..., 0]
+            xrf_fit = np.concatenate((xrf_fit, np.expand_dims(i0, axis=0)), axis=0)
+            xrf_fit = np.transpose(xrf_fit, axes=(0, 2, 1))
+            xrf_fit_names.append('i0')
+
+            for key, value in zip(xrf_fit_names, xrf_fit):
+                xrf[key] = value
+
+            xrf['E0'] = f['xrfmap/scan_metadata'].attrs['instrument_mono_incident_energy']
+        
+        # Track as attribute
+        self.xrf = xrf
+
+        # Save xrf_path to hdf
+        if self.hdf_path is not None:
+            # Open hdf flag
+            keep_hdf = True
+            if self.hdf is None:
+                self.hdf = h5py.File(self.hdf_path, 'a')
+                keep_hdf = False
+
+            # Only save the path to connect two files
+            self.hdf['xrdmap'].attrs['xrf_path'] = self.xrf_path
+
+            if not keep_hdf:
+                self.hdf.close()
+                self.hdf = None
+
+
+        
 
     ##########################
     ### Plotting Functions ###
@@ -1746,6 +2144,7 @@ class XRDMap():
                                               xticks=xticks,
                                               display_map=display_map,
                                               **kwargs)
+        fig.show()
     
 
     def plot_map(self,

@@ -23,8 +23,9 @@ class ImageMap:
     # Analysis and interpretation of diffraction are reserved for the XRDMap class
 
     def __init__(self,
-                 image_array,
-                 map_shape=None,
+                 image_data=None,
+                 integration_data=None,
+                 dataset_shape=None,
                  dtype=None,
                  title=None,
                  hdf_path=None,
@@ -35,33 +36,69 @@ class ImageMap:
                  corrections=None,
                  dask_enabled=False):
         
-        # Parallized image processing
-        if dask_enabled:
-            # Unusual chunk shapes are fixed later
-            # Not the best though....
-            image_array = da.asarray(image_array)
-        else:
-            # Non-paralleized image processing
-            if isinstance(image_array, da.core.Array):
-                image_array = image_array.compute()
+        if (image_data is None
+            and integration_data is None
+            and dataset_shape is None):
+            raise ValueError('Must specify image_data, integration_data, or dataset_shape.')
+        
+        # Load image data
+        if image_data is not None:
+            # Parallized image processing
+            if dask_enabled:
+                # Unusual chunk shapes are fixed later
+                # Not the best though....
+                image_data = da.asarray(image_data)
             else:
-                image_array = np.asarray(image_array)
+                # Non-paralleized image processing
+                if isinstance(image_data, da.core.Array):
+                    image_data = image_data.compute()
+                else:
+                    image_data = np.asarray(image_data)
 
-        if map_shape is not None:
-            self.images = image_array.reshape(tuple(map_shape))
-        elif len(image_array.shape) == 3:
-            print('WARNING: Input array given as 3D object. Assuming square map...')
-            input_shape = image_array.shape
-            map_side = np.sqrt(input_shape[0])
-            if map_side % 1 != 0:
-                raise RuntimeError("Input array not 4D, no shape provided, and not a square map.")
-            new_shape = (int(map_side), int(map_side), *input_shape[1:])
-            print(f'Assumed map shape is {new_shape[:2]} with images of {new_shape[-2:]}')
-            self.images = image_array.reshape(new_shape)
-        elif len(image_array.shape) == 4:
-            self.images = image_array
+            # Working with image_data shape
+            if dataset_shape is not None: # This does not behave as expected...
+                self.images = image_data.reshape(tuple(dataset_shape))
+            elif len(image_data.shape) == 3:
+                print('WARNING: Input array given as 3D object. Assuming square map...')
+                input_shape = image_data.shape
+                map_side = np.sqrt(input_shape[0])
+                if map_side % 1 != 0:
+                    raise RuntimeError("Input array not 4D, no shape provided, and not a square map.")
+                new_shape = (int(map_side), int(map_side), *input_shape[1:])
+                print(f'Assumed map shape is {new_shape[:2]} with images of {new_shape[-2:]}')
+                self.images = image_data.reshape(new_shape)
+                dataset_shape = self.images.shape
+            elif len(image_data.shape) == 4:
+                self.images = image_data
+                dataset_shape = self.images.shape
+            else:
+                raise ValueError("Image data incorrect shape or unknown type. 4D array is preferred.")
+            
+            # Some useful parameters
+            self.shape = dataset_shape
+            self.num_images = np.multiply(*dataset_shape[:2])
+            self.map_shape = dataset_shape[:2]
+            self.image_shape = dataset_shape[2:]
         else:
-            raise RuntimeError("Input data incorrect shape or unknown type. 4D array is preferred.")
+            if dask_enabled:
+                print('WARNING: Cannot enable dask without image_data. Proceeding without dask.')
+                dask_enabled = False
+            if dataset_shape is not None:
+                self.shape = dataset_shape
+                self.num_images = dataset_shape[-1]
+                self.map_shape = dataset_shape[:2]  
+                self.image_shape = (1, 1)         
+        
+        # Working with integration_data shape
+        if integration_data is not None:
+            integration_data = np.asarray(integration_data)
+            if integration_data.ndim == 2:
+                self.integrations = integration_data.reshape((self.map_shape, -1))
+            elif integration_data.ndim == 3:
+                self.integrations = integration_data
+            else:
+                raise ValueError("Integration data incorrect shape or unknown type. 3D array is preferred.")
+            # Integration shape can just be called. Length is just tth_num in xrdmap...
         
         if dask_enabled:
             # Redo chunking along image dimensions if not already
@@ -148,25 +185,7 @@ class ImageMap:
 
                 # Might be best NOT to call this to preserve previous data
                 self.images = da.store(self.images, self._hdf_store,
-                                    compute=True, return_stored=True)[0]
-
-        if isinstance(corrections, dict):
-            self.corrections = corrections
-        else:
-            self.corrections = {
-                'dark_field' : False,
-                'flat_field' : False,
-                'outliers' : False,
-                'pixel_defects' : False,
-                'pixel_distortions' : False,
-                'polar_calibration' : False,
-                'lorentz' : False,
-                'polarization' : False,
-                'solid_angle' : False,
-                'absorption' : False,              
-                'scaler_intensity' : False,
-                'background' : False
-            }        
+                                    compute=True, return_stored=True)[0]       
         
         if wd is None:
             wd = '/home/xf05id1/current_user_data/'
@@ -911,7 +930,6 @@ class ImageMap:
     ### Polar correction ###
     # Geometric calibration
     # TODO: Test with various dask implementations
-    #        Move to geometry?
     def integrate2d_images(self, title=None,
                          unit='2th_deg',
                          tth_resolution=0.02,
@@ -1554,25 +1572,30 @@ class ImageMap:
             return # Should disable working with hdf if no information is provided
         
         if integrations is None:
-            integrations = self.integrations
+            if hasattr(self, 'integrations') and self.integrations is not None:
+                integrations = self.integrations
+            else:
+                err_str = 'ImageMap does not have integrations and none have been given.'
+                raise ValueError(err_str)
         else:
             # This conditional is for single images mostly (e.g., dark-field)
             integrations = np.asarray(integrations)
         
+        # Set title
         if title is None:
             title = f'{self.title}_integrations'
-
+        
+        # Check shape and set title
+        if integrations.ndim != 3:
+            raise ValueError(f'Integrations must have 3 dimensions, not {len(integrations.shape)}.')
+        
         # Get labels
-        _units, _labels = self._get_save_labels(images.shape)
+        _units, _labels = self._get_save_labels(integrations.shape)
         if units is None:
             units = _units
         if labels is None:
             labels = _labels
 
-        # Check shape and set title
-        if integrations.ndim != 3:
-            raise ValueError(f'Integrations must have 3 dimensions, not {len(integrations.shape)}.')
-        
         # Flag of state hdf
         close_flag = False
         if self.hdf is None:
@@ -1583,7 +1606,7 @@ class ImageMap:
         integrations_shape = integrations.shape
         integrations_dtype = integrations.dtype
 
-        int_grp = self.hdf['/xrdmap/integration_data']
+        int_grp = self.hdf['xrdmap'].require_group('integration_data')
         
         if title not in int_grp.keys():
             dset = int_grp.require_dataset(
