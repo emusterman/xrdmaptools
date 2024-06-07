@@ -281,7 +281,42 @@ class LatticeParameters():
         gamma = vector_angle(a1, a2)
 
         return a, b, c, alpha, beta, gamma
+    
 
+    def metric_tensor(self):
+        return self._metric_tensor(self.a,
+                                   self.b,
+                                   self.c,
+                                   self.alpha,
+                                   self.beta,
+                                   self.gamma)
+    
+
+    def reciprocal_metric_tensor(self):
+        return self._metric_tensor(self.a_star,
+                                   self.b_star,
+                                   self.c_star,
+                                   self.alpha_star,
+                                   self.beta_star,
+                                   self.gamma_star)
+
+
+    def _metric_tensor(a, b, c, alpha, beta, gamma):
+        G11 = a**2
+        G22 = b**2
+        G33 = c**2
+        G12 = a * b * np.cos(gamma)
+        G13 = a * c * np.cos(beta)
+        G23 = b * c * np.cos(alpha)
+
+        return np.array([[G11, G12, G13],
+                         [G12, G22, G23],
+                         [G23, G13, G33]])
+
+        # Vector definition
+        #np.array([[np.dot(a1, a1), np.dot(a1, a2), np.dot(a1, a3)],
+        #          [np.dot(a2, a1), np.dot(a2, a2), np.dot(a2, a3)],
+        #          [np.dot(a3, a1), np.dot(a3, a2), np.dot(a3, a3)]])
 
 
 # This is just math...
@@ -351,9 +386,6 @@ def are_collinear(vectors):
             break
         
     return collinear_flag
-
-    
-
     
 
 def hkl_2_hkil(hkls):
