@@ -10,7 +10,7 @@ import scipy.constants as constants
 
 def energy_2_wavelength(energy):
     # Convert energy into keV
-    if energy > 1000:
+    if np.any(energy > 1000):
         energy = energy / 1000
     factor = 1e7 * constants.h * constants.c / constants.e
     return factor / energy

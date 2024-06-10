@@ -396,7 +396,7 @@ def acquire_dark_fields(xrd_dets, num, param_dict=None):
         yield from peakup(shutter=shutter)
 
     # Get bragg (dcm_roll) and dcm pitch positions
-    # Just energy psuedomotor without u_gap
+    # Just energy pseudomotor without u_gap
     # there might be a flag to turn that off
     bragg_vals, c2x_vals = [], []
     for e in e_range:

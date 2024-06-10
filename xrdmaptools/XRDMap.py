@@ -13,6 +13,7 @@ import dask.array as da
 import skimage.io as io
 from skimage.measure import label
 from dask_image import imread as dask_io
+from tqdm import tqdm
 
 # Local imports
 from .ImageMap import ImageMap
@@ -21,9 +22,9 @@ from .utilities.hdf_utils import check_hdf_current_images
 from .utilities.db_io import load_data
 from .utilities.math import *
 from .utilities.utilities import delta_array
-from .utilities.interactive_plotting import interactive_dynamic_2d_plot
 
 from .reflections.spot_blob_indexing import get_q_vect, _initial_spot_analysis
+from .reflections.SpotModels import GaussianFunctions
 from .reflections.spot_blob_search import (
     find_spots,
     find_spot_stats,
@@ -32,7 +33,20 @@ from .reflections.spot_blob_search import (
     fit_spots,
     find_blob_contours
     )
-from .reflections.SpotModels import GaussianFunctions
+
+from .plot.interactive_plotting import (interactive_dynamic_2d_plot,
+                                        interactive_dynamic_1d_plot)
+from .plot.general import (
+    _plot_parse_xrdmap,
+    _xrdmap_image,
+    _xrdmap_integration,
+    plot_image,
+    plot_integration,
+    plot_reconstruction,
+    plot_map,
+    plot_cake
+)
+from .plot.geometry import plot_q_space, plot_detector_geometry
 
 from .geometry.geometry import *
 
@@ -52,7 +66,8 @@ class XRDMap():
                  filename=None,
                  hdf_filename=None,
                  hdf=None,
-                 image_map=None,
+                 image_data=None,
+                 integration_data=None,
                  map_title=None,
                  map_shape=None,
                  energy=None,
@@ -62,8 +77,8 @@ class XRDMap():
                  poni_file=None,
                  sclr_dict=None,
                  pos_dict=None,
-                 tth_resolution=None,
-                 chi_resolution=None,
+                 tth_resolution=0.01,
+                 chi_resolution=0.05,
                  tth=None,
                  chi=None,
                  beamline='5-ID (SRX)',
@@ -71,7 +86,8 @@ class XRDMap():
                  time_stamp=None,
                  extra_metadata=None,
                  save_hdf=True,
-                 dask_enabled=False):
+                 dask_enabled=False,
+                 xrf_path=None):
         
         # Adding some metadata
         self.scanid = scanid
@@ -105,49 +121,46 @@ class XRDMap():
             self.dwell = dwell
         if theta is not None:
             self.theta = theta
-        
-        # Only take values from hdf when opening from the class method
-        if save_hdf:
-            if hdf is not None:
-                self.hdf_path = hdf.filename
-            elif hdf_filename is None:
-                self.hdf_path = f'{wd}{filename}.h5'
-            else:
-                self.hdf_path = f'{wd}{hdf_filename}' # TODO: Add check for .h5   
-            
-            if os.path.exists(self.hdf_path):
-                pass
-            else:
-                initialize_xrdmap_hdf(self, self.hdf_path) # Initialize base structure
 
-            # Open hdf if required
+        if not save_hdf:
             if dask_enabled:
-                self.hdf = h5py.File(self.hdf_path, 'a')
+                raise ValueError('Enabling dask requires an hdf file for storage.')
             else:
+                self.hdf_path = None
                 self.hdf = None
-        
-        elif not save_hdf and dask_enabled:
-            raise ValueError('Enabling dask requires an hdf file for storage.')
-        
-        else: # save_hdf is False and dask_enabled is False
-            self.hdf_path = None
-            self.hdf = None
+        else:
+            self.save_hdf(hdf=hdf,
+                          hdf_filename=hdf_filename,
+                          dask_enabled=dask_enabled,
+                          save_current=False)
 
         # Load image map
-        if isinstance(image_map, (np.ndarray,
+        if (isinstance(image_data, (np.ndarray,
                                   da.core.Array,
-                                  h5py._hl.dataset.Dataset)):
-            self.map = ImageMap(image_map,
+                                  h5py._hl.dataset.Dataset))
+            or isinstance(integration_data, (np.ndarray,
+                                  da.core.Array,
+                                  h5py._hl.dataset.Dataset))):
+            
+            self.map = ImageMap(image_data=image_data,
+                                integration_data=integration_data,
                                 title=map_title,
                                 wd=self.wd,
                                 hdf_path=self.hdf_path,
                                 hdf=hdf,
                                 map_shape=map_shape,
                                 dask_enabled=dask_enabled)
-        elif isinstance(image_map, ImageMap):
-            self.map = image_map
+        
+        #elif image_data is None and integration_data is None:
+            # Placeholder for instantiating blank map
+            
+        elif isinstance(image_data, ImageMap):
+            self.map = image_data
+            # Used to specify read-only when loading from hdf
+            if not save_hdf:
+                self.map.hdf_path = None
         else:
-            raise TypeError(f"Unknown image_map input type: {type(image_map)}")
+            raise TypeError(f"Unknown image_data input type: {type(image_data)}")
         
         self.phases = {} # Place holder for potential phases
         if poni_file is not None:
@@ -164,14 +177,24 @@ class XRDMap():
         if pos_dict is not None:
             self.set_positions(pos_dict)
 
-        if tth_resolution is not None:
-            self.tth_resolution = tth_resolution
-        if chi_resolution is not None:
-            self.chi_resolution = chi_resolution
-        if tth is not None:
-            self.tth = tth
-        if chi is not None:
-            self.chi = chi
+        # Save xrf_path location. Do not load unless explicitly called
+        self.xrf_path = xrf_path
+        
+        # Default units and flags
+        # Not fully implemented
+        self._polar_units = 'deg' # 'rad' or 'deg'
+        self._scattering_units = 'deg' # 'rad', 'deg', 'nm^-1', 'A^-1'
+        self._integration_scale = 'linear' # 'linear' or 'log'
+        self._image_scale = 'linear' # 'linear' or 'log'
+
+        if tth is not None and len(tth) == 0:
+            tth = None
+        self.tth = tth
+        self.tth_resolution = tth_resolution
+        if chi is not None and len(chi) == 0:
+            chi = None
+        self.chi = chi
+        self.chi_resolution = chi_resolution
 
 
     def __str__(self):
@@ -229,11 +252,11 @@ class XRDMap():
 
         print('Loading images...', end='', flush=True)
         if dask_enabled:
-            image_map = dask_io.imread(f'{wd}{filename}')
+            image_data = dask_io.imread(f'{wd}{filename}')
         else:
-            image_map = io.imread(f'{wd}{filename}')
+            image_data = io.imread(f'{wd}{filename}')
         print('done!')
-        return cls(image_map=image_map, wd=wd,
+        return cls(image_data=image_data, wd=wd,
                    map_title=map_title, map_shape=map_shape,
                    **kwargs)
 
@@ -253,24 +276,23 @@ class XRDMap():
             #              + "Defaulting to user-specification."))
             #    input_dict['base_md'][key] = kwargs[key]
 
-            inst = cls(image_map=input_dict['image_data'],
-                    wd=wd, filename=hdf_filename[:-3], # remove the .h5 extention
+            inst = cls(image_data=input_dict['image_data'],
+                    wd=wd,
+                    filename=hdf_filename[:-3], # remove the .h5 extention
                     hdf_filename=hdf_filename,
-                    hdf=input_dict['image_data'].hdf,
+                    hdf=input_dict['image_data'].hdf, # Will always be None
                     dask_enabled=dask_enabled,
                     **input_dict['base_md'],
                     poni_file=input_dict['poni_od'],
                     sclr_dict=input_dict['sclr_dict'],
                     pos_dict=input_dict['pos_dict'],
-                    tth_resolution=input_dict['image_data'].tth_resolution,
-                    chi_resolution=input_dict['image_data'].chi_resolution,
+                    tth_resolution=input_dict['recip_pos']['tth_resolution'],
+                    chi_resolution=input_dict['recip_pos']['chi_resolution'],
                     tth=input_dict['recip_pos']['tth'],
                     chi=input_dict['recip_pos']['chi'],
                     **kwargs)
             
             # Add a few more attributes if they exist
-            if input_dict['recip_pos']['calib_units'] is not None:
-                inst.calib_units = input_dict['recip_pos']['calib_units']
             if hasattr(inst.map, 'extent'):
                 inst.extent = inst.map.extent
             if hasattr(inst.map, 'calibrated_shape'):
@@ -379,25 +401,6 @@ class XRDMap():
             # Don't bother returning a tuple or list of xrdmaps
             return xrdmaps[0]
     
-
-    '''@classmethod # Allows me to define and initiatie the class simultaneously
-    def from_db(cls,
-                scanid=-1,
-                broker='manual',
-                filedir=None,
-                filename=None,
-                poni_file=None,
-                save_hdf=True):
-        
-        outmap = make_xrdmap_hdf(scanid=scanid,
-                                 broker=broker,
-                                 filedir=filedir,
-                                 filename=filename,
-                                 poni_file=poni_file,
-                                 return_xrdmap=True,
-                                 save_hdf=save_hdf)
-
-        return outmap'''
     
     ##################
     ### Properties ###
@@ -444,74 +447,134 @@ class XRDMap():
             for key in self.phases.keys():
                 self.phases[key].energy = self._energy
 
+    # Flags for units and scales
+
+    def angle_units_factory(property_name, options):
+        def get_angle_units(self):
+            return getattr(self, f'_{property_name}')
+        
+        def set_angle_units(self, val):
+            if val in options:
+                setattr(self, f'_{property_name}', val)
+                # Delete old arrays in case units changed
+                self._del_arr() # Deletes everything else too...
+            else:
+                err_str = 'Only '
+                for option in options:
+                    err_str += f'{option}, '
+                err_str = err_str[:-2] + f' are supported for {property_name}' 
+                raise ValueError(err_str)
+        
+        return property(get_angle_units, set_angle_units)
     
-    @property
-    def tth_arr(self):
-        if hasattr(self, '_tth_arr'):
-            return self._tth_arr
 
-        elif ((hasattr(self, 'map'))
-            and (self.map is not None)
-            and (self.map.corrections['polar_calibration'])):
-
-            if hasattr(self, 'tth') and hasattr(self, 'chi'):
-                tth_arr, _ = np.meshgrid(self.tth, self.chi[::-1])
-                self._tth_arr = tth_arr
-                return self._tth_arr
-
-        elif hasattr(self, 'ai') and self.ai is not None:
-            self._tth_arr = np.degrees(self.ai.twoThetaArray())
-            return self._tth_arr
+    scattering_units = angle_units_factory('scattering_units',
+                                           ['rad', 'deg', '1/nm', '1/A'])
+    polar_units = angle_units_factory('polar_units',
+                                      ['rad', 'deg'])
     
-    @tth_arr.deleter
-    def tth_arr(self):
-        self._del_arr()
+
+    def scale_property_factory(property_name):
+        def get_scale(self):
+            return getattr(self, f'_{property_name}')
+
+        def set_scale(self, val):
+            if val in ['linear', 'log']:
+                setattr(self, f'_{property_name}', val)
+            else:
+                raise ValueError(f"{property_name} can only have "
+                                 "'linear' or 'log' scales.")
+            
+        return property(get_scale, set_scale)
     
-    @property
-    def delta_tth(self):
-        return delta_array(self.tth_arr)
 
+    image_scale = scale_property_factory('image_scale')
+    integration_scale = scale_property_factory('integration_scale')
+
+    # Convenience properties for working with the detector arrays
+    # These are mostly wrappers for pyFAI functions
+
+    def detector_angle_array_factory(arr_name, ai_arr_name, units):
+        def get_angle_array(self):
+            if hasattr(self, f'_{arr_name}'):
+                return getattr(self, f'_{arr_name}')
+            elif ((hasattr(self, 'map'))
+                  and (self.map is not None)
+                  and (self.map.corrections['polar_calibration'])): # I should rename...
+                if hasattr(self, 'tth') and hasattr(self, 'chi'):
+                    # Set both tth and chi!
+                    tth_arr, chi_arr = np.meshgrid(self.tth, self.chi[::-1])
+                    self._tth_arr = tth_arr
+                    self._chi_arr = chi_arr
+                    return getattr(self, f'_{arr_name}')
+            elif hasattr(self, 'ai') and self.ai is not None:
+                ai_arr = getattr(self.ai, ai_arr_name)() # default is radians
+                if arr_name == 'chi_arr':
+                    ai_arr = -ai_arr # Negative to match SRX coordinates
+
+                if getattr(self, units) == 'rad':
+                    pass
+                elif getattr(self, units) == 'deg':
+                    ai_arr = np.degrees(ai_arr)
+                elif getattr(self, units) == '1/nm':
+                    raise NotImplementedError('1/nm units not yet fully supported.')
+                elif getattr(self, units) == '1/A':
+                    raise NotImplementedError('1/A units not yet fully supported.')
+                else:
+                    raise ValueError('Unknown units specified.')
+
+                setattr(self, f'_{arr_name}', ai_arr)
+                return getattr(self, f'_{arr_name}')
+            raise AttributeError('AzimuthalIntegrator (ai) not specified for XRDMap.')
+
+        def del_angle_array(self):
+            delattr(self, f'_{arr_name}')
+
+        # Delta arrays are not cached
+        def get_delta_array(self):
+            arr = getattr(self, arr_name) # should call the property
+
+            max_arr = np.max(np.abs(arr))
+            delta_arr = delta_array(arr)
+
+            # Modular shift values if there is a discontinuity
+            # Should only be for chi_arr between 180 and -180 degrees
+            # I could just shift everything...
+            if np.max(delta_arr) > max_arr:
+                # Degrees
+                if max_arr > np.pi: shift_value = 2 * 180
+                # Radians
+                else: shift_value = 2 * np.pi
+                # Shift and recalculate
+                arr[arr < 0] += shift_value
+                delta_arr = delta_array(arr)
+
+            return delta_arr
+
+        return (property(get_angle_array, None, del_angle_array),
+                property(get_delta_array))
     
-    @property
-    def chi_arr(self):
-        if hasattr(self, '_chi_arr'):
-            return self._chi_arr
 
-        elif ((hasattr(self, 'map'))
-            and (self.map is not None)
-            and (self.map.corrections['polar_calibration'])):
+    tth_arr, delta_tth = detector_angle_array_factory('tth_arr',
+                                           'twoThetaArray',
+                                           'polar_units')
+    chi_arr, delta_chi = detector_angle_array_factory('chi_arr',
+                                           'chiArray',
+                                           'polar_units')
 
-            if hasattr(self, 'tth') and hasattr(self, 'chi'):
-                _, chi_arr = np.meshgrid(self.tth, self.chi[::-1])
-                self._chi_arr = chi_arr
-                return self._chi_arr
 
-        elif hasattr(self, 'ai') and self.ai is not None:
-            self._chi_arr = np.degrees(self.ai.chiArray())
-            return self._chi_arr
-    
-    @chi_arr.deleter
-    def chi_arr(self):
-        self._del_arr()
-    
-    @property
-    def delta_chi(self):
-        pos_chi = self.chi_arr.copy()
-        # Check for discontinuities
-        if np.max(np.gradient(pos_chi)) > 30: # Semi-arbitrary cut off
-            pos_chi[pos_chi < 0] += 360
-
-        return delta_array(pos_chi)
-
-    
+    # Full q-vector, not just magnitude
     @property
     def q_arr(self):
         if hasattr(self, '_q_arr'):
             return self._q_arr
-        elif self.tth_arr is None or self.chi_arr is None:
-            raise RuntimeError('Cannot calculate q-space without tth and chi values.')
+        elif not hasattr(self, 'ai'):
+            raise RuntimeError('Cannot calculate q-space without calibration.')
         else:
-            q_arr = get_q_vect(self.tth_arr, self.chi_arr, wavelength=self.wavelength)
+            q_arr = get_q_vect(self.tth_arr,
+                               self.chi_arr,
+                               wavelength=self.wavelength,
+                               degrees=self.polar_units == 'deg')
             self._q_arr = q_arr
             return self._q_arr
 
@@ -588,19 +651,166 @@ class XRDMap():
     ############################
     ### Dask / HDF Functions ###
     ############################
+
+    def save_hdf(self,
+                 hdf=None,
+                 hdf_filename=None,
+                 hdf_path=None,
+                 dask_enabled=False,
+                 save_current=False):
         
-    # This is to help when working with lazy loaded images
-    def _close_hdf(self):
+        # Check for previous iterations
+        if ((hasattr(self, 'hdf') and self.hdf is not None)
+            or (hasattr(self, 'hdf_path') and self.hdf_path is not None)):
+            os_str = ('WARNING: Trying to save to hdf, but a '
+                      'file or location has already been specified!'
+                      '\nSwitching save files or locations should '
+                      'use the "switch_hdf" function.'
+                      '\nProceeding without changes.')
+            print(os_str)
+            return
+        
+        # If nothing is provided, it should be able to build a default location if properly saved
+        #if hdf is None and hdf_path is None and hdf_filename is None:
+        #    raise ValueError('Cannot write to hdf without specifying a file or location.')
+
+        # Specify hdf path and name
+        if hdf is not None:# biases towards already open hdf
+            # This might break if hdf is a close file and not None
+            self.hdf_path = hdf.filename
+        elif hdf_filename is None:
+            if hdf_path is None:
+                self.hdf_path = f'{self.wd}{self.filename}.h5'
+            else:
+                self.hdf_path = f'{hdf_path}{self.filename}.h5'
+        else:
+            if hdf_path is None:
+                self.hdf_path = f'{self.wd}{hdf_filename}' # TODO: Add check for .h5
+            else:
+                self.hdf_path = f'{hdf_path}{hdf_filename}.h5'
+
+        # Check for hdf and initialize if new            
+        if os.path.exists(self.hdf_path):
+            pass
+        else:
+            initialize_xrdmap_hdf(self, self.hdf_path) # Initialize base structure
+
+        # Open hdf if required
+        if dask_enabled:
+            self.hdf = h5py.File(self.hdf_path, 'a')
+        else:
+            self.hdf = None
+        
+        # Saves current images, integrations, phases, calibration, etc.
+        if save_current:
+            self.save_current_xrdmap()
+
+
+    # Saves current major features of the current xrdmap
+    def save_current_xrdmap(self):
+        if hasattr(self, 'map') and self.map is not None:
+            # Save images
+            if hasattr(self.map, 'images'):
+                if self.map._dask_enabled:
+                    self.map.dask_2_hdf()
+                else:
+                    self.map.save_images()
+            # Save integrations
+            if (hasattr(self.map, 'integrations')
+                and self.map.integrations is not None):
+                self.map.save_integrations()
+        
+        if hasattr(self, 'poni') and self.poni is not None:
+            self.save_calibration()
+
+        # Save positions
+        if hasattr(self, 'pos_dict') and self.pos_dict is not None:
+            # Write to hdf file
+            self.save_sclr_pos('positions',
+                                self.pos_dict,
+                                self.position_units)
+
+        # Save scalers
+        if hasattr(self, 'sclr_dict') and self.sclr_dict is not None:
+            self.save_sclr_pos('scalers',
+                                self.sclr_dict,
+                                self.scaler_units)
+        
+        # Save phases
+        if hasattr(self, 'phases') and self.phases is not None:
+            self.update_phases()
+
+        # Save spots
+        if hasattr(self, 'spots'):
+            self.save_spots()
+
+    
+    # Ability to toggle hdf saving and proceed without writing to disk.
+    def stop_saving_hdf(self):
+
+        if hasattr(self, 'map') and self.map._dask_enabled:
+            err_str = ('WARNING: Image data is lazy loaded. '
+                       'Stopping or switching hdf is likely to cause problems.'
+                       '\nSave progress and close the hdf with "close_hdf" '
+                       'function before changing save location.')
+            raise RuntimeError(err_str)
+        
+        self.close_hdf()
+        self.hdf_path = None
+        self.map.hdf_path
+    
+
+    def switch_hdf(self, hdf=None, hdf_path=None, hdf_filename=None, dask_enabled=False):
+
+        # Check to make sure the change is appropriate and correct.
+        # Not sure if this should raise and error or just print a warning
+        if hdf is None and hdf_path is None:
+            os_str = ('Neither hdf nor hdf_path were provided. '
+                       'Cannot switch hdf save locations without providing alternative.')
+            print(os_str)
+            return
+        
+        elif hdf == self.hdf:
+            os_str = (f'WARNING: provided hdf ({self.hdf.filename}) is already the current save location. '
+                      'Proceeding without changes')
+            print(os_str)
+            return
+        
+        elif hdf_path == self.hdf_path:
+            os_str = (f'WARNING: provided hdf_path ({self.hdf_path}) is already the current save location. '
+                      'Proceeding without changes')
+            print(os_str)
+            return
+        
+        else:
+            # Success actually changes the write location
+            # And likely initializes a new hdf
+            self.stop_saving_hdf()
+            self.save_hdf(hdf=hdf,
+                          hdf_path=hdf_path,
+                          hdf_filename=hdf_filename,
+                          dask_enabled=dask_enabled)
+    
+    ### Helper functions for lazy loading with Dask ###
+
+    # This function does NOT stop saving to hdf
+    # It only closes open hdf locations and stops lazy loading images
+    def close_hdf(self):
         if self.hdf is not None:
             self.hdf.close()
             self.hdf = None
         
         if self.map.hdf is not None:
+            self.map._dask_2_hdf()
+            # If using dask, probably shouldn't try to load data
+            # self.map._dask_2_numpy()
             self.map.hdf.close()
             self.map.hdf = None
 
-    def _open_hdf(self, dask_enabled=False):
+
+    def open_hdf(self, dask_enabled=False):
         if self.hdf is not None:
+            # Should this raise errors or just pring warnings
             raise ValueError('XRDMap HDF file is already open.')
         else:
             self.hdf = h5py.File(self.hdf_path, 'a')
@@ -619,8 +829,6 @@ class XRDMap():
                 dset = img_grp['_temp_images']
             self.map.images = da.asarray(dset).persist()
             self.map._hdf_store = dset
-        
-        # If dask is not enabled, the images should not be lazy loaded
             
 
     ##############################
@@ -638,12 +846,15 @@ class XRDMap():
             if poni_file[-4:] != 'poni':
                 raise RuntimeError("Please provide a .poni file.")
 
+            print('Setting detector calibration...')
             self.ai = pyFAI.load(f'{filedir}{poni_file}')
         
         elif isinstance(poni_file, OrderedDict):
+            print('Setting detector calibration...')
             self.ai = AzimuthalIntegrator().set_config(poni_file)
 
         elif isinstance(poni_file, ponifile.PoniFile):
+            print('Setting detector calibration...')
             self.ai = AzimuthalIntegrator().set_config(poni_file.as_dict())
         
         else:
@@ -685,6 +896,7 @@ class XRDMap():
 
                 # Overwrite values
                 self.ai.detector.shape = image_shape
+                self.ai.detector.max_shape = image_shape # Not exactly correct, but more convenient
                 self.ai.detector.pixel1 = poni_pixel1 / bin_est[0]
                 self.ai.detector.pixel2 = poni_pixel2 / bin_est[1]
 
@@ -698,11 +910,17 @@ class XRDMap():
         # Share ai with ImageMap
         if hasattr(self, 'map') and self.map is not None:
             self.map.ai = self.ai
+
+        # reset any previous calibrated arrays
+        self._del_arr()
         
         # Save poni files as dictionary 
         # Updates poni information to update detector settings
-        if self.hdf_path is not None:
+        self.save_calibration()
+    
 
+    def save_calibration(self):
+        if self.hdf_path is not None:
             # Open hdf flag
             keep_hdf = True
             if self.hdf is None:
@@ -731,79 +949,275 @@ class XRDMap():
             if not keep_hdf:
                 self.hdf.close()
                 self.hdf = None
+        
 
-
-    # Move this to a function in geometry??
-    def calibrate_images(self, poni_file=None, filedir=None,
-                         title='calibrated_images', unit='2th_deg',
-                         tth_resolution = 0.02, chi_resolution = 0.05,
-                         polarization_factor=None,
-                         Lorentz_correction=None,
-                         **kwargs):
-        if poni_file is not None:
-            self.set_calibration(poni_file, filedir=filedir)
+    def integrate1d_map(self,
+                        tth_num=None,
+                        tth_resolution=None,
+                        unit='2th_deg',
+                        **kwargs):
+        
         if not hasattr(self, 'ai'):
             raise RuntimeError("Images cannot be calibrated without any calibration files!")
-
         
-        if hasattr(self, 'tth_resolution'):
+        if tth_resolution is None:
             tth_resolution = self.tth_resolution
-        if hasattr(self, 'chi_resolution'):
+        
+        tth_min = np.min(self.tth_arr)
+        tth_max = np.max(self.tth_arr)
+        if tth_num is None:
+            tth_num = int(np.round((tth_max - tth_min) / tth_resolution))
+        elif tth_num is not None:
+            tth_resolution = (tth_max - tth_min) / tth_num
+        elif tth_num is None and tth_resolution is None:
+            raise ValueError('Must define either tth_num or tth_resolution.')
+
+        # Set up empty array to fill
+        integrated_map1d = np.empty((self.map.num_images, 
+                                     tth_num), 
+                                     dtype=(self.map.dtype))
+        
+        # Fill array!
+        print('Integrated images to 1D...', end='', flush=True)
+        # TODO: Parallelize this
+        for i, pixel in tqdm(enumerate(self.map.images.reshape(
+                                       self.map.num_images,
+                                       *self.map.image_shape)),
+                                       total=self.map.num_images):
+        
+            tth, I, = self.integrate1d_image(image=pixel,
+                                             tth_num=tth_num,
+                                             unit=unit,
+                                             **kwargs)            
+
+            integrated_map1d[i] = I
+
+        # Reshape into (map_x, map_y, tth)
+        # Does not explicitly match the same shape as 2d integration
+        integrated_map1d = integrated_map1d.reshape(
+                                *self.map.map_shape, tth_num)
+        #self.map.images = integrated_map1d
+        self.map.integrations = integrated_map1d
+        
+        # Save a few potentially useful parameters
+        self.tth = tth
+        self.extent = [np.min(self.tth), np.max(self.tth)]
+        self.tth_resolution = tth_resolution
+
+        # Save integrations to hdf
+        if self.hdf_path is not None:
+            print('Compressing and writing integrations to disk...')
+            self.map.save_integrations()
+            print('done!')
+            self.save_reciprocal_positions()
+        
+
+    # Briefly doubles memory. No Dask support
+    def integrated2d_map(self,
+                        tth_num=None,
+                        tth_resolution=None,
+                        chi_num=None,
+                        chi_resolution=None,
+                        unit='2th_deg',
+                        **kwargs):
+        
+        if not hasattr(self, 'ai'):
+            raise RuntimeError("Images cannot be calibrated without any calibration files!")
+        
+        if tth_resolution is None:
+            tth_resolution = self.tth_resolution
+        if chi_resolution is None:
             chi_resolution = self.chi_resolution
         
-        out = self.map.calibrate_images(self.ai, title=title,
-                                        tth_resolution=tth_resolution,
-                                        chi_resolution=chi_resolution,
-                                        unit=unit,
-                                        polarization_factor=polarization_factor,
-                                        Lorentz_correction=Lorentz_correction,
-                                        **kwargs)
+        # Get tth numbers
+        tth_min = np.min(self.tth_arr)
+        tth_max = np.max(self.tth_arr)
+        if tth_num is None:
+            tth_num = int(np.round((tth_max - tth_min) / tth_resolution))
+        elif tth_num is not None:
+            tth_resolution = (tth_max - tth_min) / tth_num
+        elif tth_num is None and tth_resolution is None:
+            raise ValueError('Must define either tth_num or tth_resolution.')
         
-        self.tth = out[0]
-        self.chi = out[1]
-        self.extent = out[2]
-        self.calibrated_shape = out[3]
-        self.tth_resolution = out[4]
-        self.chi_resolution = out[5]
+        # Get chi numbers
+        chi_min = np.min(self.chi_arr)
+        chi_max = np.max(self.chi_arr)
+        if chi_num is None:
+            chi_num = int(np.round((chi_max - chi_min) / chi_resolution))
+        elif chi_num is not None:
+            chi_resolution = (chi_max - chi_min) / chi_num
+        elif chi_num is None and chi_resolution is None:
+            raise ValueError('Must define either chi_num or chi_resolution.')
 
-        # Clean up a few cached properties. Will reset when next called
-        del self.tth_arr
-        del self.chi_arr
+        # Set up empty array to fill
+        integrated_map2d = np.empty((self.map.num_images, 
+                                     chi_num, tth_num), 
+                                     dtype=(self.map.dtype))
         
+        # Fill array!
+        print('Integrated images to 2D...', end='', flush=True)
+        # TODO: Parallelize this
+        for i, pixel in tqdm(enumerate(self.map.images.reshape(
+                                       self.map.num_images,
+                                       *self.map.image_shape)),
+                                       total=self.map.num_images):
+        
+            I, tth, chi = self.integrate2d_image(image=pixel,
+                                                 tth_num=tth_num,
+                                                 unit=unit,
+                                                 **kwargs)            
 
-    def integrate_1d(self, image=None, tth_num=4096,
-                     unit='2th_deg',
-                     polarization_factor=None, correctSolidAngle=False, **kwargs):
+            integrated_map2d[i] = I
+
+        # Reshape into (map_x, map_y, chi, tth)
+        integrated_map2d = integrated_map2d.reshape(
+                                *self.map.map_shape, chi_num, tth_num)
+        self.map.images = integrated_map2d
+        
+        # Save a few potentially useful parameters
+        self.tth = tth
+        self.chi = chi
+        self.extent = [np.min(self.tth), np.max(self.tth),
+                       np.min(self.chi), np.max(self.chi)]
+        self.tth_resolution = tth_resolution
+        self.chi_resolution = chi_resolution
+
+        # Save recirpocal space positions
+        self.save_reciprocal_positions()
+        
+    # One off 1D integration
+    def integrate1d_image(self,
+                          image=None,
+                          tth_resolution=None,
+                          tth_num=None,
+                          unit='2th_deg',
+                          **kwargs):
         # Intended for one-off temporary results
 
         if image is None:
             if self.map.corrections['polar_calibration']:
                 raise RuntimeError("You are trying to calibrate already calibrated images!")
             else:
-                image = self.map.composite_image  
+                image = self.map.composite_image
+        
+        if tth_resolution is None:
+            tth_resolution = self.tth_resolution
+
+        tth_min = np.min(self.tth_arr)
+        tth_max = np.max(self.tth_arr)
+        if tth_num is None:
+            tth_num = int(np.round((tth_max - tth_min) / tth_resolution))
+        # Not used for this particular bit
+        #elif tth_num is not None:
+        #    tth_resolution = (tth_max - tth_min) / tth_num
+        elif tth_num is None and tth_resolution is None:
+            raise ValueError('Must define either tth_num or tth_resolution.')
         
         return self.ai.integrate1d_ng(image, tth_num,
                                       unit=unit,
-                                      polarization_factor=polarization_factor,
-                                      correctSolidAngle=correctSolidAngle,
+                                      correctSolidAngle=False,
+                                      polarization_factor=None,
                                       **kwargs)
     
+    # One off 2D integration
+    def integrate2d_image(self,
+                          image,
+                          tth_num=None,
+                          tth_resolution=None,
+                          chi_num=None,
+                          chi_resolution=None,
+                          unit='2th_deg',
+                          **kwargs):
+        # Intended for one-off temporary results
 
-    def integrate_2d(self, image, tth_num, chi_num, unit='2th_deg',
-                     polarization_factor=None, correctSolidAngle=False, **kwargs):
-        # Intented for one-off temporary results
         if image is None:
             if self.map.corrections['polar_calibration']:
                 raise RuntimeError("You are trying to clibrate already calibrated images!")
             else:
                 image = self.map.composite_image
+
+        if tth_resolution is None:
+            tth_resolution = self.tth_resolution
+        if chi_resolution is None:
+            chi_resolution = self.chi_resolution
+
+        # Get tth numbers
+        tth_min = np.min(self.tth_arr)
+        tth_max = np.max(self.tth_arr)
+        if tth_num is None:
+            tth_num = int(np.round((tth_max - tth_min) / tth_resolution))
+        elif tth_num is not None:
+            tth_resolution = (tth_max - tth_min) / tth_num
+        elif tth_num is None and tth_resolution is None:
+            raise ValueError('Must define either tth_num or tth_resolution.')
+        
+        # Get chi numbers
+        chi_min = np.min(self.chi_arr)
+        chi_max = np.max(self.chi_arr)
+        if chi_num is None:
+            chi_num = int(np.round((chi_max - chi_min) / chi_resolution))
+        elif chi_num is not None:
+            chi_resolution = (chi_max - chi_min) / chi_num
+        elif chi_num is None and chi_resolution is None:
+            raise ValueError('Must define either chi_num or chi_resolution.')
        
         return self.ai.integrate2d_ng(image, tth_num, chi_num,
-                                        unit=unit,
-                                        polarization_factor=polarization_factor,
-                                        correctSolidAngle=correctSolidAngle,
-                                        **kwargs)
+                                      unit=unit,
+                                      correctSolidAngle=False,
+                                      polarization_factor=None,
+                                      **kwargs)
     
+
+    def save_reciprocal_positions(self):
+        
+        if self.hdf_path is not None:
+            # Check for values to save
+            if self.tth is None and self.chi is None:
+                return
+
+            print('Writing reciprocal positions to disk...', end='', flush=True)
+            # Open hdf flag
+            keep_hdf = True
+            if self.hdf is None:
+                self.hdf = h5py.File(self.hdf_path, 'a')
+                keep_hdf = False
+
+            # This group may already exist if poni file was already initialized
+            curr_grp = self.hdf[f'/xrdmap'].require_group('reciprocal_positions')
+            if hasattr(self, 'extent'):
+                curr_grp.attrs['extent'] = self.extent
+
+            labels = ['tth_pos', 'chi_pos']
+            comments = [''''tth', is the two theta scattering angle''',
+                        ''''chi' is the azimuthal angle''']
+            keys = ['tth', 'chi']
+            data = [self.tth, self.chi]
+            resolution = [self.tth_resolution, self.chi_resolution]
+
+            for i, key in enumerate(keys):
+                # Skip values that are None
+                if data[i] is None:
+                    data[i] = np.array([])
+
+                if key in curr_grp.keys():
+                    del curr_grp[key]
+                dset = curr_grp.require_dataset(key,
+                                                data=data[i],
+                                                dtype=data[i].dtype,
+                                                shape=data[i].shape)
+                dset.attrs['labels'] = labels[i]
+                dset.attrs['comments'] = comments[i]
+                #dset.attrs['units'] = self.calib_unit #'° [deg.]'
+                dset.attrs['dtype'] = str(data[i].dtype)
+                dset.attrs['time_stamp'] = ttime.ctime()
+                dset.attrs[f'{key}_resolution'] = resolution[i]
+
+            # Close hdf and reset attribute
+            if not keep_hdf:
+                self.hdf.close()
+                self.hdf = None
+            print('done!')
+
 
     # Convenience function for image to polar coordinate transformation (estimate!)
     def estimate_polar_coords(self, coords, method='linear'):
@@ -818,7 +1232,7 @@ class XRDMap():
     ### Scaler and Position Arrays ###
     ##################################
 
-    def set_scalers(self, sclr_dict):
+    def set_scalers(self, sclr_dict, scaler_units='counts'):
 
         # Store sclr_dict as attribute
         self.sclr_dict = sclr_dict
@@ -827,34 +1241,12 @@ class XRDMap():
         if hasattr(self, 'map') and self.map is not None:
             self.map.sclr_dict = self.sclr_dict
 
+        self.scaler_units = scaler_units
+
         # Write to hdf file
-        if self.hdf_path is not None:
-
-            # Open hdf flag
-            keep_hdf = True
-            if self.hdf is None:
-                self.hdf = h5py.File(self.hdf_path, 'a')
-                keep_hdf = False
-
-            # Write data to hdf
-            curr_grp = self.hdf[f'/xrdmap'].require_group('scalers')
-            curr_grp.attrs['time_stamp'] = ttime.ctime()
-
-            for key, value in self.sclr_dict.items():
-                value = np.asarray(value)
-                dset = curr_grp.require_dataset(key,
-                                                data=value,
-                                                shape=value.shape,
-                                                dtype=value.dtype)
-                
-                dset.attrs['labels'] = ['map_x', 'map_y']
-                dset.attrs['units'] = 'counts'
-                dset.attrs['dtype'] = str(value.dtype)
-
-            # Close hdf and reset attribute
-            if not keep_hdf:
-                self.hdf.close()
-                self.hdf = None
+        self.save_sclr_pos('scalers',
+                            self.sclr_dict,
+                            self.scaler_units)
     
 
     def set_positions(self, pos_dict, position_units=None):
@@ -875,9 +1267,35 @@ class XRDMap():
 
         # Set position units
         if position_units is None:
-            position_units = 'unk.'
+            position_units = 'μm' # default to microns, not that reliable...
         self.position_units = position_units
 
+        # Determine fast scanning direction for map extent
+        if (np.mean(np.diff(self.pos_dict['map_x'], axis=1))
+            > np.mean(np.diff(self.pos_dict['map_x'], axis=0))):
+            # Fast x-axis. Standard orientation.
+            map_extent = [
+                np.mean(self.pos_dict['map_x'][:, 0]),
+                np.mean(self.pos_dict['map_x'][:, -1]),
+                np.mean(self.pos_dict['map_y'][0]),
+                np.mean(self.pos_dict['map_y'][-1])
+            ]
+        else: # Fast y-axis. Consider swapping axes???
+            map_extent = [
+                np.mean(self.pos_dict['map_y'][:, 0]),
+                np.mean(self.pos_dict['map_y'][:, -1]),
+                np.mean(self.pos_dict['map_x'][0]),
+                np.mean(self.pos_dict['map_x'][-1])
+            ]
+        self.map_extent = map_extent
+
+        # Write to hdf file
+        self.save_sclr_pos('positions',
+                            self.pos_dict,
+                            self.position_units)
+
+    
+    def save_sclr_pos(self, group_name, map_dict, unit_name):
         # Write to hdf file
         if self.hdf_path is not None:
 
@@ -888,18 +1306,36 @@ class XRDMap():
                 keep_hdf = False
 
             # Write data to hdf
-            curr_grp = self.hdf[f'/xrdmap'].require_group('positions')
+            curr_grp = self.hdf[f'/xrdmap'].require_group(group_name)
             curr_grp.attrs['time_stamp'] = ttime.ctime()
 
-            for key, value in self.pos_dict.items():
+            for key, value in map_dict.items():
                 value = np.asarray(value)
-                dset = curr_grp.require_dataset(key,
-                                                data=value,
-                                                shape=value.shape,
-                                                dtype=value.dtype)
                 
+                if key in curr_grp.keys():
+                    dset = curr_grp[key]
+                    if (value.shape == dset.shape
+                        and value.dtype == dset.dtype):
+                        dset[...] = value
+                    else:
+                        del dset # deletes flag, but not the data...
+                        dset = curr_grp.require_dataset(
+                                                    key,
+                                                    data=value,
+                                                    shape=value.shape,
+                                                    dtype=value.dtype
+                                                    )
+                else:
+                    dset = curr_grp.require_dataset(
+                                        key,
+                                        data=value,
+                                        shape=value.shape,
+                                        dtype=value.dtype
+                                        )
+                
+                # Update attrs everytime
                 dset.attrs['labels'] = ['map_x', 'map_y']
-                dset.attrs['units'] = self.position_units
+                dset.attrs['units'] = unit_name
                 dset.attrs['dtype'] = str(value.dtype)
 
             # Close hdf and reset attribute
@@ -918,17 +1354,91 @@ class XRDMap():
 
         pos_dict, sclr_dict = {}, {}
 
-        pos_dict['enc1'] = arr[0]
-        pos_dict['enc2'] = arr[1]
+        pos_dict['enc1'] = arr[0].reshape(self.map.map_shape)
+        pos_dict['enc2'] = arr[1].reshape(self.map.map_shape)
 
-        sclr_dict['i0'] = arr[2]
-        sclr_dict['i0_time'] = arr[3]
-        sclr_dict['im'] = arr[4]
-        sclr_dict['it'] = arr[5]
+        sclr_dict['i0'] = arr[2].reshape(self.map.map_shape)
+        sclr_dict['i0_time'] = arr[3].reshape(self.map.map_shape)
+        sclr_dict['im'] = arr[4].reshape(self.map.map_shape)
+        sclr_dict['it'] = arr[5].reshape(self.map.map_shape)
 
         self.set_positions(pos_dict, position_units)
         self.set_scalers(sclr_dict)
-        
+
+
+    # Method to swap axes, specifically swapping the default format of fast and slow axes
+    def swap_axes(self, exclude_imagemap=False, save_updates=False):
+        # This will break if images are loaded with dask.
+        # _temp_images will be of the wrong shape...
+        # could be called before _temp_images dataset is instantiated??
+        # exclude_imagemap included to swap axes upon instantiation
+        # Never save imagemap. Leave that for specific situations...
+
+        if self.map.title == 'final_images' and not exclude_imagemap:
+            warn_str = ('WARNING: ImageMap has been finalized.'
+                        + '\nSaving other attributes with swapped '
+                        + 'axes may create inconsistencies.')
+            print(warn_str)
+
+        self.map.images = self.map.images.swapaxes(0, 1)
+
+        if hasattr(self, 'pos_dict'):
+            for key in list(self.pos_dict.keys()):
+                self.pos_dict[key] = self.pos_dict[key].swapaxes(0, 1)
+        if hasattr(self, 'sclr_dict'):
+            for key in list(self.sclr_dict.keys()):
+                self.sclr_dict[key] = self.sclr_dict[key].swapaxes(0, 1)
+        if hasattr(self.map, 'spot_masks'):
+            self.map.spot_masks = self.map.spot_masks.swapaxes(0, 1)
+
+        # Update imagemap attrs if included
+        if not exclude_imagemap:
+            # Update shape values
+            self.map.shape = self.map.images.shape
+            #self.map.num_images = np.multiply(*self.map.images.shape[:2])
+            self.map.map_shape = self.map.shape[:2]
+            #self.map.image_shape = self.map.shape[2:]
+
+            # Delete any cached ImaegeMap maps
+            old_attr = list(self.map.__dict__.keys())       
+            for attr in old_attr:
+                if attr in ['_min_map',
+                            '_max_map',
+                            '_med_map',
+                            '_sum_map',
+                            '_mean_map',]:
+                    delattr(self.map, attr)
+
+        # Exchange map_extent
+        if hasattr(self, 'map_extent'):
+            map_extent = self.map_extent.copy()
+            self.map_extent = [map_extent[2],
+                               map_extent[3],
+                               map_extent[0],
+                               map_extent[1]]
+            
+        # Update spot map_indices
+        if hasattr(self, 'spots'):
+            map_x_ind = self.spots['map_x'].values
+            map_y_ind = self.spots['map_y'].values
+            self.spots['map_x'] = map_y_ind
+            self.spots['map_y'] = map_x_ind
+
+        if save_updates:
+            if hasattr(self, 'pos_dict'):
+                # Write to hdf file
+                self.save_sclr_pos('positions',
+                                    self.pos_dict,
+                                    self.position_units)
+                
+            if hasattr(self, 'sclr_dict'):
+                self.save_sclr_pos('scalers',
+                                    self.sclr_dict,
+                                    self.scaler_units)
+                
+            if hasattr(self, 'spots'):
+                self.save_spots()
+
     
     #########################################
     ### Manipulating and Selecting Phases ###
@@ -1015,12 +1525,13 @@ class XRDMap():
             # Save any new phases
             for phase in self.phases.values():
                 phase.save_to_hdf(phase_grp)
+
+            print('Updated phases saved in hdf.')
             
             # Close hdf and reset attribute
             if not keep_hdf:
                 self.hdf.close()
                 self.hdf = None
-
 
 
     def select_phases(self, remove_less_than=-1,
@@ -1035,7 +1546,7 @@ class XRDMap():
                 image = self.map.composite_image
             
 
-        tth, xrd = self.integrate_1d(image=image, tth_num=tth_num, unit=unit)
+        tth, xrd = self.integrate1d_image(image=image, tth_num=tth_num, unit=unit)
         # Add background subraction??
 
         # Plot phase_selector
@@ -1059,9 +1570,9 @@ class XRDMap():
                                                               np.max(self.tth)),
                                                    ignore_less=ignore_less)
     
-    ######################################################
-    ### Blob, Ring, Peak and Spot Search and Selection ###
-    ######################################################
+    #################################
+    ### Spot Search and Selection ###
+    #################################
 
     def find_spots(self, threshold_method='gaussian',
                    multiplier=5, size=3,
@@ -1128,10 +1639,10 @@ class XRDMap():
 
                 if 'reflections' in self.hdf['xrdmap'].keys():
                     print('Loading reflection spots from hdf...', end='', flush=True)
-                    self._close_hdf()
+                    self.close_hdf()
                     spots = pd.read_hdf(self.hdf_path, key='xrdmap/reflections/spots')
                     self.spots = spots
-                    self._open_hdf()
+                    self.open_hdf()
 
                     # Close hdf and reset attribute
                     if not keep_hdf:
@@ -1167,7 +1678,7 @@ class XRDMap():
         self.save_spots()
 
 
-    def trim_spots(self, remove_less=0.01, metric='height'):
+    def trim_spots(self, remove_less=0.01, metric='height', save_spots=False):
         if not hasattr(self, 'spots') or self.spots is None:
             raise ValueError('Cannot trim spots if XRDMap has not no spots.')
 
@@ -1196,12 +1707,25 @@ class XRDMap():
         # Drop indices
         self.spots.drop(index=drop_indices, inplace=True)
         print(f'Trimmed {len(drop_indices)} spots less than {remove_less} significance.')
+
+        if save_spots:
+            self.save_spots()
+
+
+    def remove_spot_fits(self):
+        drop_keys = []
+        for key in list(self.spots.keys()):
+            if 'fit' in key:
+                print(key)
+                drop_keys.append(key)
+
+        self.spots.drop(drop_keys, axis=1, inplace=True)
     
 
     def pixel_spots(self, map_indices):
         # TODO: These values may need to be reversed. Check with mapping values...
         pixel_spots = self.spots[(self.spots['map_x'] == map_indices[0])
-                               & (self.spots['map_y'] == map_indices[1])]
+                               & (self.spots['map_y'] == map_indices[1])].copy()
         return pixel_spots
     
 
@@ -1217,18 +1741,18 @@ class XRDMap():
                 keep_hdf = False
 
             # Save to hdf
-            self._close_hdf()
-            self.spots.to_hdf(self.hdf_path, 'xrdmap/reflections/spots', format='table')
+            self.close_hdf()
+            self.spots.to_hdf(self.hdf_path, key='xrdmap/reflections/spots', format='table')
 
             if extra_attrs is not None:
-                self._open_hdf()
+                self.open_hdf()
                 for key, value in extra_attrs.items():
                     self.hdf['xrdmap/reflections'].attrs[key] = value
 
             if keep_hdf:
-                self._open_hdf()
+                self.open_hdf()
             else:
-                self._close_hdf()
+                self.close_hdf()
             
             print('done!')
 
@@ -1238,217 +1762,265 @@ class XRDMap():
         
 
 
-    ############################################################
-    ### Interfacing with Fluorescence Data and pyxrf Results ###
-    ############################################################
+    #############################################################
+    ### Interfacing with Fluorescence Data from pyxrf Results ###
+    #############################################################
     
-    def incorporate_xrf_map():
-        raise NotImplementedError()
-        # Allow for plotting of xrf results from pyXRF
+    def load_xrfmap(self, xrf_dir=None, xrf_name=None, full_data=True):
+
+        # Look for path if no information is provided
+        if (xrf_dir is None
+            and xrf_name is None
+            and self.xrf_path is not None):
+            xrf_path = self.xrf_path
+        else:
+            if xrf_dir is None:
+                xrf_dir = self.wd
+
+            # Try default name for SRX
+            if xrf_name is None:
+                xrf_name =  f'scan2D_{self.scanid}_xs_sum8ch'
+
+            xrf_path = f'{xrf_dir}{xrf_name}.h5'
+
+        if not os.path.exists(xrf_path):
+            raise FileNotFoundError(f"{xrf_path} does not exist.")
+        else:
+            self.xrf_path = xrf_path
+
+        # Load the data
+        xrf = {}
+        with h5py.File(self.xrf_path, 'r') as f:
+            
+            if full_data:
+                xrf['data'] = f['xrfmap/detsum/counts'][:]
+                xrf['energy'] = np.arange(xrf['data'].shape[-1]) / 100
+
+            xrf_fit_names = [d.decode('utf-8') for d in f['xrfmap/detsum/xrf_fit_name'][:]]
+            xrf_fit = f['xrfmap/detsum/xrf_fit'][:]
+
+            i0 = f['xrfmap/scalers/val'][..., 0]
+            xrf_fit = np.concatenate((xrf_fit, np.expand_dims(i0, axis=0)), axis=0)
+            xrf_fit = np.transpose(xrf_fit, axes=(0, 2, 1))
+            xrf_fit_names.append('i0')
+
+            for key, value in zip(xrf_fit_names, xrf_fit):
+                xrf[key] = value
+
+            xrf['E0'] = f['xrfmap/scan_metadata'].attrs['instrument_mono_incident_energy']
+        
+        # Track as attribute
+        self.xrf = xrf
+
+        # Save xrf_path to hdf
+        if self.hdf_path is not None:
+            # Open hdf flag
+            keep_hdf = True
+            if self.hdf is None:
+                self.hdf = h5py.File(self.hdf_path, 'a')
+                keep_hdf = False
+
+            # Only save the path to connect two files
+            self.hdf['xrdmap'].attrs['xrf_path'] = self.xrf_path
+
+            if not keep_hdf:
+                self.hdf.close()
+                self.hdf = None
+
+
+        
 
     ##########################
     ### Plotting Functions ###
     ##########################
 
-    def plot_image(self, image=None, indices=None, title=None,
-                mask=None, spots=False, contours=False,
-                aspect='auto', vmin=None, 
-                return_plot=False,
-                **kwargs):
+    def plot_image(self,
+                   image=None,
+                   indices=None,
+                   title=None,
+                   mask=False,
+                   spots=False,
+                   contours=False,
+                   fig=None,
+                   ax=None,
+                   aspect='auto',
+                   return_plot=False,
+                   **kwargs):
         
-        # Check image type
-        if image is not None:
-            image = np.asarray(image)
-            if len(image.shape) == 1 and len(image) == 2:
-                indices = tuple(iter(image))
-                image = self.map.images[indices]
-            elif len(image.shape) == 2:
-                if indices is not None:
-                    indices = tuple(indices)
-            else:
-                raise ValueError(f"Incorrect image shape of {image.shape}. Should be two-dimensional.")
-        else:
-            # Evaluate images
-            self.map._dask_2_dask()
-
-            if indices is not None:
-                indices = tuple(indices)
-                image = self.map.images[indices]
-                image = np.asarray(image)
-            else:
-                i = np.random.randint(self.map.map_shape[0])
-                j = np.random.randint(self.map.map_shape[1])
-                indices = (i, j)
-                image = self.map.images[indices]
-                image = np.asarray(image)
-
-        # Check for mask
-        if mask is not None:
-            if mask is True:
-                image = image * self.map.mask
-            elif np.asarray(mask).shape == image.shape:
-                image = image * mask
-            else:
-                raise RuntimeError("Error handling mask input.")
-            
-        # Plot image
-        fig, ax = plt.subplots(1, 1, figsize=(5, 5), dpi=200)
-        # Allow some flexibility for kwarg inputs
-        plot_kwargs = {'c' : 'r',
-                       'lw' : 0.5,
-                       's' : 1}
-        for key in plot_kwargs.keys():
-            if key in kwargs.keys():
-                plot_kwargs[key] = kwargs[key]
-                del kwargs[key]
-
-        if hasattr(self.map, 'extent'):
-            if vmin == None:
-                vmin = 0
-            im = ax.imshow(image, extent=self.extent, vmin=vmin, aspect=aspect, **kwargs)
-            ax.set_xlabel('Scattering Angle, 2θ [°]') # Assumes degrees. Need to change...
-            ax.set_ylabel('Azimuthal Angle, χ [°]')
-        else:
-            im = ax.imshow(image, vmin=vmin, aspect=aspect, **kwargs)
-            ax.set_xlabel('X index')
-            ax.set_ylabel('Y index')
-        fig.colorbar(im, ax=ax) 
-
-        if title is not None:
-            ax.set_title(title)
-        elif indices is not None:
-            ax.set_title(f'Row = {indices[0]}, Col = {indices[1]}')
-        elif self.map.title is not None:
-            ax.set_title(self.map.title)
-        else:
-            ax.set_title('Input Image')
-
-        if indices is not None:
-            # Set some default values
-            
-            # Plot spots
-            if spots and hasattr(self, 'spots'):
-                pixel_df = self.spots[(self.spots['map_x'] == indices[0]) & (self.spots['map_y'] == indices[1])].copy()
-                if any([x[:3] == 'fit' for x in pixel_df.keys()]):
-                    pixel_df.dropna(axis=0, inplace=True)
-                    spots = pixel_df[['fit_chi0', 'fit_tth0']].values
-                else:
-                    spots = pixel_df[['guess_cen_chi', 'guess_cen_tth']].values
-
-                if not self.map.corrections['polar_calibration']:
-                    spots = estimate_image_coords(spots[:, ::-1], self.tth_arr, self.chi_arr)[:, ::-1]
-                ax.scatter(spots[:, 1], spots[:, 0], s=plot_kwargs['s'], c=plot_kwargs['c'])
-            
-            elif spots and not hasattr(self, 'spots'):
-                print('Warning: Plotting spots requested, but xrdmap does not have any spots!')
-
-            # Plot contours
-            if contours and hasattr(self.map, 'spot_masks'):
-                blob_img = label(self.map.spot_masks[indices])
-                blob_contours = find_blob_contours(blob_img)
-                for contour in blob_contours:
-                    if self.map.corrections['polar_calibration']:
-                        contour = estimate_polar_coords(contour.T, self.tth_arr, self.chi_arr).T
-                    ax.plot(*contour, c=plot_kwargs['c'], lw=plot_kwargs['lw'])
-                
-            elif contours and not hasattr(self, 'spot_masks'):
-                print('Warning: Plotting spots requested, but xrdmap does not have any spots!')
+        image, indices = _xrdmap_image(self,
+                                       image=image,
+                                       indices=indices)
         
-        elif spots or contours:
-            print('Warning: Cannot request spots or contours without providing map indices!')
+        out = _plot_parse_xrdmap(self,
+                                 indices,
+                                 mask=mask,
+                                 spots=spots,
+                                 contours=contours)
 
+        fig, ax = plot_image(image,
+                             indices=indices,
+                             title=title,
+                             mask=out[0],
+                             spots=out[1],
+                             contours=out[2],
+                             fig=fig,
+                             ax=ax,
+                             aspect=aspect,
+                             **kwargs)
+        
         if return_plot:
             return fig, ax
+        else:
+            fig.show()
+
+
+    def plot_integration(self,
+                         integration=None,
+                         indices=None,
+                         tth=None,
+                         units=None,
+                         title=None,
+                         fig=None,
+                         ax=None,
+                         y_min=None,
+                         y_max=None,
+                         return_plot=False,
+                         **kwargs):
         
-        plt.show()
-
-
-    def plot_reconstruction(self, indices=None, plot_residual=False, **kwargs):
-        if not hasattr(self, 'spots'):
-            raise RuntimeError('xrdmap does not have any spots!')
-
-        if indices is None:
-            i = np.random.randint(self.map.map_shape[0])
-            j = np.random.randint(self.map.map_shape[1])
-            indices = (i, j)
-        else:
-            indices = tuple(indices)
-            if (indices[0] < 0 or indices[0] > self.map.map_shape[0]):
-                raise IndexError(f'Indices ({indices}) is out of bounds along axis 0 for map shape ({self.map.map_shape})')
-            elif (indices[1] < 0 or indices[1] > self.map.map_shape[1]):
-                raise IndexError(f'Indices ({indices}) is out of bounds along axis 1 for map shape ({self.map.map_shape})')
-        
-        if hasattr(self, 'spot_model'):
-            spot_model = self.spot_model
-        else:
-            print('Warning: No spot model saved. Defaulting to Gaussian.')
-            spot_model = GaussianFunctions
-        
-        pixel_df = self.spots[(self.spots['map_x'] == indices[0]) & (self.spots['map_y'] == indices[1])].copy()
-
-        if any([x[:3] == 'fit' for x in pixel_df.keys()]):
-            prefix = 'fit'
-            pixel_df.dropna(axis=0, inplace=True)
-            param_labels = [x for x in self.spots.iloc[0].keys() if x[:3] == 'fit'][:6]
-        else:
-            prefix = 'guess'
-            param_labels = ['height', 'cen_tth', 'cen_chi', 'fwhm_tth', 'fwhm_chi']
-            param_labels = [f'guess_{param_label}' for param_label in param_labels]
-            spot_model = GaussianFunctions
-
-        fit_args = []
-        for index in pixel_df.index:
-            fit_args.extend(pixel_df.loc[index, param_labels].values)
-            if prefix == 'guess':
-                fit_args.append(0) # Filling in theta value
-
-        if len(fit_args) > 0:
-            #return fit_args
-            recon_image = spot_model.multi_2d([self.tth_arr.ravel(), self.chi_arr.ravel()], 0, *fit_args)
-            recon_image = recon_image.reshape(self.map.images.shape[-2:])
-        else:
-            recon_image = np.zeros(self.map.images.shape[-2:])
-
-        if not plot_residual:
-            fig, ax = self.plot_image(recon_image,
-                                return_plot=True, indices=indices,
-                                **kwargs)
-            plt.show()
-
-        else:
-            image = self.map.images[indices]
-            residual = recon_image - image
-            ext = np.max(np.abs(residual[self.map.mask]))
-            fig, ax = self.plot_image(residual,
-                                title=f'Residual of (Row = {indices[0]}, Col = {indices[1]})',
-                                return_plot=True, indices=indices,
-                                vmin=-ext, vmax=ext, cmap='bwr', # c='k',
-                                **kwargs)
-            plt.show()
-
-
-    def plot_interactive_map(self, tth=None, chi=None, **kwargs):
-        # I should probably rebuild these to not need tth and chi
-        if hasattr(self, 'tth') and tth is None:
+        if tth is None:
             tth = self.tth
-        if hasattr(self, 'chi') and chi is None:
-            chi = self.chi
+        
+        if units is None:
+            units = self.scattering_units
+        
+        integration, indices = _xrdmap_integration(self,
+                                       integration=integration,
+                                       indices=indices)
 
-        interactive_dynamic_2d_plot(np.asarray(self.map.images), tth=tth, chi=chi, **kwargs)
-        plt.show()
+        fig, ax = plot_integration(integration,
+                                   indices=indices,
+                                   tth=tth,
+                                   units=units,
+                                   title=title,
+                                   fig=fig,
+                                   ax=ax,
+                                   y_min=y_min,
+                                   y_max=y_max,
+                                   **kwargs)
+        
+        if return_plot:
+            return fig, ax
+        else:
+            fig.show()
+
+    # Interactive plots do not currently accept fig, ax inputs
+
+    def plot_interactive_map(self,
+                             image_data=None,
+                             xticks=None,
+                             yticks=None,
+                             return_plot=False,
+                             **kwargs):
+
+        if image_data is not None:
+            image_data = np.asarray(image_data)
+        elif not hasattr(self, 'map'):
+            raise ValueError('Could not find ImageMap to plot data!')
+        elif self.map.images.ndim != 4:
+            raise ValueError(f'ImageMap data shape is not 4D, but {self.map.images.ndim}')
+        else:
+            image_data = self.map.images
+
+        if xticks is None and self.map.correction['polar_calibration']:
+            if hasattr(self, 'tth') and self.tth is not None:
+                xticks = self.tth
+            if hasattr(self, 'chi') and self.chi is not None:
+                yticks = self.chi
+
+        # Check for, extract, or determine displaymap
+        if 'display_map' not in kwargs.keys():
+            display_map = self.map.sum_map
+        else:
+            display_map = kwargs['display_map']
+            del kwargs['display_map']
+
+        fig, ax = interactive_dynamic_2d_plot(image_data,
+                                              xticks=xticks,
+                                              yticks=yticks,
+                                              display_map=display_map,
+                                              **kwargs)
+        if return_plot:
+            return fig, ax
+        else:
+            fig.show()
     
 
-    def plot_interactive_integration_map(self, display_map=None, display_title=None):
+    def plot_interactive_integration_map(self,
+                                         integrated_data=None,
+                                         xticks=None,
+                                         return_plot=False,
+                                         **kwargs):
         # Map integrated patterns for dynamic exploration of dataset
         # May throw an error if data has not yet been integrated
-        raise NotImplementedError()
+        if integrated_data is not None:
+            integrated_data = np.asarray(integrated_data)
+        elif not hasattr(self, 'map'):
+            raise ValueError('Could not find ImageMap to plot data!')
+        elif not hasattr(self.map, 'integrations'):
+            raise ValueError('Could not find integrations in ImageMap to plot data!')
+        elif self.map.integrations.ndim != 3:
+            raise ValueError(f'ImageMap data shape is not 4D, but {self.map.integrations.ndim}')
+        else:
+            integrated_data = self.map.integrations
+
+        if xticks is not None:
+            if hasattr(self, 'tth') and self.tth is not None:
+                xticks = self.tth
+    
+        # Check for, extract, or determine displaymap
+        if 'display_map' not in kwargs.keys():
+            display_map = self.map.sum_map
+        else:
+            display_map = kwargs['display_map']
+            del kwargs['display_map']
+    
+        fig, ax = interactive_dynamic_1d_plot(integrated_data,
+                                              xticks=xticks,
+                                              display_map=display_map,
+                                              **kwargs)
+        if return_plot:
+            return fig, ax
+        else:
+            fig.show()
     
 
-    def plot_map(self, data, cmap='viridis'):
-        # Simple base mapping function for analyzed values.
-        # Will expand to map phase assignment, phase integrated intensity, etc.
-        raise NotImplementedError()
+    def plot_map(self,
+                 value,
+                 map_extent=None,
+                 position_units=None,
+                 fig=None,
+                 ax=None,
+                 return_plot=False,
+                 **kwargs):
+        
+        if map_extent is None:
+            map_extent = self.map_extent
+        if position_units is None:
+            position_units = self.position_units
+        
+        fig, ax = plot_map(value,
+                           map_extent=map_extent,
+                           position_units=position_units,
+                           fig=fig,
+                           ax=ax,
+                           **kwargs)
+        
+        if return_plot:
+            return fig, ax
+        else:
+            fig.show()
     
+
     # Dual plotting a map with a representation of the full data would be very interesting
     # Something like the full strain tensor which updates over each pixel
     # Or similar for dynamically updating pole figures
@@ -1458,94 +2030,43 @@ class XRDMap():
     ### Plot Experimental Geometry ###
     ##################################
 
-    def plot_q_space(self, pixel_indices=None, skip=500, return_plot=False):
+    def plot_q_space(self,
+                     indices=None,
+                     skip=500,
+                     detector=True,
+                     Ewald_sphere=True,
+                     beam_path=True,
+                     fig=None,
+                     ax=None,
+                     return_plot=False):
  
-        q = get_q_vect(self.tth_arr, self.chi_arr, wavelength=self.wavelength)
-
-        if pixel_indices is not None:
-            pixel_df = self.spots[(self.spots['map_x'] == pixel_indices[0])
-                                    & (self.spots['map_y'] == pixel_indices[1])].copy()
-
-        fig, ax = plt.subplots(1, 1, figsize=(5, 5), dpi=200, subplot_kw={'projection':'3d'})
-
-        # Plot sampled Ewald sphere
-        q_mask = q[:, self.map.mask]
-        ax.plot_trisurf(q_mask[0].ravel()[::skip],
-                        q_mask[1].ravel()[::skip],
-                        q_mask[2].ravel()[::skip],
-                        alpha=0.5, label='detector')
-
-        # Plot full Ewald sphere
-        u = np.linspace(0, 2 * np.pi, 100)
-        v = np.linspace(0, np.pi, 100)
-        radius = 2 * np.pi / self.wavelength
-        x =  radius * np.outer(np.cos(u), np.sin(v))
-        y = radius * np.outer(np.sin(u), np.sin(v))
-        z = radius * np.outer(np.ones(np.size(u)), np.cos(v))
-        ax.plot_surface(x, y, z - radius, alpha=0.2, color='k', label='Ewald sphere')
-
-        if pixel_indices is not None:
-            ax.scatter(*pixel_df[['qx', 'qy', 'qz']].values.T, s=1, c='r', label='spots')
-
-        # Sample geometry
-        ax.quiver([0, 0], [0, 0], [-2 * radius, -radius], [0, 0], [0, 0], [radius, radius], colors='k')
-        ax.scatter(0, 0, 0, marker='o', s=10, facecolors='none', edgecolors='k', label='transmission')
-        ax.scatter(0, 0, -radius, marker='h', s=10, c='b', label='sample')
-
-        ax.set_xlabel('qx [Å⁻¹]')
-        ax.set_ylabel('qy [Å⁻¹]')
-        ax.set_zlabel('qz [Å⁻¹]')
-        ax.set_aspect('equal')
-
-        # Initial view
-        ax.view_init(elev=-45, azim=90, roll=0)
-
+        fig, ax = plot_q_space(self,
+                               indices=indices,
+                               skip=skip,
+                               detector=detector,
+                               Ewald_sphere=Ewald_sphere,
+                               beam_path=beam_path,
+                               fig=fig,
+                               ax=ax)
+        
         if return_plot:
             return fig, ax
+        else:
+            fig.show()
 
-        plt.show()
 
-
-    def plot_detector_geometry(self, skip=300, return_plot=False):
-
-        fig, ax = plt.subplots(1, 1, figsize=(5, 5), dpi=200, subplot_kw={'projection':'3d'})
-
-        # Plot detector position
-        xyz = self.ai.position_array()
-
-        xyz[:, :, 0] *= -1 # Transform to synchrotron standard. Not sure if correct
-
-        x = xyz[:, :, 0].ravel()[::skip]
-        y = xyz[:, :, 1].ravel()[::skip]
-        z = xyz[:, :, 2].ravel()[::skip]
-
-        ax.plot_trisurf(x, y, z,
-                        alpha=0.5, label='detector')
-
-        # X-ray beam
-        radius = self.ai.dist
-        ax.quiver([0], [0], [-radius], [0], [0], [radius], colors='k')
-        ax.scatter(0, 0, 0, marker='h', s=10, c='b', label='sample')
-
-        # Detector
-        corner_indices = np.array([[0, 0], [-1, 0], [0, -1], [-1, -1]]).T
-        corn = xyz[*corner_indices].T
-        ax.quiver([0,] * 4,
-                [0,] * 4,
-                [0,] * 4,
-                corn[0],
-                corn[1],
-                corn[2], colors='gray', lw=0.5)
-
-        ax.set_xlabel('x [m]')
-        ax.set_ylabel('y [m]')
-        ax.set_zlabel('z [m]')
-        ax.set_aspect('equal')
-
-        # Initial view
-        ax.view_init(elev=-60, azim=90, roll=0)
-
+    def plot_detector_geometry(self,
+                               skip=300,
+                               fig=None,
+                               ax=None,
+                               return_plot=False):
+        
+        fig, ax = plot_detector_geometry(self,
+                                         skip=skip,
+                                         fig=fig,
+                                         ax=ax)
+        
         if return_plot:
             return fig, ax
-
-        plt.show()
+        else:
+            fig.show()

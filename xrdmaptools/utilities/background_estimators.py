@@ -51,7 +51,7 @@ def masked_gaussian_background(imagemap, sigma=100, mask=None):
         mask = np.empty_like(imagemap.images, dtype=np.bool_)
         mask[:, :] = image_mask
 
-    zero_image = imagemap.images.copy()
+    zero_image = imagemap.images.copy() # Not good for memory!
     zero_image[~mask] = 0 # should be redundant
     gauss_zero = gaussian_filter(zero_image, sigma=(0, 0, sigma, sigma))
 
@@ -145,10 +145,10 @@ def fit_spline_bkg(imagemap, mask=None, sparsity=0.5, s=5000):
 
     return bkg_map
 
-
+# OPTIMIZE ME: numba and/or dask delayed
 def masked_bruckner_background(imagemap, size=10, max_iterations=100,
-                                     binning=2, min_prominence=0.1,
-                                     mask=None, verbose=False):
+                               binning=2, min_prominence=0.1,
+                               mask=None, verbose=False):
 
     image_shape = imagemap.images.shape[-2:]
 

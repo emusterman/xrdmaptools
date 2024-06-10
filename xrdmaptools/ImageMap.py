@@ -23,8 +23,9 @@ class ImageMap:
     # Analysis and interpretation of diffraction are reserved for the XRDMap class
 
     def __init__(self,
-                 image_array,
-                 map_shape=None,
+                 image_data=None,
+                 integration_data=None,
+                 dataset_shape=None,
                  dtype=None,
                  title=None,
                  hdf_path=None,
@@ -35,37 +36,77 @@ class ImageMap:
                  corrections=None,
                  dask_enabled=False):
         
-        # Parallized image processing
-        if dask_enabled:
-            # Unusual chunk shapes are fixed later
-            image_array = da.asarray(image_array)
-        else:
-            # Non-paralleized image processing
-            if isinstance(image_array, da.core.Array):
-                image_array = image_array.compute()
+        if (image_data is None
+            and integration_data is None
+            and dataset_shape is None):
+            raise ValueError('Must specify image_data, integration_data, or dataset_shape.')
+        
+        # Load image data
+        if image_data is not None:
+            # Parallized image processing
+            if dask_enabled:
+                # Unusual chunk shapes are fixed later
+                # Not the best though....
+                image_data = da.asarray(image_data)
             else:
-                image_array = np.asarray(image_array)
+                # Non-paralleized image processing
+                if isinstance(image_data, da.core.Array):
+                    image_data = image_data.compute()
+                else:
+                    image_data = np.asarray(image_data)
 
-        if map_shape is not None:
-            self.images = image_array.reshape(tuple(map_shape))
-        elif len(image_array.shape) == 3:
-            print('WARNING: Input array given as 3D object. Assuming square map...')
-            input_shape = image_array.shape
-            map_side = np.sqrt(input_shape[0])
-            if map_side % 1 != 0:
-                raise RuntimeError("Input array not 4D, no shape provided, and not a square map.")
-            new_shape = (int(map_side), int(map_side), *input_shape[1:])
-            print(f'Assumed map shape is {new_shape[:2]} with images of {new_shape[-2:]}')
-            self.images = image_array.reshape(new_shape)
-        elif len(image_array.shape) == 4:
-            self.images = image_array
+            # Working with image_data shape
+            if dataset_shape is not None: # This does not behave as expected...
+                self.images = image_data.reshape(tuple(dataset_shape))
+            elif len(image_data.shape) == 3:
+                print('WARNING: Input array given as 3D object. Assuming square map...')
+                input_shape = image_data.shape
+                map_side = np.sqrt(input_shape[0])
+                if map_side % 1 != 0:
+                    raise RuntimeError("Input array not 4D, no shape provided, and not a square map.")
+                new_shape = (int(map_side), int(map_side), *input_shape[1:])
+                print(f'Assumed map shape is {new_shape[:2]} with images of {new_shape[-2:]}')
+                self.images = image_data.reshape(new_shape)
+                dataset_shape = self.images.shape
+            elif len(image_data.shape) == 4:
+                self.images = image_data
+                dataset_shape = self.images.shape
+            else:
+                raise ValueError("Image data incorrect shape or unknown type. 4D array is preferred.")
+            
+            # Some useful parameters
+            self.shape = dataset_shape
+            self.num_images = np.multiply(*dataset_shape[:2])
+            self.map_shape = dataset_shape[:2]
+            self.image_shape = dataset_shape[2:]
         else:
-            raise RuntimeError("Input data incorrect shape or unknown type. 4D array is preferred.")
+            if dask_enabled:
+                print('WARNING: Cannot enable dask without image_data. Proceeding without dask.')
+                dask_enabled = False
+            if dataset_shape is not None:
+                self.shape = dataset_shape
+                self.num_images = dataset_shape[-1]
+                self.map_shape = dataset_shape[:2]  
+                self.image_shape = (1, 1)         
+        
+        # Working with integration_data shape
+        if integration_data is not None:
+            integration_data = np.asarray(integration_data)
+            if integration_data.ndim == 2:
+                self.integrations = integration_data.reshape((self.map_shape, -1))
+            elif integration_data.ndim == 3:
+                self.integrations = integration_data
+            else:
+                raise ValueError("Integration data incorrect shape or unknown type. 3D array is preferred.")
+            # Integration shape can just be called. Length is just tth_num in xrdmap...
         
         if dask_enabled:
-            # Redo chunking along image dimensions
-            chunks = self._get_optimal_chunks()
-            self.images = self.images.rechunk(chunks=chunks)
+            # Redo chunking along image dimensions if not already
+            if self.images.chunksize[-2:] != self.images.shape[-2:]:
+                self._get_optimal_chunks()
+                self.images = self.images.rechunk(chunks=self._chunks)
+            else:
+                self._chunks = self.images.chunksize
         
         # Working with the many iteraction of hdf
         # Too much information to pass back and forth
@@ -129,39 +170,22 @@ class ImageMap:
                 # Check for previously worked on data
                 if check_hdf_current_images('_temp_images', self.hdf_path, self.hdf):
                     self._hdf_store = self.hdf['xrdmap/image_data/_temp_images']
-                    self.images = self.images.astype(self._hdf_store.dtype)
-                    self.images = self.images.rechunk(self._hdf_store.chunks)
+                    # Change datatype and chunking to match previous _temp_images
+                    if self.images.dtype != self._hdf_store.dtype:
+                        self.images = self.images.astype(self._hdf_store.dtype)
+                    if self.images.chunksize != self._hdf_store.chunks:
+                        self.images = self.images.rechunk(self._hdf_store.chunks)
                 else:
+                    # Upcast before writing to hdf
                     self.images = self.images.astype(np.float32)
-                    # Re-do chunking with np.float32 datatype
-                    chunks = self._get_optimal_chunks()
-                    self.images = self.images.rechunk(chunks=chunks)
                     self._hdf_store = self.hdf.require_dataset('xrdmap/image_data/_temp_images',
                                                 shape=self.images.shape,
                                                 dtype=np.float32,
-                                                chunks=chunks)
+                                                chunks=self._chunks)
 
                 # Might be best NOT to call this to preserve previous data
                 self.images = da.store(self.images, self._hdf_store,
-                                    compute=True, return_stored=True)[0]
-
-        if isinstance(corrections, dict):
-            self.corrections = corrections
-        else:
-            self.corrections = {
-                'dark_field' : False,
-                'flat_field' : False,
-                'outliers' : False,
-                'pixel_defects' : False,
-                'pixel_distortions' : False,
-                'polar_calibration' : False,
-                'lorentz' : False,
-                'polarization' : False,
-                'solid_angle' : False,
-                'absorption' : False,              
-                'scaler_intensity' : False,
-                'background' : False
-            }        
+                                    compute=True, return_stored=True)[0]       
         
         if wd is None:
             wd = '/home/xf05id1/current_user_data/'
@@ -199,9 +223,11 @@ class ImageMap:
 
     @dtype.setter
     def dtype(self, dtype):
-        # Used to update the main dtype. Should add a memory usage estimate as well
-        self.images = self.images.astype(dtype) # This may have to copy the array, which could be memory intensive
-        self._dtype = dtype
+        # Update datatype if different
+        if dtype != self._dtype:
+            # Unfortunately, this has to copy the dataset
+            self.images = self.images.astype(dtype)
+            self._dtype = dtype
 
     
     def projection_factory(property_name, function, axes):
@@ -220,7 +246,7 @@ class ImageMap:
                     mask_map[:, :] = self.mask
 
                     # Contribution
-                    zero_image = self.images.copy()
+                    zero_image = self.images.copy() # Expensive...
                     zero_image[~mask_map] = 0 # should be redundant
                     gauss_zero = function(zero_image, axis=axes)
 
@@ -275,8 +301,8 @@ class ImageMap:
     # Add other methods, or rename to something more intuitive
     @property
     def composite_image(self):
-        if hasattr(self, f'_{self.title}_composite'):
-            return getattr(self, f'_{self.title}_composite')
+        if hasattr(self, f'_composite_image'):
+            return getattr(self, f'_composite_image')
         else:
             setattr(self, f'_{self.title}_composite',
                     self.max_image - self.min_image)
@@ -284,12 +310,12 @@ class ImageMap:
             # Set the generic value to this as well
             self._composite_image = getattr(self, f'_{self.title}_composite')
 
-            # Save image to hdf
+            # Save image to hdf. Should update if changed
             self.save_images(self._composite_image,
                              f'_{self.title}_composite')
 
             # Finally return the requested attribute
-            return getattr(self, f'_{self.title}_composite')
+            return getattr(self, f'_composite_image')
         
     @composite_image.deleter
     def composite_image(self):
@@ -385,8 +411,9 @@ class ImageMap:
 
     # Return standardized chunk size around images for hdf and dask
     def _get_optimal_chunks(self, approx_chunk_size=None):
-        return get_optimal_chunks(self.images,
+        self._chunks =  get_optimal_chunks(self.images,
                                   approx_chunk_size=approx_chunk_size)
+        return self._chunks
     
     def _dask_2_numpy(self):
         # Computes dask to numpy array. Intended for final images
@@ -432,11 +459,15 @@ class ImageMap:
             print('''Warning: Dark-field correction already applied! 
                   Proceeding without any changes''')
         elif dark_field is None:
-            print('No dark-field correction.')
+            print('No dark-field given for correction.')
+        elif dark_field.shape != self.image_shape:
+            err_str = (f'Dark-field shape of {dark_field.shape} does '
+                      + f'not match image shape of {self.image_shape}.')
+            raise ValueError(err_str)
         else:
             self.dark_field = dark_field
             
-            # convert from integer to float if necessary
+            # Convert from integer to float if necessary
             if (np.issubdtype(self.dtype, np.integer)
                 and np.issubdtype(self.dark_field.dtype, np.floating)):
                 self.dtype = self.dark_field.dtype
@@ -449,7 +480,7 @@ class ImageMap:
             elif check_precision(self.dtype)[0].min >= 0:
                 # Not sure how to decide which int precision
                 # Trying to save memory if possible
-                if np.max(self.dark_field) > np.min(self.min_image):
+                if np.max(self.dark_field) > np.min(self.images):
                     self.dtype = np.float32 # Go ahead and make it the final size...
             
             print('Correcting dark-field...', end='', flush=True)
@@ -477,6 +508,10 @@ class ImageMap:
                   Proceeding without any changes''')
         elif flat_field is None:
             print('No flat-field correction.')
+        elif flat_field.shape != self.image_shape:
+            err_str = (f'Flat-field shape of {flat_field.shape} does '
+                      + f'not match image shape of {self.image_shape}.')
+            raise ValueError(err_str)
         else:
             self.dtype = np.float32
             print('Correcting flat-field...', end='', flush=True)
@@ -550,7 +585,7 @@ class ImageMap:
 
     ### Geometric corrections ###
     # TODO: Add conditionals to allow corrections to be applied to calibrated images
-
+    # FIX ME!!!
     def apply_lorentz_correction(self, experiment='single', corrections=None, custom=None, apply=True):
 
         if self.corrections['lorentz']:
@@ -564,7 +599,7 @@ class ImageMap:
         if custom is not None:
             custom = np.asarray(custom)
             if custom.shape != tth_arr.shape:
-                raise ValueError(f'Custom Lorentz corretion osf shape {custom.shape} does not match image shape of {tth_arr.shape}.')
+                raise ValueError(f'Custom Lorentz corretion of shape {custom.shape} does not match image shape of {tth_arr.shape}.')
             lorentz_correction = custom
             corrections = []
         
@@ -586,9 +621,10 @@ class ImageMap:
         #TODO: Add conditional for calibrated images
         # In radians
         tth_arr = self.ai.twoThetaArray().astype(self.dtype)
-        chi_arr = self.ai.chiArray().astype(self.dtype)
+        chi_arr = -self.ai.chiArray().astype(self.dtype)
 
         # Check for discontinuities
+        # FIX ME!!!
         if np.max(np.gradient(chi_arr)) > (np.pi / 6): # Semi-arbitrary cut off
             chi_arr[chi_arr < 0] += (2 * np.pi)
 
@@ -755,6 +791,7 @@ class ImageMap:
         if self.corrections['scaler_intensity']:
             print('''Warning: Images have already been normalized by the scaler! 
                   Proceeding without any changes''')
+            return
         
         elif scaler_arr is None:
             if hasattr(self, 'sclr_dict') and self.sclr_dict is not None:
@@ -774,6 +811,11 @@ class ImageMap:
                 print('No scaler array given or found. Approximating with image medians.')
                 scaler_arr = self.med_map
                 sclr_key = 'med'
+
+        elif scaler_arr.shape != self.map_shape:
+            err_str = (f'Scaler array shape of {scaler_arr.shape} does '
+                      + f'not match map shape of {self.map_shape}.')
+            raise ValueError(err_str)
         else:
             sclr_key = 'input'
 
@@ -781,7 +823,7 @@ class ImageMap:
         scaler_arr = np.asarray(scaler_arr)
         if scaler_arr.shape != self.map_shape:
             raise ValueError(f'''Scaler array of shape {scaler_arr.shape} does not 
-                            match the map shape of {self.map_shape}!''')
+                            match the map shape of {self.map_shape}.''')
    
         print(f'Normalize image by {sclr_key} scaler...', end='', flush=True)
         self.images /= scaler_arr.reshape(*self.map_shape, 1, 1)
@@ -888,8 +930,7 @@ class ImageMap:
     ### Polar correction ###
     # Geometric calibration
     # TODO: Test with various dask implementations
-    #        Move to geometry?
-    def calibrate_images(self, title=None,
+    def integrate2d_images(self, title=None,
                          unit='2th_deg',
                          tth_resolution=0.02,
                          chi_resolution=0.05,
@@ -1007,11 +1048,6 @@ class ImageMap:
                                           correctSolidAngle=correctSolidAngle,
                                           **kwargs)
             
-            # Lorentz_correction is deprecated in favor of an independent version
-            #if Lorentz_correction: # Yong was disappointed I did not have this already
-            #    rad = np.radians(tth / 2)
-            #    res /=  1 / (np.sin(rad) * np.sin(2 * rad))
-
             calibrated_map[i] = res
 
         calibrated_map = calibrated_map.reshape(*self.map_shape,
@@ -1129,8 +1165,8 @@ class ImageMap:
         return calibration_mask
     
 
-    def rescale_images(self, lower=0, upper=100,
-                       arr_min=None, arr_max=None,
+    def rescale_images(self, lower=None, upper=100,
+                       arr_min=0, arr_max=None,
                        mask=None):
 
         if mask is None and np.any(self.mask != 1):
@@ -1167,7 +1203,7 @@ class ImageMap:
             if self.hdf_path is None and self.hdf is None:
                 print('No hdf file specified. Images will not be saved.')
             else:
-                print('''Compressing and writing images to disk.\nThis may take awhile...''')
+                print('Compressing and writing images to disk.\nThis may take awhile...')
 
                 if check_hdf_current_images('_temp_images', self.hdf_path, self.hdf):
                     # Save images to current store location. Should be _temp_images
@@ -1190,11 +1226,168 @@ class ImageMap:
                 print('done!')
 
 
-    ##########################
-    ### Plotting Functions ###
-    ##########################
+    #######################
+    ### Integrated Data ###
+    #######################
+    # Dask is not implemented for integrations...
+
+    def integrate1d_image():
+        raise NotImplementedError()
+    # Check and tag for tth, tth_num, and units
+        
+
+    def integrated1d_map():
+        raise NotImplementedError()
+    # Add warning about the state of image corrections...
+    # Save as it's own attribute
+    # Write to hdf!
+    
+
+    def integrated2d_map():
+        raise NotImplementedError()
+    # Add warning about the state of image corrections...
+    # Overwrite images attribute
+
+    ### 1D integration projections
+
+    # Calculated as the 1D integration of the image projection
+    def integration_projection_factory(property_abbreviation):
+        property_name = f'_{property_abbreviation}_integration' # This line is crucial! 
+        def get_projection(self):
+            if hasattr(self, property_name):
+                return getattr(self, property_name)
+            else:
+                # Return image projection of integration
+                projection_2d = getattr(self, f'{property_abbreviation}_image')
+
+                tth, integration = self.intergate1d_image(projection_2d)
+                setattr(self, property_name, integration)
+
+        def set_projection(self, value):
+            setattr(self, property_name, value)
+
+        def del_projection(self):
+            delattr(self, property_name)
+        
+        return property(get_projection, set_projection, del_projection)
+    
+    min_integration = integration_projection_factory('min')
+    max_integration = integration_projection_factory('max')
+    med_integration = integration_projection_factory('med')
+    mean_integration = integration_projection_factory('mean')
+
+    @property
+    def composite_integration(self):
+        if hasattr(self, f'_composite_integration'):
+            return getattr(self, f'_composite_integration')
+        else:
+            setattr(self, f'_{self.title}_composite_integration',
+                    self.max_image - self.min_image)
             
-    # Moved to XRDMap class
+            # Set the generic value to this as well
+            self._composite_integration = getattr(self, f'_{self.title}_composite_integration')
+
+            # Save image to hdf. Should update if changed
+            self.save_images(self._composite_integration,
+                             f'_{self.title}_composite_integration')
+
+            # Finally return the requested attribute
+            return getattr(self, f'_composite_integration')
+        
+    @composite_integration.deleter
+    def composite_integration(self):
+        delattr(self, '_composite_integration')
+
+    ### 1D integration corrections
+    
+    def estimate_integration_background(self, method=None, background=None, **kwargs):
+        method = str(method).lower()
+
+        if background is None:
+            # Many different background methods have been implemented
+            if method in ['med', 'median']:
+                print('Estimating background from median values.')
+                self.integration_background = self.med_integration
+                self.integration_background_method = 'median'
+
+            elif method in ['min', 'minimum']:
+                print('Estimating background with minimum method.')
+                self.integration_background = self.min_integration
+                self.integration_background_method = 'minimum'
+                
+            elif method in ['ball', 'rolling ball', 'rolling_ball']:
+                #raise NotImplementedError('Cannot yet exclude contribution from masked regions.')
+                print('Estimating background with rolling ball method.')
+                self.integration_background = rolling_ball(self.integrations, **kwargs)
+                self.integration_background_method = 'rolling ball'
+
+            elif method in ['spline', 'spline fit', 'spline_fit']:
+                raise NotImplementedError('Still need to write function for integrations.')
+                print('Estimating background with spline fit.')
+                self.integration_background = fit_spline_bkg(self, **kwargs)
+                self.integration_background_method = 'spline'
+
+            elif method in ['poly', 'poly fit', 'poly_fit']:
+                raise NotImplementedError('Still need to write function for integrations.')
+                print('Estimating background with polynomial fit.')
+                print('Warning: This method is slow and not very accurate.')
+                self.integration_background = fit_poly_bkg(self, **kwargs)
+                self.integration_background_method = 'polynomial'
+
+            elif method in ['Gaussian', 'gaussian', 'gauss']:
+                raise NotImplementedError('Still need to write function for integrations.')
+                print('Estimating background with gaussian convolution.')
+                print('Note: Progress bar is unavailable for this method.')
+                self.integration_background = masked_gaussian_background(self, **kwargs)
+                self.integration_background_method = 'gaussian'
+
+            elif method in ['Bruckner', 'bruckner']:
+                raise NotImplementedError('Still need to write function for integrations.')
+                print('Estimating background with Bruckner algorithm.')
+                self.integration_background = masked_bruckner_background(self, **kwargs)
+                self.integration_background_method = 'bruckner'
+
+            elif method in ['none']:
+                print('No background correction will be used.')
+                self.integration_background = None
+                self.integration_background_method = 'none'
+            
+            else:
+                raise NotImplementedError(f'Method "{method}" not implemented!')
+    
+        else:
+            print('User-specified background.')
+            self.integration_background = background
+            self.integration_background_method = 'custom'
+    
+
+    def remove_integration_background(background=None):
+        raise NotImplementedError()
+        if background is None:
+            if hasattr(self, 'integration_background'):
+                background = getattr(self, 'integration_background')
+            else:
+                print('No background removal.')
+                return
+        else:
+            self.integration_background = background
+            
+        print('Removing background...', end='', flush=True)
+        self.integrations -= self.integration_background
+
+        # Save updated integrations
+        self.save_integrations()
+
+        # Save backgrounds
+        # Not as costly as image backgrounds
+
+        # Remove no longer needed backgrounds
+        del self.background
+    
+
+    def rescale_integrations():
+        raise NotImplementedError()
+
 
     ####################
     ### IO Functions ###
@@ -1217,6 +1410,7 @@ class ImageMap:
         
         print(f'Diffraction map size is {disk_size:.3f} {units}.')
 
+    # WIP apparently???
     @staticmethod
     def estimate_disk_size(size):
         # External reference function to estimate map size before acquisition
@@ -1225,6 +1419,32 @@ class ImageMap:
             raise TypeError('Size argument must be iterable of map dimensions.')
 
         disk_size = np.prod([*size, 2])
+
+
+    def _get_save_labels(self, arr_shape):
+        units = 'a.u.'
+        labels = []
+
+        if len(arr_shape) == 4: # Image map
+            labels = ['x_ind',
+                      'y_ind']
+            if self.corrections['polar_calibration']:
+                labels.extend(['chi_ind', 'tth_ind'])
+            else:
+                labels.extend(['img_y', 'img_x'])
+
+        elif len(arr_shape) == 2: # Image
+            if self.corrections['polar_calibration']:
+                labels.extend(['chi_ind', 'tth_ind'])
+            else:
+                labels.extend(['img_y', 'img_x'])
+
+        elif len(arr_shape) == 3: # Integrations
+            labels = ['x_ind',
+                      'y_ind',
+                      'tth_ind']
+
+        return units, labels
 
 
     def save_images(self, images=None, title=None, units=None, labels=None,
@@ -1294,14 +1514,15 @@ class ImageMap:
                             compression=compression,
                             compression_opts=compression_opts,
                             chunks=chunks)
-        else: # Overwrite data. No checks are performed
+        else: # Overwrite data
             dset = img_grp[title]
-
+            
+            # Check array compatibility
             if (dset.shape == image_shape
                 and dset.dtype == image_dtype
                 and dset.chunks == chunks):
                 if not dask_flag:
-                    dset[...] = images # Replace data if the size, shape and chunks match
+                    dset[...] = images # Replace data if the size, shape, and chunks match
                 else:
                     pass # Leave the dataset for now
             else:
@@ -1341,18 +1562,94 @@ class ImageMap:
             self.hdf = None
 
 
-    def _get_save_labels(self, arr_shape):
-        units = 'a.u.'
-        labels = []
+    # TODO: update _get_save_labels to handle integrations
+    def save_integrations(self, integrations=None, title=None,
+                          units=None, labels=None,
+                          mode='a', extra_attrs=None):
+        # No dask support
 
-        if len(arr_shape) == 4:
-            labels = ['x_ind',
-                      'y_ind']
+        if self.hdf_path is None:
+            return # Should disable working with hdf if no information is provided
         
-        if self.corrections['polar_calibration']:
-            labels.extend(['chi_ind', 'tth_ind'])
+        if integrations is None:
+            if hasattr(self, 'integrations') and self.integrations is not None:
+                integrations = self.integrations
+            else:
+                err_str = 'ImageMap does not have integrations and none have been given.'
+                raise ValueError(err_str)
         else:
-            labels.extend(['img_y', 'img_x'])
+            # This conditional is for single images mostly (e.g., dark-field)
+            integrations = np.asarray(integrations)
+        
+        # Set title
+        if title is None:
+            title = f'{self.title}_integrations'
+        
+        # Check shape and set title
+        if integrations.ndim != 3:
+            raise ValueError(f'Integrations must have 3 dimensions, not {len(integrations.shape)}.')
+        
+        # Get labels
+        _units, _labels = self._get_save_labels(integrations.shape)
+        if units is None:
+            units = _units
+        if labels is None:
+            labels = _labels
 
-        return units, labels
-    
+        # Flag of state hdf
+        close_flag = False
+        if self.hdf is None:
+            close_flag = True
+            self.hdf = h5py.File(self.hdf_path, mode)
+
+        # Grab some metadata
+        integrations_shape = integrations.shape
+        integrations_dtype = integrations.dtype
+
+        int_grp = self.hdf['xrdmap'].require_group('integration_data')
+        
+        if title not in int_grp.keys():
+            dset = int_grp.require_dataset(
+                            title,
+                            data=integrations,
+                            shape=integrations_shape,
+                            dtype=integrations_dtype,
+                            compression=None, # default
+                            compression_opts=None, # default
+                            chunks=None) # default
+        else: # Overwrite data. No checks are performed
+            dset = int_grp[title]
+
+            if (dset.shape == integrations_shape
+                and dset.dtype == integrations_dtype):
+                dset[...] = integrations
+            else:
+                # This is not the best, because this only deletes the flag. The data stays
+                del int_grp[title]
+                dset = int_grp.create_dataset(
+                            title,
+                            data=integrations,
+                            shape=integrations_shape,
+                            dtype=integrations_dtype,
+                            compression=None, # default
+                            compression_opts=None, # default
+                            chunks=None) # defualt
+        
+        dset.attrs['labels'] = labels
+        dset.attrs['units'] = units
+        dset.attrs['dtype'] = str(integrations_dtype)
+        dset.attrs['time_stamp'] = ttime.ctime()
+
+        # Add non-standard extra metadata attributes
+        if extra_attrs is not None:
+            for key, value in extra_attrs.items():
+                dset.attrs[key] = value
+
+        # Add correction information to each dataset
+        if title[0] != '_':
+            for key, value in self.corrections.items():
+                dset.attrs[f'_{key}_correction'] = value
+        
+        if close_flag:
+            self.hdf.close()
+            self.hdf = None

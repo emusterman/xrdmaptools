@@ -20,7 +20,39 @@ def interpolate_merlin_mask(masked_img):
     return healed_img
 
 
-# Now with dask support!
+def iterative_outlier_correction(images, size=2, tolerance=2):
+    # Assumption is that the image axes are the last two
+
+    images = np.asarray(images)
+    image_shape = images.shape[-2:]
+    set_shape = images.shape[:-2]
+
+    num_pixels_replaced = 0
+    for index in tqdm(range(np.prod(*set_shape))):
+        indices = np.unravel_index(index, set_shape)
+
+        image = images[indices]
+
+        if isinstance(images, da.core.Array):
+            med_image = dask_ndi.median_filter(image, size=size)
+        else:
+            med_image = ndi.median_filter(image, size=size)
+
+        ratio_image = np.abs(image / med_image)
+        replace_mask = (ratio_image > tolerance)
+
+        # better way to do this?
+        image[replace_mask] = 0
+        med_image[~replace_mask] = 0
+        images += med_image
+
+        num_pixels_replaced += np.sum(replace_mask)
+
+    return images
+
+
+# OPTIMIZE ME: copies a lot of data
+# Iterative approach might be faster, with Numba and Dask?
 def find_outlier_pixels(images, size=2, tolerance=2):
     '''
     images      (arr)   Input ND images. Last two dimensions should be the 2D image   
@@ -34,6 +66,8 @@ def find_outlier_pixels(images, size=2, tolerance=2):
     size_iter = np.ones(images.ndim, dtype=np.int8)
     size_iter[-2:] = size, size
 
+    # This copies full dataset. Iterative approach would be less memory intensive.
+    # Iterative is taxing on dask arrays though...
     if isinstance(images, da.core.Array):
         med_image = dask_ndi.median_filter(images, size=size_iter)
     else:
@@ -136,12 +170,19 @@ def rescale_array(arr, lower=0, upper=1, arr_min=None, arr_max=None, mask=None):
         arr_max = np.nanmax(arr)
     ext = upper - lower
     
-    scaled_arr = lower + ext * ((arr - arr_min) / (arr_max - arr_min))
+    # Copied array operation
+    #scaled_arr = lower + ext * ((arr - arr_min) / (arr_max - arr_min))
+    
+    # In-place operation. Far faster
+    arr -= arr_min
+    arr /= (arr_max - arr_min)
+    arr *= ext
+    arr += lower
 
     if mask is not None:
-        scaled_arr[~mask] = 0
+        arr[~mask] = 0
 
-    return scaled_arr
+    return arr # I don't really need to return the array after this...
 
 
 def iter_rescale_array(arr, lower=0, upper=1, arr_min=None, arr_max=None):

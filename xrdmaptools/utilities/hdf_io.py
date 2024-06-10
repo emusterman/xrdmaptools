@@ -38,8 +38,9 @@ def initialize_xrdmap_hdf(xrdmap, hdf_file):
         # Add pixel scalar values
     
 
-def load_XRD_hdf(filename, wd=None, dask_enabled=False):
+def load_XRD_hdf(filename, wd=None, dask_enabled=False, only_integrations=False):
     # TODO: Add conditional to check for .h5 at end of file name
+    # Add conditionals to load maps wiith only 
 
     # Figuring out hdf file stuff
     hdf_path = f'{wd}{filename}'
@@ -47,111 +48,122 @@ def load_XRD_hdf(filename, wd=None, dask_enabled=False):
         hdf = h5py.File(hdf_path, 'r')
     else:
         hdf = h5py.File(hdf_path, 'a')
-    base_grp = hdf['/xrdmap']
+    base_grp = hdf['xrdmap']
 
     # Load base metadata
     base_md = dict(base_grp.attrs.items())
 
     # Load most recent image data
-    if 'image_data' not in base_grp.keys():
-        raise RuntimeError("No image data in hdf file! Try loading from image stack or from databroker.")
-    img_grp = base_grp['image_data']
+    if not only_integrations:
+        if 'image_data' not in base_grp.keys():
+            raise RuntimeError('No image data in hdf file! '
+                               'Try loading from image stack or from databroker.')
+        img_grp = base_grp['image_data']
 
-    time_stamps, img_keys = [], []
-    for key in img_grp.keys():
-        if key[0] != '_':
-            time_stamps.append(img_grp[key].attrs['time_stamp'])
-            img_keys.append(key)
-    time_stamps = [ttime.mktime(ttime.strptime(x)) for x in time_stamps]
-    recent_index = np.argmax(time_stamps)
+        time_stamps, img_keys = [], []
+        for key in img_grp.keys():
+            if key[0] != '_':
+                time_stamps.append(img_grp[key].attrs['time_stamp'])
+                img_keys.append(key)
+        time_stamps = [ttime.mktime(ttime.strptime(x)) for x in time_stamps]
+        recent_index = np.argmax(time_stamps)
 
-    print(f'Loading most recent images ({img_keys[recent_index]})...', end='', flush=True)
-    if dask_enabled:
-        # Lazy loads data
-        image_dset = img_grp[img_keys[recent_index]]
-        image_data = da.asarray(image_dset)
+        print(f'Loading most recent images ({img_keys[recent_index]})...', end='', flush=True)
+        if dask_enabled:
+            # Lazy loads data
+            image_dset = img_grp[img_keys[recent_index]]
+            image_data = da.from_array(image_dset, chunks=image_dset.chunks)
+        else:
+            # Fully loads data
+            image_data = img_grp[img_keys[recent_index]][:]
+
+        # Rebuild correction dictionary
+        corrections = {}
+        for key, value in img_grp[img_keys[recent_index]].attrs.items():
+            if key[0] == '_' and key[-11:] == '_correction':
+                corrections[key[1:-11]] = value
+
+        # Collect ImageMap attributes that are not instantiated...
+        image_map_attrs = {}
+        
+        #image_map.image_shape = img_grp['raw_images'].shape[2:]
+        image_map_attrs['image_shape'] = img_grp['raw_images'].shape[2:]
+        
+        # I should look for other composite images???
+        if '_processed_images_composite' in img_grp.keys():
+            #image_map._processed_images_composite = img_grp['_processed_images_composite'][:]
+            image_map_attrs['_processed_images_composite'] = img_grp['_processed_images_composite'][:]
+
+        if '_calibration_mask' in img_grp.keys():
+            #image_map.calibration_mask = img_grp['_calibration_mask'][:]
+            image_map_attrs['calibration_mask'] = img_grp['_calibration_mask'][:]
+
+        if '_defect_mask' in img_grp.keys():
+            #image_map.defect_mask = img_grp['_defect_mask'][:]
+            image_map_attrs['defect_mask'] = img_grp['_defect_mask'][:]
+
+        if '_custom_mask' in img_grp.keys():
+            #image_map.custom_mask = img_grp['_custom_mask'][:]
+            image_map_attrs['custom_mask'] = img_grp['_custom_mask'][:]
+        
+        if '_spot_masks' in img_grp.keys():
+            #image_map.spot_masks = img_grp['_spot_masks'][:]
+            image_map_attrs['spot_masks'] = img_grp['_spot_masks'][:]
+        
+        print('done!')
+
+    # Integrations
+    if only_integrations and 'integration_data' not in base_grp.keys():
+        raise ValueError('No integration data in hdf file! '
+                         'Try loading from image stack or from databroker.')
+
+    if 'integration_data' in base_grp.keys():
+        int_grp = base_grp['integration_data']
+
+        time_stamps, int_keys = [], []
+        for key in int_grp.keys():
+            if key[0] != '_':
+                time_stamps.append(int_grp[key].attrs['time_stamp'])
+                int_keys.append(key)
+        time_stamps = [ttime.mktime(ttime.strptime(x)) for x in time_stamps]
+        recent_index = np.argmax(time_stamps)
+
+        print(f'Loading most recent integrations ({int_keys[recent_index]})...', end='', flush=True)
+
+        # Fully loads data
+        integration_data = int_grp[int_keys[recent_index]][:]
+
+        # Rebuild correction dictionary
+        '''corrections = {}
+        for key, value in int_grp[int_keys[recent_index]].attrs.items():
+            if key[0] == '_' and key[-11:] == '_correction':
+                corrections[key[1:-11]] = value'''
+
+        print('done!')
     else:
-        # Fully loads data as dask array
-        image_data = img_grp[img_keys[recent_index]][:]
+        integration_data = None
 
-    # Rebuild correction dictionary
-    corrections = {}
-    for key, value in img_grp[img_keys[recent_index]].attrs.items():
-        if key[0] == '_' and key[-11:] == '_correction':
-            corrections[key[1:-11]] = value
-
-    # Collect ImageMap attributes that are not instantiated...
-    image_map_attrs = {}
-    
-    #image_map.image_shape = img_grp['raw_images'].shape[2:]
-    image_map_attrs['image_shape'] = img_grp['raw_images'].shape[2:]
-    
-    # I should look for other composite images???
-    if '_processed_images_composite' in img_grp.keys():
-        #image_map._processed_images_composite = img_grp['_processed_images_composite'][:]
-        image_map_attrs['_processed_images_composite'] = img_grp['_processed_images_composite'][:]
-
-    if '_calibration_mask' in img_grp.keys():
-        #image_map.calibration_mask = img_grp['_calibration_mask'][:]
-        image_map_attrs['calibration_mask'] = img_grp['_calibration_mask'][:]
-
-    if '_defect_mask' in img_grp.keys():
-        #image_map.defect_mask = img_grp['_defect_mask'][:]
-        image_map_attrs['defect_mask'] = img_grp['_defect_mask'][:]
-
-    if '_custom_mask' in img_grp.keys():
-        #image_map.custom_mask = img_grp['_custom_mask'][:]
-        image_map_attrs['custom_mask'] = img_grp['_custom_mask'][:]
-    
-    if '_spot_masks' in img_grp.keys():
-        #image_map.spot_masks = img_grp['_spot_masks'][:]
-        image_map_attrs['spot_masks'] = img_grp['_spot_masks'][:]
-    
-    print('done!')
 
     # Recipricol positions
     if 'reciprocal_positions' in base_grp.keys():
         print('Loading reciprocal positions...', end='', flush=True)
         recip_grp = base_grp['reciprocal_positions']
 
+        image_map_attrs['extent'] = recip_grp.attrs['extent']
+        recip_pos = {}
+        for key in ['tth', 'chi']:
+            if key in recip_grp.keys():
+                recip_pos[key] = recip_grp[key][:]
+                #recip_pos[f'{key}_units'] = recip_grp[key].attrs['units']
+                recip_pos[f'{key}_resolution'] = recip_grp[key].attrs[f'{key}_resolution']
+            else:
+                recip_pos[key] = None
+                #recip_pos[f'{key}_units'] = None
+                recip_pos[f'{key}_resolution'] = None
+
         if 'tth' in recip_grp.keys() and 'chi' in recip_grp.keys():
-            tth = recip_grp['tth'][:]
-            chi = recip_grp['chi'][:]
-
-            recip_pos = {
-                'tth' : tth,
-                'chi' : chi,
-                'calib_units' : recip_grp['tth'].attrs['units']
-            }
-
-            # Add some extra attributes to image_map
-            #image_map.tth_resolution = recip_grp['tth'].attrs['tth_resolution']
-            #image_map.chi_resolution = recip_grp['chi'].attrs['chi_resolution']
-            #image_map.extent = recip_grp.attrs['extent']
-            #image_map.calibrated_shape = (len(chi), len(tth))
-            #image_map.chi_num = image_map.calibrated_shape[0]
-            #image_map.tth_num = image_map.calibrated_shape[1]
-            image_map_attrs['tth_resolution'] = recip_grp['tth'].attrs['tth_resolution']
-            image_map_attrs['chi_resolution'] = recip_grp['chi'].attrs['chi_resolution']
-            image_map_attrs['extent'] = recip_grp.attrs['extent']
-            image_map_attrs['calibrated_shape'] = (len(chi), len(tth))
-            image_map_attrs['chi_num'] = len(chi)
-            image_map_attrs['tth_num'] = len(tth)
-
-        else:
-            recip_pos = {'tth' : None,
-                         'chi' : None,
-                         'calib_units' : None}
-            #image_map.tth_resolution = None
-            #image_map.chi_resolution = None
-            #image_map.extent = None
-            #image_map.chi_num = None
-            #image_map.tth_num = None
-            image_map_attrs['tth_resolution'] = None
-            image_map_attrs['chi_resolution'] = None
-            image_map_attrs['extent'] = None
-            image_map_attrs['chi_num'] = None
-            image_map_attrs['tth_num'] = None
+            image_map_attrs['calibrated_shape'] = (len(recip_pos['tth']),
+                                                   len(recip_pos['chi']))
 
         # Load poni_file calibration
         poni_grp = recip_grp['poni_file']
@@ -168,19 +180,17 @@ def load_XRD_hdf(filename, wd=None, dask_enabled=False):
             else:
                 poni_od[key] = poni_grp.attrs[key]
         print('done!')
-    else:
+    
+    else: 
         recip_pos = {'tth' : None,
+                     'tth_resolution' : None,
+                     #'tth_units' : None,
                      'chi' : None,
-                     'calib_units' : None}
-        #image_map.tth_resolution = None
-        #image_map.chi_resolution = None
-        image_map_attrs['tth_resolution'] = None
-        image_map_attrs['chi_resolution'] = None
+                     'chi_resolution' : None,
+                     #'chi_units' : None
+                     }
+        image_map_attrs['calibrated_shape'] = None
         poni_od = None
-    #image_map.tth = recip_pos['tth']
-    #image_map.chi = recip_pos['chi']
-    image_map_attrs['tth'] = recip_pos['tth']
-    image_map_attrs['chi'] = recip_pos['chi']
 
     # Load phases
     phase_dict = {}
@@ -194,29 +204,6 @@ def load_XRD_hdf(filename, wd=None, dask_enabled=False):
                                                     tth=recip_pos['tth'])
         print('done!')
 
-    # Load spots dataframe
-    spots = None
-    spot_model = None
-    if 'reflections' in base_grp.keys():
-        print('Loading reflection spots...', end='', flush=True)
-        # I really dislike that pandas cannot handle an already open file
-        hdf.close()
-        spots = pd.read_hdf(hdf_path, key='xrdmap/reflections/spots')
-
-        if dask_enabled:
-            hdf = h5py.File(hdf_path, 'a')
-            img_grp = hdf['xrdmap/image_data']
-            image_dset = img_grp[img_keys[recent_index]]
-            image_data = da.asarray(image_dset)
-        else:
-            hdf = h5py.File(hdf_path, 'r')
-        print('done!')
-
-        # Load peak model
-        if 'spot_model' in hdf['xrdmap/reflections'].attrs.keys():
-            spot_model_name = hdf['xrdmap/reflections'].attrs['spot_model']
-            spot_model = _load_peak_function(spot_model_name)
-        
     # Load scalers
     sclr_dict = None
     if 'scalers' in base_grp.keys():
@@ -237,7 +224,32 @@ def load_XRD_hdf(filename, wd=None, dask_enabled=False):
         pos_dict = {}
         for key in pos_grp.keys():
             pos_dict[key] = pos_grp[key][:]
+        print('done!')    
+
+    # Load spots dataframe
+    # Should be last since it closed base_grp
+    spots = None
+    spot_model = None
+    if 'reflections' in base_grp.keys():
+        print('Loading reflection spots...', end='', flush=True)
+        # I really dislike that pandas cannot handle an already open file
+        hdf.close()
+        spots = pd.read_hdf(hdf_path, key='xrdmap/reflections/spots')
+
+        if dask_enabled:
+            # Re-point towards correct dataset
+            hdf = h5py.File(hdf_path, 'a')
+            img_grp = hdf['xrdmap/image_data']
+            image_dset = img_grp[img_keys[recent_index]]
+            image_data = da.from_array(image_dset, chunks=image_dset.chunks)
+        else:
+            hdf = h5py.File(hdf_path, 'r')
         print('done!')
+
+        # Load peak model
+        if 'spot_model' in hdf['xrdmap/reflections'].attrs.keys():
+            spot_model_name = hdf['xrdmap/reflections'].attrs['spot_model']
+            spot_model = _load_peak_function(spot_model_name)
             
     if not dask_enabled:
         hdf.close()
@@ -245,7 +257,8 @@ def load_XRD_hdf(filename, wd=None, dask_enabled=False):
 
     # Instantiate ImageMap!
     print(f'Instantiating ImageMap...', end='', flush=True)
-    image_map = ImageMap(image_data,
+    image_map = ImageMap(image_data=image_data,
+                         integration_data=integration_data,
                          title=img_keys[recent_index],
                          wd=wd,
                          hdf_path=hdf_path,

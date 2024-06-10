@@ -29,7 +29,7 @@ def get_optimal_chunks(data, approx_chunk_size=None):
         cpu_count = os.cpu_count()
         approx_chunk_size = (available_memory * 0.85) / cpu_count # 15% wiggle room
         #approx_chunk_size = np.round(approx_chunk_size)
-        approx_chunk_size = np.max([np.round(approx_chunk_size), 2**10]) # 2 GB max chunk size
+        approx_chunk_size = np.max([np.round(approx_chunk_size), 1**10]) # 1 GB max chunk size
 
     # Split images up by data size in MB that seems reasonable
     images_per_chunk = (approx_chunk_size * 2**20) / np.prod([*data_shape[-2:], data_nbytes], dtype=np.int64)

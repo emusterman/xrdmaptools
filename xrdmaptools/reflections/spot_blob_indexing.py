@@ -1,124 +1,15 @@
 import numpy as np
 from tqdm import tqdm
+from sklearn.metrics.pairwise import euclidean_distances
+from scipy.spatial.transform import Rotation
+
 
 # Local imports
 from .SpotModels import GaussianFunctions
+from ..crystal.Phase import generate_reciprocal_lattice
+from ..crystal.orientation import euler_rotation
+from ..geometry.geometry import get_q_vect
 
-
-'''q_dict = {}
-for spot_num in range(len(spot_df)):
-    q_arr = np.array([
-        -np.sin(np.radians(spot_df['tth'][spot_num])) * np.sin(np.radians(spot_df['chi'][spot_num])),
-        -np.sin(np.radians(spot_df['tth'][spot_num])) * np.cos(np.radians(spot_df['chi'][spot_num])),
-        1 - np.cos(np.radians(spot_df['tth'][spot_num]))
-    ]) / energy_2_wavelength(15)
-    q_dict[str(spot_num)] = 2 * np.pi * q_arr'''
-
-
-def get_q_vect(tth, chi, wavelength, return_kf=False, radians=False):
-    # Calculate q-vector
-    if not isinstance(tth, (list, tuple, np.ndarray)):
-        tth = np.asarray([tth])
-        chi = np.asarray([chi])
-    if len(tth) != len(chi):
-        raise ValueError("Length of tth does not match length of chi.")
-    
-    if not radians:
-        tth = np.radians(tth)
-        chi = np.radians(chi)
-
-    # Ry = np.array([[np.cos(np.radians(tth)), 0, np.sin(np.radians(tth))],
-    #            [0, 1, 0],
-    #            [-np.sin(np.radians(tth)), 0, np.cos(np.radians(tth))]])
-
-    # Rz = np.array([[np.cos(np.radians(chi)), -np.sin(np.radians(chi)), 0],
-    #            [np.sin(np.radians(chi)), np.cos(np.radians(chi)), 0],
-    #            [0, 0, 1]])
-
-    #ki_unit = np.broadcast_to(np.array([0, 0, 1]).reshape(3, 1, 1), (3, *tth.shape))
-    ki_unit = np.broadcast_to(np.array([0, 0, 1]).reshape(3, *([1,] * len(tth.shape))),
-                              (3, *tth.shape))
-
-    # kf_unit = Rz @ Ry @ ki_unit
-    # negative chi. z gets reveresed somewhere
-    kf_unit = np.array([-np.sin(tth) * np.cos(-chi),
-                        -np.sin(tth) * np.sin(-chi),
-                        np.cos(tth)])
-    
-    if return_kf:
-        return 2 * np.pi / wavelength * kf_unit
-    
-    delta_k = kf_unit - ki_unit
-
-    # Scattering vector with origin set at transmission
-    q = 2 * np.pi / wavelength * delta_k
-
-    return q
-
-
-
-'''def q_vect(tth, chi, wavelength):
-    # Calculate q-vector
-
-    if not isinstance(tth, (list, tuple, np.ndarray)):
-        tth = np.asarray([tth])
-        chi = np.asarray([chi])
-    if len(tth) != len(chi):
-        raise ValueError("Length of tth does not match length of chi.")
-    
-    kf_unit = np.array([np.sin(np.radians(tth)) * np.cos(np.radians(chi)),
-                        np.sin(np.radians(tth)) * np.sin(np.radians(chi)),
-                        np.cos(np.radians(tth)) - 1])
-
-    # Scattering vector with origin set at transmission
-    q = 2 * np.pi / wavelength * kf_unit
-
-    return q'''
-
-
-'''def q_vect(tth, chi, wavelength):
-    # Calculate q-vector
-
-    if not isinstance(tth, (list, tuple, np.ndarray)):
-        tth = np.asarray([tth])
-        chi = np.asarray([chi])
-    if len(tth) != len(chi):
-        raise ValueError("Length of tth does not match length of chi.")
-
-    #Ry = np.array([[np.cos(np.radians(tth)), 0, np.sin(np.radians(tth))],
-    #            [0, 1, 0],
-    #            [-np.sin(np.radians(tth)), 0, np.cos(np.radians(tth))]])
-
-    #Rz = np.array([[np.cos(np.radians(chi)), -np.sin(np.radians(chi)), 0],
-    #            [np.sin(np.radians(chi)), np.cos(np.radians(chi)), 0],
-    #            [0, 0, 1]])
-    
-    ki_unit = np.asarray([[0, 0, 1],] * len(tth)).T
-
-    #kf_unit = ki_unit @ Ry @ Rz
-    kf_unit = np.array([-np.cos(np.radians(chi)) * np.sin(np.radians(tth)),
-                        np.sin(np.radians(tth)) * np.sin(np.radians(chi)),
-                        np.cos(np.radians(tth))])
-
-    # Scattering vector with origin set at transmission
-    q = 2 * np.pi / wavelength * (kf_unit - ki_unit)
-
-    return q'''
-
-
-
-'''def old_q_vect(tth, chi, wavelength):
-    # Calculate q-vector from tth and chi angles
-
-    arr = np.array([
-        -np.sin(np.radians(tth)) * np.sin(np.radians(chi)),
-        -np.sin(np.radians(tth)) * np.cos(np.radians(chi)),
-        1 - np.cos(np.radians(tth))
-    ])
-
-    arr = arr / np.linalg.norm(arr, axis=0)
-
-    return (4 * np.pi * np.sin(np.radians(tth / 2)) / wavelength) * arr'''
 
 
 def _initial_spot_analysis(xrdmap, SpotModel=None):
@@ -163,7 +54,6 @@ def _initial_spot_analysis(xrdmap, SpotModel=None):
         labels = [f'{prefix}_{label}' for label in labels]
         for ind, label in enumerate(labels):
             xrdmap.spots.loc[i, label] = more_params[ind]
-    print('done!')
     
     
     # Find q-space coordinates
@@ -176,8 +66,77 @@ def _initial_spot_analysis(xrdmap, SpotModel=None):
         spot_tth = xrdmap.spots['guess_cen_tth'].values
         spot_chi = xrdmap.spots['guess_cen_chi'].values
     
-    q_values = get_q_vect(spot_tth, spot_chi, xrdmap.wavelength)
+    q_values = get_q_vect(spot_tth, spot_chi, xrdmap.wavelength, degrees=True)
 
     for key, value in zip(['qx', 'qy', 'qz'], q_values):
         xrdmap.spots[key] = value
     print('done!')
+
+
+# Blind brute force approach to indexing diffraction patterns
+# Uninformed symmetry reductions of euler space
+# Cannot handle multiple grains
+# Does not handle missing reflections
+def iterative_dictionary_indexing(spot_qs, Phase, tth_range, cut_off=0.1, start_angle=10, angle_resolution=0.001,
+                                  euler_bounds=[[-180, 180], [0, 180], [-180, 180]]):
+    from itertools import product
+
+    #spot_qs = pixel_df[['qx', 'qy', 'qz']].values
+    all_hkls, all_qs, all_fs = generate_reciprocal_lattice(Phase, tth_range=tth_range)
+
+    dist = euclidean_distances(all_qs)
+    min_q = np.min(dist[dist > 0])
+
+    step = start_angle
+    #print(f'Finding orientations with {step} deg resolution...')
+    phi1_list = np.arange(*euler_bounds[0], step)
+    PHI_list = np.arange(*euler_bounds[1], step)
+    phi2_list = np.arange(*euler_bounds[2], step)
+    orientations = list(product(phi1_list, PHI_list, phi2_list))
+
+    fit_ori = []
+    fit_min = []
+    ITERATE = True
+    while ITERATE:
+        step /= 2 # half the resolution each time
+        if step <= angle_resolution:
+            ITERATE = False
+
+        #print(f'Evaluating the current Euler space...')
+        min_list = []
+        for orientation in orientations:
+            dist = euclidean_distances(spot_qs, euler_rotation(all_qs, *orientation))
+            min_list.append(np.sum(np.min(dist, axis=1)**2))
+        
+        fit_min.append(np.min(min_list))
+        fit_ori.append(orientations[np.argmin(min_list)])
+        
+        min_mask = min_list < cut_off * (np.max(min_list) - np.min(min_list)) + np.min(min_list)
+        best_orientations = np.asarray(orientations)[min_mask]
+
+        #print(f'Finding new orientations with {step:.4f} deg resolution...')
+        new_orientations = []
+        for orientation in best_orientations:
+            phi1, PHI, phi2 = orientation
+            new_phi1 = [phi1 - step, phi1, phi1 + step]
+            new_PHI = [PHI - step, PHI, PHI + step]
+            new_phi2 = [phi2 - step, phi2, phi2 + step]
+
+            sub_orientations = product(new_phi1, new_PHI, new_phi2)
+
+            for sub_orientation in sub_orientations:
+                if sub_orientation not in new_orientations:
+                    new_orientations.append(sub_orientation)
+            
+            orientations = new_orientations
+
+    #print(f'Evaluating the last Euler space...')
+    min_list = []
+    for orientation in orientations:
+        dist = euclidean_distances(spot_qs, euler_rotation(all_qs, *orientation))
+        min_list.append(np.sum(np.min(dist, axis=1)**2))
+    
+    fit_min.append(np.min(min_list))
+    fit_ori.append(orientations[np.argmin(min_list)])
+
+    return fit_ori, fit_min

@@ -1,6 +1,7 @@
 import os
 import numpy as np
 import matplotlib.pyplot as plt
+from itertools import combinations
 
 # Local imports
 from ..utilities.utilities import vector_angle
@@ -275,18 +276,17 @@ class LatticeParameters():
         b = norm(a2)
         c = norm(a3)
 
-        alpha = vector_angle(a2, a3, radians=True)
-        beta = vector_angle(a1, a3, radians=True)
-        gamma = vector_angle(a1, a2, radians=True)
+        alpha = vector_angle(a2, a3)
+        beta = vector_angle(a1, a3)
+        gamma = vector_angle(a1, a2)
 
         return a, b, c, alpha, beta, gamma
 
 
 
 # This is just math...
-def are_coplanar(vecs, return_volume=False):
-    from itertools import combinations
-    vecs = np.asarray(vecs)
+def are_coplanar(vectors, return_volume=False):
+    vecs = np.asarray(vectors)
 
     if vecs.ndim != 2:
         raise ValueError('Input vectors must be iterable with at least three 3D vectors.')
@@ -313,12 +313,47 @@ def are_coplanar(vecs, return_volume=False):
 
         if not return_volume and vol != 0:
             coplanar_flag = False
+            break
         
     # If the volume of the 3 vectors is 0, then they are coplanar
     if return_volume:
         return vols
     else:
         return coplanar_flag
+    
+
+# This assumes list of vectors which may be different than are_coplanar()
+def are_collinear(vectors):
+    vecs = np.asarray(vectors)
+    collinear_flag = True
+
+    # Probably faster. Not easy to perform pairwise
+    if len(vecs) == 2:
+        if np.sum(np.abs(np.cross(*vecs))) > 1e-8:
+            collinear_flag = False
+        return collinear_flag
+
+    # Pairwise analysis fo list of vectors
+    const_list = []
+    for ind in range(vecs.shape[1]):
+        vecs_axis = vecs[:, ind]
+        if not np.any(vecs_axis == 0):
+            const = np.abs(vecs_axis[:, np.newaxis] / vecs_axis[np.newaxis, :])
+            const_list.append(np.round(const, 3))
+
+    combos = list(combinations(range(vecs.shape[1]), 2))
+    if len(combos) > 1:
+        combos.pop(-1) # last index is redundant
+
+    for combo in combos:
+        if np.any(const_list[combo[0]] != const_list[combo[1]]):
+            collinear_flag = False
+            break
+        
+    return collinear_flag
+
+    
+
     
 
 def hkl_2_hkil(hkls):
