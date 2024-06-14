@@ -6,7 +6,8 @@ import time as ttime
 import dask.array as da
 
 # Local imports
-from .utilities.hdf_utils import check_hdf_current_images, get_optimal_chunks
+#from .utilities.hdf_utils import check_hdf_current_images, get_optimal_chunks
+from .io.hdf_utils import check_hdf_current_images, get_optimal_chunks
 from .utilities.math import check_precision
 from .utilities.utilities import delta_array
 from .utilities.image_corrections import find_outlier_pixels, rescale_array

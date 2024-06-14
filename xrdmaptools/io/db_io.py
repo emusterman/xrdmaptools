@@ -725,7 +725,7 @@ def _save_xrd_tifs(xrd_data, xrd_dets=None, scanid=None, filedir=None, filenames
         raise ValueError('Length of filenames does not match length of xrd_data')
     
     for i, xrd in enumerate(xrd_data):
-        io.imsave(f'{filedir}{filenames[i]}', xrd.astype(np.uint16), check_contrast=False)
+        io.imsave(f'{filedir}{filenames[i]}', np.asarray(xrd).astype(np.uint16), check_contrast=False)
         # I think the data should already be an unsigned integer
         #io.imsave(f'{filedir}{filenames[i]}', xrd, check_contrast=False)
     print(f'Saved pattern(s) for scan {scanid}!')
@@ -1030,7 +1030,7 @@ def load_energy_rc_data(scanid=-1,
             data_dict[key].append(np.array(f['entry/data/data']))
     # Stack data into array
     print('')
-    data_dict[key] = _check_xrd_data_shape(data_dict[key])
+    #data_dict[key] = _check_xrd_data_shape(data_dict[key])
     print('done!')
 
     out = [data_dict, scan_md]
@@ -1129,7 +1129,7 @@ def load_angle_rc_data(scanid=-1,
             data_dict[key].append(np.array(f['entry/data/data']))
     # Stack data into array
     print('')
-    data_dict[key] = _check_xrd_data_shape(data_dict[key])
+    #data_dict[key] = _check_xrd_data_shape(data_dict[key])
     print('done!')
 
     out = [data_dict, scan_md]
@@ -1158,10 +1158,57 @@ def save_angle_rc_data(scanid=-1,
     
     _save_xrd_tifs(xrd_data,
                   xrd_dets=xrd_dets,
-                  scanid=scan_md['scanid'], # Will return the correct value
+                  scanid=scan_md['scan_id'], # Will return the correct value
                   filedir=filedir,
                   filenames=filenames)
 
     param_filename = f'scan{scanid}_angle_rc_parameters.txt'
     _save_map_parameters(data_dict, scanid, data_keys=data_keys,
                          filedir=filedir, filename=param_filename)
+
+
+
+# Convenience/utility function for generating record of scan_ids
+
+def generate_scan_logfile(start_id, end_id=-1, filename=None, filedir=None):
+
+    if filedir is None:
+        raise ValueError('No defualt filedir and none specified. Please define filedir.')
+
+    if end_id == -1:
+        bs_run = c[-1]
+        end_id = int(c['scan_id'])
+
+    if filename is None:
+        filename = f'logfile_{start_id}-{end_id}'
+
+    id_list = np.arange(int(start_id), int(end_id) + 1, 1)
+
+    scan_ids = []
+    scan_types = []
+    scan_inputs = []
+
+    for scan_id in id_list:
+        bs_run = c[int(scan_id)]
+        start = bs_run.start
+        stop = bs_run.stop
+
+        if stop['exit_status'] == 'success':
+            scan_ids.append(str(start['scan_id']))
+
+            if 'scan' in start.keys():
+                scan_types.append(str(start['scan']['type']))
+
+                if 'scan_input' in start['scan'].keys():
+                    scan_inputs.append(str(start['scan']['scan_input']))
+                else:
+                    scan_inputs.append(str([]))
+            else:
+                scan_types.append('UNKOWN')
+                scan_inputs.append(str([]))
+
+    logfile = f'{filedir}{filename}'
+
+    with open(logfile, 'a') as log:
+        for scan_id, scan_type, scan_input in zip(scan_ids, scan_types, scan_inputs):
+            log.write(f'{scan_id}\t{scan_type}\t{scan_input}\n')

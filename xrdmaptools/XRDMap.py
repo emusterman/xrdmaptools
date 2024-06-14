@@ -17,11 +17,15 @@ from tqdm import tqdm
 
 # Local imports
 from .ImageMap import ImageMap
-from .utilities.hdf_io import initialize_xrdmap_hdf, load_XRD_hdf
-from .utilities.hdf_utils import check_hdf_current_images
-from .utilities.db_io import load_data
+#from .utilities.hdf_io import initialize_xrdmap_hdf, load_XRD_hdf
+#from .utilities.hdf_utils import check_hdf_current_images
+#from .utilities.db_io import load_data
 from .utilities.math import *
 from .utilities.utilities import delta_array
+
+from .io.hdf_io import initialize_xrdmap_hdf, load_XRD_hdf
+from .io.hdf_utils import check_hdf_current_images
+from .io.db_io import load_data
 
 from .reflections.spot_blob_indexing import get_q_vect, _initial_spot_analysis
 from .reflections.SpotModels import GaussianFunctions
@@ -69,7 +73,7 @@ class XRDMap():
                  image_data=None,
                  integration_data=None,
                  map_title=None,
-                 map_shape=None,
+                 dataset_shape=None,
                  energy=None,
                  wavelength=None,
                  dwell=None,
@@ -148,7 +152,7 @@ class XRDMap():
                                 wd=self.wd,
                                 hdf_path=self.hdf_path,
                                 hdf=hdf,
-                                map_shape=map_shape,
+                                dataset_shape=dataset_shape,
                                 dask_enabled=dask_enabled)
         
         #elif image_data is None and integration_data is None:
@@ -238,7 +242,7 @@ class XRDMap():
 
     @classmethod # Allows me to define and initiatie the class simultaneously
     def from_image_stack(cls, filename, wd=None,
-                         map_shape=None,
+                         dataset_shape=None,
                          map_title='raw_images',
                          **kwargs):
         
@@ -257,7 +261,7 @@ class XRDMap():
             image_data = io.imread(f'{wd}{filename}')
         print('done!')
         return cls(image_data=image_data, wd=wd,
-                   map_title=map_title, map_shape=map_shape,
+                   map_title=map_title, dataset_shape=dataset_shape,
                    **kwargs)
 
 
@@ -371,9 +375,9 @@ class XRDMap():
                          filename=filename,
                          #hdf_filename=None, # ???
                          #hdf=None,
-                         image_map=xrd_data_i,
+                         image_data=xrd_data_i,
                          #map_title=None,
-                         #map_shape=None,
+                         #dataset_shape=None,
                          energy=scan_md['energy'],
                          #wavelength=None,
                          dwell=scan_md['dwell'],
@@ -1931,7 +1935,7 @@ class XRDMap():
         else:
             image_data = self.map.images
 
-        if xticks is None and self.map.correction['polar_calibration']:
+        if xticks is None and self.map.corrections['polar_calibration']:
             if hasattr(self, 'tth') and self.tth is not None:
                 xticks = self.tth
             if hasattr(self, 'chi') and self.chi is not None:

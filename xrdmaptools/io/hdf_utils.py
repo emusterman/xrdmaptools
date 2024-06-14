@@ -1,28 +1,72 @@
-# This entire module is to separate the make_crdmap_hdf to avoid circular imports
-# I could not figure another way around this...
+import numpy as np
+import os
+import h5py
+import psutil
 
 
-# Local imports
-from ..XRDMap import XRDMap
+##################
+### HDF Format ###
+##################
+
+
+def check_hdf_current_images(title, hdf_file=None, hdf=None):
+    if hdf is None and hdf_file is not None:
+        with h5py.File(hdf_file, 'r') as f:
+            return title in f['/xrdmap/image_data']
+    elif hdf is not None:
+        return title in hdf['/xrdmap/image_data']
+    else:
+        raise ValueError('Must specify hdf_file or hdf.')
+    
+
+def get_optimal_chunks(data, approx_chunk_size=None):
+    
+    data_shape = data.shape
+    data_nbytes = data[(0,) * data.ndim].nbytes
+
+    if approx_chunk_size is None:
+        available_memory = psutil.virtual_memory()[1] / (2**20) # In MB
+        cpu_count = os.cpu_count()
+        approx_chunk_size = (available_memory * 0.85) / cpu_count # 15% wiggle room
+        #approx_chunk_size = np.round(approx_chunk_size)
+        if approx_chunk_size > 2**10:
+            approx_chunk_size = 2**10
+    elif approx_chunks_size > 2**10:
+        print('WARNING: Chunk sizes above 1 GB may start to perform poorly.')
+
+    # Split images up by data size in MB that seems reasonable
+    images_per_chunk = (approx_chunk_size * 2**20) / np.prod([*data_shape[-2:], data_nbytes], dtype=np.int64)
+
+    # Try to make square chunks if possible
+    square_chunks = np.sqrt(images_per_chunk)
+
+    num_chunk_x = np.round(data_shape[0] / square_chunks, 0).astype(np.int32)
+    num_chunk_x = min(max(num_chunk_x, 1), data_shape[0])
+    chunk_x = data_shape[0] // num_chunk_x
+
+    num_chunk_y = np.round(data_shape[1] / (data_shape[0] / num_chunk_x), 0).astype(np.int32)
+    num_chunk_y = min(max(num_chunk_y, 1), data_shape[1])
+    chunk_y = data_shape[1] // num_chunk_y
+
+    # String togther, maintaining full images per chunk
+    chunk_size = (chunk_x, chunk_y, *data_shape[-2:])
+
+    return chunk_size
+
 
 # Just a convenience wrapper wihout returning the class
-def make_xrdmap_hdf(scanid=-1,
+'''def make_xrdmap_hdf(scanid=-1,
                     broker='manual',
                     filedir=None,
                     filename=None,
-                    poni_file=None,
-                    repair_method='replace'):
+                    poni_file=None):
     
-    print('*' * 72)
     XRDMap.from_db(scanid=scanid,
                    broker=broker,
                    filedir=filedir,
                    filename=filename,
                    poni_file=poni_file,
-                   save_hdf=True,
-                   repair_method=repair_method)
-    print('*' * 72)
-    
+                   save_hdf=True)'''
 
 
 '''def make_xrdmap_hdf(scanid=-1,
@@ -99,7 +143,3 @@ def make_xrdmap_hdf(scanid=-1,
         else:
             # Don't bother returning a tuple or list of xrdmaps
             return xrdmaps[0]'''
-
-
-def make_xrdmap_composite():
-    raise NotImplementedError()
