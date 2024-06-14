@@ -129,7 +129,6 @@ def load_db_data(scanid=-1,
 
     for detector in xrd_dets:
         data_keys.append(f'{detector}_image')
-
     for key in data_keys:
         print(f'Loading data from {key}...', end='', flush=True)
         d = bs_run.data(key, stream_name='stream0', fill=True)
@@ -1186,14 +1185,16 @@ def generate_scan_logfile(start_id, end_id=-1, filename=None, filedir=None):
 
     scan_ids = []
     scan_types = []
+    scan_statuses = []
     scan_inputs = []
 
-    for scan_id in id_list:
-        bs_run = c[int(scan_id)]
-        start = bs_run.start
-        stop = bs_run.stop
 
-        if stop['exit_status'] == 'success':
+    for scan_id in id_list:
+        try:
+            bs_run = c[int(scan_id)]
+            start = bs_run.start
+            stop = bs_run.stop
+
             scan_ids.append(str(start['scan_id']))
 
             if 'scan' in start.keys():
@@ -1206,9 +1207,17 @@ def generate_scan_logfile(start_id, end_id=-1, filename=None, filedir=None):
             else:
                 scan_types.append('UNKOWN')
                 scan_inputs.append(str([]))
+            
+            if stop is None:
+                scan_statuses.append('NONE')
+            else:
+                scan_statuses.append(stop['exit_status'])
+        except KeyError:
+            print(f'scan_id={scan_id} not found!')
+        
 
-    logfile = f'{filedir}{filename}'
+    logfile = f'{filedir}{filename}.txt'
 
     with open(logfile, 'a') as log:
-        for scan_id, scan_type, scan_input in zip(scan_ids, scan_types, scan_inputs):
-            log.write(f'{scan_id}\t{scan_type}\t{scan_input}\n')
+        for scan_id, scan_type, scan_status, scan_input in zip(scan_ids, scan_types, scan_statuses, scan_inputs):
+            log.write(f'{scan_id}\t{scan_type}\t{scan_status}\t{scan_input}\n')
