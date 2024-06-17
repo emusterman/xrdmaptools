@@ -77,6 +77,110 @@ def energy_rocking_curve(xrd_dets, e_low, e_high, e_num, dwell,
     logscan_detailed('ENERGY_RC')
 
 
+def extended_energy_rocking_curve(xrd_dets, e_low, e_high, e_num, dwell):
+
+    # Breaking an extended energy rocking curve up into smaller pieces
+    # The goal is to allow for multiple intermittent peakups
+
+    # Loose chunking at about 1000 eV
+    e_range = e_high - e_low
+    
+    if e_range > 1000:
+        e_range /= 1000
+        e_low /= 1000
+        e_high /= 1000
+
+    e_step = e_range / e_num
+    e_chunks = int(np.round(e_num / e_range))
+
+    e_vals = np.linspace(e_low, e_high, e_num)
+
+    e_rcs = [e_vals[i:i + e_chunks] for i in range(0, len(e_vals), e_chunks)]
+    e_rcs[-2].extend(e_rcs[-1])
+    e_rcs.pop(-1)
+
+    for e_rc in e_rcs:
+        yield from energy_rocking_curve(xrd_dets,
+                                        e_rc[0],
+                                        e_rc[-1],
+                                        len(e_rc),
+                                        dwell,
+                                        shutter=shutter,
+                                        peakup=True)
+
+
+def angle_rocking_curve(xrd_dets, th_low, th_high, th_num, dwell,
+                         shutter=True):
+    # th in mdeg!!!
+
+    # Define some useful variables
+    th_range = np.linspace(th_low, th_high, th_num)
+
+    # Defining scan metadata
+    scan_md = {}
+    get_stock_md(scan_md)
+    scan_md['scan']['type'] = 'ANGLE_RC'
+    scan_md['scan']['scan_input'] = [th_low, th_high, th_num, dwell]
+    scan_md['scan']['dwell'] = dwell
+    scan_md['scan']['detectors'] = [sclr1.name] + [d.name for d in xrd_dets]
+    scan_md['scan']['angles'] = th_range                                   
+    scan_md['scan']['start_time'] = ttime.ctime(ttime.time())
+
+    # Live Callbacks
+    livecallbacks = [LiveTable(['nano_stage_th_user_setpoint', 'dexela_stats2_total']),
+                     LivePlot('dexela_stats2_total', x='nano_stage_th_user_setpoint')]
+
+    # Define detectors
+    dets = [sclr1] + xrd_dets # include xs just for fun?
+    setup_xrd_dets(dets, dwell, th_num)
+    
+    # yield from list_scan(dets, energy, e_range, md=scan_md)
+    yield from check_shutters(shutter, 'Open')
+    yield from subs_wrapper(list_scan(dets, nano_stage.th, th_range, md=scan_md),
+                            {'all' : livecallbacks})
+    yield from check_shutters(shutter, 'Close')
+    logscan_detailed('ANGLE_RC')
+
+
+#def flying_angle_rocking_curve(xrd_dets, th_low, th_high, th_num, dwell,
+#                               shutter=True):
+#    # Just a convenience wrapper for coarse_scan_and_fly with flying theta
+#
+#    y_current = nano_stage.y.user_readback.get()
+#    
+#    yield from coarse_scan_and_fly(th_low, th_high, th_num
+#                        y_current, y_current, 1,
+#                        dwell,
+#                        xmoter=nano_stage.th,
+#                        extra_dets=xrd_dets)
+
+
+def flying_angle_rocking_curve(xrd_dets, th_low, th_high, th_num, dwell,
+                               shutter=True, **kwargs):
+    # More direct convenience wrapper for scan_and_fly
+
+    y_current = nano_stage.y.user_readback.get()
+
+    kwargs.setdefault('xmotor', nano_stage.th)
+    kwargs.setdefault('ymotor', nano_stage.y)
+    kwargs.setdefault('flying_zebra', nano_flying_zebra_coarse)
+    yield from abs_set(kwargs['flying_zebra'].fast_axis, 'NANOHOR')
+    yield from abs_set(kwargs['flying_zebra'].slow_axis, 'NANOVER')
+
+    _xs = kwargs.pop('xs', xs)
+    if extra_dets is None:
+        extra_dets = []
+    #dets = [_xs] + extra_dets
+    dets = [_xs] + xrd_dets
+
+    yield from scan_and_fly_base(dets,
+                                 th_low, th_high, th_num,
+                                 y_current, y_current, 1,
+                                 dwell,
+                                  **kwargs)
+
+
+
 def approx_Laue_scan(xrd_dets, e_low, e_high, e_num, dwell,
                      peakup=True, shutter=True):
     # energy rocking curve with fixed u_gap position
@@ -172,8 +276,7 @@ def xrd_energy_scan(xrd_dets, e_low, e_high, e_num, dwell,
 
 
 # A static xrd measurement without changing energy or moving stages
-def static_xrd(xrd_dets, num, dwell,
-               peakup=False, shutter=True):
+def static_xrd(xrd_dets, num, dwell, shutter=True, plotme=False,):
     #raise NotImplementedError()
 
     # Defining scan metadata
@@ -188,17 +291,14 @@ def static_xrd(xrd_dets, num, dwell,
 
     # Live Callbacks
     # What does energy_energy read??
-    livecallbacks = [LiveTable(['energy_energy', 'dexela_stats2_total']),
-                     LivePlot('dexela_stats2_total', x='energy_energy')]
+    livecallbacks = [LiveTable(['energy_energy', 'dexela_stats2_total'])]
+    
+    if plotme:
+        livecallbacks.append(LivePlot('dexela_stats2_total', x='energy_energy'))
 
     # Define detectors
     dets = [sclr1] + xrd_dets # include xs just for fun?
     setup_xrd_dets(dets, dwell, num)
-
-    # Move to center energy and perform peakup
-    if peakup:  # Find optimal c2_fine position
-        print('Performing center energy peakup.')
-        yield from peakup(shutter=shutter)
 
     yield from check_shutters(shutter, 'Open')
     yield from subs_wrapper(count(dets, num, md=scan_md), # I guess dwell info is carried by the detector
