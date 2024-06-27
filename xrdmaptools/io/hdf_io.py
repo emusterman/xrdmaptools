@@ -38,7 +38,7 @@ def initialize_xrdmap_hdf(xrdmap, hdf_file):
         # Add pixel scalar values
     
 
-def load_XRD_hdf(filename, wd=None, dask_enabled=False, only_integrations=False):
+def load_xrdmap_hdf(filename, wd=None, dask_enabled=False, only_integrations=False):
     # TODO: Add conditional to check for .h5 at end of file name
     # Add conditionals to load maps wiith only 
 
@@ -154,6 +154,9 @@ def load_XRD_hdf(filename, wd=None, dask_enabled=False, only_integrations=False)
         for key in ['tth', 'chi']:
             if key in recip_grp.keys():
                 recip_pos[key] = recip_grp[key][:]
+                # None cannot be stored in hdf, empty values act as placeholder
+                if len(recip_pos[key]) == 0:
+                    recip_pos[key] = None
                 #recip_pos[f'{key}_units'] = recip_grp[key].attrs['units']
                 recip_pos[f'{key}_resolution'] = recip_grp[key].attrs[f'{key}_resolution']
             else:

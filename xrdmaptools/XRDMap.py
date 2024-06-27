@@ -17,13 +17,13 @@ from tqdm import tqdm
 
 # Local imports
 from .ImageMap import ImageMap
-#from .utilities.hdf_io import initialize_xrdmap_hdf, load_XRD_hdf
+#from .utilities.hdf_io import initialize_xrdmap_hdf, load_xrdmap_hdf
 #from .utilities.hdf_utils import check_hdf_current_images
 #from .utilities.db_io import load_data
 from .utilities.math import *
 from .utilities.utilities import delta_array
 
-from .io.hdf_io import initialize_xrdmap_hdf, load_XRD_hdf
+from .io.hdf_io import initialize_xrdmap_hdf, load_xrdmap_hdf
 from .io.hdf_utils import check_hdf_current_images
 from .io.db_io import load_data
 
@@ -100,7 +100,7 @@ class XRDMap():
         self.filename = filename
 
         if wd is None:
-            wd = '/home/xf05id1/current_user_data/'
+            wd = os.getcwd()
         self.wd = wd
 
         self.beamline = beamline
@@ -126,6 +126,8 @@ class XRDMap():
         if theta is not None:
             self.theta = theta
 
+        # Add conditional to check approximate image_data size and force dask?
+
         if not save_hdf:
             if dask_enabled:
                 raise ValueError('Enabling dask requires an hdf file for storage.')
@@ -133,38 +135,29 @@ class XRDMap():
                 self.hdf_path = None
                 self.hdf = None
         else:
-            self.save_hdf(hdf=hdf,
+            self.initial_save_hdf(hdf=hdf,
                           hdf_filename=hdf_filename,
                           dask_enabled=dask_enabled,
                           save_current=False)
 
-        # Load image map
-        if (isinstance(image_data, (np.ndarray,
-                                  da.core.Array,
-                                  h5py._hl.dataset.Dataset))
-            or isinstance(integration_data, (np.ndarray,
-                                  da.core.Array,
-                                  h5py._hl.dataset.Dataset))):
-            
-            self.map = ImageMap(image_data=image_data,
-                                integration_data=integration_data,
-                                title=map_title,
-                                wd=self.wd,
-                                hdf_path=self.hdf_path,
-                                hdf=hdf,
-                                dataset_shape=dataset_shape,
-                                dask_enabled=dask_enabled)
-        
-        #elif image_data is None and integration_data is None:
-            # Placeholder for instantiating blank map
-            
-        elif isinstance(image_data, ImageMap):
-            self.map = image_data
-            # Used to specify read-only when loading from hdf
-            if not save_hdf:
-                self.map.hdf_path = None
+        if (image_data is not None
+            or integration_data is not None):
+            if isinstance(image_data, ImageMap):
+                self.map = image_data
+                # Used to specify read-only when loading from hdf
+                if not save_hdf:
+                    self.map.hdf_path = None
+            else:
+                self.map = ImageMap(image_data=image_data,
+                                    integration_data=integration_data,
+                                    title=map_title,
+                                    wd=self.wd,
+                                    hdf_path=self.hdf_path,
+                                    hdf=hdf,
+                                    dataset_shape=dataset_shape,
+                                    dask_enabled=dask_enabled)
         else:
-            raise TypeError(f"Unknown image_data input type: {type(image_data)}")
+            raise NotImplementedError('XRDMaps without image or integration data is not currently supported.')
         
         self.phases = {} # Place holder for potential phases
         if poni_file is not None:
@@ -193,7 +186,7 @@ class XRDMap():
 
         if tth is not None and len(tth) == 0:
             tth = None
-        self.tth = tth
+        self.tth = None
         self.tth_resolution = tth_resolution
         if chi is not None and len(chi) == 0:
             chi = None
@@ -248,7 +241,7 @@ class XRDMap():
         
         # Load from image stack
         if wd is None:
-            wd = '/home/xf05id1/current_user_data/'
+            wd = os.getcwd()
         
         dask_enabled=False
         if 'dask_enabled' in kwargs:
@@ -268,11 +261,11 @@ class XRDMap():
     @classmethod # Allows me to define and initiatie the class simultaneously
     def from_hdf(cls, hdf_filename, wd=None, dask_enabled=False, **kwargs):
         if wd is None:
-            wd = '/home/xf05id1/current_user_data/'
+            wd = os.getcwd()
         # Load from previously saved data, including all processed data...
         if os.path.exists(f'{wd}{hdf_filename}'):
             print('Loading data from hdf file...')
-            input_dict = load_XRD_hdf(hdf_filename, wd=wd, dask_enabled=dask_enabled)
+            input_dict = load_xrdmap_hdf(hdf_filename, wd=wd, dask_enabled=dask_enabled)
 
             #for key in kwargs.keys():
             #    if key in input_dict.keys():
@@ -290,10 +283,11 @@ class XRDMap():
                     poni_file=input_dict['poni_od'],
                     sclr_dict=input_dict['sclr_dict'],
                     pos_dict=input_dict['pos_dict'],
-                    tth_resolution=input_dict['recip_pos']['tth_resolution'],
-                    chi_resolution=input_dict['recip_pos']['chi_resolution'],
-                    tth=input_dict['recip_pos']['tth'],
-                    chi=input_dict['recip_pos']['chi'],
+                    **input_dict['recip_pos'],
+                    #tth_resolution=input_dict['recip_pos']['tth_resolution'],
+                    #chi_resolution=input_dict['recip_pos']['chi_resolution'],
+                    #tth=input_dict['recip_pos']['tth'],
+                    #chi=input_dict['recip_pos']['chi'],
                     **kwargs)
             
             # Add a few more attributes if they exist
@@ -338,13 +332,14 @@ class XRDMap():
         if data_keys is None:
             data_keys = pos_keys + sclr_keys
 
-        data_dict, scan_md, data_keys, xrd_dets = load_data(scanid=scanid,
-                                                            broker=broker,
-                                                            detectors=None,
-                                                            data_keys=data_keys,
-                                                            returns=['data_keys',
-                                                                     'xrd_dets'],
-                                                            repair_method=repair_method)
+        data_dict, scan_md, data_keys, xrd_dets = load_data(
+                                                    scanid=scanid,
+                                                    broker=broker,
+                                                    detectors=None,
+                                                    data_keys=data_keys,
+                                                    returns=['data_keys',
+                                                                'xrd_dets'],
+                                                    repair_method=repair_method)
 
         xrd_data = [data_dict[f'{xrd_det}_image'] for xrd_det in xrd_dets]
 
@@ -393,8 +388,7 @@ class XRDMap():
                          facility='NSLS-II',
                          time_stamp=scan_md['time_str'],
                          extra_metadata=extra_md,
-                         save_hdf=save_hdf,
-                         #dask_enabled=False
+                         save_hdf=save_hdf
                          )
             
             xrdmaps.append(xrdmap)
@@ -710,7 +704,7 @@ class XRDMap():
             self.save_current_xrdmap()
 
 
-    # Saves current major features of the current xrdmap
+    # Saves current major features of the xrdmap
     def save_current_xrdmap(self):
         if hasattr(self, 'map') and self.map is not None:
             # Save images
@@ -790,7 +784,7 @@ class XRDMap():
             # Success actually changes the write location
             # And likely initializes a new hdf
             self.stop_saving_hdf()
-            self.save_hdf(hdf=hdf,
+            self.initial_save_hdf(hdf=hdf,
                           hdf_path=hdf_path,
                           hdf_filename=hdf_filename,
                           dask_enabled=dask_enabled)
@@ -982,7 +976,7 @@ class XRDMap():
                                      dtype=(self.map.dtype))
         
         # Fill array!
-        print('Integrated images to 1D...', end='', flush=True)
+        print('Integrate images to 1D...')
         # TODO: Parallelize this
         for i, pixel in tqdm(enumerate(self.map.images.reshape(
                                        self.map.num_images,
@@ -1018,12 +1012,12 @@ class XRDMap():
 
     # Briefly doubles memory. No Dask support
     def integrated2d_map(self,
-                        tth_num=None,
-                        tth_resolution=None,
-                        chi_num=None,
-                        chi_resolution=None,
-                        unit='2th_deg',
-                        **kwargs):
+                         tth_num=None,
+                         tth_resolution=None,
+                         chi_num=None,
+                         chi_resolution=None,
+                         unit='2th_deg',
+                         **kwargs):
         
         if not hasattr(self, 'ai'):
             raise RuntimeError("Images cannot be calibrated without any calibration files!")
@@ -1059,7 +1053,7 @@ class XRDMap():
                                      dtype=(self.map.dtype))
         
         # Fill array!
-        print('Integrated images to 2D...', end='', flush=True)
+        print('Integrated images to 2D...')
         # TODO: Parallelize this
         for i, pixel in tqdm(enumerate(self.map.images.reshape(
                                        self.map.num_images,
@@ -1111,13 +1105,11 @@ class XRDMap():
         tth_max = np.max(self.tth_arr)
         if tth_num is None:
             tth_num = int(np.round((tth_max - tth_min) / tth_resolution))
-        # Not used for this particular bit
-        #elif tth_num is not None:
-        #    tth_resolution = (tth_max - tth_min) / tth_num
         elif tth_num is None and tth_resolution is None:
             raise ValueError('Must define either tth_num or tth_resolution.')
         
-        return self.ai.integrate1d_ng(image, tth_num,
+        return self.ai.integrate1d_ng(image,
+                                      tth_num,
                                       unit=unit,
                                       correctSolidAngle=False,
                                       polarization_factor=None,
@@ -1175,9 +1167,15 @@ class XRDMap():
     def save_reciprocal_positions(self):
         
         if self.hdf_path is not None:
-            # Check for values to save
-            if self.tth is None and self.chi is None:
-                return
+            # Check for values to save           
+            if self.tth is None:
+                tth = []
+            else:
+                tth = self.tth
+            if self.chi is None:
+                chi = []
+            else:
+                chi = self.chi
 
             print('Writing reciprocal positions to disk...', end='', flush=True)
             # Open hdf flag
@@ -1195,7 +1193,7 @@ class XRDMap():
             comments = [''''tth', is the two theta scattering angle''',
                         ''''chi' is the azimuthal angle''']
             keys = ['tth', 'chi']
-            data = [self.tth, self.chi]
+            data = [tth, chi]
             resolution = [self.tth_resolution, self.chi_resolution]
 
             for i, key in enumerate(keys):

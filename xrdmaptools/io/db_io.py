@@ -250,8 +250,10 @@ def manual_load_data(scanid=-1,
         print('Loading dexela...')
         key = 'dexela_image'
         for r_path in r_paths[r_key]:
-            with h5py.File(r_path, 'r') as f:
-                data_dict[key].append(np.array(f['entry/data/data']))
+            f = h5py.File(r_path, 'r')
+            data_dict[key].append(f['entry/data/data'])
+            #with h5py.File(r_path, 'r') as f:
+            #    data_dict[key].append(np.array(f['entry/data/data']))
         # Stack data into array
         #data_dict[key] = _check_xrd_data_shape(data_dict[key],
         #                                       repair_method=repair_method)
@@ -306,6 +308,7 @@ def _load_scan_metadata(bs_run, keys=None):
                 'beamline_id',
                 'type',
                 'detectors',
+                'motors',
                 'energy',
                 'dwell',
                 'time_str',
@@ -321,6 +324,11 @@ def _load_scan_metadata(bs_run, keys=None):
             scan_md[key] = bs_run.start['scan'][key]
             if key == 'theta': # Not very generalizable...
                 scan_md[key] = bs_run.start['scan'][key]['val'] / 1000
+        elif key == 'motors':
+            scan_md['motors'] = [
+                bs_run.start['scan']['fast_axis']['motor_name'],
+                bs_run.start['scan']['slow_axis']['motor_name']
+            ]
         else:
             remaining_keys.append(key)
         
@@ -353,18 +361,21 @@ def _flag_broken_rows(data_list, msg):
     return dropped_rows, broken_rows
 
 
-def _repair_data_dict(data_dict, dropped_rows, broken_rows, repair_method='replace'):
+def _repair_data_dict(data_dict,
+                      dropped_rows,
+                      broken_rows,
+                      repair_method='replace'):
     if repair_method.lower() not in ['flatten', 'fill', 'replace']:
             raise ValueError('Only "flatten", "fill", and "replace" repair methods are supported.')
         
     keys = list(data_dict.keys())
 
     if len(dropped_rows) > 0 or len(broken_rows) > 0:
-        print(f'Repairing data with "{repair_method}" method.')
+        print(f'Repairing data with "{repair_method}" method...')
     else:
         for key in keys:
-            # Convert to arrays before returning
-            if not isinstance(data_dict[key], np.ndarray):
+            if not np.any([isinstance(row, h5py._hl.dataset.Dataset)
+                        for row in data_dict[key]]):
                 data_dict[key] = np.asarray(data_dict[key])
         return data_dict  
 
@@ -397,7 +408,7 @@ def _repair_data_dict(data_dict, dropped_rows, broken_rows, repair_method='repla
                 else:
                     print(f'Data in row {row} replaced with data in row {last_good_row}.')
                     for key in keys:
-                        data_dict[key][row] = data_dict[key][last_good_row]
+                        data_dict[key][row] = np.asarray(data_dict[key][last_good_row])
         
             else:
                 last_good_row = row
@@ -405,7 +416,7 @@ def _repair_data_dict(data_dict, dropped_rows, broken_rows, repair_method='repla
                     for q_row in queued_rows:
                         print(f'Data in row {q_row} replaced with data in row {last_good_row}.')
                         for key in keys:
-                            data_dict[key][q_row] = data_dict[key][last_good_row]
+                            data_dict[key][q_row] = np.asarray(data_dict[key][last_good_row])
                         queued_rows = []
 
         # Only Fill data for broken rows
@@ -439,7 +450,7 @@ def _repair_data_dict(data_dict, dropped_rows, broken_rows, repair_method='repla
                                 zero_row = np.zeros_like(np.asarray(data_dict[key][last_good_row]))
                                 #print(f'{zero_row.shape=}')
 
-                                zero_row[:len(data_dict[key][q_row])] = data_dict[key][q_row]
+                                zero_row[:len(data_dict[key][q_row])] = np.asarray(data_dict[key][q_row])
                                 data_dict[key][q_row] = zero_row
                         queued_rows = []
     
@@ -454,9 +465,10 @@ def _repair_data_dict(data_dict, dropped_rows, broken_rows, repair_method='repla
     # Broad conversion to all arrays
     # There is a better way to do this...
     for key in keys:
-        if not isinstance(data_dict[key], np.ndarray):
+        if not np.any([isinstance(row, h5py._hl.dataset.Dataset)
+                       for row in data_dict[key]]):
             data_dict[key] = np.asarray(data_dict[key])
-    
+           
     return data_dict
 
 
@@ -646,7 +658,9 @@ def _get_resource_keys(bs_run,
 
 
 # General function for making composite patterns
-def make_composite_pattern(xrd_data, method='sum', subtract=None):
+def make_composite_pattern(xrd_data,
+                           method='sum',
+                           subtract=None):
 
     if not isinstance(xrd_data, list):
         xrd_data = [xrd_data]
@@ -656,6 +670,7 @@ def make_composite_pattern(xrd_data, method='sum', subtract=None):
     # Can the axis variable be made to always create images along the last two images??
     comps = []
     for xrd in xrd_data:
+        xrd = np.asarray(xrd)
         axis = tuple(range(xrd.ndim - 2))
 
         if method in ['sum', 'total']:
@@ -703,7 +718,11 @@ def make_calibration_pattern(xrd_data):
 
 
 # General function to save xrd data to tifs
-def _save_xrd_tifs(xrd_data, xrd_dets=None, scanid=None, filedir=None, filenames=None):
+def _save_xrd_tifs(xrd_data,
+                   xrd_dets=None,
+                   scanid=None,
+                   filedir=None,
+                   filenames=None):
 
     if (scanid is None and filenames is None):
         raise ValueError('Must define scanid or filename to name the save file.')
@@ -714,7 +733,7 @@ def _save_xrd_tifs(xrd_data, xrd_dets=None, scanid=None, filedir=None, filenames
         xrd_data = [xrd_data]
 
     if filedir is None:
-        filedir = '/home/xf05id1/current_user_data/'   
+        filedir = os.getcwd()   
     if filenames is None:
         filenames = []
         for detector in xrd_dets:
@@ -724,16 +743,22 @@ def _save_xrd_tifs(xrd_data, xrd_dets=None, scanid=None, filedir=None, filenames
         raise ValueError('Length of filenames does not match length of xrd_data')
     
     for i, xrd in enumerate(xrd_data):
-        io.imsave(f'{filedir}{filenames[i]}', np.asarray(xrd).astype(np.uint16), check_contrast=False)
+        io.imsave(f'{filedir}{filenames[i]}',
+                  np.asarray(xrd).astype(np.uint16),
+                  check_contrast=False)
         # I think the data should already be an unsigned integer
         #io.imsave(f'{filedir}{filenames[i]}', xrd, check_contrast=False)
     print(f'Saved pattern(s) for scan {scanid}!')
 
 
 # General function to save composite pattern as tif
-def _save_composite_pattern(comps, method, subtract,
-                           xrd_dets=None, scanid=None,
-                           filedir=None, filenames=None):
+def _save_composite_pattern(comps,
+                            method,
+                            subtract,
+                            xrd_dets=None,
+                            scanid=None,
+                            filedir=None,
+                            filenames=None):
 
     if subtract is None:
         subtract = ''
@@ -748,30 +773,45 @@ def _save_composite_pattern(comps, method, subtract,
             filenames.append(f'scan{scanid}_{detector}_{method}{subtract}_composite.tif')
     
     print('Saving composite pattern...')
-    _save_xrd_tifs(comps, xrd_dets=xrd_dets, scanid=scanid, filedir=filedir, filenames=filenames)
+    _save_xrd_tifs(comps,
+                   xrd_dets=xrd_dets,
+                   scanid=scanid,
+                   filedir=filedir,
+                   filenames=filenames)
 
 
-def _save_calibration_pattern(xrd_data, xrd_dets, scanid=None, filedir=None):
+def _save_calibration_pattern(xrd_data,
+                              xrd_dets,
+                              scanid=None,
+                              filedir=None):
 
     if not isinstance(xrd_data, list):
         xrd_data = [xrd_data]
     
     if filedir is None:
-        filedir = '/home/xf05id1/current_user_data/'
+        filedir = os.getcwd()
 
     filenames = []
     for detector in xrd_dets:
         filenames.append(f'scan{scanid}_{detector}_calibration.tif')
     
     print('Saving calibration pattern...')
-    _save_xrd_tifs(xrd_data, xrd_dets=xrd_dets, scanid=scanid, filedir=filedir, filenames=filenames)
+    _save_xrd_tifs(xrd_data,
+                   xrd_dets=xrd_dets,
+                   scanid=scanid,
+                   filedir=filedir,
+                   filenames=filenames)
 
 
 # General function save scan metadata 
-def _save_map_parameters(data_dict, scanid, data_keys=[], filedir=None, filename=None):
+def _save_map_parameters(data_dict,
+                         scanid,
+                         data_keys=[],
+                         filedir=None,
+                         filename=None):
 
     if filedir is None:
-        filedir = '/home/xf05id1/current_user_data/'
+        filedir = os.getcwd()
     if filename is None:
         filename = f'scan{scanid}_map_parameters.txt'
     if data_keys == []:
@@ -782,14 +822,17 @@ def _save_map_parameters(data_dict, scanid, data_keys=[], filedir=None, filename
     print(f'Saved map parameters for scan {scanid}!')
 
 
-def _save_scan_md(scan_md, scanid, filedir=None, filename=None):
+def _save_scan_md(scan_md,
+                  scanid,
+                  filedir=None,
+                  filename=None):
     import json
 
     if not isinstance(scan_md, dict):
         raise TypeError('Scan metadata not provided as a dictionary.')
     
     if filedir is None:
-        filedir = '/home/xf05id1/current_user_data/'
+        filedir = os.getcwd()
     if filename is None:
         filename = f'scan{scanid}_scan_md.txt'
 
@@ -832,9 +875,12 @@ def save_xrd_tifs(scanid=-1,
 # Function to load and save composite pattern as tif
 def save_composite_pattern(scanid=-1,
                            broker='tiled',
-                           method='sum', subtract=None,
-                           detectors=None, data_keys=[], 
-                           filedir=None, filenames=None):
+                           method='sum',
+                           subtract=None,
+                           detectors=None,
+                           data_keys=[], 
+                           filedir=None,
+                           filenames=None):
 
     data_dict, scan_md, data_keys, xrd_dets = load_data(scanid=scanid,
                                                         broker=broker,
@@ -971,7 +1017,6 @@ def save_full_scan(scanid=-1,
 ### Energy Rocking Curve Scans ###
 
 def load_energy_rc_data(scanid=-1,
-                        detectors=None,
                         data_keys=None,
                         returns=None):
 
@@ -1001,13 +1046,12 @@ def load_energy_rc_data(scanid=-1,
     _empty_lists = [[] for _ in range(len(data_keys))]
     data_dict = dict(zip(data_keys, _empty_lists))
 
-    print('Loading scalers and energies...', end='', flush=True)
+    print('Loading scalers and energies...')
     for doc in docs:
         if doc[0] == 'event_page':
             if 'dexela_image' in doc[1]['filled'].keys():
                 for key in data_keys:
                     data_dict[key].append(doc[1]['data'][key][0])
-    print('done!')
 
     # Fix keys
     data_dict['energy'] = np.array(data_dict['energy_energy'])
@@ -1021,14 +1065,13 @@ def load_energy_rc_data(scanid=-1,
     # Dexela images saved differently with count...
     r_paths = _get_resource_paths(bs_run, ['TPX_HDF5'])
 
-    print('Loading dexela...', end='', flush='True')
+    print('Loading dexela...')
     key = 'dexela_image'
     data_dict[key] = []
     for r_path in r_paths['TPX_HDF5']:
         with h5py.File(r_path, 'r') as f:
             data_dict[key].append(np.array(f['entry/data/data']))
     # Stack data into array
-    print('')
     #data_dict[key] = _check_xrd_data_shape(data_dict[key])
     print('done!')
 
@@ -1047,8 +1090,10 @@ def save_energy_rc_data(scanid=-1,
 
     data_dict, scan_md, data_keys = load_energy_rc_data(scanid=scanid,
                                                         returns=['data_keys'])
+
+    xrd_dets = [detector for detector in scan_md['detectors']
+                if detector in ['merlin', 'dexela']]
     
-    xrd_dets = ['dexela']
     xrd_data = [data_dict[f'{xrd_det}_image'] for xrd_det in xrd_dets]
 
     if filenames is None:
@@ -1057,22 +1102,100 @@ def save_energy_rc_data(scanid=-1,
             filenames.append(f'scan{scanid}_{detector}_energy_rc.tif')
     
     _save_xrd_tifs(xrd_data,
-                  xrd_dets=xrd_dets,
-                  scanid=scan_md['scan_id'], # Will return the correct value
-                  filedir=filedir,
-                  filenames=filenames)
+                   xrd_dets=xrd_dets,
+                   scanid=scan_md['scan_id'], # Will return the correct value
+                   filedir=filedir,
+                   filenames=filenames)
 
     param_filename = f'scan{scanid}_energy_rc_parameters.txt'
     _save_map_parameters(data_dict, scanid, data_keys=data_keys,
                          filedir=filedir, filename=param_filename)
+    
+    md_filename = f'scan{scanid}_energy_rc_metadata.txt'                  
+    _save_scan_md(scan_md, scanid,
+                  filedir=filedir, filename=md_filename)
+
+
+def save_extended_energy_rc_data(start_id,
+                                 end_id,
+                                 filedir=None,
+                                 filenames=None):
+
+    all_scan_ids = list(range(start_id, end_id + 1))
+    energy_rc_ids = [scan_id for scan_id in all_scan_ids
+                     if c[scan_id].start['scan']['type'] == 'ENERGY_RC']
+
+    data_dicts, scan_mds = [], []
+
+    for scan_id in energy_rc_ids:
+        print(f'Loading data for scan {scan_id}...')
+        data_dict, scan_md, data_keys = load_energy_rc_data(
+                                            scanid=scan_id,
+                                            returns=['data_keys']
+                                            )
+        data_dicts.append(data_dict)
+        scan_mds.append(scan_md)
+    
+    # Create empty dicts
+    all_data_keys = list(data_dicts[0].keys())
+    _empty_lists = [[] for _ in range(len(all_data_keys))]
+    all_data_dict = dict(zip(all_data_keys, _empty_lists))
+
+    all_md_keys = list(scan_mds[0].keys())
+    _empty_lists = [[] for _ in range(len(all_md_keys))]
+    all_md_dict = dict(zip(all_md_keys, _empty_lists))
+
+    # This seems inefficient to reiterate through the data
+    for data_dict, scan_md in zip(data_dicts, scan_mds):
+        for key in all_data_keys:
+            all_data_dict[key].extend(list(data_dict[key]))
+        
+        for key in all_md_keys:
+            # Must be a better way to do this
+            if (all_md_dict[key] != [scan_md[key]]
+               and all_md_dict[key] != scan_md[key]):
+
+                if isinstance(scan_md[key], list):
+                    all_md_dict[key].extend(scan_md[key])
+                else:
+                    all_md_dict[key].append(scan_md[key])
+
+    xrd_dets = [detector for detector in scan_md['detectors']
+                if detector in ['merlin', 'dexela']]
+    
+    xrd_data = [np.vstack(all_data_dict[f'{xrd_det}_image'])
+                for xrd_det in xrd_dets]
+    
+    #return all_data_dict, all_md_dict
+
+    scan_range_str = f"{all_md_dict['scan_id'][0]}-{all_md_dict['scan_id'][-1]}"
+
+    if filenames is None:
+        filenames = []
+        for detector in xrd_dets:
+            filenames.append(f'scan{scan_range_str}_{detector}_energy_rc.tif')
+    
+    _save_xrd_tifs(xrd_data,
+                   xrd_dets=xrd_dets,
+                   scanid=scan_range_str,
+                   filedir=filedir,
+                   filenames=filenames)
+
+    param_filename = f'scan{scan_range_str}_energy_rc_parameters.txt'
+    _save_map_parameters(data_dict, scan_range_str, data_keys=data_keys,
+                         filedir=filedir, filename=param_filename)
+
+    md_filename = f'scan{scan_range_str}_energy_rc_metadata.txt'                  
+    _save_scan_md(scan_md, scan_range_str,
+                  filedir=filedir, filename=md_filename)
 
 
 ### Angle Rocking Curve Scans ###
 
 def load_angle_rc_data(scanid=-1,
-                        detectors=None,
-                        data_keys=None,
-                        returns=None):
+                       detectors=None,
+                       data_keys=None,
+                       returns=None):
 
     bs_run = c[int(scanid)]
 
@@ -1166,10 +1289,68 @@ def save_angle_rc_data(scanid=-1,
                          filedir=filedir, filename=param_filename)
 
 
+def save_flying_angle_rc_data(scanid=-1,
+                              broker='manual',
+                              detectors=None,
+                              data_keys=['i0',
+                                         'i0_time',
+                                         'im',
+                                         'it'],
+                              filedir=None,
+                              filenames=None,
+                              repair_method='fill'):
+
+    data_dict, scan_md, data_keys, xrd_dets = load_data(scanid=scanid,
+                                                        broker=broker,
+                                                        detectors=detectors,
+                                                        data_keys=data_keys,
+                                                        returns=['data_keys',
+                                                                 'xrd_dets'],
+                                                        repair_method=repair_method)
+
+    # Format xrd data as list from each detector
+    # Convert to 
+    xrd_data = [np.asarray(data_dict[f'{xrd_det}_image'])
+                for xrd_det in xrd_dets]
+
+    # Interpolate angular positions
+    thetas = np.linspace(*c[int(scanid)].start['scan']['scan_input'][:3])
+    thetas /= 1000 # mdeg to deg
+    data_dict['theta'] = thetas
+
+    if filenames is None:
+        filenames = []
+        for detector in xrd_dets:
+            filenames.append(f'scan{scanid}_{detector}_flying_angle_rc.tif')
+    
+    _save_xrd_tifs(xrd_data,
+                   xrd_dets=xrd_dets,
+                   scanid=scan_md['scan_id'], # Will return the correct value
+                   filedir=filedir,
+                   filenames=filenames)
+    
+    param_filename = f'scan{scanid}_flying_angle_rc_parameters.txt'
+    _save_map_parameters(data_dict, scanid, data_keys=['i0',
+                                                       'i0_time',
+                                                       'im',
+                                                       'it',
+                                                       'theta'],
+                         filedir=filedir, filename=param_filename)
+    
+    md_filename = f'scan{scanid}_flying_angle_rc_metadata.txt'                  
+    _save_scan_md(scan_md, scanid,
+                  filedir=filedir, filename=md_filename)
+
+
+
 
 # Convenience/utility function for generating record of scan_ids
 
-def generate_scan_logfile(start_id, end_id=-1, filename=None, filedir=None):
+def generate_scan_logfile(start_id,
+                          end_id=-1,
+                          filename=None,
+                          filedir=None,
+                          include_peakups=False):
 
     if filedir is None:
         raise ValueError('No defualt filedir and none specified. Please define filedir.')
@@ -1195,16 +1376,19 @@ def generate_scan_logfile(start_id, end_id=-1, filename=None, filedir=None):
             start = bs_run.start
             stop = bs_run.stop
 
-            scan_ids.append(str(start['scan_id']))
-
             if 'scan' in start.keys():
-                scan_types.append(str(start['scan']['type']))
+                if not include_peakups and str(start['scan']['type']) in ['PEAKUP']:
+                    continue
 
+                scan_ids.append(str(start['scan_id']))    
+                scan_types.append(str(start['scan']['type']))
+                
                 if 'scan_input' in start['scan'].keys():
                     scan_inputs.append(str(start['scan']['scan_input']))
                 else:
                     scan_inputs.append(str([]))
             else:
+                scan_ids.append(str(start['scan_id']))
                 scan_types.append('UNKOWN')
                 scan_inputs.append(str([]))
             
@@ -1212,9 +1396,9 @@ def generate_scan_logfile(start_id, end_id=-1, filename=None, filedir=None):
                 scan_statuses.append('NONE')
             else:
                 scan_statuses.append(stop['exit_status'])
+
         except KeyError:
             print(f'scan_id={scan_id} not found!')
-        
 
     logfile = f'{filedir}{filename}.txt'
 

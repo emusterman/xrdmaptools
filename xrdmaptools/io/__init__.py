@@ -19,7 +19,7 @@ __all__ = [s for s in dir()]
 
 
 # Import useable functions
-from .db_utils import make_xrdmap_hdf
+#from .db_utils import make_xrdmap_hdf
 from .db_io import (
     save_full_scan,
     save_xrd_tifs,

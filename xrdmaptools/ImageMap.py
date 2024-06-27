@@ -44,6 +44,14 @@ class ImageMap:
         
         # Load image data
         if image_data is not None:
+            if not isinstance(image_data,
+                (list,
+                np.ndarray,
+                da.core.Array,
+                h5py._hl.dataset.Dataset)
+                ):
+                raise TypeError(f'Incorrect image_data type ({type(image_data)}).')
+
             # Parallized image processing
             if dask_enabled:
                 # Unusual chunk shapes are fixed later
@@ -53,6 +61,11 @@ class ImageMap:
                 # Non-paralleized image processing
                 if isinstance(image_data, da.core.Array):
                     image_data = image_data.compute()
+                # list input is handled lazily, but should only be from databroker
+                elif isinstance(image_data, list):
+                    print('Converting rows of images into lazily loaded 4D array...')
+                    image_data = da.stack(image_data) # bad chunking will be fixed later
+                # Otherwise as a numpy array
                 else:
                     image_data = np.asarray(image_data)
 
@@ -92,6 +105,7 @@ class ImageMap:
         
         # Working with integration_data shape
         if integration_data is not None:
+            # No lazy loading of integration_data. Might be worth it, but requires a lot of support
             integration_data = np.asarray(integration_data)
             if integration_data.ndim == 2:
                 self.integrations = integration_data.reshape((self.map_shape, -1))
@@ -101,7 +115,8 @@ class ImageMap:
                 raise ValueError("Integration data incorrect shape or unknown type. 3D array is preferred.")
             # Integration shape can just be called. Length is just tth_num in xrdmap...
         
-        if dask_enabled:
+        #if dask_enabled:
+        if isinstance(self.images, da.core.Array):
             # Redo chunking along image dimensions if not already
             if self.images.chunksize[-2:] != self.images.shape[-2:]:
                 self._get_optimal_chunks()
@@ -182,14 +197,15 @@ class ImageMap:
                     self._hdf_store = self.hdf.require_dataset('xrdmap/image_data/_temp_images',
                                                 shape=self.images.shape,
                                                 dtype=np.float32,
-                                                chunks=self._chunks)
+                                                chunks=self._chunks,
+                                                compression_opts=4) # This may slow it down
 
                 # Might be best NOT to call this to preserve previous data
                 self.images = da.store(self.images, self._hdf_store,
-                                    compute=True, return_stored=True)[0]       
+                                       compute=True, return_stored=True)[0]       
         
         if wd is None:
-            wd = '/home/xf05id1/current_user_data/'
+            wd = os.getcwd()
         self.wd = wd
         self.ai = ai
         self.sclr_dict = sclr_dict
@@ -552,7 +568,7 @@ class ImageMap:
         print('done!')
 
 
-    # No correction for defect mask, since is used whenever mask is called
+    # No correction for defect mask, since it is used whenever mask is called
     def apply_defect_mask(self, min_bounds=(-np.inf, 0),
                           max_bounds=(0, np.inf), mask=None):
         if mask is not None:
@@ -712,7 +728,7 @@ class ImageMap:
         #tth_arr = ai.twoThetaArray()
         #chi_arr = ai.chiArray()
 
-        # pyFAI
+        # From pyFAI
         # 'SA = pixel1 * pixel2 / dist^2 * cos(incidence)^3'
 
         # From pyFAI
@@ -931,6 +947,8 @@ class ImageMap:
     ### Polar correction ###
     # Geometric calibration
     # TODO: Test with various dask implementations
+    # Remove this and leave with XRDMap class
+    # Usually not required...
     def integrate2d_images(self, title=None,
                          unit='2th_deg',
                          tth_resolution=0.02,
@@ -1166,7 +1184,7 @@ class ImageMap:
         return calibration_mask
     
 
-    def rescale_images(self, lower=None, upper=100,
+    def rescale_images(self, lower=0, upper=100,
                        arr_min=0, arr_max=None,
                        mask=None):
 
@@ -1249,7 +1267,7 @@ class ImageMap:
     # Add warning about the state of image corrections...
     # Overwrite images attribute
 
-    ### 1D integration projections
+    ### 1D integration projections ###
 
     # Calculated as the 1D integration of the image projection
     def integration_projection_factory(property_abbreviation):
@@ -1317,7 +1335,6 @@ class ImageMap:
                 self.integration_background_method = 'minimum'
                 
             elif method in ['ball', 'rolling ball', 'rolling_ball']:
-                #raise NotImplementedError('Cannot yet exclude contribution from masked regions.')
                 print('Estimating background with rolling ball method.')
                 self.integration_background = rolling_ball(self.integrations, **kwargs)
                 self.integration_background_method = 'rolling ball'
@@ -1412,6 +1429,7 @@ class ImageMap:
         print(f'Diffraction map size is {disk_size:.3f} {units}.')
 
     # WIP apparently???
+    # This should probably not be in ImageMap anyway
     @staticmethod
     def estimate_disk_size(size):
         # External reference function to estimate map size before acquisition
@@ -1485,7 +1503,10 @@ class ImageMap:
         
         # Get chunks
         # Maybe just grab current chunk size to be consistent??
-        chunks = self._get_optimal_chunks()
+        if not hasattr(self, '_chunks') or self._chunks is None: 
+            chunks = self._get_optimal_chunks()
+        else:
+            chunks = self._chunks
         chunks = chunks[-images.ndim:]
         
         # Flag of state hdf

@@ -24,7 +24,5 @@ def make_xrdmap_hdf(scanid=-1,
     print('*' * 72)
     
 
-
-
 def make_xrdmap_composite():
     raise NotImplementedError()
