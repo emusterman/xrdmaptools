@@ -74,7 +74,8 @@ def update_axes(event, data,
 
 def update_plot(data,
                 xticks,
-                y_min=None, y_max=None,
+                y_min=None,
+                y_max=None,
                 axi=None):
     '''
     

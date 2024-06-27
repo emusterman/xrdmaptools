@@ -21,7 +21,11 @@ from .ImageMap import ImageMap
 #from .utilities.hdf_utils import check_hdf_current_images
 #from .utilities.db_io import load_data
 from .utilities.math import *
-from .utilities.utilities import delta_array
+from .utilities.utilities import (
+    delta_array,
+    check_ext,
+    pathify
+)
 
 from .io.hdf_io import initialize_xrdmap_hdf, load_xrdmap_hdf
 from .io.hdf_utils import check_hdf_current_images
@@ -241,7 +245,13 @@ class XRDMap():
         
         # Load from image stack
         if wd is None:
+<<<<<<< HEAD
             wd = os.getcwd()
+=======
+            wd = '/home/xf05id1/current_user_data/'
+
+        image_path = pathify(wd, filename, ['.tif', '.tiff'])
+>>>>>>> d6f98cdb557ca4ed47796f7437f7be65abb13dfd
         
         dask_enabled=False
         if 'dask_enabled' in kwargs:
@@ -249,9 +259,9 @@ class XRDMap():
 
         print('Loading images...', end='', flush=True)
         if dask_enabled:
-            image_data = dask_io.imread(f'{wd}{filename}')
+            image_data = dask_io.imread(image_path)
         else:
-            image_data = io.imread(f'{wd}{filename}')
+            image_data = io.imread(image_path)
         print('done!')
         return cls(image_data=image_data, wd=wd,
                    map_title=map_title, dataset_shape=dataset_shape,
@@ -263,7 +273,8 @@ class XRDMap():
         if wd is None:
             wd = os.getcwd()
         # Load from previously saved data, including all processed data...
-        if os.path.exists(f'{wd}{hdf_filename}'):
+        hdf_path = pathify(wd, hdf_filename, '.h5')
+        if os.path.exists(hdf_path):
             print('Loading data from hdf file...')
             input_dict = load_xrdmap_hdf(hdf_filename, wd=wd, dask_enabled=dask_enabled)
 
@@ -1351,8 +1362,9 @@ class XRDMap():
         
         if filedir is None:
             filedir = self.wd
-    
-        arr = np.genfromtxt(f'{filedir}{filename}')
+
+        path = pathify(filedir, filename, '.txt')
+        arr = np.genfromtxt(path)
 
         pos_dict, sclr_dict = {}, {}
 
@@ -1479,12 +1491,15 @@ class XRDMap():
     def load_phase(self, filename, filedir=None, phase_name=None):
         if filedir is None:
             filedir = self.wd
+        
+        phase_path = pathify(filedir, filename,
+                             ['.cif', '.txt', '.D', '.h5'])
 
-        if not os.path.exists(f'{filedir}{filename}'):
-            raise FileNotFoundError(f"Specified path does not exist:\n{filedir}{filename}")
+        if not os.path.exists(f'{phase_path}'):
+            raise FileNotFoundError(f"Specified path does not exist:\n{phase_path}")
         
         if filename[-4:] == '.cif':
-            phase = Phase.fromCIF(f'{filedir}{filename}')
+            phase = Phase.fromCIF(f'{phase_path}')
         elif filename[-4:] == '.txt':
             raise NotImplementedError()
         elif filename[-2:] in ['.D']:
@@ -1782,8 +1797,8 @@ class XRDMap():
             # Try default name for SRX
             if xrf_name is None:
                 xrf_name =  f'scan2D_{self.scanid}_xs_sum8ch'
-
-            xrf_path = f'{xrf_dir}{xrf_name}.h5'
+            
+            xrf_path = pathify(xrf_dir, xrf_name, '.h5')        
 
         if not os.path.exists(xrf_path):
             raise FileNotFoundError(f"{xrf_path} does not exist.")

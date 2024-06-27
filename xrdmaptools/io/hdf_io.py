@@ -10,6 +10,7 @@ import dask.array as da
 from ..ImageMap import ImageMap
 from ..crystal.Phase import Phase
 from ..reflections.SpotModels import _load_peak_function
+from ..utilities.utilities import pathify
 
 
 ##################
@@ -43,7 +44,7 @@ def load_xrdmap_hdf(filename, wd=None, dask_enabled=False, only_integrations=Fal
     # Add conditionals to load maps wiith only 
 
     # Figuring out hdf file stuff
-    hdf_path = f'{wd}{filename}'
+    hdf_path = pathify(wd, filename, '.h5')
     if not dask_enabled:
         hdf = h5py.File(hdf_path, 'r')
     else:

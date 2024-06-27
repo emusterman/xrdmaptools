@@ -1,5 +1,6 @@
 import numpy as np
 import time as ttime
+import os
 from tqdm.dask import TqdmCallback
 from tqdm import tqdm
 import warnings
@@ -26,8 +27,41 @@ def toc(string='', output=False):
     print(s, end='\n')
     if output:
         return dt
+
+# Methods to scrub directory and file inputs
+
+def check_ext(path, ext):
+    root, found_ext = os.path.splitext(path)
+
+    if isinstance(ext, str):
+        ext = [ext]
+    elif not isinstance(ext, list):
+        ext = list(ext)
+
+    if found_ext in ext:
+        # Maybe check if path exists?
+        return path
+    elif found_ext not in ext:
+        raise ValueError(f'{path} input extension does not match required extension: {ext}')
+    elif found_ext == '':
+        for ext_i in ext:
+            if os.path.exists(path + ext_i):
+                return path + ext_i
+            else:
+                raise FileNotFoundError(f'File extension not specified and cannot find file with default extension: {ext}')
+    else:
+        raise RuntimeError(f'Unknown issue with file extentsion for {path}')
     
 
+def pathify(directory, filename, ext):
+    directory = os.path.normpath(directory)
+    path = os.path.join(directory, filename)
+    path = check_ext(path, ext)
+    return path
+
+    
+
+# Does not work!
 def timed_func(func):
     # Time a function
     
