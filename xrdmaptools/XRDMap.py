@@ -245,13 +245,9 @@ class XRDMap():
         
         # Load from image stack
         if wd is None:
-<<<<<<< HEAD
             wd = os.getcwd()
-=======
-            wd = '/home/xf05id1/current_user_data/'
-
-        image_path = pathify(wd, filename, ['.tif', '.tiff'])
->>>>>>> d6f98cdb557ca4ed47796f7437f7be65abb13dfd
+        
+        image_path = pathify(wd, filename, ['.tif', '.tiff', '.jpeg', '.png'])
         
         dask_enabled=False
         if 'dask_enabled' in kwargs:
