@@ -1161,13 +1161,23 @@ def save_extended_energy_rc_data(start_id,
                 else:
                     all_md_dict[key].append(scan_md[key])
 
+    # Get area detectors
     xrd_dets = [detector for detector in scan_md['detectors']
                 if detector in ['merlin', 'dexela']]
-    
+    # Stack image data
     xrd_data = [np.vstack(all_data_dict[f'{xrd_det}_image'])
                 for xrd_det in xrd_dets]
+    # Reshape image data into 4D
+    xrd_data = [data.reshape((1, *data.shape))
+                for data in xrd_data]
+    # Remove xrd_data from all_data_dict
+    for xrd_det in xrd_dets:
+        del all_data_dict[f'{xrd_det}_image']
+    # Reformat other data streams into arrays
+    for key in all_data_dict.keys():
+        all_data_dict[key] = np.asarray(all_data_dict[key])
     
-    #return all_data_dict, all_md_dict
+    #return all_data_dict, all_md_dict, xrd_data
 
     scan_range_str = f"{all_md_dict['scan_id'][0]}-{all_md_dict['scan_id'][-1]}"
 
@@ -1183,11 +1193,11 @@ def save_extended_energy_rc_data(start_id,
                    filenames=filenames)
 
     param_filename = f'scan{scan_range_str}_energy_rc_parameters.txt'
-    _save_map_parameters(data_dict, scan_range_str, data_keys=data_keys,
+    _save_map_parameters(all_data_dict, scan_range_str, data_keys=data_keys,
                          filedir=filedir, filename=param_filename)
 
     md_filename = f'scan{scan_range_str}_energy_rc_metadata.txt'                  
-    _save_scan_md(scan_md, scan_range_str,
+    _save_scan_md(all_md_dict, scan_range_str,
                   filedir=filedir, filename=md_filename)
 
 

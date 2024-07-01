@@ -949,7 +949,7 @@ class ImageMap:
     # TODO: Test with various dask implementations
     # Remove this and leave with XRDMap class
     # Usually not required...
-    def integrate2d_images(self, title=None,
+    '''def integrate2d_images(self, title=None,
                          unit='2th_deg',
                          tth_resolution=0.02,
                          chi_resolution=0.05,
@@ -1089,7 +1089,7 @@ class ImageMap:
         if polarization_factor is not None:
             self.corrections['polarization'] = True
 
-        #print('''Compressing and writing calibrated images to disk.\nThis may take awhile...''')
+        #print("Compressing and writing calibrated images to disk.\nThis may take awhile...")
         #self.save_images(units=self.calib_unit,
         #                         labels=['x_ind',
         #                                 'y_ind',
@@ -1105,8 +1105,8 @@ class ImageMap:
                 curr_grp.attrs['extent'] = self.extent
 
                 labels = ['tth_pos', 'chi_pos']
-                comments = [''''tth', is the two theta scattering angle''',
-                            ''''chi' is the azimuthal angle''']
+                comments = ["'tth', is the two theta scattering angle",
+                            "'chi' is the azimuthal angle"]
                 keys = ['tth', 'chi']
                 data = [self.tth, self.chi]
                 resolution = [self.tth_resolution, self.chi_resolution]
@@ -1163,7 +1163,7 @@ class ImageMap:
             #self._numpy_2_dask()
             
         # Pass these values up the line to the xrdmap
-        return self.tth, self.chi, self.extent, self.calibrated_shape, self.tth_resolution, self.chi_resolution
+        return self.tth, self.chi, self.extent, self.calibrated_shape, self.tth_resolution, self.chi_resolution'''
     
 
     def get_calibration_mask(self, tth_num=None, chi_num=None, units='2th_deg'):
