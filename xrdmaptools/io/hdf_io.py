@@ -164,10 +164,10 @@ def load_xrdmap_hdf(filename, wd=None, dask_enabled=False, only_integrations=Fal
                 recip_pos[key] = None
                 #recip_pos[f'{key}_units'] = None
                 recip_pos[f'{key}_resolution'] = None
-
-        if 'tth' in recip_grp.keys() and 'chi' in recip_grp.keys():
-            image_map_attrs['calibrated_shape'] = (len(recip_pos['tth']),
-                                                   len(recip_pos['chi']))
+        
+        #if ('tth' in recip_grp.keys() or 'chi' in recip_grp.keys()):
+        #    image_map_attrs['calibrated_shape'] = (len(recip_pos['tth']),
+        #                                           len(recip_pos['chi']))
 
         # Load poni_file calibration
         poni_grp = recip_grp['poni_file']
@@ -193,7 +193,7 @@ def load_xrdmap_hdf(filename, wd=None, dask_enabled=False, only_integrations=Fal
                      'chi_resolution' : None,
                      #'chi_units' : None
                      }
-        image_map_attrs['calibrated_shape'] = None
+        #image_map_attrs['calibrated_shape'] = None
         poni_od = None
 
     # Load phases

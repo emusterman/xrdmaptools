@@ -139,7 +139,7 @@ class XRDMap():
                 self.hdf_path = None
                 self.hdf = None
         else:
-            self.initial_save_hdf(hdf=hdf,
+            self.save_hdf(hdf=hdf,
                           hdf_filename=hdf_filename,
                           dask_enabled=dask_enabled,
                           save_current=False)
@@ -190,7 +190,7 @@ class XRDMap():
 
         if tth is not None and len(tth) == 0:
             tth = None
-        self.tth = None
+        self.tth = tth
         self.tth_resolution = tth_resolution
         if chi is not None and len(chi) == 0:
             chi = None
@@ -217,7 +217,7 @@ class XRDMap():
         # Other info
         if hasattr(self, 'map'): # pull ImageMap info
             #ostr += '\t' + self.map.__repr__() 
-            ostr += '\t' + '\t'.join(self.map.__repr__() .splitlines(True))
+            ostr += '\n\t' + '\t'.join(self.map.__repr__() .splitlines(True))
         if hasattr(self, 'ai'): # pull geometry info
             ostr += '\n\tGeometry:  \n'
             ostr += '\t\t' + '\t\t'.join(self.ai.__repr__().splitlines(True))
@@ -245,13 +245,7 @@ class XRDMap():
         
         # Load from image stack
         if wd is None:
-<<<<<<< HEAD
             wd = os.getcwd()
-=======
-            wd = '/home/xf05id1/current_user_data/'
-
-        image_path = pathify(wd, filename, ['.tif', '.tiff'])
->>>>>>> d6f98cdb557ca4ed47796f7437f7be65abb13dfd
         
         dask_enabled=False
         if 'dask_enabled' in kwargs:
@@ -290,10 +284,10 @@ class XRDMap():
                     hdf_filename=hdf_filename,
                     hdf=input_dict['image_data'].hdf, # Will always be None
                     dask_enabled=dask_enabled,
-                    **input_dict['base_md'],
                     poni_file=input_dict['poni_od'],
                     sclr_dict=input_dict['sclr_dict'],
                     pos_dict=input_dict['pos_dict'],
+                    **input_dict['base_md'],
                     **input_dict['recip_pos'],
                     #tth_resolution=input_dict['recip_pos']['tth_resolution'],
                     #chi_resolution=input_dict['recip_pos']['chi_resolution'],
@@ -1094,6 +1088,7 @@ class XRDMap():
         # Save recirpocal space positions
         self.save_reciprocal_positions()
         
+
     # One off 1D integration
     def integrate1d_image(self,
                           image=None,
