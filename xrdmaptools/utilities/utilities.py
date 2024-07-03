@@ -96,7 +96,10 @@ def parallel_loop(function, iterable, *args, **kwargs):
 
     return output
 
-
+# I imagine this function is a simple named clustering alogorithm
+# I'm not sure what it would be though.
+# Just a very convenient function for mapping connected clusters
+# Works fairly fast, but calculating distances takes significant memory
 def label_nearest_spots(spots, max_dist=25, max_neighbors=np.inf):
     spots = np.asarray(spots)
     dist = euclidean_distances(spots)
