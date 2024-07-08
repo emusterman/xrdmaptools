@@ -653,67 +653,20 @@ class ImageMap:
 
     ### Geometric corrections ###
     # TODO: Add conditionals to allow corrections to be applied to calibrated images
-    # FIX ME!!!
-    def apply_lorentz_correction(self, experiment='single', corrections=None, custom=None, apply=True):
+    def apply_lorentz_correction(self, powder=False, apply=True):
 
         if self.corrections['lorentz']:
             print('''Warning: Lorentz correction already applied! 
                   Proceeding without any changes''')
             return
-        elif experiment is None and corrections is None:
-            raise ValueError('No experimental conditions nore specific corrections specified!')
-        
-        lorentz_correction = 1
-        if custom is not None:
-            custom = np.asarray(custom)
-            if custom.shape != tth_arr.shape:
-                raise ValueError(f'Custom Lorentz corretion of shape {custom.shape} does not match image shape of {tth_arr.shape}.')
-            lorentz_correction = custom
-            corrections = []
-        
-        elif corrections is not None:
-            pass
 
-        elif str(experiment.lower()) in ['all']:
-            #lorentz_correction = 1 / (np.sin(tth_arr / 2) * np.sin(tth_arr))
-            corrections = ['L1', 'L2', 'L3']
-
-        elif str(experiment).lower() in ['powder', 'poly', 'polycrystal', 'polycrystalline']:
-            corrections = ['L2', 'L3']
-
-        elif str(experiment).lower() in ['single', 'transmission']:
-            corrections = ['L3']
-        else:
-            raise ValueError(f'Experiment {experiment} unknown.')
-
-        #TODO: Add conditional for calibrated images
         # In radians
         tth_arr = self.ai.twoThetaArray().astype(self.dtype)
-        chi_arr = -self.ai.chiArray().astype(self.dtype)
 
-        # Check for discontinuities
-        # FIX ME!!!
-        if np.max(np.gradient(chi_arr)) > (np.pi / 6): # Semi-arbitrary cut off
-            chi_arr[chi_arr < 0] += (2 * np.pi)
+        lorentz_correction = 1 / np.sin(tth_arr / 2)
 
-        delta_chi = delta_array(chi_arr)
-        frac_chi = delta_chi / (2 * np.pi) # fraction of circle
-
-        lorentz_dict = {}
-
-        # Rotating detector / crystal
-        lorentz_dict['L1'] = 1 / np.sin(tth_arr)
-
-        # Random powder contribution
-        lorentz_dict['L2'] = np.cos(tth_arr / 2)
-
-        # Relative Debye-Scherrer cone
-        #L3 = 1 / np.sin(tth_arr)
-        lorentz_dict['L3'] = frac_chi / np.sin(tth_arr)
-
-        # Cycle through any apply lorentz corrections
-        for corr in corrections:
-            lorentz_correction *= lorentz_dict[corr]
+        if powder:
+            lorentz_correction *= np.cos(tth_arr / 2)
         
         # Save and apply Lorentz corrections
         self.lorentz_correction = lorentz_correction
