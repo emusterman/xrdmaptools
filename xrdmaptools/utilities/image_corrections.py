@@ -168,12 +168,15 @@ def rescale_array(arr, lower=0, upper=1, arr_min=None, arr_max=None, mask=None):
         arr_min = np.nanmin(arr)
     if arr_max is None:
         arr_max = np.nanmax(arr)
+        if upper is None:
+            upper = arr_max
+    
     ext = upper - lower
     
     # Copied array operation
     #scaled_arr = lower + ext * ((arr - arr_min) / (arr_max - arr_min))
     
-    # In-place operation. Far faster
+    # In-place operation. Much faster
     arr -= arr_min
     arr /= (arr_max - arr_min)
     arr *= ext

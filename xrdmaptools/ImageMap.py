@@ -338,13 +338,10 @@ class ImageMap:
                 
                 return getattr(self, property_name)
 
-        def set_projection(self, value):
-            setattr(self, property_name, value)
-
         def del_projection(self):
             delattr(self, property_name)
         
-        return property(get_projection, set_projection, del_projection)
+        return property(get_projection, None, del_projection)
 
 
     min_map = projection_factory('min_map', np.min, (2, 3))
@@ -663,6 +660,7 @@ class ImageMap:
         # In radians
         tth_arr = self.ai.twoThetaArray().astype(self.dtype)
 
+        # Static area detector. Seems to work well
         lorentz_correction = 1 / np.sin(tth_arr / 2)
 
         if powder:
@@ -948,229 +946,7 @@ class ImageMap:
             print('done!')
 
 
-    ### Polar correction ###
-    # Geometric calibration
-    # TODO: Test with various dask implementations
-    # Remove this and leave with XRDMap class
-    # Usually not required...
-    '''def integrate2d_images(self, title=None,
-                         unit='2th_deg',
-                         tth_resolution=0.02,
-                         chi_resolution=0.05,
-                         polarization_factor=None,
-                         correctSolidAngle=None,
-                         Lorentz_correction=None,
-                         **kwargs):
-        
-        # Check to see if calibration even makes sense
-        if self.corrections['polar_calibration']:
-            raise RuntimeError("""Cannot calibrate already calibrated images! 
-                            \nRevert to uncalibrated images in order to recalibrate.""")
-        
-        # Check the current state of the map
-        self.update_map_title()
-        
-        # Check other states of images
-        if self.title == 'raw_images':
-            print('Warning: Calibrating unprocessed images. Proceeding without any image corrections.')
-            _ = self.composite_image
-            # Maybe I should add a list of processing step performed to keep track of everything...
-        
-        elif not hasattr(self, f'_{self.title}_images_composite'):
-                print('Composite of current images is not saved. Creating composite.')
-                _ = self.composite_image
-        
-        # Check a few other corrections which can be rolled into calibration
-        # Recommendation is to perform each correction individually
-                
-        # Polarization correction
-        if polarization_factor is not None and self.corrections['polarization']:
-            print(('Warning: Polarization factor specified, '
-                  'but images arleady corrected for polarization!'))
-            print('No polarization correction will be applied.')
-            polarization_factor = None
-
-        elif polarization_factor is None and not self.corrections['polarization']:
-            print(('Warning: No polarization correction applied or specified. '
-                  'Images will not be polarization corrected.'))
-
-        # Solid angle correction 
-        if correctSolidAngle and self.corrections['solid_angle']:
-            print(('Warning: correctSolidAngle specified, '
-                  'but images arleady corrected for solid angle!'))
-            print('No solid angle correction will be applied.')
-            correctSolidAngle = False
-
-        elif correctSolidAngle is None and not self.corrections['solid_angle']:
-            print(('Warning: No solid angle correction applied or specified. '
-                  'Images will not be corrected for solid angle.'))
-            correctSolidAngle = False
-
-        # Lorentz correction
-        if Lorentz_correction and self.corrections['lorentz']:
-            print(('Warning: Lorentz correction specified, '
-                  'but Lorentz correction already applied!'))
-            print('No Lorentz correction will be applied.')
-            Lorentz_correction = False
-
-        elif Lorentz_correction is None and not self.corrections['lorentz']:
-            print(('Warning: No Lorentz correction applied or specified. '
-                  'Images will not be Lorentz corrected.'))
-            print('Warning: The independent Lorentz correction, currently does not work on calibrated images.')
-            Lorentz_correction = False
-
-        elif Lorentz_correction:
-            self.apply_lorentz_correction()
-
-        # Check for dask state
-        keep_dask = False
-        if self._dask_enabled:
-            keep_dask = True
-        
-        # Set units for metadata
-        self.calib_unit = unit
-
-        # These should be properties...
-        self.tth_resolution = tth_resolution # Degrees
-        self.chi_resolution = chi_resolution # Degrees
-
-        # Surely there is better way to find the extent without a full calibration
-        # It's fast some maybe doesn't matter
-        _, tth, chi = self.ai.integrate2d_ng(self.images.reshape(
-                                self.num_pixels, 
-                                *self.image_shape)[0],
-                                100, 100, unit=self.calib_unit)
-        
-        # Interpolation bounds should be limited by the intrument resolution AND the original image size
-        self.tth_num = int(np.abs(np.max(tth) - np.min(tth))
-                           // self.tth_resolution)
-        self.chi_num = int(np.abs(np.max(chi) - np.min(chi))
-                           // self.chi_resolution)
-
-        calibrated_map = np.zeros((self.num_pixels,
-                                   self.chi_num, 
-                                   self.tth_num), 
-                                   dtype=(self.dtype))
-        
-        if keep_dask:
-            calibrated_map = da.from_array(calibrated_map)
-        
-        
-        print('Calibrating images...', end='', flush=True)
-        # TODO: Parallelize this
-        for i, pixel in tqdm(enumerate(self.images.reshape(
-                                       self.num_pixels,
-                                       *self.image_shape)),
-                                       total=self.num_pixels):
-            
-            res, tth, chi = self.ai.integrate2d_ng(pixel,
-                                          self.tth_num,
-                                          self.chi_num,
-                                          unit=self.calib_unit,
-                                          polarization_factor=polarization_factor,
-                                          correctSolidAngle=correctSolidAngle,
-                                          **kwargs)
-            
-            calibrated_map[i] = res
-
-        calibrated_map = calibrated_map.reshape(*self.map_shape,
-                                                self.chi_num, 
-                                                self.tth_num)
-        # Consider rescaling and downgrading data type to save memory...
-        self.images = calibrated_map
-        self.tth = tth
-        self.chi = chi
-        self.calibrated_shape = (self.chi_num, self.tth_num) # V x H
-        self.extent = [self.tth[0], self.tth[-1],
-                       self.chi[0], self.chi[-1]]
-        self.corrections['polar_calibration'] = True
-
-        print('done!')
-
-        if correctSolidAngle:
-            self.corrections['solid_angle'] = True
-        
-        if polarization_factor is not None:
-            self.corrections['polarization'] = True
-
-        #print("Compressing and writing calibrated images to disk.\nThis may take awhile...")
-        #self.save_images(units=self.calib_unit,
-        #                         labels=['x_ind',
-        #                                 'y_ind',
-        #                                 'chi_ind',
-        #                                 'tth_ind'])
-        
-        # Add calibration positions dataset
-        print('Writing reciprocal positions...', end='', flush=True)
-        if self.hdf_path is not None:
-            with h5py.File(self.hdf_path, 'a') as f:
-                # This group may already exist if poni file was already initialized
-                curr_grp = f[f'/xrdmap'].require_group('reciprocal_positions')
-                curr_grp.attrs['extent'] = self.extent
-
-                labels = ['tth_pos', 'chi_pos']
-                comments = ["'tth', is the two theta scattering angle",
-                            "'chi' is the azimuthal angle"]
-                keys = ['tth', 'chi']
-                data = [self.tth, self.chi]
-                resolution = [self.tth_resolution, self.chi_resolution]
-
-                for i, key in enumerate(keys):
-                    if key in curr_grp.keys():
-                        del curr_grp[key]
-                    dset = curr_grp.require_dataset(key,
-                                                    data=data[i],
-                                                    dtype=data[i].dtype,
-                                                    shape=data[i].shape)
-                    dset.attrs['labels'] = labels[i]
-                    dset.attrs['comments'] = comments[i]
-                    dset.attrs['units'] = self.calib_unit #'° [deg.]'
-                    dset.attrs['dtype'] = str(data[i].dtype)
-                    dset.attrs['time_stamp'] = ttime.ctime()
-                    dset.attrs[f'{key}_resolution'] = resolution[i]
-        print('done!')
-
-        # Acquire mask for useless pixels for subsequent analysis
-        print('Acquring and writing calibration mask...', end='', flush=True)
-        self.calibration_mask = self.get_calibration_mask()
-        self.save_images(self.calibration_mask,
-                         'calibration_mask')
-        
-        # Update defect mask
-        if hasattr(self, 'defect_mask'):
-            if self.defect_mask.shape == self.image_shape:
-                new_mask, _, _ = self.ai.integrate2d_ng(self.defect_mask,
-                                                self.tth_num,
-                                                self.chi_num,
-                                                unit=self.calib_unit)
-                self.apply_defect_mask(mask=new_mask)
-        
-        # Update custom mask
-        if hasattr(self, 'custom_mask'):
-            if self.custom_mask.shape == self.image_shape:
-                new_mask, _, _ = self.ai.integrate2d_ng(self.custom_mask,
-                                                self.tth_num,
-                                                self.chi_num,
-                                                unit=self.calib_unit)
-                self.apply_custom_mask(mask=new_mask)
-        
-        print('done!')
-        
-        # Direct set to avoid resetting the map images again
-        self._dtype = self.images.dtype
-
-        # Update title
-        self.update_map_title(title=title)
-
-        # Convert back to dask if initially dask
-        #if keep_dask:
-            #self._numpy_2_dask()
-            
-        # Pass these values up the line to the xrdmap
-        return self.tth, self.chi, self.extent, self.calibrated_shape, self.tth_resolution, self.chi_resolution'''
-    
-
-    def get_calibration_mask(self, tth_num=None, chi_num=None, units='2th_deg'):
+    def get_polar_mask(self, tth_num=None, chi_num=None, units='2th_deg'):
 
         if tth_num is None:
             tth_num = self.tth_num
@@ -1254,50 +1030,37 @@ class ImageMap:
     #######################
     # Dask is not implemented for integrations...
 
-    def integrate1d_image():
-        raise NotImplementedError()
-    # Check and tag for tth, tth_num, and units
-        
-
-    def integrated1d_map():
-        raise NotImplementedError()
-    # Add warning about the state of image corrections...
-    # Save as it's own attribute
-    # Write to hdf!
-    
-
-    def integrated2d_map():
-        raise NotImplementedError()
-    # Add warning about the state of image corrections...
-    # Overwrite images attribute
-
     ### 1D integration projections ###
 
-    # Calculated as the 1D integration of the image projection
-    def integration_projection_factory(property_abbreviation):
-        property_name = f'_{property_abbreviation}_integration' # This line is crucial! 
+    def integration_projection_factory(property_abbreviation, function, axes):
+        property_name = f'_{property_abbreviation}' # This line is crucial! 
         def get_projection(self):
             if hasattr(self, property_name):
                 return getattr(self, property_name)
             else:
-                # Return image projection of integration
-                projection_2d = getattr(self, f'{property_abbreviation}_image')
-
-                tth, integration = self.intergate1d_image(projection_2d)
-                setattr(self, property_name, integration)
-
-        def set_projection(self, value):
-            setattr(self, property_name, value)
+                projection = function(self.integrations, axis=axes)
+                setattr(self, property_name, projection)
 
         def del_projection(self):
             delattr(self, property_name)
         
-        return property(get_projection, set_projection, del_projection)
+        return property(get_projection, None, del_projection)
     
-    min_integration = integration_projection_factory('min')
-    max_integration = integration_projection_factory('max')
-    med_integration = integration_projection_factory('med')
-    mean_integration = integration_projection_factory('mean')
+    min_integration = integration_projection_factory('min_integration', np.min, (0, 1))
+    min_integration_map = integration_projection_factory('min_integration_map', np.min, (2))
+
+    max_integration = integration_projection_factory('max_integration', np.max, (0, 1))
+    max_integration_map = integration_projection_factory('max_integration_map', np.max, (2))
+
+    sum_integration = integration_projection_factory('max_integration', np.sum, (0, 1))
+    sum_integration_map = integration_projection_factory('max_integration_map', np.sum, (2))
+
+    med_integration = integration_projection_factory('med_integration', np.median, (0, 1))
+    med_integration_map = integration_projection_factory('med_integration_map', np.median, (2))
+
+    mean_integration = integration_projection_factory('mean_integration', np.mean, (0, 1))
+    mean_integration_map = integration_projection_factory('mean_integration_map', np.mean, (2))
+
 
     @property
     def composite_integration(self):
@@ -1305,7 +1068,7 @@ class ImageMap:
             return getattr(self, f'_composite_integration')
         else:
             setattr(self, f'_{self.title}_composite_integration',
-                    self.max_image - self.min_image)
+                    self.max_integration - self.min_integration)
             
             # Set the generic value to this as well
             self._composite_integration = getattr(self, f'_{self.title}_composite_integration')
