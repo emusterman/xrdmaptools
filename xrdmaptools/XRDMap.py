@@ -978,7 +978,7 @@ class XRDMap():
             raise ValueError('Must define either tth_num or tth_resolution.')
 
         # Set up empty array to fill
-        integrated_map1d = np.empty((self.map.num_images, 
+        integrated_map1d = np.empty((self.map.num_pixels, 
                                      tth_num), 
                                      dtype=(self.map.dtype))
         
@@ -986,9 +986,9 @@ class XRDMap():
         print('Integrate images to 1D...')
         # TODO: Parallelize this
         for i, pixel in tqdm(enumerate(self.map.images.reshape(
-                                       self.map.num_images,
+                                       self.map.num_pixels,
                                        *self.map.image_shape)),
-                                       total=self.map.num_images):
+                                       total=self.map.num_pixels):
         
             tth, I, = self.integrate1d_image(image=pixel,
                                              tth_num=tth_num,
@@ -1055,7 +1055,7 @@ class XRDMap():
             raise ValueError('Must define either chi_num or chi_resolution.')
 
         # Set up empty array to fill
-        integrated_map2d = np.empty((self.map.num_images, 
+        integrated_map2d = np.empty((self.map.num_pixels, 
                                      chi_num, tth_num), 
                                      dtype=(self.map.dtype))
         
@@ -1063,9 +1063,9 @@ class XRDMap():
         print('Integrated images to 2D...')
         # TODO: Parallelize this
         for i, pixel in tqdm(enumerate(self.map.images.reshape(
-                                       self.map.num_images,
+                                       self.map.num_pixels,
                                        *self.map.image_shape)),
-                                       total=self.map.num_images):
+                                       total=self.map.num_pixels):
         
             I, tth, chi = self.integrate2d_image(image=pixel,
                                                  tth_num=tth_num,
@@ -1406,7 +1406,7 @@ class XRDMap():
         if not exclude_imagemap:
             # Update shape values
             self.map.shape = self.map.images.shape
-            #self.map.num_images = np.multiply(*self.map.images.shape[:2])
+            #self.map.num_pixels = np.multiply(*self.map.images.shape[:2])
             self.map.map_shape = self.map.shape[:2]
             #self.map.image_shape = self.map.shape[2:]
 

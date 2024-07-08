@@ -26,8 +26,8 @@ from .SpotModels import generate_bounds
 
 
 '''def estimate_map_noise(imagemap, sample_number=200):
-    if imagemap.num_images > sample_number:
-        indices = np.unravel_index(np.random.choice(range(imagemap.num_images), size=sample_number), imagemap.map_shape)
+    if imagemap.num_pixels > sample_number:
+        indices = np.unravel_index(np.random.choice(range(imagemap.num_pixels), size=sample_number), imagemap.map_shape)
         median_image = np.nanmedian(imagemap.images[indices], axis=(0))
     else:
         median_image = np.nanmedian(imagemap.images, axis=(0, 1))
@@ -180,7 +180,7 @@ def find_spots(imagemap, mask=None,
                expansion=None):
 
     # Converient way to iterate through image map
-    iter_image = imagemap.images.reshape(imagemap.num_images, *imagemap.images.shape[-2:])
+    iter_image = imagemap.images.reshape(imagemap.num_pixels, *imagemap.images.shape[-2:])
 
     # Dask wrapper to work wtih spot search function
     @dask.delayed
@@ -286,7 +286,7 @@ def spot_stats(spot, image, tth_arr, chi_arr, radius=5):
 
 def find_spot_stats(imagemap, spot_list, tth_arr, chi_arr, radius=5):
     # Convenient way to iterate through image map
-    iter_image = imagemap.images.reshape(imagemap.num_images, *imagemap.images.shape[-2:])
+    iter_image = imagemap.images.reshape(imagemap.num_pixels, *imagemap.images.shape[-2:])
 
     # Dask wrapper to work wtih spot search function
     @dask.delayed

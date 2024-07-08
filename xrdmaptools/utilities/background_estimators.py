@@ -84,7 +84,7 @@ def fit_poly_bkg(imagemap, order=3, mask=None):
 
     p0 = np.ones(2 * order**2)
 
-    for index in tqdm(range(imagemap.num_images)):
+    for index in tqdm(range(imagemap.num_pixels)):
         indices = np.unravel_index(index, imagemap.map_shape)
         image = imagemap.images[indices]
         z_fit = image[mask]
@@ -122,7 +122,7 @@ def fit_spline_bkg(imagemap, mask=None, sparsity=0.5, s=5000):
 
     bkg_map = np.zeros_like(imagemap.images)
 
-    for index in tqdm(range(imagemap.num_images)):
+    for index in tqdm(range(imagemap.num_pixels)):
         indices = np.unravel_index(index, imagemap.map_shape)
         image = imagemap.images[indices]
         sparse_image = image[::chi_skip, ::tth_skip]
@@ -174,7 +174,7 @@ def masked_bruckner_background(imagemap, size=10, max_iterations=100,
     bkg_map = np.zeros_like(imagemap.images)
 
     # Cycle through all map images. TODO: Parallelize this
-    for index in tqdm(range(imagemap.num_images)):
+    for index in tqdm(range(imagemap.num_pixels)):
         indices = np.unravel_index(index, imagemap.map_shape)
         
         # Initial image
@@ -252,7 +252,7 @@ def masked_bruckner_background(imagemap, size=10, max_iterations=100,
     bkg_map = np.zeros_like(imagemap.images)
 
     # Cycle through all map images. TODO: Parallelize this
-    for index in tqdm(range(imagemap.num_images)):
+    for index in tqdm(range(imagemap.num_pixels)):
         indices = np.unravel_index(index, imagemap.map_shape)
 
         # Inititial cleanup

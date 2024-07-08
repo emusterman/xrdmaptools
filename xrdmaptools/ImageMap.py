@@ -1,5 +1,6 @@
 import numpy as np
 import h5py
+import os
 from skimage.restoration import rolling_ball
 from tqdm import tqdm
 import time as ttime
@@ -26,7 +27,8 @@ class ImageMap:
     def __init__(self,
                  image_data=None,
                  integration_data=None,
-                 dataset_shape=None,
+                 map_shape=None,
+                 image_shape=None,
                  dtype=None,
                  title=None,
                  hdf_path=None,
@@ -39,7 +41,8 @@ class ImageMap:
         
         if (image_data is None
             and integration_data is None
-            and dataset_shape is None):
+            and (map_shape is None
+                 or image_shape is None)):
             raise ValueError('Must specify image_data, integration_data, or dataset_shape.')
         
         # Load image data
@@ -69,53 +72,108 @@ class ImageMap:
                 else:
                     image_data = np.asarray(image_data)
 
-            # Working with image_data shape
-            if dataset_shape is not None: # This does not behave as expected...
-                self.images = image_data.reshape(tuple(dataset_shape))
-            elif len(image_data.shape) == 3:
-                print('WARNING: Input array given as 3D object. Assuming square map...')
+            # Working wtih image_data shape
+            # Check inputs first. If these are given, assumed they will be used.
+            for shape, name in zip([map_shape, image_shape], ['map_shape', 'image_shape']):
+                if shape is not None and len(shape) != 2:
+                    raise ValueError(f'Given {name} ({shape}) is not 2D!')
+            # Fully defined inputs
+            if map_shape is not None and image_shape is not None:
+                dataset_shape = (*map_shape, *image_shape)
+                self.images = image_data.reshape(dataset_shape)
+            # 3D input.
+            elif image_data.ndim == 3:
                 input_shape = image_data.shape
-                map_side = np.sqrt(input_shape[0])
-                if map_side % 1 != 0:
-                    raise RuntimeError("Input array not 4D, no shape provided, and not a square map.")
-                new_shape = (int(map_side), int(map_side), *input_shape[1:])
-                print(f'Assumed map shape is {new_shape[:2]} with images of {new_shape[-2:]}')
-                self.images = image_data.reshape(new_shape)
-                dataset_shape = self.images.shape
-            elif len(image_data.shape) == 4:
+                print('WARNING: image_data given as 3D object.')
+                if map_shape is not None:
+                    self.images = image_data.reshape((*map_shape, *input_shape[-2:]))
+                    image_shape = self.images.shape[-2:]
+                    print(f'Reshaping image_data into given map_shape as {self.images.shape}.')
+                elif image_shape is not None:  # This may break wtih a theta or energy channel
+                    self.images = image_data.reshape((*input_shape[:-2], *image_shape))
+                    map_shape = self.images.shape[:-2]
+                    print(f'Reshaping data into given image_shape as {self.images.shape}.')
+                    print('WARNING: This is not a recommended way to store or load image data.')
+                else:
+                    print('Not map_shape or image_shape given. Assuming square map as list of images...')
+                    input_shape = image_data.shape
+                    map_side = np.sqrt(input_shape[0])
+                    if map_side % 1 != 0:
+                        raise RuntimeError('Assummed square map could not be constructed...')
+                    new_shape = (int(map_side), int(map_side), *input_shape[1:])
+                    print(f'Assumed map shape is {new_shape[:2]} with images of {new_shape[-2:]}')
+                    self.images = image_data.reshape(new_shape)
+                    map_shape = self.images.shape[:-2]
+                    image_shape = self.images.shape[-2:]
+            elif image_data.ndim == 4:
                 self.images = image_data
-                dataset_shape = self.images.shape
+                map_shape = self.images.shape[:-2]
+                image_shape = self.images.shape[-2:]
             else:
-                raise ValueError("Image data incorrect shape or unknown type. 4D array is preferred.")
-            
+                err_str = (f'Insufficient data provided to resolve '
+                           + f'image_data of shape ({image_data.shape}).'
+                           + ' 4D array is preferred input.')
+                raise ValueError(err_str)
+
             # Some useful parameters
-            self.shape = dataset_shape
-            self.num_images = np.multiply(*dataset_shape[:2])
-            self.map_shape = dataset_shape[:2]
-            self.image_shape = dataset_shape[2:]
+            self.shape = self.images.shape
+            self.map_shape = map_shape
+            self.image_shape = image_shape
+            self.num_pixels = np.prod(*self.image_shape)
         else:
             if dask_enabled:
                 print('WARNING: Cannot enable dask without image_data. Proceeding without dask.')
                 dask_enabled = False
-            if dataset_shape is not None:
-                self.shape = dataset_shape
-                self.num_images = dataset_shape[-1]
-                self.map_shape = dataset_shape[:2]  
-                self.image_shape = (1, 1)         
+            self.images = None      
         
         # Working with integration_data shape
         if integration_data is not None:
             # No lazy loading of integration_data. Might be worth it, but requires a lot of support
             integration_data = np.asarray(integration_data)
-            if integration_data.ndim == 2:
+
+            # Explicit map_shape provided
+            if map_shape is not None:
+                if len(map_shape) != 2:
+                    raise ValueError(f'Given map_shape ({map_shape}) is not 2D!')
                 self.integrations = integration_data.reshape((self.map_shape, -1))
+            
+            # 2D integration_data
+            elif integration_data.ndim == 2:
+                print('WARNING: integration_data given as 2D object without providing map_shape.')
+                print('Assuming 2D map shape...')
+                input_shape = integration_data.shape
+                map_side = np.sqrt(input_shape[0])
+                if map_side % 1 != 0:
+                    raise RuntimeError('Assummed square map could not be constructed...')
+                new_shape = (int(map_side), int(map_side), input_shape[-1])
+                print(f'Assumed map_shape is {new_shape[:2]} with integrations of {new_shape[-1]}')
+                self.integrations = integration_data.reshape(new_shape)
+                map_shape = self.integrations.shape[:2]
+
+            # 3D integration_data
             elif integration_data.ndim == 3:
                 self.integrations = integration_data
+                map_shape = self.integrations.shape[:2]
+            
             else:
-                raise ValueError("Integration data incorrect shape or unknown type. 3D array is preferred.")
-            # Integration shape can just be called. Length is just tth_num in xrdmap...
+                err_str = (f'Insufficient data provided to resolve '
+                           + f'image_data of shape ({integration_data.shape}).'
+                           + ' 3D array is preferred input.')
+                raise ValueError(err_str)
+        else:
+            self.integrations = None
         
-        #if dask_enabled:
+        # Some useful parameters
+        self.map_shape = map_shape
+        self.image_shape = image_shape
+        if self.map_shape is not None:
+            self.num_pixels = np.prod(*self.image_shape)
+        else:
+            self.num_pixels = 0
+        if hasattr(self, 'images') and self.images is not None:
+            self.shape = self.images.shape
+        
+        # If dask_enabled:
         if isinstance(self.images, da.core.Array):
             # Redo chunking along image dimensions if not already
             if self.images.chunksize[-2:] != self.images.shape[-2:]:
@@ -209,15 +267,8 @@ class ImageMap:
         self.wd = wd
         self.ai = ai
         self.sclr_dict = sclr_dict
-
-        #print('Defining new attributes')
-        # Some redundant attributes, but maybe useful
-        self.shape = self.images.shape
-        self.num_images = np.multiply(*self.images.shape[:2])
-        self.map_shape = self.shape[:2]
-        self.image_shape = self.shape[2:]
-
     
+
     def __str__(self):
         ostr = f'ImageMap: ({self.images.shape}), dtype={self.images.dtype}'
         return ostr
@@ -1033,7 +1084,7 @@ class ImageMap:
         # Surely there is better way to find the extent without a full calibration
         # It's fast some maybe doesn't matter
         _, tth, chi = self.ai.integrate2d_ng(self.images.reshape(
-                                self.num_images, 
+                                self.num_pixels, 
                                 *self.image_shape)[0],
                                 100, 100, unit=self.calib_unit)
         
@@ -1043,7 +1094,7 @@ class ImageMap:
         self.chi_num = int(np.abs(np.max(chi) - np.min(chi))
                            // self.chi_resolution)
 
-        calibrated_map = np.zeros((self.num_images,
+        calibrated_map = np.zeros((self.num_pixels,
                                    self.chi_num, 
                                    self.tth_num), 
                                    dtype=(self.dtype))
@@ -1055,9 +1106,9 @@ class ImageMap:
         print('Calibrating images...', end='', flush=True)
         # TODO: Parallelize this
         for i, pixel in tqdm(enumerate(self.images.reshape(
-                                       self.num_images,
+                                       self.num_pixels,
                                        *self.image_shape)),
-                                       total=self.num_images):
+                                       total=self.num_pixels):
             
             res, tth, chi = self.ai.integrate2d_ng(pixel,
                                           self.tth_num,

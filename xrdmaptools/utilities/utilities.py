@@ -293,21 +293,58 @@ class timed_iter(object):
         self.dt = self.tf - self.t0
         self.tot_dt = self.tf - self.t_start
         iter_rem = self.total - self.index
-        p_iter_time = self.time.strftime('%H:%M:%S', self.time.gmtime(self.dt))
-        print(f'{self.iter_name.capitalize()} {self.index} took {p_iter_time} time. {iter_rem} / {self.total} {self.iter_name}(s) remaining. ')
+        
+        p_t_time, p_t_fin = self._get_string_dt(self.dt)
+        print(f'{self.iter_name.capitalize()} {self.index} took {p_t_time} time. {iter_rem} / {self.total} {self.iter_name}(s) remaining. ')
 
         # Average time per iteration
         if iter_rem != 0:
             avg_dt = self.tot_dt / self.index
             self.t_rem = avg_dt * iter_rem
-            p_t_rem = self.time.strftime('%H:%M:%S', self.time.gmtime(self.t_rem))
-            p_t_fin = self.time.strftime('%H:%M:%S', self.time.localtime(self.time.mktime(self.time.localtime()) + self.t_rem))
-            print(f'Estimated {p_t_rem} time remaining completing at {p_t_fin}.')
+            p_t_time, p_t_fin = self._get_string_dt(self.t_rem)
+
+            print(f'Estimated {p_t_time} time remaining to complete at {p_t_fin}.')
             print('#' * 72)
         else:
             self._print_final()
 
     def _print_final(self):
-        p_t_tot = self.time.strftime('%H:%M:%S', self.time.gmtime(self.tot_dt))
-        p_t_fin = self.time.strftime('%H:%M:%S', self.time.localtime())
-        print(f'Completed {self.total} / {self.total} {self.iter_name}(s) in {p_t_tot} time at {p_t_fin}')
+
+        p_t_time, p_t_fin = self._get_string_dt(self.tot_dt)
+        # Overwrite finish time, since self.tot_dt is elapsed, not predicted
+        p_t_fin = self.time.strftime('%d %b %Y %H:%M:%S', self.time.localtime())
+
+        print(f'Completed {self.total} / {self.total} {self.iter_name}(s) in {p_t_time} time at {p_t_fin}')
+
+    def _get_string_dt(self, dt):
+        # Separate days for special handling.
+        # Should be a better way to do this...
+        dt_days = int(dt / 86400)
+        dt_rem = dt % 86400
+
+        # Only hours, minutes, and seconds    
+        p_t_time = self.time.strftime('%H:%M:%S', self.time.gmtime(dt_rem))
+
+        # One day
+        if dt_days == 1:
+            p_t_time = f'{dt_days} day and ' + p_t_time
+
+        # Multiple days
+        elif dt_days > 1:
+            p_t_time = f'{dt_days} days and ' + p_t_time
+
+        # Time of completion
+        t_now = self.time.localtime()
+        t_fin = self.time.localtime(self.time.mktime(self.time.localtime()) + dt)
+
+        # Check to see if new day
+        if t_now[7] == t_fin[7]:
+            p_t_fin = self.time.strftime('%H:%M:%S',
+                                         self.time.localtime(self.time.mktime(self.time.localtime())
+                                                             + dt))
+        else:
+            p_t_fin = self.time.strftime('%d %b %Y %H:%M:%S',
+                                         self.time.localtime(self.time.mktime(self.time.localtime())
+                                                             + dt))
+            
+        return p_t_time, p_t_fin
