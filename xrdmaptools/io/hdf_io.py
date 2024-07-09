@@ -150,7 +150,7 @@ def load_xrdmap_hdf(filename, wd=None, dask_enabled=False, only_integrations=Fal
         print('Loading reciprocal positions...', end='', flush=True)
         recip_grp = base_grp['reciprocal_positions']
 
-        image_map_attrs['extent'] = recip_grp.attrs['extent']
+        #image_map_attrs['extent'] = recip_grp.attrs['extent']
         recip_pos = {}
         for key in ['tth', 'chi']:
             if key in recip_grp.keys():

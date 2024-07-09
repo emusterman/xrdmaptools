@@ -977,7 +977,7 @@ class XRDMap():
                                      dtype=(self.map.dtype))
         
         # Fill array!
-        print('Integrate images to 1D...')
+        print('Integrating images to 1D...')
         # TODO: Parallelize this
         for i, pixel in tqdm(enumerate(self.map.images.reshape(
                                        self.map.num_images,
@@ -1054,7 +1054,7 @@ class XRDMap():
                                      dtype=(self.map.dtype))
         
         # Fill array!
-        print('Integrated images to 2D...')
+        print('Integrating images to 2D...')
         # TODO: Parallelize this
         for i, pixel in tqdm(enumerate(self.map.images.reshape(
                                        self.map.num_images,
@@ -1202,6 +1202,8 @@ class XRDMap():
                 # Skip values that are None
                 if data[i] is None:
                     data[i] = np.array([])
+                else:
+                    data[i] = np.asarray(data[i])
 
                 if key in curr_grp.keys():
                     del curr_grp[key]
