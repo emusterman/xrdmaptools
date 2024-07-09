@@ -119,7 +119,7 @@ class ImageMap:
             self.shape = self.images.shape
             self.map_shape = map_shape
             self.image_shape = image_shape
-            self.num_pixels = np.prod(*self.image_shape)
+            self.num_images = np.prod(self.map_shape)
         else:
             if dask_enabled:
                 print('WARNING: Cannot enable dask without image_data. Proceeding without dask.')
@@ -167,9 +167,9 @@ class ImageMap:
         self.map_shape = map_shape
         self.image_shape = image_shape
         if self.map_shape is not None:
-            self.num_pixels = np.prod(*self.image_shape)
+            self.num_images = np.prod(self.map_shape)
         else:
-            self.num_pixels = 0
+            self.num_images = 0
         if hasattr(self, 'images') and self.images is not None:
             self.shape = self.images.shape
         
@@ -1052,8 +1052,8 @@ class ImageMap:
     max_integration = integration_projection_factory('max_integration', np.max, (0, 1))
     max_integration_map = integration_projection_factory('max_integration_map', np.max, (2))
 
-    sum_integration = integration_projection_factory('max_integration', np.sum, (0, 1))
-    sum_integration_map = integration_projection_factory('max_integration_map', np.sum, (2))
+    sum_integration = integration_projection_factory('sum_integration', np.sum, (0, 1))
+    sum_integration_map = integration_projection_factory('sum_integration_map', np.sum, (2))
 
     med_integration = integration_projection_factory('med_integration', np.median, (0, 1))
     med_integration_map = integration_projection_factory('med_integration_map', np.median, (2))
@@ -1074,8 +1074,8 @@ class ImageMap:
             self._composite_integration = getattr(self, f'_{self.title}_composite_integration')
 
             # Save image to hdf. Should update if changed
-            self.save_images(self._composite_integration,
-                             f'_{self.title}_composite_integration')
+            self.save_integrations(self._composite_integration,
+                    f'_{self.title}_composite_integration')
 
             # Finally return the requested attribute
             return getattr(self, f'_composite_integration')
@@ -1102,6 +1102,7 @@ class ImageMap:
                 self.integration_background_method = 'minimum'
                 
             elif method in ['ball', 'rolling ball', 'rolling_ball']:
+                raise NotImplementedError('Shape issues...')
                 print('Estimating background with rolling ball method.')
                 self.integration_background = rolling_ball(self.integrations, **kwargs)
                 self.integration_background_method = 'rolling ball'

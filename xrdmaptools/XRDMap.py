@@ -274,12 +274,6 @@ class XRDMap():
             print('Loading data from hdf file...')
             input_dict = load_xrdmap_hdf(hdf_filename, wd=wd, dask_enabled=dask_enabled)
 
-            #for key in kwargs.keys():
-            #    if key in input_dict.keys():
-            #        print((f"Warning: '{key}' found in hdf file and in keyword argument. "
-            #              + "Defaulting to user-specification."))
-            #    input_dict['base_md'][key] = kwargs[key]
-
             inst = cls(image_data=input_dict['image_data'],
                     wd=wd,
                     filename=hdf_filename[:-3], # remove the .h5 extention
@@ -300,8 +294,8 @@ class XRDMap():
             # Add a few more attributes if they exist
             if hasattr(inst.map, 'extent'):
                 inst.extent = inst.map.extent
-            if hasattr(inst.map, 'calibrated_shape'):
-                inst.calibrated_shape = inst.map.calibrated_shape
+            #if hasattr(inst.map, 'calibrated_shape'):
+            #    inst.calibrated_shape = inst.map.calibrated_shape
             
             # Load phases
             if 'phase_dict' in input_dict.keys():
@@ -978,7 +972,7 @@ class XRDMap():
             raise ValueError('Must define either tth_num or tth_resolution.')
 
         # Set up empty array to fill
-        integrated_map1d = np.empty((self.map.num_pixels, 
+        integrated_map1d = np.empty((self.map.num_images, 
                                      tth_num), 
                                      dtype=(self.map.dtype))
         
@@ -986,9 +980,9 @@ class XRDMap():
         print('Integrate images to 1D...')
         # TODO: Parallelize this
         for i, pixel in tqdm(enumerate(self.map.images.reshape(
-                                       self.map.num_pixels,
+                                       self.map.num_images,
                                        *self.map.image_shape)),
-                                       total=self.map.num_pixels):
+                                       total=self.map.num_images):
         
             tth, I, = self.integrate1d_image(image=pixel,
                                              tth_num=tth_num,
@@ -1055,7 +1049,7 @@ class XRDMap():
             raise ValueError('Must define either chi_num or chi_resolution.')
 
         # Set up empty array to fill
-        integrated_map2d = np.empty((self.map.num_pixels, 
+        integrated_map2d = np.empty((self.map.num_images, 
                                      chi_num, tth_num), 
                                      dtype=(self.map.dtype))
         
@@ -1063,9 +1057,9 @@ class XRDMap():
         print('Integrated images to 2D...')
         # TODO: Parallelize this
         for i, pixel in tqdm(enumerate(self.map.images.reshape(
-                                       self.map.num_pixels,
+                                       self.map.num_images,
                                        *self.map.image_shape)),
-                                       total=self.map.num_pixels):
+                                       total=self.map.num_images):
         
             I, tth, chi = self.integrate2d_image(image=pixel,
                                                  tth_num=tth_num,
@@ -1406,7 +1400,7 @@ class XRDMap():
         if not exclude_imagemap:
             # Update shape values
             self.map.shape = self.map.images.shape
-            #self.map.num_pixels = np.multiply(*self.map.images.shape[:2])
+            #self.map.num_images = np.multiply(*self.map.images.shape[:2])
             self.map.map_shape = self.map.shape[:2]
             #self.map.image_shape = self.map.shape[2:]
 

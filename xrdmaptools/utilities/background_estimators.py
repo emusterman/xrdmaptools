@@ -84,7 +84,7 @@ def fit_poly_bkg(imagemap, order=3, mask=None):
 
     p0 = np.ones(2 * order**2)
 
-    for index in tqdm(range(imagemap.num_pixels)):
+    for index in tqdm(range(imagemap.num_images)):
         indices = np.unravel_index(index, imagemap.map_shape)
         image = imagemap.images[indices]
         z_fit = image[mask]
@@ -122,7 +122,7 @@ def fit_spline_bkg(imagemap, mask=None, sparsity=0.5, s=5000):
 
     bkg_map = np.zeros_like(imagemap.images)
 
-    for index in tqdm(range(imagemap.num_pixels)):
+    for index in tqdm(range(imagemap.num_images)):
         indices = np.unravel_index(index, imagemap.map_shape)
         image = imagemap.images[indices]
         sparse_image = image[::chi_skip, ::tth_skip]
@@ -144,6 +144,7 @@ def fit_spline_bkg(imagemap, mask=None, sparsity=0.5, s=5000):
         bkg_map[indices] = overlap
 
     return bkg_map
+
 
 # OPTIMIZE ME: numba and/or dask delayed
 def masked_bruckner_background(imagemap, size=10, max_iterations=100,
@@ -174,7 +175,7 @@ def masked_bruckner_background(imagemap, size=10, max_iterations=100,
     bkg_map = np.zeros_like(imagemap.images)
 
     # Cycle through all map images. TODO: Parallelize this
-    for index in tqdm(range(imagemap.num_pixels)):
+    for index in tqdm(range(imagemap.num_images)):
         indices = np.unravel_index(index, imagemap.map_shape)
         
         # Initial image
@@ -252,7 +253,7 @@ def masked_bruckner_background(imagemap, size=10, max_iterations=100,
     bkg_map = np.zeros_like(imagemap.images)
 
     # Cycle through all map images. TODO: Parallelize this
-    for index in tqdm(range(imagemap.num_pixels)):
+    for index in tqdm(range(imagemap.num_images)):
         indices = np.unravel_index(index, imagemap.map_shape)
 
         # Inititial cleanup
@@ -361,12 +362,18 @@ def spline_image_bkg(image, mask, tth, chi, sparsity=0.5, s=5000):
 
     zero_image = np.copy(image)
     zero_image[~mask] = 0 # should be redundant
-    zero_func = RectBivariateSpline(tth[::tth_skip], chi[::chi_skip], zero_image[::chi_skip, ::tth_skip].T, s=s)
+    zero_func = RectBivariateSpline(tth[::tth_skip],
+                                    chi[::chi_skip],
+                                    zero_image[::chi_skip, ::tth_skip].T,
+                                    s=s)
     zero_spline = zero_func(tth, chi).T
 
     div_image = 0 * np.copy(image) + 1
     div_image[~mask] = 0
-    div_func = RectBivariateSpline(tth[::tth_skip], chi[::chi_skip], div_image[::chi_skip, ::tth_skip].T, s=s)
+    div_func = RectBivariateSpline(tth[::tth_skip],
+                                   chi[::chi_skip],
+                                   div_image[::chi_skip, ::tth_skip].T,
+                                   s=s)
     div_spline = div_func(tth, chi).T
 
     overlap = zero_spline / div_spline

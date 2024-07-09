@@ -44,7 +44,7 @@ def _plot_parse_xrdmap(xrdmap, indices, mask=False, spots=False, contours=False)
     # Extract contours
     out_contour_list = None
     if contours and hasattr(xrdmap.map, 'spot_masks'):
-        blob_img = label(xrdmap.map.spot_masks[indices])
+        blob_img = label(xrdmap.map.spot_masks[tuple(indices)])
         blob_contours = find_blob_contours(blob_img)
         out_contour_list = []
         for blob_contour in blob_contours:
@@ -52,6 +52,8 @@ def _plot_parse_xrdmap(xrdmap, indices, mask=False, spots=False, contours=False)
                 out_contour_list.append(estimate_polar_coords(blob_contour.T,
                                                               xrdmap.tth_arr,
                                                               xrdmap.chi_arr).T)
+        else:
+            out_contour_list = blob_contours
 
     elif contours and hasattr(xrdmap.map, 'spot_masks'):
         print('WARNING: Contours requested, but xrdmap does not have any spot masks to draw contours!')

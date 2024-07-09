@@ -2,7 +2,14 @@ import dask
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-from scipy.ndimage import gaussian_filter, median_filter, uniform_filter, maximum_filter, minimum_filter
+from scipy.ndimage import (
+    distance_transform_edt,
+    gaussian_filter,
+    median_filter,
+    uniform_filter,
+    maximum_filter,
+    minimum_filter
+    )
 from scipy.optimize import curve_fit
 import scipy.stats as st
 from skimage.measure import label, find_contours
@@ -26,13 +33,164 @@ from .SpotModels import generate_bounds
 
 
 '''def estimate_map_noise(imagemap, sample_number=200):
-    if imagemap.num_pixels > sample_number:
-        indices = np.unravel_index(np.random.choice(range(imagemap.num_pixels), size=sample_number), imagemap.map_shape)
+    if imagemap.num_images > sample_number:
+        indices = np.unravel_index(np.random.choice(range(imagemap.num_images), size=sample_number), imagemap.map_shape)
         median_image = np.nanmedian(imagemap.images[indices], axis=(0))
     else:
         median_image = np.nanmedian(imagemap.images, axis=(0, 1))
     bkg_noise = np.nanstd(median_image[imagemap.mask])
     return bkg_noise'''
+
+def resize_blobs(blob_image, distance=0):
+
+    if distance is None or distance == 0:
+        return blob_image
+
+    elif distance > 0:
+        distances = distance_transform_edt(blob_image == 0)
+        resize_mask = distances <= distance
+    elif distance < 0:
+        distances = distance_transform_edt(blob_image == 1)
+        resize_mask = distances <= -distance
+        resize_mask = ~resize_mask
+
+    return resize_mask
+
+
+def blob_search(scaled_image,
+                mask=None,
+                threshold_method='gaussian',
+                multiplier=5,
+                size=3,
+                expansion=None):
+    
+    if mask is None or np.all(mask):
+       temp_mask = np.ones_like(scaled_image, dtype=np.bool_)
+    else:
+        temp_mask = mask
+
+    # Estimate individual image offset and noise
+    pseudo_blob_mask = scaled_image < 0.01
+    pseudo_blob_mask *= temp_mask
+    image_noise = np.std(scaled_image[pseudo_blob_mask])
+    image_offset = np.median(scaled_image[pseudo_blob_mask])
+
+    # Mask image
+    mask_thresh = image_offset + multiplier * image_noise
+
+    # Setup filter for the images
+    # Works okay, could take no inputs...
+    if str(threshold_method).lower() in ['gaussian', 'gauss']:
+        image_filter = lambda image : gaussian_filter(image, sigma=size)
+    # Works best
+    elif str(threshold_method).lower() in ['minimum', 'min']:
+        image_filter = lambda image : minimum_filter(gaussian_filter(image, sigma=1), size=size)
+    # Gaussian is better and faster
+    elif str(threshold_method).lower() in ['median', 'med']:
+        image_filter = lambda image : median_filter(image, size=size)
+    else:
+        raise ValueError('Unknown threshold method requested.')
+    
+    if mask is not None:
+        # Smooth image to reduce noise contributions
+        zero_image = np.copy(scaled_image)
+        zero_image[~temp_mask] = 0 # should be redundant
+        zero_filter = image_filter(zero_image)
+        
+        div_image = np.ones_like(scaled_image)
+        div_image[~temp_mask] = 0
+        filter_div = image_filter(div_image)
+        
+        blurred_image = zero_filter / filter_div
+        # Clean up some NaNs from median filters
+        temp_mask[np.isnan(blurred_image)] = False
+        # Clear image from masked values. Should not matter....
+        blurred_image[~temp_mask] = 0
+
+        # Create mask for peak search
+        blob_mask = blurred_image > mask_thresh
+        blob_mask *= temp_mask
+    else:
+        zero_image = np.copy(scaled_image)
+        zero_image[~temp_mask] = 0 # should be redundant
+        blurred_image = image_filter(zero_image)
+
+        blob_mask = blurred_image > mask_thresh
+
+    # Exclude edges from analysis
+    # They can be erroneous from filters
+    blob_mask[0] = 0
+    blob_mask[-1] = 0
+    blob_mask[:, 0] = 0
+    blob_mask[:, -1] = 0
+
+    # Expand blobs for better fitting
+    if expansion is not None:
+        expanded_mask = expand_labels(blob_mask, distance=expansion)
+    else:
+        expanded_mask = blob_mask
+
+    return blob_mask, expanded_mask, blurred_image
+
+
+def new_spot_search(scaled_image,
+                    blob_mask,
+                    blurred_image,
+                    min_distance=3,
+                    plotme=False):        
+        
+    spots = peak_local_max(blurred_image,
+                #threshold_rel=image_noise,
+                min_distance=min_distance, # in pixel units...
+                labels=blob_mask,
+                num_peaks_per_label=np.inf)
+        
+    if plotme:
+        fig, ax = plt.subplots(1, 1, figsize=(9, 6), dpi=200)
+
+        im = ax.imshow(scaled_image,
+                       vmin=0,
+                       vmax=np.max(scaled_image) * 0.1,
+                       aspect='auto')
+        fig.colorbar(im, ax=ax)
+        ax.scatter(spots[:, 1], spots[:, 0], s=1, c='r')
+
+        fig.show()
+    
+    return spots, blob_mask, blurred_image
+
+
+def blob_spot_search(scaled_image,
+                     mask=None,
+                     threshold_method='gaussian',
+                     multiplier=5,
+                     size=3,
+                     min_distance=3,
+                     expansion=None,
+                     plotme=False):
+    
+    (blob_mask,
+     expanded_mask,
+     blurred_image) = blob_search(
+        scaled_image,
+        mask=mask,
+        threshold_method=threshold_method,
+        multiplier=multiplier,
+        size=size,
+        expansion=expansion
+        )
+    
+    (spots,
+     blob_mask,
+     blurred_image) = new_spot_search(
+        scaled_image,
+        blob_mask,
+        blurred_image,
+        min_distance=min_distance,
+        plotme=plotme
+        )
+
+    return spots, expanded_mask, blurred_image
 
 
 # Must take scaled images!!!
@@ -180,7 +338,7 @@ def find_spots(imagemap, mask=None,
                expansion=None):
 
     # Converient way to iterate through image map
-    iter_image = imagemap.images.reshape(imagemap.num_pixels, *imagemap.images.shape[-2:])
+    iter_image = imagemap.images.reshape(imagemap.num_images, *imagemap.images.shape[-2:])
 
     # Dask wrapper to work wtih spot search function
     @dask.delayed
@@ -191,7 +349,7 @@ def find_spots(imagemap, mask=None,
                          size=size,
                          expansion=expansion):
         
-        spots, spot_mask, thresh_image = spot_search(image,
+        spots, spot_mask, thresh_image = blob_spot_search(image,
                                                 mask=mask,
                                                 threshold_method=threshold_method,
                                                 multiplier=multiplier,
@@ -286,7 +444,7 @@ def spot_stats(spot, image, tth_arr, chi_arr, radius=5):
 
 def find_spot_stats(imagemap, spot_list, tth_arr, chi_arr, radius=5):
     # Convenient way to iterate through image map
-    iter_image = imagemap.images.reshape(imagemap.num_pixels, *imagemap.images.shape[-2:])
+    iter_image = imagemap.images.reshape(imagemap.num_images, *imagemap.images.shape[-2:])
 
     # Dask wrapper to work wtih spot search function
     @dask.delayed
