@@ -516,13 +516,26 @@ class ImageMap:
     ### Image Corrections and Transforms ###
     ########################################
 
+    def _check_correction(self, correction, override=False):
+        if self.corrections[correction]:
+            warn_str = f'WARNING: {correction} correction already applied!'
+            if override:
+                warn_str += f'\nOverriding warning and {correction} anyway'
+                print(warn_str)
+                return False
+            else:
+                warn_str += f'\nProceeding without changes.'
+                print(warn_str)
+                return True
+
     ### Initial image corrections ###
 
-    def correct_dark_field(self, dark_field=None):
+    def correct_dark_field(self,
+                           dark_field=None,
+                           override=False):
 
-        if self.corrections['dark_field']:
-            print('''Warning: Dark-field correction already applied! 
-                  Proceeding without any changes''')
+        if self._check_correction('dark_field', override=override):
+            return
         elif dark_field is None:
             print('No dark-field given for correction.')
         elif dark_field.shape != self.image_shape:
@@ -566,11 +579,12 @@ class ImageMap:
     #       but the means/medians of the flat field and images should be similar
     #       Consider adding a way to rescale the image array along with the flat_field
     #       As of now, this should be done immediately after the dark field correction       
-    def correct_flat_field(self, flat_field=None):
+    def correct_flat_field(self,
+                           flat_field=None,
+                           override=False):
 
-        if self.corrections['flat_field']:
-            print('''Warning: Flat-field correction already applied! 
-                  Proceeding without any changes''')
+        if self._check_correction('flat_field', override=override):
+            return
         elif flat_field is None:
             print('No flat-field correction.')
         elif flat_field.shape != self.image_shape:
@@ -599,12 +613,13 @@ class ImageMap:
             print('done!')
 
 
-    def correct_outliers(self, size=2, tolerance=3):
+    def correct_outliers(self,
+                         size=2,
+                         tolerance=3,
+                         override=False):
 
-        if self.corrections['outliers']:
-            print('''Warning: Outlier correction already applied!
-                  Proceeding to find and correct new outliers:''')
-        
+        if self._check_correction('outliers', override=override):
+            return
         print('Finding and correcting image outliers...', end='', flush=True)
         self.images = find_outlier_pixels(self.images,
                                           size=size,
@@ -617,8 +632,15 @@ class ImageMap:
 
 
     # No correction for defect mask, since it is used whenever mask is called
-    def apply_defect_mask(self, min_bounds=(-np.inf, 0),
-                          max_bounds=(0, np.inf), mask=None):
+    def apply_defect_mask(self,
+                          min_bounds=(-np.inf, 0),
+                          max_bounds=(0, np.inf),
+                          mask=None,
+                          override=False):
+        
+        if self._check_correction('pixel_defects', override=override):
+            return
+
         if mask is not None:
             self.defect_mask = np.asarray(mask).astype(np.bool_)
         else:
@@ -649,11 +671,12 @@ class ImageMap:
 
     ### Geometric corrections ###
     # TODO: Add conditionals to allow corrections to be applied to calibrated images
-    def apply_lorentz_correction(self, powder=False, apply=True):
+    def apply_lorentz_correction(self,
+                                 powder=False,
+                                 apply=True,
+                                 override=False):
 
-        if self.corrections['lorentz']:
-            print('''Warning: Lorentz correction already applied! 
-                  Proceeding without any changes''')
+        if self._check_correction('lorentz', override=override):
             return
 
         # In radians
@@ -679,11 +702,12 @@ class ImageMap:
             print('done!')
 
     
-    def apply_polarization_correction(self, polarization=0.9, apply=True):
+    def apply_polarization_correction(self,
+                                      polarization=0.9,
+                                      apply=True,
+                                      override=False):
 
-        if self.corrections['polarization']:
-            print('''Warning: polarization correction already applied! 
-                  Proceeding without any changes''')
+        if self._check_correction('polarization', override=override):
             return
         
         # TODO: Does not work with already calibrated images
@@ -718,11 +742,11 @@ class ImageMap:
             print('done!')
 
     
-    def apply_solidangle_correction(self, apply=True):
+    def apply_solidangle_correction(self,
+                                    apply=True,
+                                    override=False):
 
-        if self.corrections['solid_angle']:
-            print('''Warning: Solid angle correction already applied! 
-                  Proceeding without any changes''')
+        if self._check_correction('solid_angle', override=override):
             return
 
         # TODO: Does not work with already calibrated images
@@ -747,7 +771,10 @@ class ImageMap:
             print('done!')
 
 
-    def apply_absorption_correction(self, exp_dict, apply=True):
+    def apply_absorption_correction(self,
+                                    exp_dict,
+                                    apply=True,
+                                    override=False):
 
         #exp_dict = {
         #    'attenuation_length' : value,
@@ -756,16 +783,20 @@ class ImageMap:
         #    'theta' : value # in degrees!
         #}
 
-        if self.corrections['absorption']:
-            print('''Warning: Absorption correction already applied! 
-                  Proceeding without any changes''')
+        if self._check_correction('absorption', override=override):
             return
         
         # In radians
         tth_arr = self.ai.twoThetaArray()
         chi_arr = self.ai.chiArray()
 
-        if not all(x in list(exp_dict.keys()) for x in ['attenuation_length', 'mode', 'thickness', 'theta']):
+        if not all(x in list(exp_dict.keys()) for x in [
+            'attenuation_length',
+            'mode',
+            'thickness',
+            'theta'
+            ]):
+            
             raise ValueError("""Experimental dictionary does not have all the necessary keys: 
                              'attenuation_length', 'mode', and 'thickness'.""")
 
@@ -804,11 +835,11 @@ class ImageMap:
             print('done!')
 
 
-    def normalize_scaler(self, scaler_arr=None):
+    def normalize_scaler(self,
+                         scaler_arr=None,
+                         override=False):
 
-        if self.corrections['scaler_intensity']:
-            print('''Warning: Images have already been normalized by the scaler! 
-                  Proceeding without any changes''')
+        if self._check_correction('scalar_intensity', override=override):
             return
         
         elif scaler_arr is None:
@@ -910,7 +941,14 @@ class ImageMap:
             self.background_method = 'custom'
     
 
-    def remove_background(self, background=None, save_images=False):
+    def remove_background(self,
+                          background=None,
+                          save_images=False,
+                          override=False):
+
+        if self._check_correction('background', override=override):
+            return
+        
         if background is None:
             if hasattr(self, 'background'):
                 background = getattr(self, 'background')

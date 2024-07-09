@@ -34,9 +34,12 @@ from .io.db_io import load_data
 from .reflections.spot_blob_indexing import get_q_vect, _initial_spot_analysis
 from .reflections.SpotModels import GaussianFunctions
 from .reflections.spot_blob_search import (
+    find_blobs,
+    find_blobs_spots,
     find_spots,
     find_spot_stats,
     make_stat_df,
+    remake_spot_list,
     prepare_fit_spots,
     fit_spots,
     find_blob_contours
@@ -900,7 +903,7 @@ class XRDMap():
                 self.ai.detector.pixel2 = poni_pixel2 / bin_est[1]
 
         else:
-            print('Warning: Could not find any images to compare calibration!')
+            print('WARNING: Could not find any images to compare calibration!')
             print('Defaulting to detectors settings used for calibration.')
 
         # Extract calibration parameters to save
@@ -1395,8 +1398,8 @@ class XRDMap():
         if hasattr(self, 'sclr_dict'):
             for key in list(self.sclr_dict.keys()):
                 self.sclr_dict[key] = self.sclr_dict[key].swapaxes(0, 1)
-        if hasattr(self.map, 'spot_masks'):
-            self.map.spot_masks = self.map.spot_masks.swapaxes(0, 1)
+        if hasattr(self.map, 'blob_masks'):
+            self.map.blob_masks = self.map.blob_masks.swapaxes(0, 1)
 
         # Update imagemap attrs if included
         if not exclude_imagemap:
@@ -1584,9 +1587,105 @@ class XRDMap():
     ### Spot Search and Selection ###
     #################################
 
-    def find_spots(self, threshold_method='gaussian',
-                   multiplier=5, size=3,
-                   radius=5, expansion=None):
+    def find_blobs(self,
+                   threshold_method='minimum',
+                   multiplier=5,
+                   size=3,
+                   expansion=10):
+    
+        # Cleanup images as necessary
+        self.map._dask_2_numpy()
+        if np.max(self.map.images) != 100:
+            print('Rescaling images to max of 100 and min around 0.')
+            self.map.rescale_images(arr_min=0, upper=100)
+
+        # Search each image for significant spots
+        blob_mask_list = find_blobs(
+                            self.map.images,
+                            mask=self.map.mask,
+                            threshold_method=threshold_method,
+                            multiplier=multiplier,
+                            size=size,
+                            expansion=expansion)
+        
+        self.map.blob_masks = np.asarray(blob_mask_list).reshape(self.map.shape)
+
+        # Save blob_masks to hdf
+        self.map.save_images(images=self.map.blob_masks,
+                             title='_blob_masks',
+                             units='bool',
+                             extra_attrs={'threshold_method' : threshold_method,
+                                          'size' : size,
+                                          'multiplier' : multiplier,
+                                          'expansion' : expansion})
+        
+
+    def find_blob_spots(self,
+                        threshold_method='minimum',
+                        multiplier=5,
+                        size=3,
+                        expansion=10,
+                        min_distance=3,
+                        radius=10):
+        
+        if (hasattr(self.map, 'blob_masks')
+            and self.map.blob_masks is not None):
+            print('WARNING: XRDMap already has blob_masks attribute. '
+                  + 'This will be overwritten wtih new parameters.')
+            
+        # Cleanup images as necessary
+        self.map._dask_2_numpy()
+        if np.max(self.map.images) != 100:
+            print('Rescaling images to max of 100 and min around 0.')
+            self.map.rescale_images(arr_min=0, upper=100)
+        
+        # Search each image for significant blobs and spots
+        spot_list, blob_mask_list = find_blobs_spots(
+                    self.map.images,
+                    mask=self.map.mask,
+                    threshold_method=threshold_method,
+                    multiplier=multiplier,
+                    size=size,
+                    expansion=expansion,
+                    min_distance=min_distance)
+        
+        # Initial characterization of each spot
+        stat_list = find_spot_stats(self.map,
+                                    spot_list,
+                                    self.tth_arr,
+                                    self.chi_arr,
+                                    radius=radius)
+        
+        # Convert spot stats into dict, then pandas dataframe
+        stat_df = make_stat_df(stat_list, self.map.map_shape)
+
+        # .spots attribute will be the basis will be treated similarly to .map
+        # Most subsequent analysis will be built here
+        # Consider wrapping it in a class like ImageMap or Phase
+        self.spots = stat_df
+        
+        # Reformat blobs
+        self.map.blob_masks = np.asarray(blob_mask_list).reshape(self.map.shape)
+
+        # Save spots to hdf
+        self.save_spots(extra_attrs={'radius' : radius})
+
+        # Save blob_masks to hdf
+        self.map.save_images(images=self.map.blob_masks,
+                             title='_blob_masks',
+                             units='bool',
+                             extra_attrs={'threshold_method' : threshold_method,
+                                          'size' : size,
+                                          'multiplier' : multiplier,
+                                          'expansion' : expansion})
+        
+
+    def find_spots(self,
+                   threshold_method='minimum',
+                   multiplier=5,
+                   size=3,
+                   expansion=10,
+                   radius=10):
         
         # Cleanup images as necessary
         self.map._dask_2_numpy()
@@ -1594,8 +1693,6 @@ class XRDMap():
             print('Rescaling images to max of 100 and min around 0.')
             self.map.rescale_images(arr_min=0, upper=100)
 
-        # Estimate remaining map noise to determine peak significance
-        #self.map_noise = estimate_map_noise(self.map, sample_number=200)
 
         # Search each image for significant spots
         spot_list, mask_list = find_spots(self.map,
@@ -1619,20 +1716,47 @@ class XRDMap():
         # Most subsequent analysis will be built here
         # Consider wrapping it in a class like ImageMap or Phase
         self.spots = stat_df
-        self.map.spot_masks = np.asarray(mask_list).reshape(*self.map.map_shape,
-                                                       *self.map.images.shape[-2:])
+        self.map.blob_masks = np.asarray(mask_list).reshape(self.map.shape)
 
         # Save spots to hdf
         self.save_spots()
 
         # Save masks to hdf
-        self.map.save_images(images=self.map.spot_masks,
-                                title='_spot_masks',
+        self.map.save_images(images=self.map.blob_masks,
+                                title='_blob_masks',
                                 units='bool',
                                 extra_attrs={'threshold_method' : threshold_method,
                                             'size' : size,
                                             'multiplier' : multiplier,
                                             'window_radius' : radius})
+        
+    
+    def recharacterize_spots(self,
+                             radius=10):
+
+        # Remove spot guesses
+        print('Removing spot guess characteristics...')
+        self.remove_spot_guesses()
+    
+        spot_list = remake_spot_list(self.spots, self.map.map_shape)
+
+        # Initial characterization of each spot
+        stat_list = find_spot_stats(self.map,
+                                    spot_list,
+                                    self.tth_arr,
+                                    self.chi_arr,
+                                    radius=radius)
+        
+        # Convert spot stats into dict, then pandas dataframe
+        stat_df = make_stat_df(stat_list, self.map.map_shape)
+
+        # .spots attribute will be the basis will be treated similarly to .map
+        # Most subsequent analysis will be built here
+        # Consider wrapping it in a class like ImageMap or Phase
+        self.spots = stat_df
+
+        # Save spots to hdf
+        self.save_spots()
 
 
     def fit_spots(self, SpotModel, max_dist=0.5, sigma=1):
@@ -1721,15 +1845,20 @@ class XRDMap():
         if save_spots:
             self.save_spots()
 
-
-    def remove_spot_fits(self):
-        drop_keys = []
+    
+    def _remove_spot_vals(self, drop_keys=[], drop_tags=[]):
         for key in list(self.spots.keys()):
-            if 'fit' in key:
-                print(key)
-                drop_keys.append(key)
-
+            for tag in drop_tags:
+                if tag in key:
+                    drop_keys.append(key)
+        print(f'Removing spot values for {drop_keys}')
         self.spots.drop(drop_keys, axis=1, inplace=True)
+
+    def remove_spot_guesses(self):
+        self._remove_spot_vals(drop_tags=['guess'])
+    
+    def remove_spot_fits(self):
+        self._remove_spot_vals(drop_tags=['fit'])
     
 
     def pixel_spots(self, map_indices):

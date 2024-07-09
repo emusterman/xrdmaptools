@@ -124,13 +124,10 @@ def blob_search(scaled_image,
     blob_mask[:, 0] = 0
     blob_mask[:, -1] = 0
 
-    # Expand blobs for better fitting
-    if expansion is not None:
-        expanded_mask = expand_labels(blob_mask, distance=expansion)
-    else:
-        expanded_mask = blob_mask
+    if expansion is not None and expansion != 0:
+        blob_mask = resize_blobs(blob_mask, distance=expansion)
 
-    return blob_mask, expanded_mask, blurred_image
+    return blob_mask, blurred_image
 
 
 def new_spot_search(scaled_image,
@@ -150,7 +147,7 @@ def new_spot_search(scaled_image,
 
         im = ax.imshow(scaled_image,
                        vmin=0,
-                       vmax=np.max(scaled_image) * 0.1,
+                       vmax=0.05, # images should be scaled
                        aspect='auto')
         fig.colorbar(im, ax=ax)
         ax.scatter(spots[:, 1], spots[:, 0], s=1, c='r')
@@ -170,14 +167,13 @@ def blob_spot_search(scaled_image,
                      plotme=False):
     
     (blob_mask,
-     expanded_mask,
      blurred_image) = blob_search(
         scaled_image,
         mask=mask,
         threshold_method=threshold_method,
         multiplier=multiplier,
         size=size,
-        expansion=expansion
+        expansion=0 # Do not expand until after spot search!
         )
     
     (spots,
@@ -189,8 +185,12 @@ def blob_spot_search(scaled_image,
         min_distance=min_distance,
         plotme=plotme
         )
+    
+    # Expand blobs after spot search. Makes spot search more selective
+    if expansion is not None and expansion != 0:
+        blob_mask = resize_blobs(blob_mask, distance=expansion)
 
-    return spots, expanded_mask, blurred_image
+    return spots, blob_mask, blurred_image
 
 
 # Must take scaled images!!!
@@ -331,10 +331,74 @@ def spot_search(scaled_image,
 
     return spots, peak_mask, thresh_img'''
 
-
-def find_spots(imagemap, mask=None,
+# Parallelized function to find only blobs in imagemap
+def find_blobs(images,
+               mask=None,
                threshold_method='gaussian',
-               multiplier=5, size=3,
+               multiplier=5,
+               size=3,
+               expansion=None):
+
+    # Dask wrapper to work wtih spot search function
+    @dask.delayed
+    def dask_blob_search(image,
+                         mask=mask,
+                         threshold_method=threshold_method,
+                         multiplier=multiplier,
+                         size=size,
+                         expansion=expansion):
+        
+        blob_mask, blurred_image = blob_search(image,
+                                               mask=mask,
+                                               threshold_method=threshold_method,
+                                               multiplier=multiplier,
+                                               size=size,
+                                               expansion=expansion)
+        return blob_mask, # thesh_image
+
+    # Create list of delayed tasks
+    map_shape = images.shape[:-2]
+    num_images = np.prod(map_shape)
+    delayed_list = []
+    for index in range(num_images):
+        indices = np.unravel_index(index, map_shape)
+        image = images[indices]
+
+        # Convert dask to numpy arrays
+        if isinstance(image, da.core.Array):
+            image = image.compute()
+
+        output = dask_blob_search(image,
+                                  mask=mask,
+                                  threshold_method=threshold_method,
+                                  multiplier=multiplier,
+                                  size=size)
+        delayed_list.append(output)
+
+    # Process delayed tasks with callback
+    print('Searching images for spots...')
+    with TqdmCallback(tqdm_class=tqdm):
+        blob_mask_list = dask.compute(*delayed_list)
+    
+    return blob_mask_list
+
+
+def new_find_spots(images,
+                   mask=None,
+                   threshold_method='gaussian',
+                   multiplier=5,
+                   size=3,
+                   expansion=None):
+
+
+def find_blobs_spots(images)
+
+
+def find_spots(imagemap,
+               mask=None,
+               threshold_method='gaussian',
+               multiplier=5,
+               size=3,
                expansion=None):
 
     # Converient way to iterate through image map
