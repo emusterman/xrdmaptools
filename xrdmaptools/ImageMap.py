@@ -588,7 +588,6 @@ class ImageMap:
         self._dask_2_hdf()
 
 
-
     # No correction for custom mask, since is used whenever mask is called
     def apply_custom_mask(self, mask=None):
         if mask is not None:
@@ -842,7 +841,7 @@ class ImageMap:
             raise ValueError(f'''Scaler array of shape {scaler_arr.shape} does not 
                             match the map shape of {self.map_shape}.''')
    
-        print(f'Normalize image by {sclr_key} scaler...', end='', flush=True)
+        print(f'Normalizing images by {sclr_key} scaler...', end='', flush=True)
         self.images /= scaler_arr.reshape(*self.map_shape, 1, 1)
         self.scaler_map = scaler_arr # Do not save to hdf, since scalers should be recorded...
         self.corrections['scaler_intensity'] = True
