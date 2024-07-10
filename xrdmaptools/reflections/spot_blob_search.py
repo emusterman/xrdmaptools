@@ -389,7 +389,7 @@ def old_find_spots(imagemap,
                          size=size,
                          expansion=expansion):
         
-        spots, spot_mask, thresh_image = blob_spot_search(image,
+        spots, spot_mask, thresh_image = spot_search(image,
                                                 mask=mask,
                                                 threshold_method=threshold_method,
                                                 multiplier=multiplier,
