@@ -11,7 +11,7 @@ def make_xrdmap_hdf(scanid=-1,
                     filedir=None,
                     filename=None,
                     poni_file=None,
-                    repair_method='replace'):
+                    repair_method='fill'):
     
     print('*' * 72)
     XRDMap.from_db(scanid=scanid,

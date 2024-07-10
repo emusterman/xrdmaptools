@@ -135,7 +135,7 @@ class ImageMap:
             if map_shape is not None:
                 if len(map_shape) != 2:
                     raise ValueError(f'Given map_shape ({map_shape}) is not 2D!')
-                self.integrations = integration_data.reshape((self.map_shape, -1))
+                self.integrations = integration_data.reshape((*self.map_shape, -1))
             
             # 2D integration_data
             elif integration_data.ndim == 2:

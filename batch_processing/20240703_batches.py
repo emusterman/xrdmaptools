@@ -264,4 +264,232 @@ def xmt_batch3():
         xrdmap.find_spots(threshold_method='minimum',
                           multiplier=3, size=3,
                           radius=10, expansion=10)
+
+
+def xmt_batch4():
+
+    base_wd = '/nsls2/data/srx/proposals/2024-1/pass-314118/'
+    scanlist = [
+        153485,
+        153487,
+        153489,
+        153491,
+        153493,
+        153495,
+        153502,
+        153504,
+        153506,
+        153508,
+        153510
+    ]
+
+    dark_field = io.imread(f'{base_wd}scan153481_dexela_median_composite.tif')
+    #flat_field = io.imread()
+    poni_file = 'scan153219_dexela_calibration.poni'
+
+    for scan in timed_iter(scanlist):
+        print(f'Batch processing scan {scan}...')
+
+        if not os.path.exists(f'{base_wd}processed_xrdmaps/scan{scan}_xrd.h5'):
+            print('No raw file found. Generating new file!')
+            make_xrdmap_hdf(scan, filedir=base_wd + 'processed_xrdmaps/')
+        
+        # Load map and set calibration
+        xrdmap = XRDMap.from_hdf(f'scan{scan}_xrd.h5', wd=f'{base_wd}processed_xrdmaps/', save_hdf=True)
+        xrdmap.set_calibration(poni_file, filedir=base_wd)
+        
+        # Basic correction. No outliers
+        xrdmap.map.correct_dark_field(dark_field=dark_field)
+        #xrdmap.map.correct_flat_field(flat_field=flat_field)
+        xrdmap.map.normalize_scaler() # Assumed information in sclr_dict
+        #xrdmap.map.correct_outliers() # Too slow!
+
+        # Geometric corrections
+        xrdmap.map.apply_polarization_correction()
+        xrdmap.map.apply_solidangle_correction()
+        xrdmap.map.images *= np.radians(xrdmap.tth_arr)
+        xrdmap.map.corrections['lorentz'] = True
+
+        # Background correction
+        xrdmap.map.estimate_background(method='bruckner', binning=4, min_prominence=0.1)
+        xrdmap.map.remove_background()
+
+        # Rescale and saving
+        xrdmap.map.rescale_images(upper=100, lower=0, arr_min=0)
+        xrdmap.map.finalize_images()
+
+        # Integrations for good measure
+        xrdmap.tth_resolution = 0.01
+        xrdmap.chi_resolution = 0.05
+        xrdmap.integrate1d_map()
+
+        # Find blobs and spots while were at it
+        xrdmap.find_spots(threshold_method='minimum',
+                          multiplier=3, size=3,
+                          radius=10, expansion=10)
+
+
+
+def xmt_batch5():
+
+    base_wd = '/nsls2/data/srx/proposals/2024-1/pass-314118/'
+    scanlist = [
+        153442,
+        153443,
+        153444,
+        153445,
+        153446,
+        153448,
+        153449,
+        153450,
+        153451,
+        153452,
+        153454,
+        153455,
+        153456,
+        153457,
+        153458,
+        153460,
+        153461,
+        153462,
+        153463,
+        153464
+
+    ]
+
+    dark_field = io.imread(f'{base_wd}scan153436_dexela_median_composite.tif')
+    #flat_field = io.imread()
+    poni_file = 'scan153219_dexela_calibration.poni'
+
+    for scan in timed_iter(scanlist):
+        print(f'Batch processing scan {scan}...')
+
+        if not os.path.exists(f'{base_wd}processed_xrdmaps/scan{scan}_xrd.h5'):
+            print('No raw file found. Generating new file!')
+            make_xrdmap_hdf(scan, filedir=base_wd + 'processed_xrdmaps/')
+        
+        # Load map and set calibration
+        xrdmap = XRDMap.from_hdf(f'scan{scan}_xrd.h5', wd=f'{base_wd}processed_xrdmaps/', save_hdf=True)
+        xrdmap.set_calibration(poni_file, filedir=base_wd)
+        
+        # Basic correction. No outliers
+        xrdmap.map.correct_dark_field(dark_field=dark_field)
+        #xrdmap.map.correct_flat_field(flat_field=flat_field)
+        xrdmap.map.normalize_scaler() # Assumed information in sclr_dict
+        #xrdmap.map.correct_outliers() # Too slow!
+
+        # Geometric corrections
+        xrdmap.map.apply_polarization_correction()
+        xrdmap.map.apply_solidangle_correction()
+        xrdmap.map.images *= np.radians(xrdmap.tth_arr)
+        xrdmap.map.corrections['lorentz'] = True
+
+        # Background correction
+        xrdmap.map.estimate_background(method='bruckner', binning=4, min_prominence=0.1)
+        xrdmap.map.remove_background()
+
+        # Rescale and saving
+        xrdmap.map.rescale_images(upper=100, lower=0, arr_min=0)
+        xrdmap.map.finalize_images()
+
+        # Integrations for good measure
+        xrdmap.tth_resolution = 0.01
+        xrdmap.chi_resolution = 0.05
+        xrdmap.integrate1d_map()
+
+        # Find blobs and spots while were at it
+        #test.map.images[0, 0, 0, 0] = 100 # to trick the scaled image check
+        xrdmap.find_spots(threshold_method='minimum',
+                          multiplier=5, size=2,
+                          radius=10, expansion=10)
+
+
+# Everything else...
+def xmt_batch6():
+
+    base_wd = '/nsls2/data/srx/proposals/2024-1/pass-314118/'
+    scanlist = [
+        153175,
+        153275,
+        153076,
+        153088,
+        153092,
+        153094,
+        153098,
+        153154,
+        153248
+    ]
+
+    darklist = [
+        153155,
+        153247,
+        153074,
+        153086,
+        153086,
+        153086,
+        153086,
+        153155,
+        153247
+    ]
+
+    ponilist = [
+        153219,
+        153219,
+        153043,
+        153043,
+        153043,
+        153043,
+        153043,
+        153219,
+        153219
+    ]
+
     
+
+    for i in timed_iter(range(len(scanlist))):
+        scan, dark, poni = scanlist[i], darklist[i], ponilist[i]
+
+        print(f'Batch processing scan {scan}...')
+
+        if not os.path.exists(f'{base_wd}processed_xrdmaps/scan{scan}_xrd.h5'):
+            print('No raw file found. Generating new file!')
+            make_xrdmap_hdf(scan, filedir=base_wd + 'processed_xrdmaps/')
+
+        dark_field = io.imread(f'{base_wd}scan{dark}_dexela_median_composite.tif')
+        #flat_field = io.imread()
+        poni_file = f'scan{poni}_dexela_calibration.poni'
+        
+        # Load map and set calibration
+        xrdmap = XRDMap.from_hdf(f'scan{scan}_xrd.h5', wd=f'{base_wd}processed_xrdmaps/', save_hdf=True)
+        xrdmap.set_calibration(poni_file, filedir=base_wd)
+        
+        # Basic correction. No outliers
+        xrdmap.map.correct_dark_field(dark_field=dark_field)
+        #xrdmap.map.correct_flat_field(flat_field=flat_field)
+        xrdmap.map.normalize_scaler() # Assumed information in sclr_dict
+        #xrdmap.map.correct_outliers() # Too slow!
+
+        # Geometric corrections
+        xrdmap.map.apply_polarization_correction()
+        xrdmap.map.apply_solidangle_correction()
+        xrdmap.map.images *= np.radians(xrdmap.tth_arr)
+        xrdmap.map.corrections['lorentz'] = True
+
+        # Background correction
+        xrdmap.map.estimate_background(method='bruckner', binning=4, min_prominence=0.1)
+        xrdmap.map.remove_background()
+
+        # Rescale and saving
+        xrdmap.map.rescale_images(upper=100, lower=0, arr_min=0)
+        xrdmap.map.finalize_images()
+
+        # Integrations for good measure
+        xrdmap.tth_resolution = 0.01
+        xrdmap.chi_resolution = 0.05
+        xrdmap.integrate1d_map()
+
+        # Find blobs and spots while were at it
+        #test.map.images[0, 0, 0, 0] = 100 # to trick the scaled image check
+        xrdmap.find_spots(threshold_method='minimum',
+                          multiplier=5, size=3,
+                          radius=10, expansion=10)
