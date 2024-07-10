@@ -36,7 +36,7 @@ def initialize_xrdmap_hdf(xrdmap, hdf_file):
 
         # Add pixel spatial positions
 
-        # Add pixel scalar values
+        # Add pixel scaler values
     
 
 def load_xrdmap_hdf(filename, wd=None, dask_enabled=False, only_integrations=False):
@@ -92,24 +92,23 @@ def load_xrdmap_hdf(filename, wd=None, dask_enabled=False, only_integrations=Fal
         
         # I should look for other composite images???
         if '_processed_images_composite' in img_grp.keys():
-            #image_map._processed_images_composite = img_grp['_processed_images_composite'][:]
             image_map_attrs['_processed_images_composite'] = img_grp['_processed_images_composite'][:]
 
         if '_calibration_mask' in img_grp.keys():
-            #image_map.calibration_mask = img_grp['_calibration_mask'][:]
             image_map_attrs['calibration_mask'] = img_grp['_calibration_mask'][:]
 
         if '_defect_mask' in img_grp.keys():
-            #image_map.defect_mask = img_grp['_defect_mask'][:]
             image_map_attrs['defect_mask'] = img_grp['_defect_mask'][:]
 
         if '_custom_mask' in img_grp.keys():
-            #image_map.custom_mask = img_grp['_custom_mask'][:]
             image_map_attrs['custom_mask'] = img_grp['_custom_mask'][:]
         
+        # Deprecated tag, but kept for backwards compatibility
         if '_spot_masks' in img_grp.keys():
-            #image_map.spot_masks = img_grp['_spot_masks'][:]
-            image_map_attrs['spot_masks'] = img_grp['_spot_masks'][:]
+            image_map_attrs['blob_masks'] = img_grp['_spot_masks'][:]
+        
+        if '_blob_masks' in img_grp.keys():
+            image_map_attrs['blob_masks'] = img_grp['_blob_masks'][:]
         
         print('done!')
 
@@ -274,6 +273,8 @@ def load_xrdmap_hdf(filename, wd=None, dask_enabled=False, only_integrations=Fal
     for key, value in image_map_attrs.items():
         setattr(image_map, key, value)
     print('done!')
+
+    print(f'ImageMap shape is {image_map.shape}.')
     
     # return dictionary of useful values
     ouput_dict = {'base_md' : base_md,

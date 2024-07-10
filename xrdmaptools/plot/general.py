@@ -209,7 +209,7 @@ def plot_reconstruction(self,
     if hasattr(self, 'spot_model'):
         spot_model = self.spot_model
     else:
-        print('Warning: No spot model saved. Defaulting to Gaussian.')
+        print('WARNING: No spot model saved. Defaulting to Gaussian.')
         spot_model = GaussianFunctions
     
     pixel_df = self.spots[(self.spots['map_x'] == indices[0]) & (self.spots['map_y'] == indices[1])].copy()
@@ -241,7 +241,7 @@ def plot_reconstruction(self,
         fig, ax = self.plot_image(recon_image,
                             return_plot=True, indices=indices,
                             **kwargs)
-        plt.show()
+        fig.show()
 
     else:
         image = self.map.images[indices]
@@ -252,7 +252,7 @@ def plot_reconstruction(self,
                             return_plot=True, indices=indices,
                             vmin=-ext, vmax=ext, cmap='bwr', # c='k',
                             **kwargs)
-        plt.show()
+        fig.show()
 
 
 ####################

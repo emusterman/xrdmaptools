@@ -73,7 +73,7 @@ def fit_poly_bkg(imagemap, order=3, mask=None):
             mask = imagemap.mask
         else:
             mask = np.ones_like(imagemap.images.shape[-2:])
-            print('Warning: No mask could be constructed.')
+            print('WARNING: No mask could be constructed.')
     
 
     bkg_map = np.zeros_like(imagemap.images) 
@@ -103,7 +103,7 @@ def fit_spline_bkg(imagemap, mask=None, sparsity=0.5, s=5000):
             mask = imagemap.mask
         else:
             mask = np.ones_like(imagemap.images)
-            print('Warning: No mask could be constructed.')
+            print('WARNING: No mask could be constructed.')
 
     tth = imagemap.tth
     chi = imagemap.chi
@@ -159,7 +159,7 @@ def masked_bruckner_background(imagemap, size=10, max_iterations=100,
             mask = imagemap.mask
         else:
             mask = np.ones(image_shape, dtype=np.bool_)
-            print('Warning: No mask could be constructed.')
+            print('WARNING: No mask could be constructed.')
 
     if binning is not None:
         new_shape = tuple(i // binning for i in image_shape)
@@ -243,7 +243,7 @@ def masked_bruckner_background(imagemap, size=10, max_iterations=100,
             mask = imagemap.mask
         else:
             mask = np.ones(imagemap.images.shape[-2:], dtype=np.bool_)
-            print('Warning: No mask could be constructed.')
+            print('WARNING: No mask could be constructed.')
 
     # Divisor image for ignoring mask contributions
     div_image = np.ones(imagemap.images.shape[-2:])

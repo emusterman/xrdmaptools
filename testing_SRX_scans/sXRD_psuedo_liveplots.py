@@ -150,7 +150,7 @@ def base_pseudo_live_plot(scanid, plot_keys, process_function, process_kwargs={}
         plot_params[key] = map_dict
     
     plt.ion()
-    plt.show()
+    fig.show()
     #plt.draw()
         
     # Track rows
@@ -350,7 +350,7 @@ def build_map_from_start(bs_run, plot_keys):
     map_params['units'] = start_doc['scan']['fast_axis']['units']
     map_params['detectors'] = start_doc['scan']['detectors']
 
-    # Build scalar temp_dictionaries
+    # Build scaler temp_dictionaries
     temp_dict = {}
     temp_dict['i0'] = np.nan * np.empty(tuple(map_params['map_shape']), dtype=np.float16)
     temp_dict['im'] = np.nan * np.empty(tuple(map_params['map_shape']), dtype=np.float16)
@@ -419,7 +419,7 @@ def set_calibration(poni_file, energy, image_shape):
         ai.detector.pixel2 = poni_pixel2 / bin_est[1]
 
     else:
-        print('Warning: Could not find any images to compare calibration!')
+        print('WARNING: Could not find any images to compare calibration!')
         print('Defaulting to detectors settings used for calibration.')
 
     return ai

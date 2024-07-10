@@ -17,36 +17,31 @@ from tqdm import tqdm
 
 # Local imports
 from .ImageMap import ImageMap
-#from .utilities.hdf_io import initialize_xrdmap_hdf, load_xrdmap_hdf
-#from .utilities.hdf_utils import check_hdf_current_images
-#from .utilities.db_io import load_data
 from .utilities.math import *
 from .utilities.utilities import (
     delta_array,
-    check_ext,
     pathify
 )
-
-from .io.hdf_io import initialize_xrdmap_hdf, load_xrdmap_hdf
+from .io.hdf_io import (
+    initialize_xrdmap_hdf,
+    load_xrdmap_hdf
+    )
 from .io.hdf_utils import check_hdf_current_images
 from .io.db_io import load_data
-
 from .reflections.spot_blob_indexing import get_q_vect, _initial_spot_analysis
 from .reflections.SpotModels import GaussianFunctions
 from .reflections.spot_blob_search import (
     find_blobs,
     find_blobs_spots,
-    find_spots,
     find_spot_stats,
     make_stat_df,
     remake_spot_list,
-    prepare_fit_spots,
-    fit_spots,
-    find_blob_contours
+    fit_spots
     )
-
-from .plot.interactive_plotting import (interactive_dynamic_2d_plot,
-                                        interactive_dynamic_1d_plot)
+from .plot.interactive_plotting import (
+    interactive_dynamic_2d_plot,
+    interactive_dynamic_1d_plot
+    )
 from .plot.general import (
     _plot_parse_xrdmap,
     _xrdmap_image,
@@ -56,19 +51,16 @@ from .plot.general import (
     plot_reconstruction,
     plot_map,
     plot_cake
-)
+    )
 from .plot.geometry import plot_q_space, plot_detector_geometry
-
 from .geometry.geometry import *
-
 from .crystal.Phase import Phase, phase_selector
 
 
 class XRDMap():
     '''
-    Main class object for sXRD map.
+    Main class object for scanning XRD maps.
     Inherits nothing!
-    Multiple iteratations of image processing across full map cannot be saved in memory...
     '''
 
     def __init__(self,
@@ -241,8 +233,9 @@ class XRDMap():
     ################################
 
     @classmethod # Allows me to define and initiatie the class simultaneously
-    def from_image_stack(cls, filename, wd=None,
-                         dataset_shape=None,
+    def from_image_stack(cls,
+                         filename,
+                         wd=None,
                          map_title='raw_images',
                          **kwargs):
         
@@ -262,8 +255,9 @@ class XRDMap():
         else:
             image_data = io.imread(image_path)
         print('done!')
-        return cls(image_data=image_data, wd=wd,
-                   map_title=map_title, dataset_shape=dataset_shape,
+        return cls(image_data=image_data,
+                   wd=wd,
+                   map_title=map_title,
                    **kwargs)
 
 
@@ -311,7 +305,7 @@ class XRDMap():
             if input_dict['spot_model'] is not None:
                 inst.spot_model = input_dict['spot_model']
 
-            print('XRD Map loaded!')
+            print('XRDMap loaded!')
             return inst
         
         else:
@@ -342,7 +336,7 @@ class XRDMap():
                                                     detectors=None,
                                                     data_keys=data_keys,
                                                     returns=['data_keys',
-                                                                'xrd_dets'],
+                                                             'xrd_dets'],
                                                     repair_method=repair_method)
 
         xrd_data = [data_dict[f'{xrd_det}_image'] for xrd_det in xrd_dets]
@@ -372,22 +366,13 @@ class XRDMap():
             xrdmap = cls(scanid=scan_md['scan_id'],
                          wd=filedir,
                          filename=filename,
-                         #hdf_filename=None, # ???
-                         #hdf=None,
                          image_data=xrd_data_i,
-                         #map_title=None,
-                         #dataset_shape=None,
                          energy=scan_md['energy'],
-                         #wavelength=None,
                          dwell=scan_md['dwell'],
                          theta=scan_md['theta'],
                          poni_file=poni_file,
                          sclr_dict=sclr_dict,
                          pos_dict=pos_dict,
-                         #tth_resolution=None,
-                         #chi_resolution=None,
-                         #tth=None,
-                         #chi=None,
                          beamline=scan_md['beamline_id'],
                          facility='NSLS-II',
                          time_stamp=scan_md['time_str'],
@@ -541,7 +526,6 @@ class XRDMap():
 
             # Modular shift values if there is a discontinuity
             # Should only be for chi_arr between 180 and -180 degrees
-            # I could just shift everything...
             if np.max(delta_arr) > max_arr:
                 # Degrees
                 if max_arr > np.pi: shift_value = 2 * 180
@@ -631,7 +615,6 @@ class XRDMap():
             # Rebuild correction dictionary
             corrections = {}
             for key in image_grp[image_dataset].attrs.keys():
-                # _{key}_correction
                 corrections[key[1:-11]] = image_grp[image_dataset].attrs[key]
             self.map.corrections = corrections
 
@@ -702,6 +685,11 @@ class XRDMap():
             self.hdf = h5py.File(self.hdf_path, 'a')
         else:
             self.hdf = None
+
+        # Finally link attributes, if not already
+        if hasattr(self, 'map') and self.map is not None:
+            self.map.hdf = self.hdf
+            self.map.hdf_path = self.hdf_path
         
         # Saves current images, integrations, phases, calibration, etc.
         if save_current:
@@ -724,6 +712,9 @@ class XRDMap():
         
         if hasattr(self, 'poni') and self.poni is not None:
             self.save_calibration()
+
+        if self.tth is not None and self.chi is not None:
+            self.save_reciprocal_positions()
 
         # Save positions
         if hasattr(self, 'pos_dict') and self.pos_dict is not None:
@@ -788,7 +779,7 @@ class XRDMap():
             # Success actually changes the write location
             # And likely initializes a new hdf
             self.stop_saving_hdf()
-            self.initial_save_hdf(hdf=hdf,
+            self.save_hdf(hdf=hdf,
                           hdf_path=hdf_path,
                           hdf_filename=hdf_filename,
                           dask_enabled=dask_enabled)
@@ -1382,7 +1373,7 @@ class XRDMap():
         # _temp_images will be of the wrong shape...
         # could be called before _temp_images dataset is instantiated??
         # exclude_imagemap included to swap axes upon instantiation
-        # Never save imagemap. Leave that for specific situations...
+        # Never save images. Leave that for specific situations...
 
         if self.map.title == 'final_images' and not exclude_imagemap:
             warn_str = ('WARNING: ImageMap has been finalized.'
@@ -1405,9 +1396,7 @@ class XRDMap():
         if not exclude_imagemap:
             # Update shape values
             self.map.shape = self.map.images.shape
-            #self.map.num_images = np.multiply(*self.map.images.shape[:2])
             self.map.map_shape = self.map.shape[:2]
-            #self.map.image_shape = self.map.shape[2:]
 
             # Delete any cached ImaegeMap maps
             old_attr = list(self.map.__dict__.keys())       
@@ -1416,7 +1405,12 @@ class XRDMap():
                             '_max_map',
                             '_med_map',
                             '_sum_map',
-                            '_mean_map',]:
+                            '_mean_map',
+                            '_min_integration_map',
+                            '_max_integration_map',
+                            '_med_integration_map',
+                            '_sum_integration_map',
+                            '_mean_integration_map',]:
                     delattr(self.map, attr)
 
         # Exchange map_extent
@@ -1435,6 +1429,8 @@ class XRDMap():
             self.spots['map_y'] = map_x_ind
 
         if save_updates:
+            # Do NOT rewrite images. This will copy the dataset
+
             if hasattr(self, 'pos_dict'):
                 # Write to hdf file
                 self.save_sclr_pos('positions',
@@ -1620,13 +1616,13 @@ class XRDMap():
                                           'expansion' : expansion})
         
 
-    def find_blob_spots(self,
-                        threshold_method='minimum',
-                        multiplier=5,
-                        size=3,
-                        expansion=10,
-                        min_distance=3,
-                        radius=10):
+    def find_spots(self,
+                   threshold_method='minimum',
+                   multiplier=5,
+                   size=3,
+                   expansion=10,
+                   min_distance=3,
+                   radius=10):
         
         if (hasattr(self.map, 'blob_masks')
             and self.map.blob_masks is not None):
@@ -1680,7 +1676,7 @@ class XRDMap():
                                           'expansion' : expansion})
         
 
-    def find_spots(self,
+    '''def find_spots(self,
                    threshold_method='minimum',
                    multiplier=5,
                    size=3,
@@ -1728,7 +1724,7 @@ class XRDMap():
                                 extra_attrs={'threshold_method' : threshold_method,
                                             'size' : size,
                                             'multiplier' : multiplier,
-                                            'window_radius' : radius})
+                                            'window_radius' : radius})'''
         
     
     def recharacterize_spots(self,
@@ -1759,7 +1755,7 @@ class XRDMap():
         self.save_spots()
 
 
-    def fit_spots(self, SpotModel, max_dist=0.5, sigma=1):
+    '''def fit_spots(self, SpotModel, max_dist=0.5, sigma=1):
 
         # Find spots in self or from hdf
         if not hasattr(self, 'spots'):
@@ -1794,6 +1790,44 @@ class XRDMap():
         
         # Fits spots and adds the fit results to the spots dataframe
         fit_spots(self, spot_fit_info_list, SpotModel)
+        self.spot_model = SpotModel
+
+        # Save spots to hdf
+        self.save_spots(extra_attrs={'spot_model' : self.spot_model.name})'''
+
+    
+    def fit_spots(self, SpotModel, max_dist=0.5, sigma=1):
+
+        # Find spots in self or from hdf
+        if not hasattr(self, 'spots'):
+            print('No reflection spots found...')
+            if self.hdf_path is not None:
+                # Open hdf flag
+                keep_hdf = True
+                if self.hdf is None:
+                    self.hdf = h5py.File(self.hdf_path, 'r')
+                    keep_hdf = False
+
+                if 'reflections' in self.hdf['xrdmap'].keys():
+                    print('Loading reflection spots from hdf...', end='', flush=True)
+                    self.close_hdf()
+                    spots = pd.read_hdf(self.hdf_path, key='xrdmap/reflections/spots')
+                    self.spots = spots
+                    self.open_hdf()
+
+                    # Close hdf and reset attribute
+                    if not keep_hdf:
+                        self.hdf.close()
+                        self.hdf = None
+                    print('done!')
+
+                else:
+                    raise AttributeError('XRDMap does not have any reflection spots! Please find spots first.')
+            else:
+                raise AttributeError('XRDMap does not have any reflection spots! Please find spots first.')
+
+        # Fit spots
+        fit_spots(self, SpotModel, max_dist=max_dist, sigma=sigma)
         self.spot_model = SpotModel
 
         # Save spots to hdf

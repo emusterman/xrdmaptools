@@ -338,7 +338,7 @@ def are_coplanar(vectors, return_volume=False):
     for combo in combos:
         vec1, vec2, vec3 = combo
 
-        # Compute volume with triple scalar product
+        # Compute volume with triple scaler product
         vol = vec1 @ (np.cross(vec2, vec3))
         #vol = vec3 @ (np.cross(vec1, vec2))
         #vol = vec2 @ (np.cross(vec3, vec1))

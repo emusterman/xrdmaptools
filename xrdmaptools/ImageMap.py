@@ -191,6 +191,7 @@ class ImageMap:
                 raise ValueError('ImageMap cannot be instantiated with closed hdf file!')
         self.hdf = hdf
         self.hdf_path = hdf_path
+        # WARNING: if hdf or hdf_path are None, then they are copied None objects and not linked to the XRDMap attributes
 
         if dtype is None:
             dtype = self.images.dtype
@@ -399,20 +400,20 @@ class ImageMap:
             if self.calibration_mask.shape == mask.shape:
                 mask *= self.calibration_mask
             else:
-                print('Warning: Calibration mask found, but shape does not match images.')
+                print('WARNING: Calibration mask found, but shape does not match images.')
 
         # Remove image defects
         if hasattr(self, 'defect_mask'):
             if self.defect_mask.shape == mask.shape:
                 mask *= self.defect_mask
             else:
-                print('Warning: Defect mask found, but shape does not match images.')
+                print('WARNING: Defect mask found, but shape does not match images.')
 
         if hasattr(self, 'custom_mask'):
             if self.custom_mask.shape == mask.shape:
                 mask *= self.custom_mask
             else:
-                print('Warning: Custom mask found, but shape does not match images.')
+                print('WARNING: Custom mask found, but shape does not match images.')
 
         return mask
 
@@ -502,14 +503,14 @@ class ImageMap:
     def _dask_2_hdf(self):
         # Computes and stores current iteration of lazy computation to hdf file
         # Probably the most useful
-        if self.title == 'final_images':
-            err_str = ('You are trying to update images that have already been finalized!'
-                       + '\nConsider reloading a previous image state, or reprocessing the raw images.')
-            raise ValueError(err_str)
-
         if self.hdf is not None and self._dask_enabled:
-            self.images = da.store(self.images, self._hdf_store,
-                                   compute=True, return_stored=True)[0]
+            if self.title == 'final_images':
+                        err_str = ('You are trying to update images that have already been finalized!'
+                                + '\nConsider reloading a previous image state, or reprocessing the raw images.')
+                        raise ValueError(err_str)
+            else:
+                self.images = da.store(self.images, self._hdf_store,
+                                       compute=True, return_stored=True)[0]
 
 
     ########################################
@@ -839,7 +840,7 @@ class ImageMap:
                          scaler_arr=None,
                          override=False):
 
-        if self._check_correction('scalar_intensity', override=override):
+        if self._check_correction('scaler_intensity', override=override):
             return
         
         elif scaler_arr is None:
@@ -912,7 +913,7 @@ class ImageMap:
 
             elif method in ['poly', 'poly fit', 'poly_fit']:
                 print('Estimating background with polynomial fit.')
-                print('Warning: This method is slow and not very accurate.')
+                print('WARNING: This method is slow and not very accurate.')
                 self.background = fit_poly_bkg(self, **kwargs)
                 self.background_method = 'polynomial'
 
@@ -1153,7 +1154,7 @@ class ImageMap:
             elif method in ['poly', 'poly fit', 'poly_fit']:
                 raise NotImplementedError('Still need to write function for integrations.')
                 print('Estimating background with polynomial fit.')
-                print('Warning: This method is slow and not very accurate.')
+                print('WARNING: This method is slow and not very accurate.')
                 self.integration_background = fit_poly_bkg(self, **kwargs)
                 self.integration_background_method = 'polynomial'
 

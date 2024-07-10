@@ -3,7 +3,7 @@ from scipy.interpolate import griddata
 from scipy.interpolate import RegularGridInterpolator
 
 # Local imports
-from ..utilities.utilities import vector_angle
+from ..utilities.utilities import vector_angle, delta_array
 
 
 # TODO: a lot
@@ -153,12 +153,16 @@ def nearest_pixels_on_ewald(q_vect, wavelength, tth_arr, chi_arr,
     
 
 def estimate_polar_coords(coords, tth_arr, chi_arr, method='linear'):
-    #coords = np.array([[0, 0], [767, 485], [x, y], ...])
+    #coords = np.array([[0, 0], [767, 485], [x0, y0], ...])
     # TODO:
     # Check coord values to make sure they are in range
     if tth_arr.shape != chi_arr.shape:
         raise ValueError(f"tth_arr shape {tth_arr.shape} does not match chi_arr shape {chi_arr}")
 
+    # Shift azimuthal discontinuties
+    chi_arr, max_arr, _ = modular_azimuthal_shift(chi_arr)
+
+    # Separate coords
     x_coords, y_coords = np.asarray(coords).T
 
     # Image shapes are VxH
@@ -173,18 +177,24 @@ def estimate_polar_coords(coords, tth_arr, chi_arr, method='linear'):
 
     est_tth = tth_interp((x_coords, y_coords))
     est_chi = chi_interp((x_coords, y_coords))
+    est_chi = modular_azimuthal_reshift(est_chi, max_arr=max_arr)
 
-    return np.array([est_tth, est_chi]).T
+    return np.array([est_tth, est_chi]).T # Given as np.array([[tth0, chi0], [tth1, chi1], ...])
 
 
 def estimate_image_coords(coords, tth_arr, chi_arr, method='nearest'):
     # Warning: Any method except 'nearest' is fairly slow and not recommended
-    #coords = np.array([[0, 0], [767, 485], [x, y], ...])
+    #coords = np.array([[tth0, chi0], [tth1, chi1], ...])
     # TODO:
     # Check coord values to make sure they are in range
     if tth_arr.shape != chi_arr.shape:
         raise ValueError(f"tth_arr shape {tth_arr.shape} does not match chi_arr shape {chi_arr}")
 
+    # Shift azimuthal discontinuities
+    chi_arr, max_arr, shifted = modular_azimuthal_shift(chi_arr)
+    coords[:, 1], _, _ = modular_azimuthal_shift(coords[:, 1], max_arr=max_arr, force_shift=shifted)
+
+    # Combine into large polar vector
     polar_arr = np.array([tth_arr.ravel(), chi_arr.ravel()]).T
 
     # Image shapes are VxH
@@ -197,12 +207,12 @@ def estimate_image_coords(coords, tth_arr, chi_arr, method='nearest'):
     # griddata for unstructured data. Fairly slow with any method but nearest
     est_img_coords = griddata(polar_arr, img_arr, coords, method=method)
     est_img_coords = np.round(est_img_coords).astype(np.int32)
-    return est_img_coords # Given as [[x0, y0], [x1, y1], ...]
+    return est_img_coords # Given as np.array([[x0, y0], [x1, y1], ...])
 
 
 # Does not yet figure wavelength
 # Intent is to find exact wavelength, tth, and chi values 
-def _q_2_polar_old(q_vect, wavelength, degrees=True):
+'''def _q_2_polar_old(q_vect, wavelength, degrees=True):
 
     q_vect = np.asarray(q_vect)
     factor = 2 * np.pi / wavelength
@@ -225,7 +235,62 @@ def _q_2_polar_old(q_vect, wavelength, degrees=True):
         chi = np.degrees(chi)
         #chi1 = np.degrees(chi1)
 
-    return tth, chi
+    return tth, chi'''
+
+
+def modular_azimuthal_shift(arr, max_arr=None, force_shift=None):
+    arr = np.asarray(arr).copy()
+    if max_arr is None:
+        max_arr = np.max(np.abs(arr))
+
+    if force_shift is None:
+        delta_arr = delta_array(arr)
+        force_shift = np.max(delta_arr) > max_arr
+
+    # Modular shift values if there is a discontinuity
+    if force_shift:
+        shifted=True
+        # Degrees
+        if max_arr > np.pi: shift_value = 2 * 180
+        # Radians
+        else: shift_value = 2 * np.pi
+        # Shift and recalculate
+        arr[arr < 0] += shift_value
+
+        new_max_arr = np.max(np.abs(arr))
+    else:
+        shifted = False
+        new_max_arr = max_arr
+    
+    return arr, new_max_arr, shifted
+
+
+def modular_azimuthal_reshift(arr, max_arr=None):
+    arr = np.asarray(arr).copy()
+    if max_arr is None:
+        max_arr = np.max(np.abs(arr))
+
+    # Degrees and shifted
+    if max_arr > 180:
+        shift_value = 2 * 180
+        arr[arr > 180] -= shift_value
+
+    # Degrees, but not shifted
+    elif max_arr > 4 * np.pi:
+        pass
+
+    # Radians and shifted
+    elif max_arr > np.pi:
+        shift_value = 2 * np.pi
+        arr[arr > np.pi] -= shift_value
+    
+    # Radians, but not shifted
+    elif max_arr <= np.pi:
+        pass
+
+    return arr
+
+
 
 
 # deprecated
