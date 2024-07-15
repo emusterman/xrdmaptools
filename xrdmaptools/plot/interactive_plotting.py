@@ -1,6 +1,5 @@
 import matplotlib.pyplot as plt
 import numpy as np
-from skimage import restoration
 from matplotlib.colors import Normalize, LogNorm
 
 '''
@@ -13,8 +12,8 @@ This will keep them all in one place to ease access later.
 
 '''
 Terms:
-xticks                 (arr)   List of two theta radial angle values (in degrees or radians). Could be different between 1D and 2D outputs
-yticks                 (arr)   List of yticks azimuthal angle values (in degrees or radians)
+xticks              (arr)   List of two theta radial angle values (in degrees or radians). Could be different between 1D and 2D outputs
+yticks              (arr)   List of yticks azimuthal angle values (in degrees or radians)
 integrated_data     (arr)   (x, y, xticks) array of integrated mapped data from the pyFAI 1D azimuthal integrator
 image_data          (arr)   (x, y, xticks, yticks) array of calibrated mapped data from pyFAI 2D azimuthal integrator
 '''
@@ -23,11 +22,16 @@ image_data          (arr)   (x, y, xticks, yticks) array of calibrated mapped da
 ### Utility Plotting Function ###
 
 def update_axes(event, data,
-                xticks=None, yticks=None,
-                fig=None, axes=None,
-                cmap='viridis', marker_color='red',
-                img_vmin=None, img_vmax=None,
-                y_min=None, y_max=None,
+                xticks=None,
+                yticks=None,
+                fig=None,
+                axes=None,
+                cmap='viridis',
+                marker_color='red',
+                img_vmin=None,
+                img_vmax=None,
+                y_min=None,
+                y_max=None,
                 img_norm=Normalize):
     '''
         
@@ -92,17 +96,20 @@ def update_plot(data,
 
 
 def update_img(data,
-               xticks, yticks,
+               xticks,
+               yticks,
                axi=None,
                cmap='viridis',
-               img_vmin=None, img_vmax=None,
+               img_vmin=None,
+               img_vmax=None,
                img_norm=Normalize):
     '''
     
     '''
     global row, col, cbar
     plot_img = data[row, col]
-    extent = [xticks[0], xticks[-1], yticks[0], yticks[-1]]
+    extent = [xticks[0], xticks[-1],
+              yticks[0], yticks[-1]]
     
     if img_vmin is None: img_vmin = np.min(plot_img)
     if img_vmax is None: img_vmax = np.max(plot_img)
@@ -112,7 +119,8 @@ def update_img(data,
                      extent=extent,
                      aspect='auto',
                      cmap=cmap,
-                     norm=img_norm(vmin=img_vmin, vmax=img_vmax))
+                     norm=img_norm(vmin=img_vmin,
+                                   vmax=img_vmax))
     #if cbar is not None and cbar.ax._axes is not None:
     #    cax = cbar.ax
     #    print('cbar removed!')
@@ -456,12 +464,22 @@ def dynamic_2d_plot(image_data, xticks=None, yticks=None,
     return fig, ax
 
 
-def dynamic_combined_plot(integrated_data, image_data, xticks=None, yticks=None,
-                              display_map=None, display_title=None,
-                              map_vmin=None, map_vmax=None, map_norm=Normalize,
-                              cmap='viridis', marker_color='red',
-                              img_vmin=None, img_vmax=None, img_norm=Normalize,
-                              y_min=None, y_max=None):
+def dynamic_combined_plot(integrated_data,
+                          image_data,
+                          xticks=None,
+                          yticks=None,
+                          display_map=None,
+                          display_title=None,
+                          map_vmin=None,
+                          map_vmax=None,
+                          map_norm=Normalize,
+                          cmap='viridis',
+                          marker_color='red',
+                          img_vmin=None,
+                          img_vmax=None,
+                          img_norm=Normalize,
+                          y_min=None,
+                          y_max=None):
     '''
     
     '''

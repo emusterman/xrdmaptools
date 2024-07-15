@@ -19,10 +19,18 @@ def check_hdf_current_images(title, hdf_file=None, hdf=None):
         raise ValueError('Must specify hdf_file or hdf.')
     
 
-def get_optimal_chunks(data, approx_chunk_size=None):
+def get_optimal_chunks(data, approx_chunk_size=None, final_dtype=np.float32):
     
     data_shape = data.shape
-    data_nbytes = data[(0,) * data.ndim].nbytes
+
+    if final_dtype is None:
+        data_nbytes = data[(0,) * data.ndim].nbytes
+    else:
+        try:
+            np.dtype(final_dtype)
+            data_nbytes = final_dtype().itemsize
+        except TypeError as e:
+            raise e(f'dtype input of {final_dtype} is not numpy datatype.')
 
     if approx_chunk_size is None:
         available_memory = psutil.virtual_memory()[1] / (2**20) # In MB
@@ -31,16 +39,17 @@ def get_optimal_chunks(data, approx_chunk_size=None):
         #approx_chunk_size = np.round(approx_chunk_size)
         if approx_chunk_size > 2**10:
             approx_chunk_size = 2**10
-    elif approx_chunks_size > 2**10:
+    elif approx_chunk_size > 2**10:
         print('WARNING: Chunk sizes above 1 GB may start to perform poorly.')
 
+
     # Split images up by data size in MB that seems reasonable
-    images_per_chunk = (approx_chunk_size * 2**20) / np.prod([*data_shape[-2:], data_nbytes], dtype=np.int64)
+    images_per_chunk = (approx_chunk_size * 2**20) / np.prod([*data_shape[-2:], data_nbytes], dtype=np.int32)
 
     # Try to make square chunks if possible
     square_chunks = np.sqrt(images_per_chunk)
 
-    num_chunk_x = np.round(data_shape[0] / square_chunks, 0).astype(np.int32)
+    num_chunk_x = np.round(data_shape[0] / square_chunks, 0).astype(np.float32)
     num_chunk_x = min(max(num_chunk_x, 1), data_shape[0])
     chunk_x = data_shape[0] // num_chunk_x
 

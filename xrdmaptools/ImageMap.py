@@ -1217,10 +1217,19 @@ class ImageMap:
     ### IO Functions ###
     ####################
 
-    def disk_size(self):
+    def disk_size(self, return_val=False, dtype=None):
         # Return current map size which should be most of the memory usage
         # Helps to estimate file size too
-        disk_size = self.images.nbytes
+        if dtype is None:
+            byte_size = self.images.dtype.itemsize
+        else:
+            try:
+                np.dtype(dtype)
+                byte_size = dtype().itemsize
+            except TypeError as e:
+                raise e(f'dtype input of {dtype} is not numpy datatype.')
+
+        disk_size = self.images.size * byte_size
         units = 'B'
         if disk_size > 2**10:
             disk_size = disk_size / 2**10
@@ -1232,6 +1241,8 @@ class ImageMap:
                     disk_size = disk_size / 2**10
                     units = 'GB'
         
+        if return_val:
+            return disk_size
         print(f'Diffraction map size is {disk_size:.3f} {units}.')
 
     # WIP apparently???

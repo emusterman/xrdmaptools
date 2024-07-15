@@ -822,6 +822,16 @@ class XRDMap():
                 dset = img_grp['_temp_images']
             self.map.images = da.asarray(dset).persist()
             self.map._hdf_store = dset
+
+    
+    def fracture_xrdmap(self,
+                        approx_mapsize=5,
+                        map_divisors=None):
+        
+        raise NotImplementedError()
+
+        disk_size = self.map.disk_size(return_val=True,
+                                       estimate_final=True)
             
 
     ##############################
@@ -2130,7 +2140,7 @@ class XRDMap():
 
     def plot_interactive_integration_map(self,
                                          integrated_data=None,
-                                         xticks=None,
+                                         tth=None,
                                          return_plot=False,
                                          **kwargs):
         # Map integrated patterns for dynamic exploration of dataset
@@ -2146,9 +2156,9 @@ class XRDMap():
         else:
             integrated_data = self.map.integrations
 
-        if xticks is not None:
+        if tth is None:
             if hasattr(self, 'tth') and self.tth is not None:
-                xticks = self.tth
+                tth = self.tth
     
         # Check for, extract, or determine displaymap
         if 'display_map' not in kwargs.keys():
@@ -2158,7 +2168,7 @@ class XRDMap():
             del kwargs['display_map']
     
         fig, ax = interactive_dynamic_1d_plot(integrated_data,
-                                              xticks=xticks,
+                                              xticks=tth,
                                               display_map=display_map,
                                               **kwargs)
         if return_plot:
