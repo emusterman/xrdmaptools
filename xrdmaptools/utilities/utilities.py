@@ -41,14 +41,14 @@ def check_ext(path, ext):
     if found_ext in ext:
         # Maybe check if path exists?
         return path
-    elif found_ext not in ext:
-        raise ValueError(f'{path} input extension does not match required extension: {ext}')
     elif found_ext == '':
         for ext_i in ext:
             if os.path.exists(path + ext_i):
                 return path + ext_i
             else:
                 raise FileNotFoundError(f'File extension not specified and cannot find file with default extension: {ext}')
+    elif found_ext not in ext:
+        raise ValueError(f'{path} input extension does not match required extension: {ext}')
     else:
         raise RuntimeError(f'Unknown issue with file extentsion for {path}')
     

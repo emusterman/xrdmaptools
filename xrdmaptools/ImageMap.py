@@ -311,20 +311,10 @@ class ImageMap:
                 # More complicated to account for masked values
                 if np.any(self.mask != 1) and axes == (2, 3):
 
-                    mask_map = np.empty_like(self.images, dtype=np.bool_)
-                    mask_map[:, :] = self.mask
+                    # Mask away discounted pixels
+                    val = function(self.map.images[:, :, self.map.mask],
+                                   axis=-1).astype(self.map.dtype)
 
-                    # Contribution
-                    zero_image = self.images.copy() # Expensive...
-                    zero_image[~mask_map] = 0 # should be redundant
-                    gauss_zero = function(zero_image, axis=axes)
-
-                    # This block is redundant when calling this serveral several times...
-                    div_image = np.ones_like(self.images)
-                    div_image[~mask_map] = 0
-                    gauss_div = function(div_image, axis=axes)
-
-                    val = gauss_zero / gauss_div
                     if self._dask_enabled:
                         val = val.compute()
 

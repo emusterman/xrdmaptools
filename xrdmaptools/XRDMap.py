@@ -39,8 +39,9 @@ from .reflections.spot_blob_search import (
     fit_spots
     )
 from .plot.interactive_plotting import (
-    interactive_dynamic_2d_plot,
-    interactive_dynamic_1d_plot
+    interactive_2D_plot,
+    interactive_1D_plot,
+    _check_missing_key
     )
 from .plot.general import (
     _plot_parse_xrdmap,
@@ -1284,19 +1285,21 @@ class XRDMap():
         if (np.mean(np.diff(self.pos_dict['map_x'], axis=1))
             > np.mean(np.diff(self.pos_dict['map_x'], axis=0))):
             # Fast x-axis. Standard orientation.
+            #print('Fast x-axis!')
             map_extent = [
                 np.mean(self.pos_dict['map_x'][:, 0]),
                 np.mean(self.pos_dict['map_x'][:, -1]),
-                np.mean(self.pos_dict['map_y'][0]),
-                np.mean(self.pos_dict['map_y'][-1])
-            ]
+                np.mean(self.pos_dict['map_y'][-1]), # reversed
+                np.mean(self.pos_dict['map_y'][0]) # reversed
+            ] # [min_x, max_x, max_y, min_y] reversed y for matplotlib
         else: # Fast y-axis. Consider swapping axes???
+            #print('Fast y-axis!')
             map_extent = [
-                np.mean(self.pos_dict['map_y'][:, 0]),
-                np.mean(self.pos_dict['map_y'][:, -1]),
-                np.mean(self.pos_dict['map_x'][0]),
-                np.mean(self.pos_dict['map_x'][-1])
-            ]
+                np.mean(self.pos_dict['map_y'][:, 0]), # reversed
+                np.mean(self.pos_dict['map_y'][:, -1]), # reversed
+                np.mean(self.pos_dict['map_x'][-1]),
+                np.mean(self.pos_dict['map_x'][0])
+            ] # [min_y, max_y, max_x, min_x] reversed x for matplotlib
         self.map_extent = map_extent
 
         # Write to hdf file
@@ -1426,10 +1429,10 @@ class XRDMap():
         # Exchange map_extent
         if hasattr(self, 'map_extent'):
             map_extent = self.map_extent.copy()
-            self.map_extent = [map_extent[2],
-                               map_extent[3],
-                               map_extent[0],
-                               map_extent[1]]
+            self.map_extent = [map_extent[3],
+                               map_extent[2],
+                               map_extent[1],
+                               map_extent[0]]
             
         # Update spot map_indices
         if hasattr(self, 'spots'):
@@ -1978,17 +1981,21 @@ class XRDMap():
             if full_data:
                 xrf['data'] = f['xrfmap/detsum/counts'][:]
                 xrf['energy'] = np.arange(xrf['data'].shape[-1]) / 100
+            
+            elif 'xrf_fit_names' in f['xrfmap/detsum'].keys():
+                xrf_fit_names = [d.decode('utf-8') for d in f['xrfmap/detsum/xrf_fit_name'][:]]
+                xrf_fit = f['xrfmap/detsum/xrf_fit'][:]
 
-            xrf_fit_names = [d.decode('utf-8') for d in f['xrfmap/detsum/xrf_fit_name'][:]]
-            xrf_fit = f['xrfmap/detsum/xrf_fit'][:]
+                i0 = f['xrfmap/scalers/val'][..., 0]
+                xrf_fit = np.concatenate((xrf_fit, np.expand_dims(i0, axis=0)), axis=0)
+                xrf_fit = np.transpose(xrf_fit, axes=(0, 2, 1))
+                xrf_fit_names.append('i0')
 
-            i0 = f['xrfmap/scalers/val'][..., 0]
-            xrf_fit = np.concatenate((xrf_fit, np.expand_dims(i0, axis=0)), axis=0)
-            xrf_fit = np.transpose(xrf_fit, axes=(0, 2, 1))
-            xrf_fit_names.append('i0')
-
-            for key, value in zip(xrf_fit_names, xrf_fit):
-                xrf[key] = value
+                for key, value in zip(xrf_fit_names, xrf_fit):
+                    xrf[key] = value
+            else:
+                print('WARNING: XRF fitting not found and full_data flag not indicated. No data loaded.')
+                return
 
             xrf['E0'] = f['xrfmap/scan_metadata'].attrs['instrument_mono_incident_energy']
         
@@ -2009,8 +2016,6 @@ class XRDMap():
             if not keep_hdf:
                 self.hdf.close()
                 self.hdf = None
-
-
         
 
     ##########################
@@ -2095,90 +2100,10 @@ class XRDMap():
             return fig, ax
         else:
             fig.show()
-
-    # Interactive plots do not currently accept fig, ax inputs
-
-    def plot_interactive_map(self,
-                             image_data=None,
-                             xticks=None,
-                             yticks=None,
-                             return_plot=False,
-                             **kwargs):
-
-        if image_data is not None:
-            image_data = np.asarray(image_data)
-        elif not hasattr(self, 'map'):
-            raise ValueError('Could not find ImageMap to plot data!')
-        elif self.map.images.ndim != 4:
-            raise ValueError(f'ImageMap data shape is not 4D, but {self.map.images.ndim}')
-        else:
-            image_data = self.map.images
-
-        if xticks is None and self.map.corrections['polar_calibration']:
-            if hasattr(self, 'tth') and self.tth is not None:
-                xticks = self.tth
-            if hasattr(self, 'chi') and self.chi is not None:
-                yticks = self.chi
-
-        # Check for, extract, or determine displaymap
-        if 'display_map' not in kwargs.keys():
-            display_map = self.map.sum_map
-        else:
-            display_map = kwargs['display_map']
-            del kwargs['display_map']
-
-        fig, ax = interactive_dynamic_2d_plot(image_data,
-                                              xticks=xticks,
-                                              yticks=yticks,
-                                              display_map=display_map,
-                                              **kwargs)
-        if return_plot:
-            return fig, ax
-        else:
-            fig.show()
-    
-
-    def plot_interactive_integration_map(self,
-                                         integrated_data=None,
-                                         tth=None,
-                                         return_plot=False,
-                                         **kwargs):
-        # Map integrated patterns for dynamic exploration of dataset
-        # May throw an error if data has not yet been integrated
-        if integrated_data is not None:
-            integrated_data = np.asarray(integrated_data)
-        elif not hasattr(self, 'map'):
-            raise ValueError('Could not find ImageMap to plot data!')
-        elif not hasattr(self.map, 'integrations'):
-            raise ValueError('Could not find integrations in ImageMap to plot data!')
-        elif self.map.integrations.ndim != 3:
-            raise ValueError(f'ImageMap data shape is not 4D, but {self.map.integrations.ndim}')
-        else:
-            integrated_data = self.map.integrations
-
-        if tth is None:
-            if hasattr(self, 'tth') and self.tth is not None:
-                tth = self.tth
-    
-        # Check for, extract, or determine displaymap
-        if 'display_map' not in kwargs.keys():
-            display_map = self.map.sum_map
-        else:
-            display_map = kwargs['display_map']
-            del kwargs['display_map']
-    
-        fig, ax = interactive_dynamic_1d_plot(integrated_data,
-                                              xticks=tth,
-                                              display_map=display_map,
-                                              **kwargs)
-        if return_plot:
-            return fig, ax
-        else:
-            fig.show()
     
 
     def plot_map(self,
-                 value,
+                 map_values,
                  map_extent=None,
                  position_units=None,
                  fig=None,
@@ -2186,12 +2111,27 @@ class XRDMap():
                  return_plot=False,
                  **kwargs):
         
+        map_values = np.asarray(map_values)
+        if (hasattr(self, 'map')
+            and map_values.shape != self.map.map_shape):
+            err_str = (f'Map input shape {map_values.shape} does '
+                       + f'not match instance shape '
+                       + f'of {self.map.map_shape}')
+            raise ValueError(err_str)
+        
+        elif (hasattr(self, 'pos_dict')
+              and map_values.shape != list(self.pos_dict.values())[0].shape):
+            err_str = (f'Map input shape {map_values.shape} does '
+                       + f'not match instance shape '
+                       + f'of {list(self.pos_dict.values())[0].shape}')
+            raise ValueError(err_str)
+        
         if map_extent is None:
             map_extent = self.map_extent
         if position_units is None:
             position_units = self.position_units
         
-        fig, ax = plot_map(value,
+        fig, ax = plot_map(map_values,
                            map_extent=map_extent,
                            position_units=position_units,
                            fig=fig,
@@ -2202,7 +2142,123 @@ class XRDMap():
             return fig, ax
         else:
             fig.show()
+
+    # Interactive plots do not currently accept fig, ax inputs
+
+    def plot_interactive_map(self,
+                             dyn_kw=None,
+                             map_kw=None,
+                             return_plot=False,
+                             **kwargs):
+        
+        # Python doesn't play well with mutable default kwargs
+        if dyn_kw is None:
+            dyn_kw = {}
+        if map_kw is None:
+            map_kw = {}
+
+        if not _check_missing_key(dyn_kw, 'data'):
+            #dyn_kw['data']  = np.asarray(dyn_kw['data'])
+            pass
+        elif not hasattr(self, 'map'):
+            raise ValueError('Could not find ImageMap to plot data!')
+        elif self.map.images.ndim != 4:
+            raise ValueError(f'ImageMap data shape is not 4D, but {self.map.images.ndim}')
+        else:
+            dyn_kw['data'] = self.map.images
+
+        if (self.map.corrections['polar_calibration']
+            and _check_missing_key(dyn_kw, 'x_ticks')):
+            if hasattr(self, 'tth') and self.tth is not None:
+                dyn_kw['x_ticks'] = self.tth
+            if hasattr(self, 'chi') and self.chi is not None:
+                dyn_kw['y_ticks'] = self.chi
+
+        # Add default map_kw information if not already included
+        if _check_missing_key(map_kw, 'map'):
+            print('Defaulting to Summed Map from ImageMap')
+            map_kw['map'] = self.map.sum_map
+            map_kw['title'] = 'Summed Intensity'
+        if (hasattr(self, 'map')
+            and hasattr(self, 'map_extent')):
+            if _check_missing_key(map_kw, 'x_ticks'):
+                map_kw['x_ticks'] = np.round(np.linspace(
+                    *self.map_extent[:2],
+                    self.map.map_shape[1]), 2)
+            if _check_missing_key(map_kw, 'y_ticks'):
+                map_kw['y_ticks'] = np.round(np.linspace(
+                    *self.map_extent[2:],
+                    self.map.map_shape[0]), 2)
+        if hasattr(self, 'positions_units'):
+            if _check_missing_key(map_kw, 'x_label'):
+                map_kw['x_label'] = f'x position [{self.position_units}]'
+            if _check_missing_key(map_kw, 'y_label'):
+                map_kw['y_label'] = f'y position [{self.position_units}]'
+
+        fig, ax = interactive_2D_plot(dyn_kw,
+                                      map_kw,
+                                      **kwargs)
+
+        if return_plot:
+            return fig, ax
+        else:
+            fig.show()
+
+
+    def plot_interactive_integration_map(self,
+                                         dyn_kw=None,
+                                         map_kw=None,
+                                         return_plot=False,
+                                         **kwargs):
+        
+        # Python doesn't play well with mutable default kwargs
+        if dyn_kw is None:
+            dyn_kw = {}
+        if map_kw is None:
+            map_kw = {}
+
+        if not _check_missing_key(dyn_kw, 'data'):
+            dyn_kw['data'] = np.asarray(dyn_kw['data'])
+        elif not hasattr(self, 'map'):
+            raise ValueError('Could not find ImageMap to plot data!')
+        elif not hasattr(self.map, 'integrations'):
+            raise ValueError('Could not find integrations in ImageMap to plot data!')
+        elif self.map.integrations.ndim != 3:
+            raise ValueError(f'ImageMap data shape is not 4D, but {self.map.integrations.ndim}')
+        else:
+            dyn_kw['data'] = self.map.integrations
+
+        if not _check_missing_key(dyn_kw, 'x_ticks'):
+            if hasattr(self, 'tth') and self.tth is not None:
+                dyn_kw['x_ticks'] = self.tth
     
+        # Add default map_kw information if not already included
+        if _check_missing_key(map_kw, 'map'):
+            map_kw['map'] = self.map.sum_map
+            map_kw['title'] = 'Summed Intensity'
+        if (hasattr(self, 'map')
+            and hasattr(self, 'map_extent')):
+            if _check_missing_key(map_kw, 'x_ticks'):
+                map_kw['x_ticks'] = np.round(np.linspace(
+                    *self.map_extent[:2],
+                    self.map.map_shape[1]), 2)
+            if _check_missing_key(map_kw, 'y_ticks'):
+                map_kw['y_ticks'] = np.round(np.linspace(
+                    *self.map_extent[2:],
+                    self.map.map_shape[0]), 2)
+        if hasattr(self, 'positions_units'):
+            if _check_missing_key(map_kw, 'x_label'):
+                map_kw['x_label'] = f'x position [{self.position_units}]'
+            if _check_missing_key(map_kw, 'y_label'):
+                map_kw['y_label'] = f'y position [{self.position_units}]'
+    
+        fig, ax = interactive_1D_plot(dyn_kw,
+                                      map_kw,
+                                      **kwargs)
+        if return_plot:
+            return fig, ax
+        else:
+            fig.show()
 
     # Dual plotting a map with a representation of the full data would be very interesting
     # Something like the full strain tensor which updates over each pixel
