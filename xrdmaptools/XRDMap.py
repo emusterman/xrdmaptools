@@ -72,8 +72,9 @@ class XRDMap():
                  hdf=None,
                  image_data=None,
                  integration_data=None,
+                 map_shape=None,
+                 image_shape=None,
                  map_title=None,
-                 dataset_shape=None,
                  energy=None,
                  wavelength=None,
                  dwell=None,
@@ -154,7 +155,8 @@ class XRDMap():
                                     wd=self.wd,
                                     hdf_path=self.hdf_path,
                                     hdf=hdf,
-                                    dataset_shape=dataset_shape,
+                                    map_shape=map_shape,
+                                    image_shape=image_shape,
                                     dask_enabled=dask_enabled)
         else:
             raise NotImplementedError('XRDMaps without image or integration data is not currently supported.')
