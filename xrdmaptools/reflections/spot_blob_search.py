@@ -436,8 +436,8 @@ def spot_stats(spot, image, tth_arr, chi_arr, radius=5):
     spot_image = image * spot_mask
 
     height = np.max(spot_image) - np.min(spot_image)
-    img_x = int(spot[0])
-    img_y = int(spot[1])
+    img_x = int(spot[1])
+    img_y = int(spot[0])
     tth = tth_arr[*spot]
     chi = chi_arr[*spot]
     intensity = np.sum(spot_image)
@@ -498,7 +498,7 @@ def find_spot_stats(imagemap, spot_list, tth_arr, chi_arr, radius=5):
 def make_stat_dict(stat_list, map_shape):
 
     # This might be backwards
-    map_x, map_y = np.unravel_index(range(len(stat_list)), map_shape)
+    map_y, map_x = np.unravel_index(range(len(stat_list)), map_shape)
     stat_keys = ['guess_height', 'img_x', 'img_y',
                  'guess_tth', 'guess_chi', 'guess_cen_tth', 'guess_cen_chi',
                  'guess_fwhm_tth', 'guess_fwhm_chi', 'guess_int']
@@ -543,10 +543,10 @@ def remake_spot_list(stat_df, map_shape):
 
     for index in range(len(spot_list)):
         indices = np.unravel_index(index, map_shape)
-        pixel_df = stat_df[(stat_df['map_x'] == indices[0])
-                            & (stat_df['map_y'] == indices[1])]
-        spot_list[index] = np.asarray([list(pixel_df['img_x'].values[:]),
-                            list(pixel_df['img_y'].values[:])]).T
+        pixel_df = stat_df[(stat_df['map_x'] == indices[1])
+                            & (stat_df['map_y'] == indices[0])]
+        spot_list[index] = np.asarray([list(pixel_df['img_y'].values[:]),
+                            list(pixel_df['img_x'].values[:])]).T
         
     return spot_list
 
@@ -610,7 +610,7 @@ def gaussian_watershed_segmentation(blurred_image, spots, mask):
     # Just to make sure the background is not included
     new_blob_image *= mask
 
-    return new_blob_image   
+    return new_blob_image
 
 
 def append_watershed_blobs(spots, mask, new_blob_image):
@@ -634,14 +634,16 @@ def segment_blobs(xrdmap, map_indices, mask, blurred_image, max_dist=0.75):
     # Shift azimuthal discontinuities
     _, max_arr, _ = modular_azimuthal_shift(chi_arr) # Do not reuse shifted chi_arr
 
-    pixel_df = xrdmap.spots[(xrdmap.spots['map_x'] == map_indices[0])
-                        & (xrdmap.spots['map_y'] == map_indices[1])]
+    pixel_df = xrdmap.pixel_spots(map_indices)
+
+    #pixel_df = xrdmap.spots[(xrdmap.spots['map_x'] == map_indices[1])
+    #                    & (xrdmap.spots['map_y'] == map_indices[0])]
     
     spots = pixel_df[['guess_cen_tth', 'guess_cen_chi']].values
     
     if len(spots) < 1:
         #print('Pixel has no spots!')
-        return
+        return []
 
     # condense spots
     new_spots = combine_nearby_spots(spots, max_dist=max_dist)
@@ -762,7 +764,7 @@ def fit_spots(xrdmap, SpotModel, max_dist=0.75, sigma=1):
         image = xrdmap.map.images[map_indices]
 
         if isinstance(image, da.core.Array):
-                    image = image.compute()
+            image = image.compute()
                     
         # Hard-coded sigma in pixel units. Not the best...
         blurred_image = gaussian_filter(median_filter(image, size=2), sigma=sigma)

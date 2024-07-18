@@ -1917,8 +1917,8 @@ class XRDMap():
 
     def pixel_spots(self, map_indices):
         # TODO: These values may need to be reversed. Check with mapping values...
-        pixel_spots = self.spots[(self.spots['map_x'] == map_indices[0])
-                               & (self.spots['map_y'] == map_indices[1])].copy()
+        pixel_spots = self.spots[(self.spots['map_x'] == map_indices[1])
+                               & (self.spots['map_y'] == map_indices[0])].copy()
         return pixel_spots
     
 
@@ -1995,7 +1995,7 @@ class XRDMap():
 
                 i0 = f['xrfmap/scalers/val'][..., 0]
                 xrf_fit = np.concatenate((xrf_fit, np.expand_dims(i0, axis=0)), axis=0)
-                xrf_fit = np.transpose(xrf_fit, axes=(0, 2, 1))
+                #xrf_fit = np.transpose(xrf_fit, axes=(0, 2, 1))
                 xrf_fit_names.append('i0')
 
                 for key, value in zip(xrf_fit_names, xrf_fit):
@@ -2185,7 +2185,7 @@ class XRDMap():
 
         # Add default map_kw information if not already included
         if _check_missing_key(map_kw, 'map'):
-            print('Defaulting to Summed Map from ImageMap')
+            #print('Defaulting to Summed Map from ImageMap')
             map_kw['map'] = self.map.sum_map
             map_kw['title'] = 'Summed Intensity'
         if (hasattr(self, 'map')

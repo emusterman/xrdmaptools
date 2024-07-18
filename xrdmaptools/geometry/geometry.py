@@ -159,6 +159,9 @@ def estimate_polar_coords(coords, tth_arr, chi_arr, method='linear'):
     if tth_arr.shape != chi_arr.shape:
         raise ValueError(f"tth_arr shape {tth_arr.shape} does not match chi_arr shape {chi_arr}")
 
+    # Not strictly necessary
+    coords = np.asarray(coords)
+
     # Shift azimuthal discontinuties
     chi_arr, max_arr, _ = modular_azimuthal_shift(chi_arr)
 
@@ -189,6 +192,9 @@ def estimate_image_coords(coords, tth_arr, chi_arr, method='nearest'):
     # Check coord values to make sure they are in range
     if tth_arr.shape != chi_arr.shape:
         raise ValueError(f"tth_arr shape {tth_arr.shape} does not match chi_arr shape {chi_arr}")
+
+    # For better indexing
+    coords = np.asarray(coords)
 
     # Shift azimuthal discontinuities
     chi_arr, max_arr, shifted = modular_azimuthal_shift(chi_arr)

@@ -24,8 +24,9 @@ def _plot_parse_xrdmap(xrdmap, indices, mask=False, spots=False, contours=False)
     # Extract spots
     out_spots = None
     if spots and hasattr(xrdmap, 'spots'):
-        pixel_df = xrdmap.spots[(xrdmap.spots['map_x'] == indices[0])
-                                & (xrdmap.spots['map_y'] == indices[1])].copy()
+        pixel_df = xrdmap.pixel_spots(indices)
+        #pixel_df = xrdmap.spots[(xrdmap.spots['map_x'] == indices[1])
+        #                        & (xrdmap.spots['map_y'] == indices[0])].copy()
         
         if any([x[:3] == 'fit' for x in pixel_df.keys()]):
             pixel_df.dropna(axis=0, inplace=True)
@@ -212,7 +213,8 @@ def plot_reconstruction(self,
         print('WARNING: No spot model saved. Defaulting to Gaussian.')
         spot_model = GaussianFunctions
     
-    pixel_df = self.spots[(self.spots['map_x'] == indices[0]) & (self.spots['map_y'] == indices[1])].copy()
+    pixel_df = xrdmap.pixel_spots(indices)
+    #pixel_df = self.spots[(self.spots['map_x'] == indices[0]) & (self.spots['map_y'] == indices[1])].copy()
 
     if any([x[:3] == 'fit' for x in pixel_df.keys()]):
         prefix = 'fit'

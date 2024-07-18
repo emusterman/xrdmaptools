@@ -992,20 +992,24 @@ class ImageMap:
         return calibration_mask
     
 
-    def rescale_images(self, lower=0, upper=100,
-                       arr_min=0, arr_max=None,
+    def rescale_images(self,
+                       lower=0,
+                       upper=100,
+                       arr_min=0,
+                       arr_max=None,
                        mask=None):
 
         if mask is None and np.any(self.mask != 1):
             mask = np.empty_like(self.images, dtype=np.bool_)
             mask[:, :] = self.mask
         
-        self.images = rescale_array(self.images,
-                                    lower=lower,
-                                    upper=upper,
-                                    arr_min=arr_min,
-                                    arr_max=arr_max,
-                                    mask=mask)
+        rescale_array(
+            self.images,
+            lower=lower,
+            upper=upper,
+            arr_min=arr_min,
+            arr_max=arr_max,
+            mask=mask)
         
         # Update _temp images
         self._dask_2_hdf()
@@ -1199,8 +1203,18 @@ class ImageMap:
         del self.background
     
 
-    def rescale_integrations():
-        raise NotImplementedError()
+    def rescale_integrations(self,
+                             lower=0,
+                             upper=100,
+                             arr_min=0,
+                             arr_max=None):
+        
+        rescale_array(
+            self.integrations,
+            lower=lower,
+            upper=upper,
+            arr_min=arr_min,
+            arr_max=arr_max)
 
 
     ####################
@@ -1252,8 +1266,8 @@ class ImageMap:
         labels = []
 
         if len(arr_shape) == 4: # Image map
-            labels = ['x_ind',
-                      'y_ind']
+            labels = ['map_y_ind',
+                      'map_x_ind']
             if self.corrections['polar_calibration']:
                 labels.extend(['chi_ind', 'tth_ind'])
             else:
@@ -1266,8 +1280,8 @@ class ImageMap:
                 labels.extend(['img_y', 'img_x'])
 
         elif len(arr_shape) == 3: # Integrations
-            labels = ['x_ind',
-                      'y_ind',
+            labels = ['map_y_ind',
+                      'map_x_ind',
                       'tth_ind']
 
         return units, labels
