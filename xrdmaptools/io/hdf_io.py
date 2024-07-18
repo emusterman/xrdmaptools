@@ -25,13 +25,14 @@ def initialize_xrdmap_hdf(xrdmap, hdf_file):
         base_grp.attrs['facility'] = xrdmap.facility #'NSLS-II'
         base_grp.attrs['energy'] = xrdmap.energy
         base_grp.attrs['wavelength'] = xrdmap.wavelength
+        base_grp.attrs['dwell'] = xrdmap.dwell
         base_grp.attrs['time_stamp'] = '' # Not sure why I cannot assign None
 
         # Record diffraction data
         curr_grp = base_grp.require_group('image_data') # naming the group after the detector may be a bad idea...
         curr_grp.attrs['detector'] = '' #'dexela'
         curr_grp.attrs['detector_binning'] = '' #(4, 4)
-        curr_grp.attrs['exposure_time'] = '' # 0.1
+        curr_grp.attrs['exposure_time'] = xrdmap.dwell
         curr_grp.attrs['expsure_time_units'] = 's'
 
         # Add pixel spatial positions

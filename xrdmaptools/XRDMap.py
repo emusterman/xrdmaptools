@@ -82,8 +82,8 @@ class XRDMap():
                  poni_file=None,
                  sclr_dict=None,
                  pos_dict=None,
-                 tth_resolution=0.01,
-                 chi_resolution=0.05,
+                 tth_resolution=None,
+                 chi_resolution=None,
                  tth=None,
                  chi=None,
                  beamline='5-ID (SRX)',
@@ -189,10 +189,15 @@ class XRDMap():
         if tth is not None and len(tth) == 0:
             tth = None
         self.tth = tth
+        if tth_resolution is None:
+            tth_resolution = 0.01
         self.tth_resolution = tth_resolution
+
         if chi is not None and len(chi) == 0:
             chi = None
         self.chi = chi
+        if chi_resolution is None:
+            chi_resolution = 0.05
         self.chi_resolution = chi_resolution
 
 
@@ -324,7 +329,7 @@ class XRDMap():
                 poni_file=None,
                 data_keys=None,
                 save_hdf=True,
-                repair_method='replace'):
+                repair_method='fill'):
     
         # No fluorescence key
         pos_keys = ['enc1', 'enc2']
@@ -1984,7 +1989,7 @@ class XRDMap():
                 xrf['data'] = f['xrfmap/detsum/counts'][:]
                 xrf['energy'] = np.arange(xrf['data'].shape[-1]) / 100
             
-            elif 'xrf_fit_names' in f['xrfmap/detsum'].keys():
+            if 'xrf_fit_name' in f['xrfmap/detsum'].keys():
                 xrf_fit_names = [d.decode('utf-8') for d in f['xrfmap/detsum/xrf_fit_name'][:]]
                 xrf_fit = f['xrfmap/detsum/xrf_fit'][:]
 
@@ -1995,7 +2000,7 @@ class XRDMap():
 
                 for key, value in zip(xrf_fit_names, xrf_fit):
                     xrf[key] = value
-            else:
+            elif not full_data:
                 print('WARNING: XRF fitting not found and full_data flag not indicated. No data loaded.')
                 return
 
@@ -2173,8 +2178,10 @@ class XRDMap():
             and _check_missing_key(dyn_kw, 'x_ticks')):
             if hasattr(self, 'tth') and self.tth is not None:
                 dyn_kw['x_ticks'] = self.tth
+                dyn_kw['x_label'] = f'Scattering Angle, 2θ [{self.scattering_units}]'
             if hasattr(self, 'chi') and self.chi is not None:
                 dyn_kw['y_ticks'] = self.chi
+                dyn_kw['x_label'] = f'Azimuthal Angle, χ [{self.polar_units}]'
 
         # Add default map_kw information if not already included
         if _check_missing_key(map_kw, 'map'):
@@ -2230,9 +2237,10 @@ class XRDMap():
         else:
             dyn_kw['data'] = self.map.integrations
 
-        if not _check_missing_key(dyn_kw, 'x_ticks'):
+        if _check_missing_key(dyn_kw, 'x_ticks'):
             if hasattr(self, 'tth') and self.tth is not None:
                 dyn_kw['x_ticks'] = self.tth
+                dyn_kw['x_label'] = f'Scattering Angle, 2θ [{self.scattering_units}]'
     
         # Add default map_kw information if not already included
         if _check_missing_key(map_kw, 'map'):

@@ -291,7 +291,7 @@ def _display_map(data=None,
 def _set_globals(ax):
     # Plot display map with marker
     global row, col, marker, dynamic_toggle, cbar, map_x, map_y
-    marker = ax[0].scatter(0, 0)
+    marker = ax[0].scatter([], [])
     marker.set_visible(False)
     dynamic_toggle = False
     cbar = None
