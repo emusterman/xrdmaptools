@@ -25,20 +25,21 @@ def initialize_xrdmap_hdf(xrdmap, hdf_file):
         base_grp.attrs['facility'] = xrdmap.facility #'NSLS-II'
         base_grp.attrs['energy'] = xrdmap.energy
         base_grp.attrs['wavelength'] = xrdmap.wavelength
-        base_grp.attrs['dwell'] = xrdmap.dwell
         base_grp.attrs['time_stamp'] = '' # Not sure why I cannot assign None
 
         # Record diffraction data
         curr_grp = base_grp.require_group('image_data') # naming the group after the detector may be a bad idea...
         curr_grp.attrs['detector'] = '' #'dexela'
         curr_grp.attrs['detector_binning'] = '' #(4, 4)
-        curr_grp.attrs['exposure_time'] = xrdmap.dwell
         curr_grp.attrs['expsure_time_units'] = 's'
 
-        # Add pixel spatial positions
-
-        # Add pixel scaler values
-    
+        # Special consideration for when dwell wasn't being recorded...
+        if not hasattr(xrdmap, 'dwell') or xrdmap.dwell is None:
+            dwell = ''
+        else:
+            dwell = xrdmap.dwell
+        base_grp.attrs['dwell'] = dwell
+        curr_grp.attrs['dwell'] = dwell # Used to be exposure time, but not accurate
 
 def load_xrdmap_hdf(filename, wd=None, dask_enabled=False, only_integrations=False):
     # TODO: Add conditional to check for .h5 at end of file name
@@ -261,7 +262,7 @@ def load_xrdmap_hdf(filename, wd=None, dask_enabled=False, only_integrations=Fal
         hdf = None
 
     # Instantiate ImageMap!
-    print(f'Instantiating ImageMap...', end='', flush=True)
+    print(f'Instantiating ImageMap...')
     image_map = ImageMap(image_data=image_data,
                          integration_data=integration_data,
                          title=img_keys[recent_index],
@@ -274,9 +275,8 @@ def load_xrdmap_hdf(filename, wd=None, dask_enabled=False, only_integrations=Fal
     # Add extra ImageMap attributes
     for key, value in image_map_attrs.items():
         setattr(image_map, key, value)
-    print('done!')
 
-    print(f'ImageMap shape is {image_map.shape}.')
+    print(f'ImageMap loaded! Shape is {image_map.shape}.')
     
     # return dictionary of useful values
     ouput_dict = {'base_md' : base_md,
