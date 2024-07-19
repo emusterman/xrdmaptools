@@ -1697,13 +1697,14 @@ class XRDMap():
                    threshold_method='minimum',
                    multiplier=5,
                    size=3,
-                   expansion=10):
+                   expansion=10,
+                   override_rescale=False):
     
         # Cleanup images as necessary
         self.map._dask_2_numpy()
-        if np.max(self.map.images) != 100:
+        if not override_rescale and np.max(self.map.images) != 100:
             print('Rescaling images to max of 100 and min around 0.')
-            self.map.rescale_images(arr_min=0, upper=100)
+            self.map.rescale_images(arr_min=0, upper=100, lower=0)
 
         # Search each image for significant spots
         blob_mask_list = find_blobs(
@@ -1732,7 +1733,8 @@ class XRDMap():
                    size=3,
                    expansion=10,
                    min_distance=3,
-                   radius=10):
+                   radius=10,
+                   override_rescale=False):
         
         if (hasattr(self.map, 'blob_masks')
             and self.map.blob_masks is not None):
@@ -1741,9 +1743,9 @@ class XRDMap():
             
         # Cleanup images as necessary
         self.map._dask_2_numpy()
-        if np.max(self.map.images) != 100:
+        if not override_rescale and np.max(self.map.images) != 100:
             print('Rescaling images to max of 100 and min around 0.')
-            self.map.rescale_images(arr_min=0, upper=100)
+            self.map.rescale_images(arr_min=0, upper=100, lower=0)
         
         # Search each image for significant blobs and spots
         spot_list, blob_mask_list = find_blobs_spots(

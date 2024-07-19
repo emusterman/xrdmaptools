@@ -86,23 +86,24 @@ def load_xrdmap_hdf(filename, wd=None, dask_enabled=False, only_integrations=Fal
                 corrections[key[1:-11]] = value
 
         # Collect ImageMap attributes that are not instantiated...
+        # This includes correction references...
         image_map_attrs = {}
-        
-        #image_map.image_shape = img_grp['raw_images'].shape[2:]
-        image_map_attrs['image_shape'] = img_grp['raw_images'].shape[2:]
-        
-        # I should look for other composite images???
-        if '_processed_images_composite' in img_grp.keys():
-            image_map_attrs['_processed_images_composite'] = img_grp['_processed_images_composite'][:]
+        for key in ['dark_field',
+                    'flat_field',
+                    'air_scatter',
+                    'scaler_intensity',
+                    'lorentz_correction',
+                    'polarization_correction',
+                    'solidangle_correction',
+                    'absorption_correction',
+                    'custom_mask',
+                    'defect_mask',
+                    'calibration_mask']:
+            if f'_{key}' in img_grp.keys():
+                image_map_attrs[key] = img_grp[f'_{key}'][:]
 
-        if '_calibration_mask' in img_grp.keys():
-            image_map_attrs['calibration_mask'] = img_grp['_calibration_mask'][:]
-
-        if '_defect_mask' in img_grp.keys():
-            image_map_attrs['defect_mask'] = img_grp['_defect_mask'][:]
-
-        if '_custom_mask' in img_grp.keys():
-            image_map_attrs['custom_mask'] = img_grp['_custom_mask'][:]
+        if '_static_background' in img_grp.keys():
+            image_map_attrs['background'] = img_grp['_static_background'][:]
         
         # Deprecated tag, but kept for backwards compatibility
         if '_spot_masks' in img_grp.keys():

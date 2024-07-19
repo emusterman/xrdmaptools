@@ -810,7 +810,10 @@ class ImageMap:
                 x = np.sqrt(xi**2 + yi**2)
 
             abs_arr = np.exp(-x / a)
-            self.absorption_correction = abs_arr
+            self.absorption_correction = abs_arr\
+            # Not sure about saving this...
+            self.save_images(self.absorption_correction,
+                            'absorption_correction')
 
         elif exp_dict['mode'] == 'reflection':
             raise NotImplementedError()
@@ -845,7 +848,7 @@ class ImageMap:
                 else:
                     first_key = list(self.sclr_dict.keys())[0]
                     scaler_arr = self.sclr_dict[first_key]
-                    print(f'Unrecognized scaler keys. Using "{first_key}" instead.')
+                    print(f'WARNING: Unrecognized scaler keys. Using "{first_key}" instead.')
                     sclr_key = first_key
             else:
                 print('No scaler array given or found. Approximating with image medians.')
@@ -867,7 +870,10 @@ class ImageMap:
    
         print(f'Normalizing images by {sclr_key} scaler...', end='', flush=True)
         self.images /= scaler_arr.reshape(*self.map_shape, 1, 1)
-        self.scaler_map = scaler_arr # Do not save to hdf, since scalers should be recorded...
+        self.scaler_map = scaler_arr
+        if not hasattr(self, 'sclr_dict'): # Trying to catch non-saved values
+            self.save_images(self.scaler_map,
+                                'scaler_map') 
         self.corrections['scaler_intensity'] = True
         self.update_map_title()
         self._dask_2_hdf()
@@ -1013,6 +1019,54 @@ class ImageMap:
         
         # Update _temp images
         self._dask_2_hdf()
+
+
+    # For estimating maximum saturated pixel for comparison with other datasets
+    def estimate_saturated_pixel(self,
+                                 raw_max_val=(2**14 - 1), # Saturated value from 
+                                 method='median'):
+
+        if method.lower() in ['median', 'med']: # Usually better statistics 
+            var_func = np.median
+        if method.lower() in ['minimum', 'min']: # Better guesses true possible maximum, even if unlikely in dataset
+            var_func = np.min
+        
+        if self.corrections['dark_field']:
+            raw_max_val -= np.median(self.dark_field)
+        if self.corrections['flat_field']:
+            raw_max_val /= np.median(self.flat_field)
+        # if self.corrections['air_scatter']:
+        #     raw_max_val -= np.min(self.air_scatter)
+        
+        if self.corrections['scaler_intensity']:
+            if hasattr(self, 'scaler_map') and self.scaler_map is not None:
+                scaler_map = self.scaler_map
+            elif hasattr(self, 'sclr_dict'):
+                for key in ['i0', 'im']:
+                    if key in self.sclr_dict.keys():
+                        scaler_map = self.sclr_dict[key]
+                        break
+                    else:
+                        scaler_map = list(self.sclr_dict.values())[0] # Hope for the best
+            else:
+                raise ValueError('Not enough information to estimate scaler contribution!')
+            raw_max_val /= np.median(scaler_map)
+
+        if self.corrections['lorentz']:
+            raw_max_val /= var_func(self.lorentz_correction)
+        if self.corrections['polarization']:
+            raw_max_val /= var_func(self.polarization_correction)
+        if self.corrections['solid_angle']:
+            raw_max_val /= var_func(self.solidangle_correction)
+        if self.corrections['absorption']:
+            raw_max_val /- var_func(self.absorption_correction)
+        # Assuming the minimum background will be very close to zero
+        if self.corrections['background']:
+            if hasattr(self, 'background') and self.background is not None:
+                raw_max_val -= var_func(self.background)
+        # All other corrections are isolated within the image
+
+        return raw_max_val
         
 
     def finalize_images(self, save_images=True):
