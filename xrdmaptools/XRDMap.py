@@ -125,10 +125,8 @@ class XRDMap():
         elif wavelength is not None: # Favors energy definition
             self.wavelength = wavelength
         
-        if dwell is not None:
-            self.dwell = dwell
-        if theta is not None:
-            self.theta = theta
+        self.dwell = dwell
+        self.theta = theta
 
         # Add conditional to check approximate image_data size and force dask?
 
@@ -415,8 +413,8 @@ class XRDMap():
         
         # Get slicing information
         slicings, _, _ = get_large_map_slices(
-                        self,
-                        approx_new_map_sizs=approx_new_map_sizes,
+                        self.map.images,
+                        approx_new_map_sizes=approx_new_map_sizes,
                         final_dtype=final_dtype
                         )
         
@@ -428,15 +426,25 @@ class XRDMap():
             raise RuntimeError(err_str)
         
         if new_directory:
-            new_dir = f'{self.wd}scan{self.scanid}_fratured_maps/'
-            os.makedirs(new_dir, exists_ok=True)
+            new_dir = f'{self.wd}scan{self.scanid}_fractured_maps/'
+            os.makedirs(new_dir, exist_ok=True)
         else:
             new_dir = self.wd
+
+        if not hasattr(self, '_energy'):
+            energy = None
+        else:
+            energy = self.energy
+        if not hasattr(self, 'poni'):
+            poni = None
+        else:
+            poni = self.poni
 
         # Slicing of numpy arrays create veiws, not new copys
         sliced_images = []
         sliced_pos_dicts = []
         sliced_sclr_dicts = []
+        shapes = []
 
         for slicing in slicings:
             i_st, i_end = slicing[0]
@@ -457,21 +465,24 @@ class XRDMap():
                 new_sclr_dict[key] = self.sclr_dict[key][i_st:i_end, j_st:j_end]
                 sliced_sclr_dicts.append(new_sclr_dict)
 
+        print(f'Fracturing large map into {len(sliced_images)} smaller maps.')
         for i in range(len(sliced_images)):
-            
+            print((f'Writing new XRDMap for scan' + str(self.scanid) + f'-{i + 1}\n'
+                   + f'New ImageMap of shape {sliced_images[i].shape}'))
+
             # Seems like a weird way to access the class from within...
             new_xrdmap = self.__class__(
                 scanid=str(self.scanid) + f'-{i + 1}',
                 wd=new_dir,
-                filename=self.filename,
+                filename=None, # This will force a default to scanid with iteration
                 image_data=sliced_images[i],
                 # map_shape=None,
                 # image_shape=None,
                 # map_title=None,
-                energy=self.energy,
+                energy=energy, # To allow for no energy attribute
                 dwell=self.dwell,
                 theta=self.theta,
-                poni_file=self.poni, # Often None, but may be loaded...
+                poni_file=poni, # Often None, but may be loaded...
                 sclr_dict=sliced_sclr_dicts[i],
                 pos_dict=sliced_pos_dicts[i],
                 tth_resolution=self.tth_resolution,
@@ -483,8 +494,10 @@ class XRDMap():
                 time_stamp=self.time_stamp,
                 extra_metadata=self.extra_metadata,
                 save_hdf=True,
-                dask_enabled=True
+                #dask_enabled=True
             )
+        
+        print('Finished fracturing maps.')
     
     
     ##################

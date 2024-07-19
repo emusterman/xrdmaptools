@@ -223,8 +223,8 @@ class ImageMap:
             if not check_hdf_current_images(self.title, self.hdf_path, self.hdf):
                 print('Writing images to hdf...', end='', flush=True)
                 self.save_images(units='counts',
-                                 labels=['x_ind',
-                                         'y_ind',
+                                 labels=['map_y_ind',
+                                         'map_x_ind',
                                          'img_y',
                                          'img_x'])
                 print('done!')
@@ -250,19 +250,16 @@ class ImageMap:
                         self.images = self.images.astype(self._hdf_store.dtype)
                     if self.images.chunksize != self._hdf_store.chunks:
                         self.images = self.images.rechunk(self._hdf_store.chunks)
-                else:
-                    # Upcast before writing to hdf
-                    self.images = self.images.astype(np.float32)
-                    self._hdf_store = self.hdf.require_dataset('xrdmap/image_data/_temp_images',
-                                                shape=self.images.shape,
-                                                dtype=np.float32,
-                                                chunks=self._chunks,
-                                                compression_opts=4) # This may slow it down
 
-                # Might be best NOT to call this to preserve previous data
-                self.images = da.store(self.images, self._hdf_store,
-                                       compute=True, return_stored=True)[0]       
-        
+                    # Might be best NOT to call this to preserve previous data
+                    self.images = da.store(self.images, self._hdf_store,
+                                        compute=True, return_stored=True)[0]
+                else:
+                    self._hdf_store = None
+                    print(('WARNING: Dask Enabled \n'
+                          + 'A temporary hdf storage dataset will be generated '
+                          + 'when applying the first correction: dark_field.'))
+    
         if wd is None:
             wd = os.getcwd()
         self.wd = wd
@@ -282,9 +279,9 @@ class ImageMap:
         ostr += f'\n\tState:  {self.title}'
         return ostr
     
-    ######################################
-    ### Class Properties and Functions ###
-    ######################################
+    #################################################
+    ### Properties and Internal Utility Functions ###
+    #################################################
 
     @property
     def dtype(self):
@@ -454,6 +451,10 @@ class ImageMap:
 
         # Clear old values everytime this is checked
         self.reset_attributes()
+
+    
+    # def estimate_max_intensity(self):
+    #     saturated_pixel = 
     
 
     ######################
@@ -533,9 +534,31 @@ class ImageMap:
             err_str = (f'Dark-field shape of {dark_field.shape} does '
                       + f'not match image shape of {self.image_shape}.')
             raise ValueError(err_str)
+        
+        self.dark_field = dark_field
+
+        # Check for the start of corrections with dask. Otherwise keep lazily loaded...
+        if self._dask_enabled and self._hdf_store is None:
+            print(('Dask enabled. Upcasting data and generating a '
+                   + 'temporary dataset for performing corrections.\n'
+                   + 'This may take awhile...'))
+
+            # Upcast before writing to hdf
+            self.images = self.images.astype(np.float32)
+            self._hdf_store = self.hdf.require_dataset('xrdmap/image_data/_temp_images',
+                                        shape=self.images.shape,
+                                        dtype=np.float32,
+                                        chunks=self._chunks,
+                                        compression_opts=4,
+                                        compression='gzip') # This may slow it down
+
+            # Might be best NOT to call this to preserve previous data
+            self.images = da.store(self.images, self._hdf_store,
+                                    compute=True, return_stored=True)[0]
+        
         else:
-            self.dark_field = dark_field
-            
+            # Check for upcasting. Will probably upcast data
+
             # Convert from integer to float if necessary
             if (np.issubdtype(self.dtype, np.integer)
                 and np.issubdtype(self.dark_field.dtype, np.floating)):
@@ -551,18 +574,18 @@ class ImageMap:
                 # Trying to save memory if possible
                 if np.max(self.dark_field) > np.min(self.images):
                     self.dtype = np.float32 # Go ahead and make it the final size...
-            
-            print('Correcting dark-field...', end='', flush=True)
-            self.images -= self.dark_field
+        
+        print('Correcting dark-field...', end='', flush=True)
+        self.images -= self.dark_field
 
-            self.save_images(self.dark_field,
-                            'dark_field',
-                            units='counts')
-            
-            self.corrections['dark_field'] = True
-            self.update_map_title()
-            self._dask_2_hdf()
-            print('done!')
+        self.save_images(self.dark_field,
+                        'dark_field',
+                        units='counts')
+        
+        self.corrections['dark_field'] = True
+        self.update_map_title()
+        self._dask_2_hdf()
+        print('done!')
 
 
     # TODO: This fails if image medians are too close to zero
