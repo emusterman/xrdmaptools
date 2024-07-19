@@ -2,6 +2,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from skimage.measure import label
 
+
 # Local imports
 from ..geometry.geometry import estimate_image_coords, estimate_polar_coords
 from ..reflections.spot_blob_search import find_blob_contours
@@ -44,8 +45,8 @@ def _plot_parse_xrdmap(xrdmap, indices, mask=False, spots=False, contours=False)
 
     # Extract contours
     out_contour_list = None
-    if contours and hasattr(xrdmap.map, 'spot_masks'):
-        blob_img = label(xrdmap.map.spot_masks[tuple(indices)])
+    if contours and hasattr(xrdmap.map, 'blob_masks'):
+        blob_img = label(xrdmap.map.blob_masks[tuple(indices)])
         blob_contours = find_blob_contours(blob_img)
         out_contour_list = []
         for blob_contour in blob_contours:
@@ -56,7 +57,7 @@ def _plot_parse_xrdmap(xrdmap, indices, mask=False, spots=False, contours=False)
         else:
             out_contour_list = blob_contours
 
-    elif contours and hasattr(xrdmap.map, 'spot_masks'):
+    elif contours and hasattr(xrdmap.map, 'blob_masks'):
         print('WARNING: Contours requested, but xrdmap does not have any spot masks to draw contours!')
 
     return tuple([out_mask, out_spots, out_contour_list])

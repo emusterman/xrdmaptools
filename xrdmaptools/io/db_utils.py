@@ -5,7 +5,7 @@
 # Local imports
 from ..XRDMap import XRDMap
 
-# Just a convenience wrapper wihout returning the class
+# A very convenient wrapper without returning the class
 def make_xrdmap_hdf(scanid=-1,
                     broker='manual',
                     filedir=None,

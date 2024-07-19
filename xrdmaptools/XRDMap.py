@@ -26,7 +26,10 @@ from .io.hdf_io import (
     initialize_xrdmap_hdf,
     load_xrdmap_hdf
     )
-from .io.hdf_utils import check_hdf_current_images
+from .io.hdf_utils import (
+    check_hdf_current_images,
+    get_large_map_slices
+)
 from .io.db_io import load_data
 from .reflections.spot_blob_indexing import get_q_vect, _initial_spot_analysis
 from .reflections.SpotModels import GaussianFunctions
@@ -339,13 +342,13 @@ class XRDMap():
             data_keys = pos_keys + sclr_keys
 
         data_dict, scan_md, data_keys, xrd_dets = load_data(
-                                                    scanid=scanid,
-                                                    broker=broker,
-                                                    detectors=None,
-                                                    data_keys=data_keys,
-                                                    returns=['data_keys',
-                                                             'xrd_dets'],
-                                                    repair_method=repair_method)
+                                            scanid=scanid,
+                                            broker=broker,
+                                            detectors=None,
+                                            data_keys=data_keys,
+                                            returns=['data_keys',
+                                                        'xrd_dets'],
+                                            repair_method=repair_method)
 
         xrd_data = [data_dict[f'{xrd_det}_image'] for xrd_det in xrd_dets]
 
@@ -395,6 +398,93 @@ class XRDMap():
         else:
             # Don't bother returning a tuple or list of xrdmaps
             return xrdmaps[0]
+    
+
+    # Only accessible from a dask_enabled instance in order to spin up smaller XRDMap instances
+    def fracture_large_map(self,
+                           approx_new_map_sizes=10, # in GB
+                           final_dtype=np.float32,
+                           new_directory=True):
+
+        if not hasattr(self, 'map'):
+            raise AttributeError('XRDMap has no map attribute. No images to fracture along.')
+        elif not self.map._dask_enabled:
+            raise ValueError('Dask is not enabled. Please lazily load images with Dask enabled.')
+        elif np.any(list(self.map.corrections.values())):
+            raise ValueError('XRDMap images have some corrections applied. Only fracture uncorrected datasets.')
+        
+        # Get slicing information
+        slicings, _, _ = get_large_map_slices(
+                        self,
+                        approx_new_map_sizs=approx_new_map_sizes,
+                        final_dtype=final_dtype
+                        )
+        
+        if len(slicings) <= 1:
+            err_str = (f'WARNING: Estimated fractured map size is equivalent '
+                       + f'to full map size {self.map.images.shape}.'
+                       + '\nEither designate a smaller new map size or '
+                       + 'proceed with full map.')
+            raise RuntimeError(err_str)
+        
+        if new_directory:
+            new_dir = f'{self.wd}scan{self.scanid}_fratured_maps/'
+            os.makedirs(new_dir, exists_ok=True)
+        else:
+            new_dir = self.wd
+
+        # Slicing of numpy arrays create veiws, not new copys
+        sliced_images = []
+        sliced_pos_dicts = []
+        sliced_sclr_dicts = []
+
+        for slicing in slicings:
+            i_st, i_end = slicing[0]
+            j_st, j_end = slicing[1]
+            
+            # ImageMap
+            sliced_images.append(self.map.images[i_st:i_end, j_st:j_end])
+
+            # pos_dict
+            new_pos_dict = {}
+            for key in self.pos_dict.keys():
+                new_pos_dict[key] = self.pos_dict[key][i_st:i_end, j_st:j_end]
+            sliced_pos_dicts.append(new_pos_dict)
+
+            # sclr_dict
+            new_sclr_dict = {}
+            for key in self.sclr_dict.keys():
+                new_sclr_dict[key] = self.sclr_dict[key][i_st:i_end, j_st:j_end]
+                sliced_sclr_dicts.append(new_sclr_dict)
+
+        for i in range(len(sliced_images)):
+            
+            # Seems like a weird way to access the class from within...
+            new_xrdmap = self.__class__(
+                scanid=str(self.scanid) + f'-{i + 1}',
+                wd=new_dir,
+                filename=self.filename,
+                image_data=sliced_images[i],
+                # map_shape=None,
+                # image_shape=None,
+                # map_title=None,
+                energy=self.energy,
+                dwell=self.dwell,
+                theta=self.theta,
+                poni_file=self.poni, # Often None, but may be loaded...
+                sclr_dict=sliced_sclr_dicts[i],
+                pos_dict=sliced_pos_dicts[i],
+                tth_resolution=self.tth_resolution,
+                chi_resolution=self.chi_resolution,
+                tth=self.tth,
+                chi=self.chi,
+                beamline=self.beamline,
+                facility=self.facility,
+                time_stamp=self.time_stamp,
+                extra_metadata=self.extra_metadata,
+                save_hdf=True,
+                dask_enabled=True
+            )
     
     
     ##################
