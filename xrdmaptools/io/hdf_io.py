@@ -33,6 +33,18 @@ def initialize_xrdmap_hdf(xrdmap, hdf_file):
         curr_grp.attrs['detector_binning'] = '' #(4, 4)
         curr_grp.attrs['expsure_time_units'] = 's'
 
+        # Generate emtpy dataset of extra_metadata
+        extra_md = base_grp.create_dataset('extra_metadata',
+                                            data=h5py.Empty("f"))
+        for key, value in xrdmap.extra_metadata.items():
+            extra_md.attrs[key] = value
+
+        if not hasattr(xrdmap, 'scan_input') or xrdmap.scan_input is None:
+            scan_input = []
+        else:
+            scan_input = xrdmap.scan_input
+        base_grp['scan_input'] = scan_input
+
         # Special consideration for when dwell wasn't being recorded...
         if not hasattr(xrdmap, 'dwell') or xrdmap.dwell is None:
             dwell = ''
@@ -55,6 +67,12 @@ def load_xrdmap_hdf(filename, wd=None, dask_enabled=False, only_integrations=Fal
 
     # Load base metadata
     base_md = dict(base_grp.attrs.items())
+
+    # Load extra metadata
+    extra_md = {}
+    if 'extra_metadata' in base_grp.keys(): # Check for backwards compatibility
+        for key, value in base_grp['extra_metadata'].attrs.items():
+            extra_md[key] = value
 
     # Load most recent image data
     if not only_integrations:
@@ -280,6 +298,7 @@ def load_xrdmap_hdf(filename, wd=None, dask_enabled=False, only_integrations=Fal
     
     # return dictionary of useful values
     ouput_dict = {'base_md' : base_md,
+                  'extra_md' : extra_md,
                   'image_data': image_map,
                   'recip_pos' : recip_pos,
                   'poni_od' : poni_od,

@@ -20,7 +20,8 @@ from .ImageMap import ImageMap
 from .utilities.math import *
 from .utilities.utilities import (
     delta_array,
-    pathify
+    pathify,
+    _check_dict_key
 )
 from .io.hdf_io import (
     initialize_xrdmap_hdf,
@@ -43,8 +44,7 @@ from .reflections.spot_blob_search import (
     )
 from .plot.interactive_plotting import (
     interactive_2D_plot,
-    interactive_1D_plot,
-    _check_missing_key
+    interactive_1D_plot
     )
 from .plot.general import (
     _plot_parse_xrdmap,
@@ -91,6 +91,7 @@ class XRDMap():
                  chi=None,
                  beamline='5-ID (SRX)',
                  facility='NSLS-II',
+                 scan_input=None,
                  time_stamp=None,
                  extra_metadata=None,
                  save_hdf=True,
@@ -110,7 +111,7 @@ class XRDMap():
         self.beamline = beamline
         self.facility = facility
         self.time_stamp = time_stamp
-        self.dwell = dwell
+        self.scan_input = scan_input
         self.extra_metadata = extra_metadata # not sure about this...
         # Scan.start.uid: 7469f8f8-8076-47d5-85a1-ee147fe89d3c
         # Scan.start.ctime: Mon Feb 27 12:57:12 2023
@@ -289,6 +290,7 @@ class XRDMap():
                     poni_file=input_dict['poni_od'],
                     sclr_dict=input_dict['sclr_dict'],
                     pos_dict=input_dict['pos_dict'],
+                    extra_metadata=input_dict['extra_md'],
                     **input_dict['base_md'],
                     **input_dict['recip_pos'],
                     #tth_resolution=input_dict['recip_pos']['tth_resolution'],
@@ -345,7 +347,7 @@ class XRDMap():
                                             detectors=None,
                                             data_keys=data_keys,
                                             returns=['data_keys',
-                                                        'xrd_dets'],
+                                                     'xrd_dets'],
                                             repair_method=repair_method)
 
         xrd_data = [data_dict[f'{xrd_det}_image'] for xrd_det in xrd_dets]
@@ -367,7 +369,8 @@ class XRDMap():
                            'energy',
                            'dwell',
                            'theta',
-                           'start_time']:
+                           'start_time',
+                           'scan_input']:
                 extra_md[key] = scan_md[key]
         
         xrdmaps = []
@@ -384,6 +387,7 @@ class XRDMap():
                          pos_dict=pos_dict,
                          beamline=scan_md['beamline_id'],
                          facility='NSLS-II',
+                         scan_input=scan_md['scan_input'],
                          time_stamp=scan_md['time_str'],
                          extra_metadata=extra_md,
                          save_hdf=save_hdf
@@ -463,7 +467,7 @@ class XRDMap():
             new_sclr_dict = {}
             for key in self.sclr_dict.keys():
                 new_sclr_dict[key] = self.sclr_dict[key][i_st:i_end, j_st:j_end]
-                sliced_sclr_dicts.append(new_sclr_dict)
+            sliced_sclr_dicts.append(new_sclr_dict)
 
         print(f'Fracturing large map into {len(sliced_images)} smaller maps.')
         for i in range(len(sliced_images)):
@@ -491,10 +495,11 @@ class XRDMap():
                 chi=self.chi,
                 beamline=self.beamline,
                 facility=self.facility,
+                scan_input=self.scan_input,
                 time_stamp=self.time_stamp,
                 extra_metadata=self.extra_metadata,
                 save_hdf=True,
-                #dask_enabled=True
+                #dask_enabled=True # Keeping everything lazy causes some inconsistencies
             )
         
         print('Finished fracturing maps.')
@@ -933,16 +938,6 @@ class XRDMap():
                 dset = img_grp['_temp_images']
             self.map.images = da.asarray(dset).persist()
             self.map._hdf_store = dset
-
-    
-    def fracture_xrdmap(self,
-                        approx_mapsize=5,
-                        map_divisors=None):
-        
-        raise NotImplementedError()
-
-        disk_size = self.map.disk_size(return_val=True,
-                                       estimate_final=True)
             
 
     ##############################
@@ -1375,7 +1370,13 @@ class XRDMap():
         # Re-work dictionary keys into stable format
         temp_dict = {}
         for key in list(pos_dict.keys()):
-            if key in ['enc1', '1', 'x', 'X', 'map_x', 'map_X']:
+            # Reserved keys...
+            if key == 'interp_x':
+                temp_dict[key] = pos_dict[key]
+            elif key == 'interp_y':
+                temp_dict[key] = pos_dict[key]
+            # More versatile to include data from multiple sources...
+            elif key in ['enc1', '1', 'x', 'X', 'map_x', 'map_X']:
                 temp_dict['map_x'] = pos_dict[key]
             elif key in ['enc2', '2' 'y', 'Y', 'map_y', 'map_Y']:
                 temp_dict['map_y'] = pos_dict[key]
@@ -1391,31 +1392,57 @@ class XRDMap():
             position_units = 'μm' # default to microns, not that reliable...
         self.position_units = position_units
 
-        # Determine fast scanning direction for map extent
-        if (np.mean(np.diff(self.pos_dict['map_x'], axis=1))
-            > np.mean(np.diff(self.pos_dict['map_x'], axis=0))):
-            # Fast x-axis. Standard orientation.
-            #print('Fast x-axis!')
-            map_extent = [
-                np.mean(self.pos_dict['map_x'][:, 0]),
-                np.mean(self.pos_dict['map_x'][:, -1]),
-                np.mean(self.pos_dict['map_y'][-1]), # reversed
-                np.mean(self.pos_dict['map_y'][0]) # reversed
-            ] # [min_x, max_x, max_y, min_y] reversed y for matplotlib
-        else: # Fast y-axis. Consider swapping axes???
-            #print('Fast y-axis!')
-            map_extent = [
-                np.mean(self.pos_dict['map_y'][:, 0]), # reversed
-                np.mean(self.pos_dict['map_y'][:, -1]), # reversed
-                np.mean(self.pos_dict['map_x'][-1]),
-                np.mean(self.pos_dict['map_x'][0])
-            ] # [min_y, max_y, max_x, min_x] reversed x for matplotlib
-        self.map_extent = map_extent
-
         # Write to hdf file
         self.save_sclr_pos('positions',
                             self.pos_dict,
                             self.position_units)
+
+    
+    def map_extent(self, map_x=None, map_y=None):
+
+        if ((map_x is None or map_y is None)
+             and not hasattr(self, 'pos_dict')):
+            raise AttributeError(('XRDMap has no loaded pos_dict.\n'
+                                  + 'Please load positions or specify map_x and map_y.'))
+
+        if map_x is None and hasattr(self, 'pos_dict'):
+            if _check_dict_key(self.pos_dict, 'interp_x'): # Biased towards interpolated values. More regular
+                map_x = self.pos_dict['interp_x']
+            elif _check_dict_key(self.pos_dict, 'map_x'):
+                map_x = self.pos_dict['map_x']
+            else:
+                raise ValueError('Cannot find known key for map_x coordinates.')
+        
+        if map_y is None and hasattr(self, 'pos_dict'):
+            if _check_dict_key(self.pos_dict, 'interp_y'): # Biased towards interpolated values. More regular
+                map_y = self.pos_dict['interp_y']
+            elif _check_dict_key(self.pos_dict, 'map_y'):
+                map_y = self.pos_dict['map_y']
+            else:
+                raise ValueError('Cannot find known key for map_y coordinates.')
+
+        # Determine fast scanning direction for map extent
+        if (np.mean(np.diff(map_x, axis=1))
+            > np.mean(np.diff(map_x, axis=0))):
+            # Fast x-axis. Standard orientation.
+            #print('Fast x-axis!')
+            map_extent = [
+                np.mean(map_x[:, 0]),
+                np.mean(map_x[:, -1]),
+                np.mean(map_y[-1]), # reversed
+                np.mean(map_y[0]) # reversed
+            ] # [min_x, max_x, max_y, min_y] reversed y for matplotlib
+        else: # Fast y-axis. Consider swapping axes???
+            #print('Fast y-axis!')
+            map_extent = [
+                np.mean(map_y[:, 0]), # reversed
+                np.mean(map_y[:, -1]), # reversed
+                np.mean(map_x[-1]),
+                np.mean(map_x[0])
+            ] # [min_y, max_y, max_x, min_x] reversed x for matplotlib
+        
+        #self.map_extent() = map_extent
+        return map_extent
 
     
     def save_sclr_pos(self, group_name, map_dict, unit_name):
@@ -1518,7 +1545,7 @@ class XRDMap():
         # Update imagemap attrs if included
         if not exclude_imagemap:
             # Update shape values
-            self.map.shape = self.map.images.shape
+            self.map.shape = self.map.images.shape # This will force a new save in hdf
             self.map.map_shape = self.map.shape[:2]
 
             # Delete any cached ImaegeMap maps
@@ -1537,12 +1564,12 @@ class XRDMap():
                     delattr(self.map, attr)
 
         # Exchange map_extent
-        if hasattr(self, 'map_extent'):
-            map_extent = self.map_extent.copy()
-            self.map_extent = [map_extent[3],
-                               map_extent[2],
-                               map_extent[1],
-                               map_extent[0]]
+        # if hasattr(self, 'map_extent'):
+        #     map_extent = self.map_extent().copy()
+        #     self.map_extent() = [map_extent[3],
+        #                          map_extent[2],
+        #                          map_extent[1],
+        #                          map_extent[0]]
             
         # Update spot map_indices
         if hasattr(self, 'spots'):
@@ -1568,6 +1595,40 @@ class XRDMap():
             if hasattr(self, 'spots'):
                 self.save_spots()
 
+
+    def interpolate_positions(self, scan_input=None):
+
+        if scan_input is None:
+            if hasattr(self, 'scan_input'):
+                scan_input = self.scan_input
+            else:
+                raise ValueError('Cannot interpolate positiions without scan input.')
+        
+        xstart, xend, xnum = scan_input[0:3]
+        interp_x_val = np.linspace(xstart, xend, int(xnum))
+        
+        ystart, yend, ynum = scan_input[3:6]
+        interp_y_val = np.linspace(ystart, yend, int(ynum))
+
+        interp_y, interp_x = np.meshgrid(interp_y_val,
+                                         interp_x_val,
+                                         indexing='ij')
+
+        if hasattr(self, 'pos_dict'):
+            self.pos_dict['interp_x'] = interp_x
+            self.pos_dict['interp_y'] = interp_y
+        else:
+            print('WARNING: No pos_dict found. Generating from interpolated positions.')
+            self.pos_dict = {
+                'interp_x' : interp_x,
+                'interp_y' : interp_y
+            }
+        
+        # Write to hdf file
+        self.save_sclr_pos('positions',
+                            self.pos_dict,
+                            self.position_units)
+        
     
     #########################################
     ### Manipulating and Selecting Phases ###
@@ -2239,7 +2300,7 @@ class XRDMap():
             raise ValueError(err_str)
         
         if map_extent is None:
-            map_extent = self.map_extent
+            map_extent = self.map_extent()
         if position_units is None:
             position_units = self.position_units
         
@@ -2269,7 +2330,7 @@ class XRDMap():
         if map_kw is None:
             map_kw = {}
 
-        if not _check_missing_key(dyn_kw, 'data'):
+        if _check_dict_key(dyn_kw, 'data'):
             #dyn_kw['data']  = np.asarray(dyn_kw['data'])
             pass
         elif not hasattr(self, 'map'):
@@ -2280,7 +2341,7 @@ class XRDMap():
             dyn_kw['data'] = self.map.images
 
         if (self.map.corrections['polar_calibration']
-            and _check_missing_key(dyn_kw, 'x_ticks')):
+            and not _check_dict_key(dyn_kw, 'x_ticks')):
             if hasattr(self, 'tth') and self.tth is not None:
                 dyn_kw['x_ticks'] = self.tth
                 dyn_kw['x_label'] = f'Scattering Angle, 2θ [{self.scattering_units}]'
@@ -2289,24 +2350,24 @@ class XRDMap():
                 dyn_kw['x_label'] = f'Azimuthal Angle, χ [{self.polar_units}]'
 
         # Add default map_kw information if not already included
-        if _check_missing_key(map_kw, 'map'):
+        if not _check_dict_key(map_kw, 'map'):
             #print('Defaulting to Summed Map from ImageMap')
             map_kw['map'] = self.map.sum_map
             map_kw['title'] = 'Summed Intensity'
         if (hasattr(self, 'map')
             and hasattr(self, 'map_extent')):
-            if _check_missing_key(map_kw, 'x_ticks'):
+            if not _check_dict_key(map_kw, 'x_ticks'):
                 map_kw['x_ticks'] = np.round(np.linspace(
-                    *self.map_extent[:2],
+                    *self.map_extent()[:2],
                     self.map.map_shape[1]), 2)
-            if _check_missing_key(map_kw, 'y_ticks'):
+            if not _check_dict_key(map_kw, 'y_ticks'):
                 map_kw['y_ticks'] = np.round(np.linspace(
-                    *self.map_extent[2:],
+                    *self.map_extent()[2:],
                     self.map.map_shape[0]), 2)
         if hasattr(self, 'positions_units'):
-            if _check_missing_key(map_kw, 'x_label'):
+            if not _check_dict_key(map_kw, 'x_label'):
                 map_kw['x_label'] = f'x position [{self.position_units}]'
-            if _check_missing_key(map_kw, 'y_label'):
+            if not _check_dict_key(map_kw, 'y_label'):
                 map_kw['y_label'] = f'y position [{self.position_units}]'
 
         fig, ax = interactive_2D_plot(dyn_kw,
@@ -2331,7 +2392,7 @@ class XRDMap():
         if map_kw is None:
             map_kw = {}
 
-        if not _check_missing_key(dyn_kw, 'data'):
+        if _check_dict_key(dyn_kw, 'data'):
             dyn_kw['data'] = np.asarray(dyn_kw['data'])
         elif not hasattr(self, 'map'):
             raise ValueError('Could not find ImageMap to plot data!')
@@ -2342,29 +2403,29 @@ class XRDMap():
         else:
             dyn_kw['data'] = self.map.integrations
 
-        if _check_missing_key(dyn_kw, 'x_ticks'):
+        if not _check_dict_key(dyn_kw, 'x_ticks'):
             if hasattr(self, 'tth') and self.tth is not None:
                 dyn_kw['x_ticks'] = self.tth
                 dyn_kw['x_label'] = f'Scattering Angle, 2θ [{self.scattering_units}]'
     
         # Add default map_kw information if not already included
-        if _check_missing_key(map_kw, 'map'):
+        if not _check_dict_key(map_kw, 'map'):
             map_kw['map'] = self.map.sum_map
             map_kw['title'] = 'Summed Intensity'
         if (hasattr(self, 'map')
             and hasattr(self, 'map_extent')):
-            if _check_missing_key(map_kw, 'x_ticks'):
+            if not _check_dict_key(map_kw, 'x_ticks'):
                 map_kw['x_ticks'] = np.round(np.linspace(
-                    *self.map_extent[:2],
+                    *self.map_extent()[:2],
                     self.map.map_shape[1]), 2)
-            if _check_missing_key(map_kw, 'y_ticks'):
+            if not _check_dict_key(map_kw, 'y_ticks'):
                 map_kw['y_ticks'] = np.round(np.linspace(
-                    *self.map_extent[2:],
+                    *self.map_extent()[2:],
                     self.map.map_shape[0]), 2)
         if hasattr(self, 'positions_units'):
-            if _check_missing_key(map_kw, 'x_label'):
+            if not _check_dict_key(map_kw, 'x_label'):
                 map_kw['x_label'] = f'x position [{self.position_units}]'
-            if _check_missing_key(map_kw, 'y_label'):
+            if not _check_dict_key(map_kw, 'y_label'):
                 map_kw['y_label'] = f'y position [{self.position_units}]'
     
         fig, ax = interactive_1D_plot(dyn_kw,

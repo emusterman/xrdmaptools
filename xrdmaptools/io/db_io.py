@@ -314,7 +314,8 @@ def _load_scan_metadata(bs_run, keys=None):
                 'dwell',
                 'time_str',
                 'sample_name',
-                'theta']
+                'theta',
+                'scan_input']
 
     remaining_keys = []
     scan_md = {}
@@ -867,10 +868,10 @@ def save_xrd_tifs(scanid=-1,
     xrd_data = [data_dict[f'{xrd_det}_image'] for xrd_det in xrd_dets]
     
     _save_xrd_tifs(xrd_data,
-                  xrd_dets=xrd_dets,
-                  scanid=scan_md['scan_id'], # Will return the correct value
-                  filedir=filedir,
-                  filenames=filenames)
+                   xrd_dets=xrd_dets,
+                   scanid=scan_md['scan_id'], # Will return the correct value
+                   filedir=filedir,
+                   filenames=filenames)
 
 
 # Function to load and save composite pattern as tif
