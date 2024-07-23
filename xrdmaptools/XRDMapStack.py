@@ -38,6 +38,7 @@ class XRDMapStack(list): # Maybe should be called XRDMapList
               for phase in xrdmap.phases.items():
                     if phase.name not in phases.keys():
                           phases[phase.name] = phase
+        self.phases = phases
 
         # Aligned maps flag
         if aligned_maps is None:
@@ -117,8 +118,46 @@ class XRDMapStack(list): # Maybe should be called XRDMapList
                                                   include_set=True)
     integration_scale = _universal_property_constructor('integration_scale',
                                                         include_set=True)
-
     
+    ### Turn other individual attributes in properties ###
+
+    # List attributes
+    scanid = _list_property_constructor('scanid')
+    filename = _list_property_constructor('filename')
+    wd = _list_property_constructor('wd') # this one may change
+    time_stamp = _list_property_constructor('time_stamp')
+    scan_input = _list_property_constructor('scan_input')
+    extra_metadata = _list_property_constructor('extra_metadata')
+    dwell = _list_property_constructor('dwell')
+    theta = _list_property_constructor('theta')
+    hdf = _list_property_constructor('hdf')
+    hdf_path = _list_property_constructor('hdf_path')
+    map = _list_property_constructor('map') # There will be special consideration for this one...
+    xrf_path = _list_property_constructor('xrf_path')
+    tth = _list_property_constructor('tth')
+    tth_resolution = _list_property_constructor('tth_resolution') # Universal may be better
+    chi = _list_property_constructor('chi')
+    chi_resolution = _list_property_constructor('chi_resolution') # Universal may be better
+    ai = _list_property_constructor('ai')
+    pos_dict = _list_property_constructor('pos_dict')
+    sclr_dict = _list_property_constructor('sclr_dict')
+
+    # Universal attributes
+    beamline = _universal_property_constructor('beamline')
+    facility = _universal_property_constructor('facility')
+
+    #####################################
+    ### Loading data into XRDMapStack ###
+    #####################################
+
+    @classmethod
+    def from_hdf(filenames,
+                 wd=None,
+                 dask_enabled=False,
+                 **kwargs):
+        raise NotImplementedError()
+    # May require loading empty ImageMaps...
+
     #########################
     ### Utility Functions ###
     #########################
@@ -217,7 +256,7 @@ class XRDMapStack(list): # Maybe should be called XRDMapList
         ('save_spots', False),
         # Working with xrfmap
         ('load_xrfmap', True) # Multiple inputs may be crucial here
-    ]).T
+    ]).T # Transpose is important
 
     ##########################
     ### Verbatim Functions ###

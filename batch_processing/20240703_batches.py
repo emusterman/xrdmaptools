@@ -571,3 +571,91 @@ def xmt_batch7():
                 radius=10,
                 expansion=10,
                 override_rescale=True)
+            
+
+# With absorption
+def xmt_batch8():
+
+    base_wd = '/nsls2/data/srx/proposals/2024-1/pass-314118/'
+
+    dark_field = io.imread(f'{base_wd}dark_fields/scan153481_dexela_median_composite.tif')
+    #flat_field = io.imread()
+    poni_file = f'scan153219_dexela_calibration.poni'
+
+    scanlist = [
+        153485,
+        153487,
+        153489,
+        153491,
+        153493,
+        153495,
+        153502,
+        153504,
+        153506,
+        153508,
+        153510
+    ]
+
+    for i in timed_iter(range(len(scanlist))):
+        scan = scanlist[i]
+
+        print(f'Batch processing scan {scan}...')
+
+        # if not os.path.exists(f'{base_wd}processed_xrdmaps/scan{scan}_xrd.h5'):
+        #     print('No raw file found. Generating new file!')
+        #     make_xrdmap_hdf(scan, filedir=base_wd + 'processed_xrdmaps/')
+        
+        # Load map and set calibration
+        xrdmap = XRDMap.from_hdf(f'scan{scan}_xrd.h5', wd=base_wd + 'processed_xrdmaps/', save_hdf=True)
+        xrdmap.interpolate_positions()
+        xrdmap.load_phase('AMCSD\\Stibnite_0008636.cif', filedir=cif_dir, phase_name="stibnite")
+        xrdmap.set_calibration(poni_file, filedir=base_wd + 'calibrations/')
+        
+        # Basic correction. No outliers
+        xrdmap.map.correct_dark_field(dark_field=dark_field)
+        #xrdmap.map.correct_flat_field(flat_field=flat_field)
+
+        xrdmap.map.normalize_scaler() # Assumed information in sclr_dict
+        #xrdmap.map.correct_outliers() # Too slow!
+
+        # Geometric corrections
+        xrdmap.map.apply_polarization_correction()
+        xrdmap.map.apply_solidangle_correction()
+        xrdmap.map.apply_lorentz_correction()
+        
+        # Apply absorption corrections
+        exp_dict = {
+        'attenuation_length' : 0,
+        'mode' : 'transmission',
+        'thickness' : 200, # microns # Horrible guess...
+        'theta' : 0
+        }
+        exp_dict['attenuation_length'] = xrdmap.phases['stibnite'].absorption_length(en=xrdmap.energy * 1e3)
+        xrdmap.map.apply_absorption_correction(exp_dict=exp_dict, apply=True)
+
+        # Background correction
+        xrdmap.map.estimate_background(method='bruckner', binning=4, min_prominence=0.1)
+        xrdmap.map.remove_background()
+
+        # Rescale and saving
+        xrdmap.map.rescale_images(
+            upper=100,
+            lower=0,
+            arr_min=0,
+            arr_max=xrdmap.map.estimate_saturated_pixel())
+        xrdmap.map.finalize_images()
+
+        # Integrations for good measure
+        xrdmap.tth_resolution = 0.01
+        xrdmap.chi_resolution = 0.05
+        xrdmap.integrate1d_map()
+
+        # Find blobs and spots while were at it
+        #test.map.images[0, 0, 0, 0] = 100 # to trick the scaled image check
+        xrdmap.find_spots(
+            threshold_method='minimum',
+            multiplier=3,
+            size=3,
+            radius=10,
+            expansion=10,
+            override_rescale=True)
