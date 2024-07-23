@@ -237,6 +237,10 @@ def deprecated(func):
     return new_func
 
 
+def _check_dict_key(dict, key):
+    return key in dict.keys() and key is not None
+
+
 # Class for timing large for loops with lots of print statements that do not play nicely with tqdm
 # There probably is a way to do this with tqdm, but I have used variations of this method several times
 # Example:
