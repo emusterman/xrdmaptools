@@ -64,7 +64,7 @@ from .crystal.Phase import Phase, phase_selector
 class XRDMap():
     '''
     Main class object for scanning XRD maps.
-    Inherits nothing!
+    Inherits nothing! # Could possible inherit ImageMap
     '''
 
     def __init__(self,
@@ -674,7 +674,6 @@ class XRDMap():
                                degrees=self.polar_units == 'deg')
             self._q_arr = q_arr
             return self._q_arr
-
 
     @q_arr.deleter
     def q_arr(self):
