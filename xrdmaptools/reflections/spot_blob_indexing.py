@@ -20,11 +20,11 @@ def _initial_spot_analysis(xrdmap, SpotModel=None):
     if SpotModel is not None and any([x[:3] == 'fit' for x in xrdmap.spots.loc[0].keys()]):
         interested_params = [x for x in xrdmap.spots.iloc[0].keys()
                              if x[:3] == 'fit'][:6]
-        prefix='fit'
+        prefix = 'fit'
     elif SpotModel is None or SpotModel == 'guess':
         interested_params = [x for x in xrdmap.spots.iloc[0].keys()
                              if x[:5] == 'guess']
-        prefix='guess'
+        prefix = 'guess'
 
     for i in tqdm(xrdmap.spots.index):
         spot = xrdmap.spots.loc[i]

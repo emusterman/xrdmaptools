@@ -35,6 +35,7 @@ class ImageMap:
                  wd=None,
                  ai=None,
                  sclr_dict=None,
+                 chunks=None,
                  corrections=None,
                  dask_enabled=False):
         
@@ -170,11 +171,11 @@ class ImageMap:
             self.num_images = np.prod(self.map_shape)
         else:
             self.num_images = 0
-            
+
         if self.map_shape is not None and self.image_shape is not None:
             self.shape = (*self.map_shape, *self.image_shape)
         
-        # If dask_enabled:
+        # Define/determine chunks and rechunk if necessary
         if isinstance(self.images, da.core.Array):
             # Redo chunking along image dimensions if not already
             if self.images.chunksize[-2:] != self.images.shape[-2:]:
@@ -182,6 +183,11 @@ class ImageMap:
                 self.images = self.images.rechunk(chunks=self._chunks)
             else:
                 self._chunks = self.images.chunksize
+        else:
+            if chunks is not None:
+                self._chunks = chunks
+            else:
+                self._get_optimal_chunks()
         
         # Working with the many iteraction of hdf
         # Too much information to pass back and forth
@@ -239,7 +245,7 @@ class ImageMap:
         
         if dask_enabled:
             if self.hdf_path is None and self.hdf is None:
-                raise RuntimeError("Cannot have dask enabled processing without specifying hdf file!")
+                raise RuntimeError('Cannot have dask enabled processing without specifying hdf file!')
             elif self.hdf is None:
                 # Open and leave open hdf file object
                 self.hdf = h5py.File(self.hdf_path, 'a')
@@ -258,6 +264,7 @@ class ImageMap:
                         self.images = self.images.astype(self._hdf_store.dtype)
                     if self.images.chunksize != self._hdf_store.chunks:
                         self.images = self.images.rechunk(self._hdf_store.chunks)
+                        self._chunks = self._hdf_store.chunks
 
                     # Might be best NOT to call this to preserve previous data
                     self.images = da.store(self.images, self._hdf_store,
@@ -489,12 +496,16 @@ class ImageMap:
             self.images = self.images.compute()
 
     def _numpy_2_dask(self):
-        # Computes numpy array into dask. Unlikely to be used
+        # Computes numpy array into dask.
         if not self._dask_enabled:
-            self._dask_2_hdf()
-            self.images = da.from_array(self.images)
-            self.hdf.close()
-            self.hdf = None
+            if self.hdf is None:
+                if self.hdf_path is None:
+                    raise RuntimeError('Cannot convert images from numpy to dask without specifying hdf file!')
+                else:
+                    raise RuntimeError('Trying to convert images to dask, but hdf file has not been opened with hdf_path.')
+            else:
+                self._dask_2_hdf()
+                self.images = da.from_array(self.images)
 
     def _dask_2_dask(self):
         # Computes and updates dask array to avoid too many lazy computations

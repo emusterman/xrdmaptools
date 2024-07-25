@@ -920,10 +920,6 @@ class XRDMap():
     # This function does NOT stop saving to hdf
     # It only closes open hdf locations and stops lazy loading images
     def close_hdf(self):
-        if self.hdf is not None:
-            self.hdf.close()
-            self.hdf = None
-        
         if self.map.hdf is not None:
             self.map._dask_2_hdf()
             # If using dask, probably shouldn't try to load data
@@ -931,16 +927,24 @@ class XRDMap():
             self.map.hdf.close()
             self.map.hdf = None
 
+        # Should be redundant
+        if self.hdf is not None:
+            self.hdf.close()
+            self.hdf = None
+        
 
     def open_hdf(self, dask_enabled=False):
         if self.hdf is not None:
-            # Should this raise errors or just pring warnings
-            raise ValueError('XRDMap HDF file is already open.')
+            # Should this raise errors or just ping warnings
+            print('WARNING: XRDMap hdf is already open. Proceeding without changes.')
+            return
         else:
             self.hdf = h5py.File(self.hdf_path, 'a')
 
+        # Should be redundant. The hdf object is shared...
         if self.map.hdf is not None:
-            raise ValueError('ImageMap HDF file is already open.')
+            print('WARNING: ImageMap hdf is already open. Proceeding without changes.')
+            return
         else:
             self.map.hdf = self.hdf
 
@@ -951,7 +955,7 @@ class XRDMap():
                     dset = img_grp[self.map.title]
             elif check_hdf_current_images('_temp_images', hdf=self.hdf):
                 dset = img_grp['_temp_images']
-            self.map.images = da.asarray(dset).persist()
+            self.map.images = da.asarray(dset) # I had .persist(), but it broke things...
             self.map._hdf_store = dset
             
 
@@ -2106,7 +2110,7 @@ class XRDMap():
     def save_spots(self, extra_attrs=None):
         # Save spots to hdf
         if self.hdf_path is not None:
-            print('Saving spots to hdf...', end='', flush=True)
+            print('Saving spots to hdf...')
 
             # Open hdf flag
             keep_hdf = True

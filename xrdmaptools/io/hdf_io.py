@@ -362,3 +362,12 @@ def load_xrdmap_hdf(filename,
                   'pos_dict' : pos_dict}
 
     return ouput_dict
+
+
+
+def initialize_xrdmapstack_hdf():
+    raise NotImplementedError()
+
+
+def load_xrdmapstack_hdf():
+    raise NotImplementedError()
