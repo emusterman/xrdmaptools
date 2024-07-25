@@ -34,8 +34,10 @@ def _plot_parse_xrdmap(xrdmap, indices, mask=False, spots=False, contours=False)
             out_spots = pixel_df[['fit_chi0', 'fit_tth0']].values
         else:
             out_spots = pixel_df[['guess_cen_chi', 'guess_cen_tth']].values
-
-        if not xrdmap.map.corrections['polar_calibration']:
+        
+        if len(out_spots) < 1:
+            out_spots = None
+        elif not xrdmap.map.corrections['polar_calibration']:
             out_spots = estimate_image_coords(out_spots[:, ::-1],
                                               xrdmap.tth_arr,
                                               xrdmap.chi_arr)[:, ::-1]

@@ -598,17 +598,17 @@ def xmt_batch8():
 
     for i in timed_iter(range(len(scanlist))):
         scan = scanlist[i]
-
+        
         print(f'Batch processing scan {scan}...')
-
-        # if not os.path.exists(f'{base_wd}processed_xrdmaps/scan{scan}_xrd.h5'):
-        #     print('No raw file found. Generating new file!')
-        #     make_xrdmap_hdf(scan, filedir=base_wd + 'processed_xrdmaps/')
+        
+        if not os.path.exists(f'{base_wd}processed_xrdmaps/scan{scan}_xrd.h5'):
+            print('No raw file found. Generating new file!')
+            make_xrdmap_hdf(scan, filedir=base_wd + 'processed_xrdmaps/')
         
         # Load map and set calibration
         xrdmap = XRDMap.from_hdf(f'scan{scan}_xrd.h5', wd=base_wd + 'processed_xrdmaps/', save_hdf=True)
         xrdmap.interpolate_positions()
-        xrdmap.load_phase('AMCSD\\Stibnite_0008636.cif', filedir=cif_dir, phase_name="stibnite")
+        xrdmap.load_phase('Stibnite_0008636.cif', filedir='/nsls2/users/emusterma/Documents/cif/', phase_name="stibnite")
         xrdmap.set_calibration(poni_file, filedir=base_wd + 'calibrations/')
         
         # Basic correction. No outliers
@@ -624,14 +624,14 @@ def xmt_batch8():
         xrdmap.map.apply_lorentz_correction()
         
         # Apply absorption corrections
-        exp_dict = {
-        'attenuation_length' : 0,
-        'mode' : 'transmission',
-        'thickness' : 200, # microns # Horrible guess...
-        'theta' : 0
-        }
-        exp_dict['attenuation_length'] = xrdmap.phases['stibnite'].absorption_length(en=xrdmap.energy * 1e3)
-        xrdmap.map.apply_absorption_correction(exp_dict=exp_dict, apply=True)
+        # exp_dict = {
+        # 'attenuation_length' : 0,
+        # 'mode' : 'transmission',
+        # 'thickness' : 200, # microns # Horrible guess...
+        # 'theta' : 0
+        # }
+        # exp_dict['attenuation_length'] = xrdmap.phases['stibnite'].absorption_length(en=xrdmap.energy * 1e3)
+        # xrdmap.map.apply_absorption_correction(exp_dict=exp_dict, apply=True)
 
         # Background correction
         xrdmap.map.estimate_background(method='bruckner', binning=4, min_prominence=0.1)

@@ -7,7 +7,6 @@ import time as ttime
 import dask.array as da
 
 # Local imports
-#from .utilities.hdf_utils import check_hdf_current_images, get_optimal_chunks
 from .io.hdf_utils import check_hdf_current_images, get_optimal_chunks
 from .utilities.math import check_precision
 from .utilities.utilities import delta_array
@@ -43,7 +42,7 @@ class ImageMap:
             and integration_data is None
             and (map_shape is None
                  or image_shape is None)):
-            raise ValueError('Must specify image_data, integration_data, or dataset_shape.')
+            raise ValueError('Must specify image_data, integration_data, or image and map shapes.')
         
         # Load image data
         if image_data is not None:
@@ -116,10 +115,8 @@ class ImageMap:
                 raise ValueError(err_str)
 
             # Some useful parameters
-            self.shape = self.images.shape
             self.map_shape = map_shape
             self.image_shape = image_shape
-            self.num_images = np.prod(self.map_shape)
         else:
             if dask_enabled:
                 print('WARNING: Cannot enable dask without image_data. Proceeding without dask.')
@@ -164,14 +161,18 @@ class ImageMap:
             self.integrations = None
         
         # Some useful parameters
-        self.map_shape = map_shape
-        self.image_shape = image_shape
+        if not hasattr(self, 'map_shape'):
+            self.map_shape = map_shape
+        if not hasattr(self, 'image_shape'):
+            self.image_shape = image_shape
+        
         if self.map_shape is not None:
             self.num_images = np.prod(self.map_shape)
         else:
             self.num_images = 0
-        if hasattr(self, 'images') and self.images is not None:
-            self.shape = self.images.shape
+            
+        if self.map_shape is not None and self.image_shape is not None:
+            self.shape = (*self.map_shape, *self.image_shape)
         
         # If dask_enabled:
         if isinstance(self.images, da.core.Array):
@@ -194,7 +195,12 @@ class ImageMap:
         # WARNING: if hdf or hdf_path are None, then they are copied None objects and not linked to the XRDMap attributes
 
         if dtype is None:
-            dtype = self.images.dtype
+            if hasattr(self, 'images') and self.images is not None:
+                dtype = self.images.dtype
+            elif hasattr(self, 'integrations') and self.integrations is not None:
+                dtype = self.integrations.dtype
+            else:
+                dtype = None
         self._dtype = dtype
 
         if isinstance(corrections, dict):
@@ -202,19 +208,21 @@ class ImageMap:
         else:
             self.corrections = {
                 'dark_field' : False,
-                'flat_field' : False,
-                'outliers' : False,
-                'pixel_defects' : False,
-                'pixel_distortions' : False,
-                'polar_calibration' : False,
+                'flat_field' : False, # Poorly measured
+                'air_scatter' : False, # Can be approximated with background
+                'outliers' : False, # Slow
+                'pixel_defects' : False, # Just a mask
+                'pixel_distortions' : False, # Uncommon
+                'polar_calibration' : False, # Bulky
                 'lorentz' : False,
                 'polarization' : False,
                 'solid_angle' : False,
-                'absorption' : False,              
+                'absorption' : False, # Tricky      
                 'scaler_intensity' : False,
                 'background' : False
             }
 
+        #print(self.corrections)
         self.update_map_title(title=title)
 
         # Should only trigger on first call to save images to hdf
@@ -291,9 +299,15 @@ class ImageMap:
     def dtype(self, dtype):
         # Update datatype if different
         if dtype != self._dtype:
-            # Unfortunately, this has to copy the dataset
-            self.images = self.images.astype(dtype)
-            self._dtype = dtype
+            if (hasattr(self, 'images')
+                and self.images is not None):
+                # Unfortunately, this has to copy the dataset
+                self.images = self.images.astype(dtype)
+                self._dtype = dtype
+            if (hasattr(self, 'integrations')
+                and self.integrations is not None):
+                self.integrations = self.integrations.astype(dtype)
+                self._dtype = dtype
 
     
     def projection_factory(property_name, function, axes):
@@ -453,9 +467,6 @@ class ImageMap:
         self.reset_attributes()
 
     
-    # def estimate_max_intensity(self):
-    #     saturated_pixel = 
-    
 
     ######################
     ### Dask Functions ###
@@ -496,9 +507,10 @@ class ImageMap:
         # Probably the most useful
         if self.hdf is not None and self._dask_enabled:
             if self.title == 'final_images':
-                        err_str = ('You are trying to update images that have already been finalized!'
-                                + '\nConsider reloading a previous image state, or reprocessing the raw images.')
-                        raise ValueError(err_str)
+                warn_str = ('WARNING: Images cannot be updated when '
+                            + 'they have already been finalized.'
+                            + '\nProceeding without updating images.')
+                print(warn_str) # I am not sure about this. What is the point of linking final_images for storage if not used???
             else:
                 self.images = da.store(self.images, self._hdf_store,
                                        compute=True, return_stored=True)[0]
@@ -625,6 +637,86 @@ class ImageMap:
             self.update_map_title()
             self._dask_2_hdf()
             print('done!')
+
+
+    def correct_air_scatter(self,
+                            air_scatter=None,
+                            applied_corrections=None,
+                            override=None):
+
+        if self._check_correction('air_scatter', override=override):
+            return
+        elif air_scatter is None:
+            print('No air_scatter given for correction.')
+        elif air_scatter.shape != self.image_shape:
+            err_str = (f'air_scatter shape of {air_scatter.shape} does '
+                       + f'not match image shape of {self.image_shape}.')
+            raise ValueError(err_str)
+        
+        if applied_corrections is None:
+            applied_corrections = {key:False for key in self.corrections.keys()}
+        else:
+            for key in applied_corrections.keys():
+                if key not in self.corrections.keys():
+                    err_str = f'Unknown correction in applied_corrections: {key}'
+                    raise RuntimeError(err_str)
+
+        # Check for applied corrections which cannot be applied to air_scatter
+        disallowed_corrections = [
+            'background',
+            'absorption'
+        ]
+        for key in disallowed_correction:
+            if self.corrections[key]:
+                warn_str = (f'WARNING: air_scatter cannot be '
+                            + f'corrected after {key} correction '
+                            + 'has been applied.'
+                            + '\nProceeding without changes.')
+                print(warn_str)
+                return
+        
+        # Check for corrections which can be applied to air_scatter
+        allowed_corrections = [
+            'dark_field',
+            'flat_field',
+            'lorentz',
+            'polarization',
+            'solid_angle'
+        ]
+        
+        print('Correcting air scatter...', end='', flush=True)
+        if (self.corrections['dark_field']
+            and not applied_corrections['dark_field']):
+            air_scatter -= self.dark_field
+
+        if (self.corrections['flat_field']
+            and not applied_corrections['flat_field']):
+            air_scatter /= self.flat_field
+        
+        if (self.corrections['lorentz']
+            and not applied_corrections['lorentz']):
+            air_scatter /= self.lorentz_correction
+        
+        if (self.corrections['polarization']
+            and not applied_corrections['polarization']):
+            air_scatter /= self.polarization_correction
+        
+        if (self.corrections['solid_angle']
+            and not applied_corrections['solid_angle']):
+            air_scatter /= self.solidangle_correction
+
+        self.air_scatter = air_scatter
+        self.images /= self.air_scatter
+
+        self.save_images(self.air_scatter,
+                        'air_scatter')
+        
+        self.corrections['air_scatter'] = True
+        self.update_map_title()
+        self._dask_2_hdf()
+        print('done!')
+
+        
 
 
     def correct_outliers(self,

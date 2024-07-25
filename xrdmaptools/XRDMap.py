@@ -272,14 +272,30 @@ class XRDMap():
 
 
     @classmethod # Allows me to define and initiatie the class simultaneously
-    def from_hdf(cls, hdf_filename, wd=None, dask_enabled=False, **kwargs):
+    def from_hdf(cls,
+                 hdf_filename,
+                 wd=None,
+                 dask_enabled=False,
+                 image_data_key='recent',
+                 integration_data_key='recent',
+                 map_shape=None,
+                 image_shape=None,
+                 **kwargs):
+        
         if wd is None:
             wd = os.getcwd()
+        
         # Load from previously saved data, including all processed data...
         hdf_path = pathify(wd, hdf_filename, '.h5')
         if os.path.exists(hdf_path):
             print('Loading data from hdf file...')
-            input_dict = load_xrdmap_hdf(hdf_filename, wd=wd, dask_enabled=dask_enabled)
+            input_dict = load_xrdmap_hdf(hdf_filename,
+                                         wd=wd,
+                                         dask_enabled=dask_enabled,
+                                         image_data_key=image_data_key,
+                                         integration_data_key=integration_data_key,
+                                         map_shape=map_shape,
+                                         image_shape=image_shape)
 
             inst = cls(image_data=input_dict['image_data'],
                     wd=wd,
@@ -1121,7 +1137,7 @@ class XRDMap():
         
 
     # Briefly doubles memory. No Dask support
-    def integrated2d_map(self,
+    def integrate2d_map(self,
                          tth_num=None,
                          tth_resolution=None,
                          chi_num=None,

@@ -6,7 +6,6 @@ import pandas as pd
 import dask.array as da
 
 # Local imports
-#from ..XRDMap import XRDMap
 from ..ImageMap import ImageMap
 from ..crystal.Phase import Phase
 from ..reflections.SpotModels import _load_peak_function
@@ -43,7 +42,7 @@ def initialize_xrdmap_hdf(xrdmap, hdf_file):
             scan_input = []
         else:
             scan_input = xrdmap.scan_input
-        base_grp['scan_input'] = scan_input
+        base_grp.attrs['scan_input'] = scan_input
 
         # Special consideration for when dwell wasn't being recorded...
         if not hasattr(xrdmap, 'dwell') or xrdmap.dwell is None:
@@ -53,9 +52,14 @@ def initialize_xrdmap_hdf(xrdmap, hdf_file):
         base_grp.attrs['dwell'] = dwell
         curr_grp.attrs['dwell'] = dwell # Used to be exposure time, but not accurate
 
-def load_xrdmap_hdf(filename, wd=None, dask_enabled=False, only_integrations=False):
-    # TODO: Add conditional to check for .h5 at end of file name
-    # Add conditionals to load maps wiith only 
+
+def load_xrdmap_hdf(filename,
+                    wd=None,
+                    image_data_key='recent',
+                    integration_data_key='recent',
+                    dask_enabled=False,
+                    map_shape=None,
+                    image_shape=None):
 
     # Figuring out hdf file stuff
     hdf_path = pathify(wd, filename, '.h5')
@@ -74,103 +78,146 @@ def load_xrdmap_hdf(filename, wd=None, dask_enabled=False, only_integrations=Fal
         for key, value in base_grp['extra_metadata'].attrs.items():
             extra_md[key] = value
 
-    # Load most recent image data
-    if not only_integrations:
-        if 'image_data' not in base_grp.keys():
-            raise RuntimeError('No image data in hdf file! '
-                               'Try loading from image stack or from databroker.')
-        img_grp = base_grp['image_data']
+    # Image data
+    if image_data_key is not None:
+        if 'image_data' in base_grp.keys():
+            img_grp = base_grp['image_data']
+            
+            # Check image_data_key in hdf
+            if (str(image_data_key).lower() != 'recent'
+                and image_data_key not in img_grp.keys()):
+                warn_str = (f'WARNING: Requested image_data_key ({image_data_key}) '
+                            + 'not found in hdf. Looking for most recent image_data instead...')
+            
+            # Determine image_data key in 
+            if str(image_data_key).lower() == 'recent':
+                time_stamps, img_keys = [], []
+                for key in img_grp.keys():
+                    if key[0] != '_':
+                        time_stamps.append(img_grp[key].attrs['time_stamp'])
+                        img_keys.append(key)
+                if len(img_keys) < 1:
+                    raise RuntimeError('Could not find recent image data to construct ImageMap from hdf.')
+                time_stamps = [ttime.mktime(ttime.strptime(x)) for x in time_stamps]
+                image_data_key = img_keys[np.argmax(time_stamps)]
+            
 
-        time_stamps, img_keys = [], []
-        for key in img_grp.keys():
-            if key[0] != '_':
-                time_stamps.append(img_grp[key].attrs['time_stamp'])
-                img_keys.append(key)
-        time_stamps = [ttime.mktime(ttime.strptime(x)) for x in time_stamps]
-        recent_index = np.argmax(time_stamps)
+            print(f'Loading images from ({image_data_key})...', end='', flush=True)
+            if dask_enabled:
+                # Lazy loads data
+                image_dset = img_grp[image_data_key]
+                image_data = da.from_array(image_dset, chunks=image_dset.chunks)
+            else:
+                # Fully loads data
+                image_data = img_grp[image_data_key][:]
 
-        print(f'Loading most recent images ({img_keys[recent_index]})...', end='', flush=True)
-        if dask_enabled:
-            # Lazy loads data
-            image_dset = img_grp[img_keys[recent_index]]
-            image_data = da.from_array(image_dset, chunks=image_dset.chunks)
-        else:
-            # Fully loads data
-            image_data = img_grp[img_keys[recent_index]][:]
+            # Rebuild correction dictionary
+            image_corrections = {}
+            for key, value in img_grp[image_data_key].attrs.items():
+                if key[0] == '_' and key[-11:] == '_correction':
+                    image_corrections[key[1:-11]] = value
 
-        # Rebuild correction dictionary
-        corrections = {}
-        for key, value in img_grp[img_keys[recent_index]].attrs.items():
-            if key[0] == '_' and key[-11:] == '_correction':
-                corrections[key[1:-11]] = value
+            # Collect ImageMap attributes that are not instantiated...
+            # This includes correction references...
+            image_map_attrs = {}
+            for key in ['dark_field',
+                        'flat_field',
+                        'air_scatter',
+                        'scaler_intensity',
+                        'lorentz_correction',
+                        'polarization_correction',
+                        'solidangle_correction',
+                        'absorption_correction',
+                        'custom_mask',
+                        'defect_mask',
+                        'calibration_mask']:
+                if f'_{key}' in img_grp.keys():
+                    image_map_attrs[key] = img_grp[f'_{key}'][:]
 
-        # Collect ImageMap attributes that are not instantiated...
-        # This includes correction references...
+            if '_static_background' in img_grp.keys():
+                image_map_attrs['background'] = img_grp['_static_background'][:]
+            
+            # Deprecated tag, but kept for backwards compatibility
+            if '_spot_masks' in img_grp.keys():
+                image_map_attrs['blob_masks'] = img_grp['_spot_masks'][:]
+            
+            if '_blob_masks' in img_grp.keys():
+                image_map_attrs['blob_masks'] = img_grp['_blob_masks'][:]
+
+            if map_shape is not None and image_data.shape[:2] != map_shape:
+                warn_str = (f'WARNING: Input map_shape {map_shape} does '
+                            + f'not match loaded image data map shape of '
+                            + f'{image_data.shape[:2]}.'
+                            + '\nDefaulting to loaded data map shape.')
+                print(warn_str)
+                map_shape = image_data.shape[:2]
+            if image_shape is not None and image_data.shape[2:] != image_shape:
+                warn_str = (f'WARNING: Input image_shape {image_shape} does '
+                            + f'not match loaded image data image shape of '
+                            + f'{image_data.shape[2:]}.'
+                            + '\nDefaulting to loaded data image shape.')
+                print(warn_str)
+                image_shape = image_data.shape[2:]
+            
+            print('done!')
+        
+        else: # No data available
+            warn_str = ('WARNING: Image data requested, but not found in hdf!'
+                        + '\nProceeding without image data.')
+            print(warn_str)
+            image_data = None
+            image_map_attrs = {}
+            image_corrections = None
+    else: # No data requested
+        image_data = None
         image_map_attrs = {}
-        for key in ['dark_field',
-                    'flat_field',
-                    'air_scatter',
-                    'scaler_intensity',
-                    'lorentz_correction',
-                    'polarization_correction',
-                    'solidangle_correction',
-                    'absorption_correction',
-                    'custom_mask',
-                    'defect_mask',
-                    'calibration_mask']:
-            if f'_{key}' in img_grp.keys():
-                image_map_attrs[key] = img_grp[f'_{key}'][:]
+        image_corrections = None
 
-        if '_static_background' in img_grp.keys():
-            image_map_attrs['background'] = img_grp['_static_background'][:]
-        
-        # Deprecated tag, but kept for backwards compatibility
-        if '_spot_masks' in img_grp.keys():
-            image_map_attrs['blob_masks'] = img_grp['_spot_masks'][:]
-        
-        if '_blob_masks' in img_grp.keys():
-            image_map_attrs['blob_masks'] = img_grp['_blob_masks'][:]
-        
-        print('done!')
+    if integration_data_key is not None:
+        if 'integration_data' in base_grp.keys():
+            int_grp = base_grp['integration_data']
+            
+            # Check integration_data_key in hdf
+            if (str(integration_data_key).lower() != 'recent'
+                and integration_data_key not in integration_grp.keys()):
+                warn_str = (f'WARNING: Requested integration_data_key ({integration_data_key}) '
+                            + 'not found in hdf. Looking for most recent integration_data instead...')
+            
+            # Determine image_data key in 
+            if str(integration_data_key).lower() == 'recent':
+                time_stamps, int_keys = [], []
+                for key in int_grp.keys():
+                    if key[0] != '_':
+                        time_stamps.append(int_grp[key].attrs['time_stamp'])
+                        int_keys.append(key)
+                if len(int_keys) < 1:
+                    raise RuntimeError('Could not find recent image data to construct ImageMap from hdf.')
+                time_stamps = [ttime.mktime(ttime.strptime(x)) for x in time_stamps]
+                integration_data_key = int_keys[np.argmax(time_stamps)]
 
-    # Integrations
-    if only_integrations and 'integration_data' not in base_grp.keys():
-        raise ValueError('No integration data in hdf file! '
-                         'Try loading from image stack or from databroker.')
+            print(f'Loading integrations from ({integration_data_key})...', end='', flush=True)
+            integration_data = int_grp[integration_data_key][:]
 
-    if 'integration_data' in base_grp.keys():
-        int_grp = base_grp['integration_data']
+            if map_shape is not None and integration_data.shape[:2] != map_shape:
+                warn_str = (f'WARNING: Input map_shape {map_shape} does '
+                            + f'not match loaded integration data map shape of '
+                            + f'{integration_data.shape[:2]}.'
+                            + '\nDefaulting to loaded data map shape.')
+                print(warn_str)
+                map_shape = integration_data.shape[:2]
+            print('done!')
 
-        time_stamps, int_keys = [], []
-        for key in int_grp.keys():
-            if key[0] != '_':
-                time_stamps.append(int_grp[key].attrs['time_stamp'])
-                int_keys.append(key)
-        time_stamps = [ttime.mktime(ttime.strptime(x)) for x in time_stamps]
-        recent_index = np.argmax(time_stamps)
-
-        print(f'Loading most recent integrations ({int_keys[recent_index]})...', end='', flush=True)
-
-        # Fully loads data
-        integration_data = int_grp[int_keys[recent_index]][:]
-
-        # Rebuild correction dictionary
-        '''corrections = {}
-        for key, value in int_grp[int_keys[recent_index]].attrs.items():
-            if key[0] == '_' and key[-11:] == '_correction':
-                corrections[key[1:-11]] = value'''
-
-        print('done!')
-    else:
+        else: # No data available
+            # No warning to allow silent default values to look for integrations
+            integration_data = None
+    else: # No data requested
         integration_data = None
-
 
     # Recipricol positions
     if 'reciprocal_positions' in base_grp.keys():
         print('Loading reciprocal positions...', end='', flush=True)
         recip_grp = base_grp['reciprocal_positions']
 
-        #image_map_attrs['extent'] = recip_grp.attrs['extent']
         recip_pos = {}
         for key in ['tth', 'chi']:
             if key in recip_grp.keys():
@@ -184,14 +231,19 @@ def load_xrdmap_hdf(filename, wd=None, dask_enabled=False, only_integrations=Fal
                 recip_pos[key] = None
                 #recip_pos[f'{key}_units'] = None
                 recip_pos[f'{key}_resolution'] = None
-        
-        #if ('tth' in recip_grp.keys() or 'chi' in recip_grp.keys()):
-        #    image_map_attrs['calibrated_shape'] = (len(recip_pos['tth']),
-        #                                           len(recip_pos['chi']))
 
         # Load poni_file calibration
         poni_grp = recip_grp['poni_file']
-        ordered_keys = ['poni_version', 'detector', 'detector_config', 'dist', 'poni1', 'poni2', 'rot1', 'rot2', 'rot3', 'wavelength']
+        ordered_keys = ['poni_version',
+                        'detector',
+                        'detector_config',
+                        'dist',
+                        'poni1',
+                        'poni2',
+                        'rot1',
+                        'rot2',
+                        'rot3',
+                        'wavelength']
         poni_od = OrderedDict()
         for key in ordered_keys:
             if key == 'detector_config':
@@ -251,7 +303,6 @@ def load_xrdmap_hdf(filename, wd=None, dask_enabled=False, only_integrations=Fal
         print('done!')    
 
     # Load spots dataframe
-    # Should be last since it closed base_grp
     spots = None
     spot_model = None
     if 'reflections' in base_grp.keys():
@@ -264,7 +315,7 @@ def load_xrdmap_hdf(filename, wd=None, dask_enabled=False, only_integrations=Fal
             # Re-point towards correct dataset
             hdf = h5py.File(hdf_path, 'a')
             img_grp = hdf['xrdmap/image_data']
-            image_dset = img_grp[img_keys[recent_index]]
+            image_dset = img_grp[image_data_key]
             image_data = da.from_array(image_dset, chunks=image_dset.chunks)
         else:
             hdf = h5py.File(hdf_path, 'r')
@@ -283,11 +334,13 @@ def load_xrdmap_hdf(filename, wd=None, dask_enabled=False, only_integrations=Fal
     print(f'Instantiating ImageMap...')
     image_map = ImageMap(image_data=image_data,
                          integration_data=integration_data,
-                         title=img_keys[recent_index],
+                         map_shape=map_shape,
+                         image_shape=image_shape,
+                         title=image_data_key,
                          wd=wd,
                          hdf_path=hdf_path,
                          hdf=hdf,
-                         corrections=corrections,
+                         corrections=image_corrections,
                          dask_enabled=dask_enabled)
     
     # Add extra ImageMap attributes
@@ -309,94 +362,3 @@ def load_xrdmap_hdf(filename, wd=None, dask_enabled=False, only_integrations=Fal
                   'pos_dict' : pos_dict}
 
     return ouput_dict
-
-
-# Just a convenience wrapper wihout returning the class
-'''def make_xrdmap_hdf(scanid=-1,
-                    broker='manual',
-                    filedir=None,
-                    filename=None,
-                    poni_file=None):
-    
-    XRDMap.from_db(scanid=scanid,
-                   broker=broker,
-                   filedir=filedir,
-                   filename=filename,
-                   poni_file=poni_file,
-                   save_hdf=True)'''
-
-
-'''def make_xrdmap_hdf(scanid=-1,
-                    broker='manual',
-                    filedir=None,
-                    filename=None,
-                    poni_file=None,
-                    return_xrdmap=False,
-                    save_hdf=True):
-    
-    pos_keys = ['enc1', 'enc2']
-    sclr_keys = ['i0', 'i0_time', 'im', 'it']
-    
-    if data_keys is None:
-        data_keys = pos_keys + sclr_keys
-
-    data_dict, scan_md, data_keys, xrd_dets = load_data(scanid=scanid,
-                                                        broker=broker,
-                                                        detectors=None,
-                                                        data_keys=None,
-                                                        returns=['data_keys',
-                                                                 'xrd_dets'])
-
-    xrd_data = [data_dict[f'{xrd_det}_image'] for xrd_det in xrd_dets]
-
-    # Make position dictionary
-    pos_dict = {key:value for key, value in data_dict.items() if key in pos_keys}
-
-    # Make scaler dictionary
-    sclr_dict = {key:value for key, value in data_dict.items() if key in sclr_keys}
-
-    if len(xrd_data) > 1:
-        pass
-        # Add more to filename to prevent overwriting...
-
-    extra_md = {}
-    for key in scan_md.keys():
-        if key not in ['scanid', 'beamline', 'energy', 'dwell', 'start_time']:
-            extra_md[key] = scan_md[key]
-    
-    xrdmaps = []
-    for xrd_data_i in xrd_data:
-        xrdmap = XRDMap(scanid=scan_md['scanid'],
-                        wd=filedir,
-                        filename=filename,
-                        #hdf_filename=None, # ???
-                        #hdf=None,
-                        image_map=xrd_data_i,
-                        #map_title=None,
-                        #map_shape=None,
-                        energy=scan_md['energy'],
-                        #wavelength=None,
-                        dwell=scan_md['dwell'],
-                        poni_file=poni_file,
-                        sclr_dict=sclr_dict,
-                        pos_dict=pos_dict,
-                        #tth_resolution=None,
-                        #chi_resolution=None,
-                        #tth=None,
-                        #chi=None,
-                        beamline=scan_md['beamline'],
-                        facility='NSLS-II',
-                        time_stamp=scan_md['start_time'],
-                        #extra_metadata=None,
-                        save_hdf=save_hdf,
-                        #dask_enabled=False
-                        )
-        
-        xrdmaps.append(xrdmap)
-
-    if return_xrdmap:
-        if len(xrdmaps) > 1:
-            return tuple(xrdmaps)
-        else:
-            # Don't bother returning a tuple or list of xrdmaps
-            return xrdmaps[0]'''
