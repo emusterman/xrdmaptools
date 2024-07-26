@@ -81,7 +81,7 @@ def _xrdmap_image(xrdmap,
             raise ValueError(f"Incorrect image shape of {image.shape}. Should be two-dimensional.")
     else:
         # Evaluate images
-        xrdmap.map._dask_2_dask()
+        # xrdmap.map._dask_2_dask() # Too expensive, just evaluate the one
 
         if indices is not None:
             indices = tuple(indices)

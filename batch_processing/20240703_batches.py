@@ -578,22 +578,34 @@ def xmt_batch8():
 
     base_wd = '/nsls2/data/srx/proposals/2024-1/pass-314118/'
 
-    dark_field = io.imread(f'{base_wd}dark_fields/scan153481_dexela_median_composite.tif')
+    dark_field = io.imread(f'{base_wd}dark_fields/scan153086_dexela_median_composite.tif')
     #flat_field = io.imread()
-    poni_file = f'scan153219_dexela_calibration.poni'
+    poni_file = f'scan153043_dexela_calibration.poni'
 
     scanlist = [
-        153485,
-        153487,
-        153489,
-        153491,
-        153493,
-        153495,
-        153502,
-        153504,
-        153506,
-        153508,
-        153510
+        153102,
+        153104,
+        153106,
+        153108,
+        153110,
+        153112,
+        153114,
+        153116,
+        153118,
+        153120,
+        153122,
+        153124,
+        153126,
+        153128,
+        153130,
+        153132,
+        153134,
+        153136,
+        153138,
+        153140,
+        153142,
+        153143,
+        153145,
     ]
 
     for i in timed_iter(range(len(scanlist))):
@@ -608,7 +620,7 @@ def xmt_batch8():
         # Load map and set calibration
         xrdmap = XRDMap.from_hdf(f'scan{scan}_xrd.h5', wd=base_wd + 'processed_xrdmaps/', save_hdf=True)
         xrdmap.interpolate_positions()
-        xrdmap.load_phase('Stibnite_0008636.cif', filedir='/nsls2/users/emusterma/Documents/cif/', phase_name="stibnite")
+        #xrdmap.load_phase('Stibnite_0008636.cif', filedir='/nsls2/users/emusterma/Documents/cif/', phase_name="stibnite")
         xrdmap.set_calibration(poni_file, filedir=base_wd + 'calibrations/')
         
         # Basic correction. No outliers
@@ -659,3 +671,214 @@ def xmt_batch8():
             radius=10,
             expansion=10,
             override_rescale=True)
+
+
+def xmt_batch9():
+
+    base_wd = '/nsls2/data/srx/proposals/2024-1/pass-314118/'
+
+    dark_field = io.imread(f'{base_wd}dark_fields/scan153155_dexela_median_composite.tif')
+    #flat_field = io.imread()
+    poni_file = f'scan153219_dexela_calibration.poni'
+
+    scanlist = [
+        153157,
+        153159,
+        153161,
+        153163,
+        153165,
+        153167,
+        153169,
+        153171,
+        153173,
+        153175,
+        153177,
+        153179,
+        153181,
+        153183,
+        153185,
+        153187,
+        153189,
+        153191,
+        153193,
+        153195,
+        153197,
+        153199,
+        153201,
+        153203,
+        153205,
+        153207,
+        153209,
+        153211,
+        153213,
+        153215,
+    ]
+
+    for i in timed_iter(range(len(scanlist))):
+        scan = scanlist[i]
+        
+        print(f'Batch processing scan {scan}...')
+        
+        if not os.path.exists(f'{base_wd}processed_xrdmaps/scan{scan}_xrd.h5'):
+            print('No raw file found. Generating new file!')
+            make_xrdmap_hdf(scan, filedir=base_wd + 'processed_xrdmaps/')
+        
+        # Load map and set calibration
+        xrdmap = XRDMap.from_hdf(f'scan{scan}_xrd.h5', wd=base_wd + 'processed_xrdmaps/', save_hdf=True)
+        xrdmap.interpolate_positions()
+        #xrdmap.load_phase('Stibnite_0008636.cif', filedir='/nsls2/users/emusterma/Documents/cif/', phase_name="stibnite")
+        xrdmap.set_calibration(poni_file, filedir=base_wd + 'calibrations/')
+        
+        # Basic correction. No outliers
+        xrdmap.map.correct_dark_field(dark_field=dark_field)
+        #xrdmap.map.correct_flat_field(flat_field=flat_field)
+
+        xrdmap.map.normalize_scaler() # Assumed information in sclr_dict
+        #xrdmap.map.correct_outliers() # Too slow!
+
+        # Geometric corrections
+        xrdmap.map.apply_polarization_correction()
+        xrdmap.map.apply_solidangle_correction()
+        xrdmap.map.apply_lorentz_correction()
+        
+        # Apply absorption corrections
+        # exp_dict = {
+        # 'attenuation_length' : 0,
+        # 'mode' : 'transmission',
+        # 'thickness' : 200, # microns # Horrible guess...
+        # 'theta' : 0
+        # }
+        # exp_dict['attenuation_length'] = xrdmap.phases['stibnite'].absorption_length(en=xrdmap.energy * 1e3)
+        # xrdmap.map.apply_absorption_correction(exp_dict=exp_dict, apply=True)
+
+        # Background correction
+        xrdmap.map.estimate_background(method='bruckner', binning=4, min_prominence=0.1)
+        xrdmap.map.remove_background()
+
+        # Rescale and saving
+        xrdmap.map.rescale_images(
+            upper=100,
+            lower=0,
+            arr_min=0,
+            arr_max=xrdmap.map.estimate_saturated_pixel())
+        xrdmap.map.finalize_images()
+
+        # Integrations for good measure
+        xrdmap.tth_resolution = 0.01
+        xrdmap.chi_resolution = 0.05
+        xrdmap.integrate1d_map()
+
+        # Find blobs and spots while were at it
+        #test.map.images[0, 0, 0, 0] = 100 # to trick the scaled image check
+        xrdmap.find_spots(
+            threshold_method='minimum',
+            multiplier=3,
+            size=3,
+            radius=10,
+            expansion=10,
+            override_rescale=True)
+
+
+def xmt_batch10():
+
+    base_wd = '/nsls2/data/srx/proposals/2024-1/pass-314118/'
+
+    dark_field = io.imread(f'{base_wd}dark_fields/scan153247_dexela_median_composite.tif')
+    #flat_field = io.imread()
+    poni_file = f'scan153219_dexela_calibration.poni'
+
+    scanlist = [
+        153253,
+        153255,
+        153257,
+        153259,
+        153261,
+        153263,
+        153265,
+        153267,
+        153269,
+        153271,
+        153273,
+        153175,
+        153277,
+        153279,
+        153281,
+        153283,
+        153285,
+        153287,
+        153289,
+        153291,
+        153293,
+        153295,
+        153297,
+    ]
+
+    for i in timed_iter(range(len(scanlist))):
+        scan = scanlist[i]
+        
+        print(f'Batch processing scan {scan}...')
+        
+        if not os.path.exists(f'{base_wd}processed_xrdmaps/scan{scan}_xrd.h5'):
+            print('No raw file found. Generating new file!')
+            make_xrdmap_hdf(scan, filedir=base_wd + 'processed_xrdmaps/')
+        
+        # Load map and set calibration
+        xrdmap = XRDMap.from_hdf(f'scan{scan}_xrd.h5', wd=base_wd + 'processed_xrdmaps/', save_hdf=True)
+        xrdmap.interpolate_positions()
+        #xrdmap.load_phase('Stibnite_0008636.cif', filedir='/nsls2/users/emusterma/Documents/cif/', phase_name="stibnite")
+        xrdmap.set_calibration(poni_file, filedir=base_wd + 'calibrations/')
+        
+        # Basic correction. No outliers
+        xrdmap.map.correct_dark_field(dark_field=dark_field)
+        #xrdmap.map.correct_flat_field(flat_field=flat_field)
+
+        xrdmap.map.normalize_scaler() # Assumed information in sclr_dict
+        #xrdmap.map.correct_outliers() # Too slow!
+
+        # Geometric corrections
+        xrdmap.map.apply_polarization_correction()
+        xrdmap.map.apply_solidangle_correction()
+        xrdmap.map.apply_lorentz_correction()
+        
+        # Apply absorption corrections
+        # exp_dict = {
+        # 'attenuation_length' : 0,
+        # 'mode' : 'transmission',
+        # 'thickness' : 200, # microns # Horrible guess...
+        # 'theta' : 0
+        # }
+        # exp_dict['attenuation_length'] = xrdmap.phases['stibnite'].absorption_length(en=xrdmap.energy * 1e3)
+        # xrdmap.map.apply_absorption_correction(exp_dict=exp_dict, apply=True)
+
+        # Background correction
+        xrdmap.map.estimate_background(method='bruckner', binning=4, min_prominence=0.1)
+        xrdmap.map.remove_background()
+
+        # Rescale and saving
+        xrdmap.map.rescale_images(
+            upper=100,
+            lower=0,
+            arr_min=0,
+            arr_max=xrdmap.map.estimate_saturated_pixel())
+        xrdmap.map.finalize_images()
+
+        # Integrations for good measure
+        xrdmap.tth_resolution = 0.01
+        xrdmap.chi_resolution = 0.05
+        xrdmap.integrate1d_map()
+
+        # Find blobs and spots while were at it
+        #test.map.images[0, 0, 0, 0] = 100 # to trick the scaled image check
+        xrdmap.find_spots(
+            threshold_method='minimum',
+            multiplier=3,
+            size=3,
+            radius=10,
+            expansion=10,
+            override_rescale=True)
+
+
+def do_xmt_batches():
+    xmt_batch8()
+    xmt_batch9()
+    xmt_batch10()

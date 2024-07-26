@@ -168,7 +168,7 @@ class XRDMapStack(list): # Maybe should be called XRDMapList
     def xrf(self):
         if hasattr(self, '_xrf'):
             # Check that all xrdmaps are still there
-            if len(self._xrf.values()[0]) == len(self):
+            if len(list(self._xrf.values())[0]) == len(self):
                 return self._xrf
             else:
                 warn_str = (f'Length of XRDMapStack ({len(self)}) does not '
@@ -289,7 +289,7 @@ class XRDMapStack(list): # Maybe should be called XRDMapList
     #####################################
 
     # List wrapper to allow kwarg inputs
-    def _blank_iterator(iterable, **kwargs):
+    def _blank_iterator(self, iterable, **kwargs):
         return list(iterable)
 
 
@@ -505,8 +505,10 @@ class XRDMapStack(list): # Maybe should be called XRDMapList
         self.spots = pd.concat(all_spots_list, ignore_index=True)
 
     
-    def pixel_spots(self):
-        raise NotImplementedError()
+    def pixel_spots(self, map_indices):
+        pixel_spots = self.spots[(self.spots['map_x'] == map_indices[1])
+                               & (self.spots['map_y'] == map_indices[0])].copy()
+        return pixel_spots
 
 
 
@@ -552,21 +554,21 @@ class XRDMapStack(list): # Maybe should be called XRDMapList
     ### Plotting Functions ###
     ##########################
 
-    def plot_image_slider():
+    def plot_image_stack(self,):
         raise NotImplementedError()
     
 
-    def plot_map_slider():
+    def plot_map_stack(self, alignment=True):
         raise NotImplementedError()
 
     
-    def plot_3D_scatter():
+    def plot_3D_scatter(self,):
         raise NotImplementedError()
 
 
-    def plot_3D_volume():
+    def plot_3D_volume(self,):
         raise NotImplementedError()
 
     
-    def plot_3D_sampled_outline():
+    def plot_3D_sampled_outline(self,):
         raise NotImplementedError()

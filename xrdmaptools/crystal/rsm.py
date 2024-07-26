@@ -116,3 +116,48 @@ def rotation_scale_translation(ref_img,
                                         normalization=None)
     
     return angle, scale, shift
+
+
+# When registering a stack to a reference image, poor quality maps may fail
+# This method uses each map as the reference
+# The median of the relative distances between images is used to reconstruct the shifts
+# Relative to the first image
+def relative_align_maps(image_stack, **kwargs):
+    # I do not yet know how to do this for rotation. Maybe just rotate the x and y shifts...
+    
+    shifts_list = []
+    for i in range(len(image_stack)):
+        shifts = [rotation_scale_translation(image_stack[i],
+                                             arr,
+                                             fix_rotation=True,
+                                             **kwargs)[-1]
+                    for arr in image_stack]
+        shifts_list.append(shifts)
+    
+    shifts_arr = np.asarray(shifts_list)
+
+    y_diff_list = []
+    for i in range(len(image_stack)):
+        diff = [shifts_arr[i, idx, 0] - shifts_arr[i, idx - 1, 0]
+                    for idx in range(1, len(image_stack))]
+        y_diff_list.append(diff)
+    med_y_diffs = np.median(np.asarray(y_diff_list), axis=0)
+
+    x_diff_list = []
+    for i in range(len(image_stack)):
+        diff = [shifts_arr[i, idx, 1] - shifts_arr[i, idx - 1, 1]
+                    for idx in range(1, len(image_stack))]
+        x_diff_list.append(diff)
+    med_x_diffs = np.median(np.asarray(x_diff_list), axis=0)
+
+    med_x_shifts = [0]
+    _ = [med_x_shifts.append(med_x_shifts[-1] + diff) for diff in med_x_diffs]
+    med_x_shifts = np.round(med_x_shifts, 3)
+
+    med_y_shifts = [0]
+    _ = [med_y_shifts.append(med_y_shifts[-1] + diff) for diff in med_y_diffs]
+    med_y_shifts = np.round(med_y_shifts, 3)
+
+    return tuple([(y, x) for y, x in zip(med_y_shifts, med_x_shifts)])
+    
+
