@@ -137,6 +137,10 @@ def load_xrdmap_hdf(filename,
             if '_static_background' in img_grp.keys():
                 image_map_attrs['background'] = img_grp['_static_background'][:]
             
+            # Not given to ImageMap.__init__ so it won't try to rewrite the data
+            if '_null_map' in img_grp.keys():
+                image_map_attrs['null_map'] = img_grp['_null_map'][:]
+            
             # Deprecated tag, but kept for backwards compatibility
             if '_spot_masks' in img_grp.keys():
                 image_map_attrs['blob_masks'] = img_grp['_spot_masks'][:]
@@ -341,6 +345,7 @@ def load_xrdmap_hdf(filename,
                          hdf_path=hdf_path,
                          hdf=hdf,
                          corrections=image_corrections,
+                         null_map=None, # Not given to __init__
                          dask_enabled=dask_enabled)
     
     # Add extra ImageMap attributes

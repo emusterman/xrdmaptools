@@ -78,6 +78,7 @@ class XRDMap():
                  map_shape=None,
                  image_shape=None,
                  map_title=None,
+                 null_map=None,
                  energy=None,
                  wavelength=None,
                  dwell=None,
@@ -159,9 +160,10 @@ class XRDMap():
                                     hdf=hdf,
                                     map_shape=map_shape,
                                     image_shape=image_shape,
+                                    null_map=null_map,
                                     dask_enabled=dask_enabled)
         else:
-            raise NotImplementedError('XRDMaps without image or integration data is not currently supported.')
+            raise NotImplementedError('XRDMaps without image or integration data are not currently supported.')
         
         self.phases = {} # Place holder for potential phases
         if poni_file is not None:
@@ -374,9 +376,13 @@ class XRDMap():
         # Make scaler dictionary
         sclr_dict = {key:value for key, value in data_dict.items() if key in sclr_keys}
 
+        if 'null_map' in data_dict.keys():
+            null_map = data_dict['null_map']
+        else:
+            null_map = None
+
         if len(xrd_data) > 1:
-            pass
-            # Add more to filename to prevent overwriting...
+            filenames = [f'scan{scan_md["scan_id"]}_{det}_xrd.h5' for det in xrd_dets]
 
         extra_md = {}
         for key in scan_md.keys():
@@ -393,8 +399,9 @@ class XRDMap():
         for xrd_data_i in xrd_data:
             xrdmap = cls(scanid=scan_md['scan_id'],
                          wd=filedir,
-                         filename=filename,
+                         filename=filename, # Replace with filenames[i] and enumerate iterable
                          image_data=xrd_data_i,
+                         null_map=null_map,
                          energy=scan_md['energy'],
                          dwell=scan_md['dwell'],
                          theta=scan_md['theta'],
@@ -710,58 +717,6 @@ class XRDMap():
             delattr(self, '_q_arr')
         if hasattr(self, 'ai'):
             self.ai._cached_array = {}
-        
-
-    ##########################
-    ### Image manipulation ###
-    ##########################
-
-
-    # TODO: test if this actually works, move to ImageMap
-    def load_images_from_hdf(self, image_dataset):
-        # Only most processed images will be loaded from hdf
-        # Deletes current image map and loads new values from hdf
-        print(f'Loading {image_dataset}')
-
-        # Open hdf flag
-        keep_hdf = True
-        if self.hdf is None:
-            self.hdf = h5py.File(self.hdf_path, 'r')
-            keep_hdf = False
-        
-        # Working with dask flag
-        dask_enabled = self.map._dask_enabled
-
-        # Actually load the data
-        image_grp = self.hdf['xrdmap/image_data']
-        if check_hdf_current_images(image_dataset, hdf=self.hdf):
-            del(self.map.images) # Delete previous images from ImageMap to save memory
-            img_dset = image_grp[image_dataset]
-            
-            if dask_enabled:
-                self.map.images = da.asarray(img_dset)
-            else:
-                self.map.images = np.asarray(img_dset)
-
-            # Rebuild correction dictionary
-            corrections = {}
-            for key in image_grp[image_dataset].attrs.keys():
-                corrections[key[1:-11]] = image_grp[image_dataset].attrs[key]
-            self.map.corrections = corrections
-
-        # Close hdf and reset attribute
-        if not keep_hdf:
-            self.hdf.close()
-            self.hdf = None
-
-        self.map.update_map_title()
-        self.map._dask_2_hdf()
-
-
-    def dump_images(self):
-        del(self.map)
-        # Intended to clear up memory when only working with indentified spots
-        # May not be useful
 
     
     ############################
@@ -2100,10 +2055,15 @@ class XRDMap():
         self._remove_spot_vals(drop_tags=['fit'])
     
 
-    def pixel_spots(self, map_indices):
-        # TODO: These values may need to be reversed. Check with mapping values...
+    def pixel_spots(self, map_indices, copied=True):
+
         pixel_spots = self.spots[(self.spots['map_x'] == map_indices[1])
-                               & (self.spots['map_y'] == map_indices[0])].copy()
+                               & (self.spots['map_y'] == map_indices[0])]
+        
+        # Copies to protect orginal spots from changes
+        if copied:
+            pixel_spots = pixel_spots.copy()
+        
         return pixel_spots
     
 
