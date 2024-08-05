@@ -9,6 +9,9 @@ from skimage.filters import window, difference_of_gaussians
 from scipy.fft import fft2, fftshift
 from skimage.transform import warp_polar, rotate
 from skimage.registration import phase_cross_correlation
+from matplotlib.widgets import Slider
+
+from xrdmaptools.plot.stacked import base_slider_plot
 
 
 
@@ -161,3 +164,112 @@ def relative_align_maps(image_stack, **kwargs):
     return tuple([(y, x) for y, x in zip(med_y_shifts, med_x_shifts)])
     
 
+def manually_align_maps(image_stack,
+                        slider_vals=None,
+                        slider_label='Index'):
+    # Built on interactive plotting functionality    
+
+    fig = plt.figure(figsize=(5, 5), dpi=200)
+    fig.suptitle('Manual Map Alignment')
+    ax = fig.add_axes([0.1, 0.1, 0.5, 0.8])
+
+    # ax.set_xlim(0, image_stack[0].shape[1])
+    # ax.set_ylim(0, image_stack[0].shape[0])
+
+    # Define placeholder values
+    image = ax.imshow(image_stack[0])
+    image_index = 0
+    marker_list = []
+    marker_coords = []
+    for i in range(len(image_stack)):
+        marker = ax.scatter([], [],
+                            marker='+',
+                            linewidth=1,
+                            color='red')
+        marker.set_visible(False)
+        marker_list.append(marker)
+        marker_coords.append((np.nan, np.nan))
+    
+    if slider_vals is None:
+        slider_vals = np.asarray((range(len(image_stack))))
+    else:
+        slider_vals = np.asarray(slider_vals)
+
+        is_sorted = all(a <= b for a, b in zip(slider_vals, slider_vals[1:]))
+        if not is_sorted:
+            raise ValueError('Slider values must be sorted sequentially.')
+        
+    ax.set_title(f'{slider_vals[0]}')
+    slider_ax = fig.add_axes([0.7, 0.1, 0.03, 0.8])
+    slider = Slider(
+        ax=slider_ax,
+        label=slider_label,
+        valmin=slider_vals[0],
+        valmax=slider_vals[-1],
+        valinit=slider_vals[0],
+        valstep=slider_vals,
+        orientation='vertical'
+    )
+
+    # The function to be called anytime a slider's value changes
+    def update_image(val):
+        nonlocal image, image_index, marker_list, marker_coords, slider
+
+        new_index = np.argmin(np.abs(slider_vals - val))
+        if new_index == image_index:
+            return
+        
+        # Hide old marker
+        marker_list[image_index].set_visible(False)
+
+        # Get new image index
+        image_index = new_index
+
+        # Update image
+        image.set_data(image_stack[image_index])
+        image.set_clim(
+            np.min(image_stack[image_index]),
+            np.max(image_stack[image_index])
+        )
+
+        # Unhide new marker, if already found
+        if not np.all(np.isnan(marker_coords[image_index])):
+            marker_list[image_index].set_visible(True)
+
+        ax.set_title(f'{slider_vals[image_index]}')
+        fig.canvas.draw_idle()
+
+    def onclick(event):
+        if event.inaxes == ax:
+            nonlocal image_index, marker_list, marker_coords
+            marker_coords[image_index] = event.ydata, event.xdata
+
+            # Having no datapoints may already hide the markers
+            if not marker_list[image_index]._visible:
+                marker_list[image_index].set_visible(True)
+
+            marker_list[image_index].set_offsets(
+                [*marker_coords[image_index][::-1]] # reverse to make (x, y)
+                )
+            fig.canvas.draw_idle()
+
+    def on_close(event):
+        nonlocal marker_coords
+        if np.any(np.isnan(np.asarray(marker_coords))):
+            warn_str = ('WARNING: manual map alignment plot closed '
+                        + 'before all maps were properly aligned.')
+            print(warn_str)
+        
+        manual_shifts = np.round([np.asarray(marker_coords[0]) - np.asarray(coords)
+                                  for coords in marker_coords])
+        marker_coords = tuple([(shift_y, shift_x) for shift_y, shift_x in manual_shifts])
+        #return marker_coords
+
+    slider.on_changed(update_image)
+    cid = fig.canvas.mpl_connect('button_press_event', onclick)
+    fig.canvas.mpl_connect('close_event', on_close)
+
+    #plt.show()
+    plt.show(block=True)
+    plt.pause(0.01)
+    return marker_coords
