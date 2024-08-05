@@ -35,6 +35,7 @@ class ImageMap:
                  wd=None,
                  ai=None,
                  sclr_dict=None,
+                 null_map=None,
                  chunks=None,
                  corrections=None,
                  dask_enabled=False):
@@ -230,6 +231,7 @@ class ImageMap:
 
         #print(self.corrections)
         self.update_map_title(title=title)
+        self.null_map = null_map
 
         # Should only trigger on first call to save images to hdf
         # Or if the title has been changed for some reason
@@ -242,6 +244,12 @@ class ImageMap:
                                          'img_y',
                                          'img_x'])
                 print('done!')
+            if self.null_map is not None:
+                self.save_images(self.null_map,
+                                 'null_map',
+                                 units='bool',
+                                 labels=['map_y_ind',
+                                         'map_x_ind'])
         
         if dask_enabled:
             if self.hdf_path is None and self.hdf is None:
@@ -327,10 +335,10 @@ class ImageMap:
                 self._dask_2_dask()
 
                 # More complicated to account for masked values
-                if np.any(self.mask != 1) and axes == (2, 3):
+                if np.any(self.mask != 1) and axes != (0, 1):
 
                     # Mask away discounted pixels
-                    val = function(self.map.images[:, :, self.map.mask],
+                    val = function(self.map.images[..., self.map.mask],
                                    axis=-1).astype(self.map.dtype)
 
                     if self._dask_enabled:
@@ -339,8 +347,8 @@ class ImageMap:
                     setattr(self, property_name, val)
                 else:
                     # This will have some precision issues depending on the specified dtype
-                    # Ignores mask values since they should not vary with projection
-                    val =  function(self.images, axis=axes).astype(self.dtype)
+                    # Consider masking the output?
+                    val = function(self.images, axis=axes).astype(self.dtype)
                     if self._dask_enabled:
                         val = val.compute()
                     setattr(self, property_name, val)
@@ -474,6 +482,78 @@ class ImageMap:
         self.reset_attributes()
 
     
+    def load_images_from_hdf(self, image_data_key):
+        # Deletes current image map and loads new values from hdf
+        print(f'Loading {image_data_key}')
+
+        # Open hdf flag
+        close_hdf_on_finish = False
+        if self.hdf is None:
+            self.hdf = h5py.File(self.hdf_path, 'r')
+            close_hdf_on_finish = True
+        
+        # Working with dask flag
+        dask_enabled = self._dask_enabled
+
+        # Actually load the data
+        image_grp = self.hdf['xrdmap/image_data']
+        if check_hdf_current_images(image_data_key, hdf=self.hdf):
+            del(self.images) # Delete previous images from ImageMap to save memory
+            img_dset = image_grp[image_data_key]
+            
+            if dask_enabled:
+                self.images = da.asarray(img_dset)
+            else:
+                self.images = np.asarray(img_dset)
+
+            # Rebuild correction dictionary
+            corrections = {}
+            for key in image_grp[image_data_key].attrs.keys():
+                corrections[key[1:-11]] = image_grp[image_data_key].attrs[key]
+            self.corrections = corrections
+
+            if close_hdf_on_finish:
+                self.hdf.close()
+                self.hdf = None
+                close_hdf_on_finish = False # To switch other call to turn off
+
+            # Define/determine chunks and rechunk if necessary
+            if isinstance(self.images, da.core.Array):
+                # Redo chunking along image dimensions if not already
+                if self.images.chunksize[-2:] != self.images.shape[-2:]:
+                    self._get_optimal_chunks()
+                    self.images = self.images.rechunk(chunks=self._chunks)
+                else:
+                    self._chunks = self.images.chunksize
+            else:
+                if chunks is not None:
+                    self._chunks = chunks
+                else:
+                    self._get_optimal_chunks()
+
+        # Close hdf and reset attribute
+        if close_hdf_on_finish:
+            self.hdf.close()
+            self.hdf = None
+
+        self.update_map_title(title=image_data_key) # Force title
+        self._dask_2_hdf()
+
+        # Update useful data
+        self._dtype = self.images.dtype
+        self.shape = self.images.shape
+        self.map_shape = self.shape[:2]
+        self.image_shape = self.shape[-2:]
+        self.num_images = np.prod(self.map_shape)
+
+    
+        # For clearing up memory
+    def dump_ImageMap(self):
+        del self
+    
+    def dump_images(self):
+        del self.images
+
 
     ######################
     ### Dask Functions ###
@@ -486,8 +566,12 @@ class ImageMap:
 
     # Return standardized chunk size around images for hdf and dask
     def _get_optimal_chunks(self, approx_chunk_size=None):
-        self._chunks =  get_optimal_chunks(self.images,
-                                  approx_chunk_size=approx_chunk_size)
+        if hasattr(self, 'images') and self.images is not None:
+            self._chunks =  get_optimal_chunks(
+                                    self.images,
+                                    approx_chunk_size=approx_chunk_size)
+        else:
+            self._chunks = (*self.map_shape, *self.image_shape)
         return self._chunks
     
     def _dask_2_numpy(self):
@@ -543,6 +627,7 @@ class ImageMap:
                 print(warn_str)
                 return True
 
+
     ### Initial image corrections ###
 
     def correct_dark_field(self,
@@ -564,7 +649,7 @@ class ImageMap:
         if self._dask_enabled and self._hdf_store is None:
             print(('Dask enabled. Upcasting data and generating a '
                    + 'temporary dataset for performing corrections.\n'
-                   + 'This may take awhile...'))
+                   + 'This may take a while...'))
 
             # Upcast before writing to hdf
             self.images = self.images.astype(np.float32)
@@ -577,7 +662,7 @@ class ImageMap:
 
             # Might be best NOT to call this to preserve previous data
             self.images = da.store(self.images, self._hdf_store,
-                                    compute=True, return_stored=True)[0]
+                                   compute=True, return_stored=True)[0]
         
         else:
             # Check for upcasting. Will probably upcast data
@@ -653,7 +738,7 @@ class ImageMap:
     def correct_air_scatter(self,
                             air_scatter=None,
                             applied_corrections=None,
-                            override=None):
+                            override=False):
 
         if self._check_correction('air_scatter', override=override):
             return
@@ -677,7 +762,7 @@ class ImageMap:
             'background',
             'absorption'
         ]
-        for key in disallowed_correction:
+        for key in disallowed_corrections:
             if self.corrections[key]:
                 warn_str = (f'WARNING: air_scatter cannot be '
                             + f'corrected after {key} correction '
@@ -728,8 +813,6 @@ class ImageMap:
         print('done!')
 
         
-
-
     def correct_outliers(self,
                          size=2,
                          tolerance=3,
@@ -999,7 +1082,10 @@ class ImageMap:
         self.scaler_map = scaler_arr
         if not hasattr(self, 'sclr_dict'): # Trying to catch non-saved values
             self.save_images(self.scaler_map,
-                                'scaler_map') 
+                                'scaler_map',
+                                units='counts',
+                                labels=['map_y_ind',
+                                        'map_x_ind']) 
         self.corrections['scaler_intensity'] = True
         self.update_map_title()
         self._dask_2_hdf()
@@ -1070,6 +1156,11 @@ class ImageMap:
                           override=False):
 
         if self._check_correction('background', override=override):
+            if background is None and hasattr(self, 'background'):
+                warn_str = ('WARNING: background attribute still saved in memory.'
+                            + '\nOverride background removal or delete '
+                            + 'attribute to release memory.')
+            print(warn_str)
             return
         
         if background is None:
@@ -1100,7 +1191,7 @@ class ImageMap:
         print('done!')
 
         if save_images:
-            print('''Compressing and writing images to disk.\nThis may take awhile...''')
+            print('''Compressing and writing images to disk.\nThis may take a while...''')
             self.save_images(extra_attrs={'background_method'
                                           : self.background_method})
             print('done!')
@@ -1193,6 +1284,62 @@ class ImageMap:
         # All other corrections are isolated within the image
 
         return raw_max_val
+
+
+    def construct_null_map(self, override=False):
+        if (not override
+            and hasattr(self, 'null_map')
+            and self.null_map is not None):
+            msg_str = 'ImageMap already has null_map. Proceeding without changes.'
+            print(msg_str)
+            return
+        else:
+            f = None
+            if self.title == 'raw_images':
+                if not self._dask_enabled or override:
+                    raw_images = self.images # Should not be a copy
+                else:
+                    warn_msg = ('WARNING: Dask is enabled. Set override to '
+                                + 'True in order to determine null_map.'
+                                + '\nProceeding without changes.')
+                    print(warn_str)
+                    return
+
+            else:
+                if self.hdf is not None:
+                    raw_images = self.hdf['xrdmap/image_data/raw_images']
+                elif self.hdf_path is not None:
+                    f = h5py.File(self.hdf_path, 'r')
+                    raw_images = f['xrdmap/image_data/raw_images']
+                else:
+                    raise RuntimeError('Cannot determine null_map without raw_images or access to hdf.')
+            
+            # Try to do this efficiently
+            null_map = np.ones(self.map_shape, dtype=np.bool_)
+            for index in range(self.num_images):
+                indices = np.unravel_index(index, self.map_shape)
+                if np.any(raw_images[indices] != 0):
+                    null_map[indices] = False
+            # for i in range(raw_images.shape[0]):
+            #     for j in range(raw_images.shape[1]):
+            #         if np.any(raw_images[i, j] != 0):
+            #             null_map[i, j] = False
+            
+            self.null_map = np.asarray(null_map)
+            self.save_images(self.null_map,
+                             'null_map',
+                             units='bool',
+                             labels=['map_y_ind',
+                                     'map_x_ind'])
+
+    
+    def nullify_images(self):
+        self.images[self.null_map] = 0
+
+        for attr in ['images', 'blob_masks', 'integrations']:
+            if hasattr(self, attr):
+                # This should all be done in place
+                getattr(self, attr)[self.null_map] = 0
         
 
     def finalize_images(self, save_images=True):
@@ -1214,7 +1361,7 @@ class ImageMap:
             if self.hdf_path is None and self.hdf is None:
                 print('No hdf file specified. Images will not be saved.')
             else:
-                print('Compressing and writing images to disk.\nThis may take awhile...')
+                print('Compressing and writing images to disk.\nThis may take a while...')
 
                 if check_hdf_current_images('_temp_images', self.hdf_path, self.hdf):
                     # Save images to current store location. Should be _temp_images
@@ -1225,7 +1372,7 @@ class ImageMap:
                     for key, value in self.corrections.items():
                         temp_dset.attrs[f'_{key}_correction'] = value
 
-                    # Relabel to final images and delt temp dataset
+                    # Relabel to final images and del temp dataset
                     self.hdf['xrdmap/image_data/final_images'] = temp_dset
                     del temp_dset
 
@@ -1244,6 +1391,7 @@ class ImageMap:
 
     ### 1D integration projections ###
 
+    # Simpler from image_projection_factor because no mask is considered
     def integration_projection_factory(property_abbreviation, function, axes):
         property_name = f'_{property_abbreviation}' # This line is crucial! 
         def get_projection(self):
@@ -1252,6 +1400,7 @@ class ImageMap:
             else:
                 projection = function(self.integrations, axis=axes)
                 setattr(self, property_name, projection)
+                return getattr(self, property_name)
 
         def del_projection(self):
             delattr(self, property_name)
@@ -1330,7 +1479,7 @@ class ImageMap:
                 print('Estimating background with polynomial fit.')
                 print('WARNING: This method is slow and not very accurate.')
                 self.integration_background = fit_poly_bkg(self, **kwargs)
-                self.integration_background_method = 'polynomial'
+                self.integration_background_method = 'polynomplt.show()ial'
 
             elif method in ['Gaussian', 'gaussian', 'gauss']:
                 raise NotImplementedError('Still need to write function for integrations.')
@@ -1467,9 +1616,15 @@ class ImageMap:
         return units, labels
 
 
-    def save_images(self, images=None, title=None, units=None, labels=None,
-                    compression=None, compression_opts=None,
-                    mode='a', extra_attrs=None):
+    def save_images(self,
+                    images=None,
+                    title=None,
+                    units=None,
+                    labels=None,
+                    compression=None,
+                    compression_opts=None,
+                    mode='a',
+                    extra_attrs=None):
         
         if self.hdf_path is None:
             return # Should disable working with hdf if no information is provided
@@ -1503,12 +1658,15 @@ class ImageMap:
             raise TypeError('Unknown image type detected!')
         
         # Get chunks
-        # Maybe just grab current chunk size to be consistent??
+        # For images. Saving map
         if not hasattr(self, '_chunks') or self._chunks is None: 
             chunks = self._get_optimal_chunks()
         else:
             chunks = self._chunks
-        chunks = chunks[-images.ndim:]
+        
+        # Maps and images will not be chunked
+        if images.ndim != 4:
+            chunks = None
         
         # Flag of state hdf
         close_flag = False

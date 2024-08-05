@@ -493,11 +493,25 @@ class XRDMapStack(list): # Maybe should be called XRDMapList
             spots = xrdmap.spots.copy() # This copy might cause memory issues, but should protect the individual dataframes to some extent
 
             scanid_list = [xrdmap.scanid for _ in range(len(spots))]
+            energy_list = [xrdmap.energy for _ in range(len(spots))]
+            wavelength_list = [xrdmap.wavelength for _ in range(len(spots))]
 
             spots.insert(
                 loc=0,
                 column='scanid',
                 value=scanid_list
+            )
+
+            spots.insert(
+                loc=1,
+                column='energy',
+                value=energy_list
+            )
+
+            spots.insert(
+                loc=2,
+                column='wavelength',
+                value=wavelength_list
             )
 
             all_spots_list.append(spots)

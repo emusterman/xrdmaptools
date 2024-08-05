@@ -375,6 +375,8 @@ def _repair_data_dict(data_dict,
     if len(dropped_rows) > 0 or len(broken_rows) > 0:
         print(f'Repairing data with "{repair_method}" method...')
     else:
+        # If all rows are loaded, convert to numpy array
+        # I am not sure if this condition will ever be met
         for key in keys:
             if not np.any([isinstance(row, h5py._hl.dataset.Dataset)
                         for row in data_dict[key]]):
@@ -388,6 +390,11 @@ def _repair_data_dict(data_dict,
             num_rows = len(data_dict[key])
         elif len(data_dict[key]) != num_rows:
             raise ValueError('Data keys have different number of rows!')
+
+    # Add key to track filled images
+    if repair_method == 'fill':
+        # Generate map with first two indices of shape of first key. Should be map_shape
+        data_dict['null_map'] = [[] for _ in range(num_rows)]
         
     last_good_row = -1
     queued_rows = []
@@ -423,6 +430,7 @@ def _repair_data_dict(data_dict,
 
         # Only Fill data for broken rows
         elif repair_method == 'fill':
+            data_dict['null_map'][row] = np.zeros(len(list(data_dict.values())[0][last_good_row]), dtype=np.bool_)
             if row in broken_rows:
                 if last_good_row == -1:
                     queued_rows.append(row)
@@ -436,9 +444,12 @@ def _repair_data_dict(data_dict,
                             zero_row = np.zeros_like(np.asarray(data_dict[key][last_good_row]))
                             #print(f'{zero_row.shape=}')
 
+                            data_dict['null_map'][row][-filled_pts:] = (
+                                                            [True,] * filled_pts)
+
                             zero_row[:len(data_dict[key][row])] = data_dict[key][row]
                             data_dict[key][row] = zero_row
-        
+                    
             else:
                 last_good_row = row
                 if len(queued_rows) > 0:
@@ -449,12 +460,22 @@ def _repair_data_dict(data_dict,
                             if filled_pts > 0:
                                 print(f'Filled {filled_pts} points in row {q_row} for {key}.')
 
-                                zero_row = np.zeros_like(np.asarray(data_dict[key][last_good_row]))
+                                zero_row = np.zeros_like(np.asarray(
+                                                            data_dict[key][last_good_row]
+                                                            ))
                                 #print(f'{zero_row.shape=}')
 
-                                zero_row[:len(data_dict[key][q_row])] = np.asarray(data_dict[key][q_row])
+                                data_dict['null_map'][q_row][-filled_pts:] = (
+                                                            [True,] * filled_pts)
+                                
+                                zero_row[:len(data_dict[key][q_row])] = np.asarray(
+                                                                            data_dict[key][q_row]
+                                                                            )
                                 data_dict[key][q_row] = zero_row
-                        queued_rows = []
+                        queued_rows = []           
+        
+        else:
+            raise ValueError('Unknown repair method indicated.')
     
     # Do not fully flatten if only dropping some rows I guess
     if repair_method == 'flatten' and len(broken_rows) > 0:
@@ -466,11 +487,12 @@ def _repair_data_dict(data_dict,
 
     # Broad conversion to all arrays
     # There is a better way to do this...
-    for key in keys:
+    for key in data_dict.keys():
+        # If at least one row is still lazy loaded, then leave it that way
         if not np.any([isinstance(row, h5py._hl.dataset.Dataset)
                        for row in data_dict[key]]):
             data_dict[key] = np.asarray(data_dict[key])
-           
+    
     return data_dict
 
 

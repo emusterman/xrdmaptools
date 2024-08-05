@@ -682,20 +682,20 @@ def xmt_batch9():
     poni_file = f'scan153219_dexela_calibration.poni'
 
     scanlist = [
-        153157,
-        153159,
-        153161,
-        153163,
-        153165,
-        153167,
-        153169,
-        153171,
-        153173,
-        153175,
-        153177,
-        153179,
-        153181,
-        153183,
+        # 153157,
+        # 153159,
+        # 153161,
+        # 153163,
+        # 153165,
+        # 153167,
+        # 153169,
+        # 153171,
+        # 153173,
+        # 153175,
+        # 153177,
+        # 153179,
+        # 153181,
+        # 153183,
         153185,
         153187,
         153189,
@@ -879,6 +879,82 @@ def xmt_batch10():
 
 
 def do_xmt_batches():
-    xmt_batch8()
+    # xmt_batch8()
     xmt_batch9()
     xmt_batch10()
+
+
+def batch_scan_nullification():
+
+    scanlist = [
+
+    ]
+
+    for i in timed_iter(range(len(scanlist))):
+        scan = scanlist[i]
+        
+        print(f'Batch processing scan {scan}...')
+        
+        if not os.path.exists(f'{base_wd}processed_xrdmaps/scan{scan}_xrd.h5'):
+            print('No raw file found. Generating new file!')
+            make_xrdmap_hdf(scan, filedir=base_wd + 'processed_xrdmaps/')
+        
+        f = h5py.File(f'{base_wd}processed_xrdmaps/scan{scan}_xrd.h5')
+        dataset_shape = f['xrdmap/image_data/raw_images'].shape
+        map_shape = dataset_shape[:2]
+        image_shape = dataset_sape[2:]
+
+        if 'null_map' not in f['xrdmap/image_data'].keys():
+            f.close()
+
+            xrdmap = XRDMap.from_hdf(f'scan{scan}_xrd.h5',
+                                     wd=base_wd + 'processed_xrdmaps/',
+                                     image_data_key='raw_images',
+                                     integration_data_key=None,
+                                     save_hdf=True)
+            
+            # Get null map, then nullify most recent images
+            xrdmap.map.construct_null_map()
+            #xrdmap.load_images_from_hdf('final_images')
+            #xrdmap.map.nullify_images()
+            
+            # Should overrite current dataset
+            #xrdmap.map.save_images()
+        else:
+            xrdmap.XRDMap.from_hdf(f'scan{scan}_xrd.h5',
+                                     wd=base_wd + 'processed_xrdmaps/',
+                                     image_data_key=None,
+                                     integration_data_key=None,
+                                     map_shape=map_shape,
+                                     image_shape=image_shape,
+                                     save_hdf=True)
+
+
+        # Directly scrup images, spots, and blobs
+        f = h5py.File(f'{base_wd}processed_xrdmaps/scan{scan}_xrd.h5', mode='a')
+        for index in range(xrdmap.map.num_images):
+            indices = np.unravel_index(index, xrdmap.map.map_shape)
+            if xrdmap.map.null_map[indices]:
+                
+                # Not sure if this will work...
+                f['xrdmap/image_data/final_images'][indices] = 0
+                if '_blob_masks' in f['xrdmap/image_data'].keys()
+                    f['xrdmap/image_data/_blob_masks'][indices] = 0
+                elif '_spot_masks' in f['xrdmap/image_data'].keys():
+                    f['xrdmap/image_data/_spot_masks'][indices] = 0
+                    f['xrdmap/image_data/_blob_masks'] = f['xrdmap/image_data/_spot_masks']
+                    del f['xrdmap/image_data/_spot_masks']
+                if 'integration_data' in f['xrdmap'].keys():
+                    for key in f['xrdmap/integration_data'].keys():
+                        f[f'xrdmap/integration_data/{key}'][indices] = 0
+
+                # Scrub spots
+                pixel_df = xrdmap.pixel_spots(indices, copied=False)
+                spot_indices = list(pixel_df.index)
+                for spot_index in spot_indices:
+                    xrdmap.spots.drop(index=index, inplace=True)
+            
+        f.close()
+        xrdmap.spots.reset_index(drop=True, inplace=True)
+        xrdmap.save_spots()
+
