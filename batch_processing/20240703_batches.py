@@ -2,6 +2,7 @@ import numpy as np
 import os
 from tqdm import tqdm
 from skimage import io
+import h5py
 
 # Local imports
 from xrdmaptools.XRDMap import XRDMap
@@ -603,7 +604,6 @@ def xmt_batch8():
         153136,
         153138,
         153140,
-        153142,
         153143,
         153145,
     ]
@@ -682,20 +682,20 @@ def xmt_batch9():
     poni_file = f'scan153219_dexela_calibration.poni'
 
     scanlist = [
-        # 153157,
-        # 153159,
-        # 153161,
-        # 153163,
-        # 153165,
-        # 153167,
-        # 153169,
-        # 153171,
-        # 153173,
-        # 153175,
-        # 153177,
-        # 153179,
-        # 153181,
-        # 153183,
+        153157,
+        153159,
+        153161,
+        153163,
+        153165,
+        153167,
+        153169,
+        153171,
+        153173,
+        153175,
+        153177,
+        153179,
+        153181,
+        153183,
         153185,
         153187,
         153189,
@@ -887,7 +887,28 @@ def do_xmt_batches():
 def batch_scan_nullification():
 
     scanlist = [
-
+        153102,
+        153104,
+        153106,
+        153108,
+        153110,
+        153112,
+        153114,
+        153116,
+        153118,
+        153120,
+        153122,
+        153124,
+        153126,
+        153128,
+        153130,
+        153132,
+        153134,
+        153136,
+        153138,
+        153140,
+        153143,
+        153145,
     ]
 
     for i in timed_iter(range(len(scanlist))):
@@ -902,59 +923,74 @@ def batch_scan_nullification():
         f = h5py.File(f'{base_wd}processed_xrdmaps/scan{scan}_xrd.h5')
         dataset_shape = f['xrdmap/image_data/raw_images'].shape
         map_shape = dataset_shape[:2]
-        image_shape = dataset_sape[2:]
+        image_shape = dataset_shape[2:]
 
-        if 'null_map' not in f['xrdmap/image_data'].keys():
+        if '_null_map' not in f['xrdmap/image_data'].keys():
+            print('No null_map found. Generating new null map.')
             f.close()
-
-            xrdmap = XRDMap.from_hdf(f'scan{scan}_xrd.h5',
-                                     wd=base_wd + 'processed_xrdmaps/',
-                                     image_data_key='raw_images',
-                                     integration_data_key=None,
-                                     save_hdf=True)
-            
-            # Get null map, then nullify most recent images
-            xrdmap.map.construct_null_map()
-            #xrdmap.load_images_from_hdf('final_images')
-            #xrdmap.map.nullify_images()
-            
-            # Should overrite current dataset
-            #xrdmap.map.save_images()
+            xrdmap = XRDMap.from_db(scan, save_hdf=False)
+            null_map = xrdmap.map.null_map
         else:
-            xrdmap.XRDMap.from_hdf(f'scan{scan}_xrd.h5',
-                                     wd=base_wd + 'processed_xrdmaps/',
-                                     image_data_key=None,
-                                     integration_data_key=None,
-                                     map_shape=map_shape,
-                                     image_shape=image_shape,
-                                     save_hdf=True)
+            f.close()
+            null_map = None
+        
+        xrdmap = XRDMap.from_hdf(f'scan{scan}_xrd.h5',
+                                 wd=base_wd + 'processed_xrdmaps/',
+                                 image_data_key=None,
+                                 integration_data_key=None,
+                                 map_shape=map_shape,
+                                 image_shape=image_shape,
+                                 save_hdf=True)
+        
+        if null_map is not None:
+            xrdmap.map.null_map = null_map
+            xrdmap.map.save_images(xrdmap.map.null_map,
+                                   'null_map',
+                                    units='bool',
+                                    labels=['map_y_ind',
+                                            'map_x_ind'])
+
+        if np.sum(xrdmap.map.null_map) > 0:
 
 
-        # Directly scrup images, spots, and blobs
-        f = h5py.File(f'{base_wd}processed_xrdmaps/scan{scan}_xrd.h5', mode='a')
-        for index in range(xrdmap.map.num_images):
-            indices = np.unravel_index(index, xrdmap.map.map_shape)
-            if xrdmap.map.null_map[indices]:
-                
-                # Not sure if this will work...
-                f['xrdmap/image_data/final_images'][indices] = 0
-                if '_blob_masks' in f['xrdmap/image_data'].keys()
-                    f['xrdmap/image_data/_blob_masks'][indices] = 0
-                elif '_spot_masks' in f['xrdmap/image_data'].keys():
-                    f['xrdmap/image_data/_spot_masks'][indices] = 0
-                    f['xrdmap/image_data/_blob_masks'] = f['xrdmap/image_data/_spot_masks']
-                    del f['xrdmap/image_data/_spot_masks']
-                if 'integration_data' in f['xrdmap'].keys():
-                    for key in f['xrdmap/integration_data'].keys():
-                        f[f'xrdmap/integration_data/{key}'][indices] = 0
+            # Scrub spots
+            all_dropped_indices = []
+            for index in range(xrdmap.map.num_images):
+                indices = np.unravel_index(index, xrdmap.map.map_shape)
+                if xrdmap.map.null_map[indices]:
+                    pixel_df = xrdmap.pixel_spots(indices, copied=False)
+                    all_dropped_indices.extend(list(pixel_df.index))
+            xrdmap.spots.drop(index=all_dropped_indices, inplace=True)
+            xrdmap.spots.reset_index(drop=True, inplace=True)
+            xrdmap.save_spots()
 
-                # Scrub spots
-                pixel_df = xrdmap.pixel_spots(indices, copied=False)
-                spot_indices = list(pixel_df.index)
-                for spot_index in spot_indices:
-                    xrdmap.spots.drop(index=index, inplace=True)
+            # Directly scrub images and blobs
+            xrdmap.stop_saving_hdf()
+            f = h5py.File(f'{base_wd}processed_xrdmaps/scan{scan}_xrd.h5', mode='a')
+
+            for i, row in enumerate(xrdmap.map.null_map):
+                num = np.sum(row)
+                if num > 0:
+                    print('Overwriting null images...')
+                    f['xrdmap/image_data/final_images'][i, -num:] = 0
+
+                    if '_blob_masks' in f['xrdmap/image_data'].keys():
+                        print('Overwriting null masks...')
+                        f['xrdmap/image_data/_blob_masks'][i, -num:] = 0
+                    
+                    elif '_spot_masks' in f['xrdmap/image_data'].keys():
+                        print('Overwriting null masks...')
+                        f['xrdmap/image_data/_spot_masks'][i, -num:] = 0
+                        f['xrdmap/image_data/_blob_masks'] = f['xrdmap/image_data/_spot_masks']
+                        del f['xrdmap/image_data/_spot_masks']
+                    
+                    if 'integration_data' in f['xrdmap'].keys():
+                        print('Overwriting null integrations...')
+                        for key in f['xrdmap/integration_data'].keys():
+                            f[f'xrdmap/integration_data/{key}'][i, -num:] = 0
             
-        f.close()
-        xrdmap.spots.reset_index(drop=True, inplace=True)
-        xrdmap.save_spots()
+            f.close()
+            print('done!')
+        else:
+            print(f'No null images found for scan {scan}.')
 

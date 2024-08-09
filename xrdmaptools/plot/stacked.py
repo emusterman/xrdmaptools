@@ -9,6 +9,7 @@ def base_slider_plot(image_stack,
                      slider_vals=None,
                      slider_label='Index',
                      shifts=None,
+                     **kwargs
                      ):
 
     fig = plt.figure(figsize=(5, 5), dpi=200)
@@ -38,7 +39,7 @@ def base_slider_plot(image_stack,
     ax.set_xlim(x_min, x_max)
     ax.set_ylim(y_min, y_max)
 
-    image = ax.imshow(image_stack[0], extent=extent)
+    image = ax.imshow(image_stack[0], extent=extent, **kwargs)
     ax.set_title(f'0')
 
     if np.any(np.asarray(shifts) != 0):
@@ -77,7 +78,7 @@ def base_slider_plot(image_stack,
 
     # The function to be called anytime a slider's value changes
     def update(val):
-        global image
+        nonlocal image
         val_ind = np.argmin(np.abs(slider_vals - val))
 
         extent = [0 + shifts[val_ind][1] - 0.5,
@@ -86,7 +87,7 @@ def base_slider_plot(image_stack,
                 image_stack[0].shape[0] - shifts[val_ind][0] - 0.5]
 
         image.remove()
-        image = ax.imshow(image_stack[val_ind], extent=extent)
+        image = ax.imshow(image_stack[val_ind], extent=extent, **kwargs)
         ax.set_title(f'{val_ind}')
         fig.canvas.draw_idle()
         
