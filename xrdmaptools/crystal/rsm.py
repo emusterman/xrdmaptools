@@ -12,8 +12,7 @@ from skimage.registration import phase_cross_correlation
 from matplotlib.widgets import Slider
 
 from xrdmaptools.plot.stacked import base_slider_plot
-
-
+from xrdmaptools.utilities.utilities import arbitrary_center_of_mass
 
 
 # Function for mapping vectorized data onto regular grid
@@ -49,14 +48,10 @@ def map_2_grid(q_dset, gridstep=0.005):
     return np.array([*np.meshgrid(xx, yy, zz, indexing='ij'), int_grid])
 
 
-def map_registration():
-    raise NotImplementedError()
-
-
-
-def rotation_scale_translation(ref_img,
-                               mov_img,
-                               rotation_upsample=1000,
+def rotation_scale_translation_registration(
+                    ref_img,
+                    mov_img,
+                    rotation_upsample=1000,
                                shift_upsample=1000,
                                bandpass=(0, 1),
                                fix_rotation=False):
@@ -125,15 +120,16 @@ def rotation_scale_translation(ref_img,
 # This method uses each map as the reference
 # The median of the relative distances between images is used to reconstruct the shifts
 # Relative to the first image
-def relative_align_maps(image_stack, **kwargs):
+def relative_correlation_auto_alignment(image_stack, **kwargs):
     # I do not yet know how to do this for rotation. Maybe just rotate the x and y shifts...
     
     shifts_list = []
     for i in range(len(image_stack)):
-        shifts = [rotation_scale_translation(image_stack[i],
-                                             arr,
-                                             fix_rotation=True,
-                                             **kwargs)[-1]
+        shifts = [rotation_scale_translation_registration(
+                            image_stack[i],
+                            arr,
+                            fix_rotation=True,
+                            **kwargs)[-1]
                     for arr in image_stack]
         shifts_list.append(shifts)
     
@@ -162,11 +158,23 @@ def relative_align_maps(image_stack, **kwargs):
     med_y_shifts = np.round(med_y_shifts, 3)
 
     return tuple([(y, x) for y, x in zip(med_y_shifts, med_x_shifts)])
+
+
+def com_auto_alignment(image_stack):
+
+    yy, xx = np.meshgrid(*[range(dim) for dim in image_stack[0].shape], indexing='ij')
+
+    coms = [arbitrary_center_of_mass(image, yy, xx) for image in image_stack]
+
+    shifts = np.round([np.asarray(coms[0]) - np.asarray(com) for com in coms], 3)
+    shifts = tuple([(shift_y, shift_x) for shift_y, shift_x in shifts])
+
+    return shifts
     
 
-def manually_align_maps(image_stack,
-                        slider_vals=None,
-                        slider_label='Index'):
+def manual_alignment(image_stack,
+                    slider_vals=None,
+                    slider_label='Index'):
     # Built on interactive plotting functionality    
 
     fig = plt.figure(figsize=(5, 5), dpi=200)
@@ -239,7 +247,7 @@ def manually_align_maps(image_stack,
         ax.set_title(f'{slider_vals[image_index]}')
         fig.canvas.draw_idle()
 
-    def onclick(event):
+    def on_click(event):
         if event.inaxes == ax:
             nonlocal image_index, marker_list, marker_coords
             marker_coords[image_index] = event.ydata, event.xdata
@@ -261,12 +269,12 @@ def manually_align_maps(image_stack,
             print(warn_str)
         
         manual_shifts = np.round([np.asarray(marker_coords[0]) - np.asarray(coords)
-                                  for coords in marker_coords])
+                                  for coords in marker_coords], 3)
         marker_coords = tuple([(shift_y, shift_x) for shift_y, shift_x in manual_shifts])
         #return marker_coords
 
     slider.on_changed(update_image)
-    cid = fig.canvas.mpl_connect('button_press_event', onclick)
+    cid = fig.canvas.mpl_connect('button_press_event', on_click)
     fig.canvas.mpl_connect('close_event', on_close)
 
     #plt.show()

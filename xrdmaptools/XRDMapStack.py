@@ -476,9 +476,9 @@ class XRDMapStack(list): # Maybe should be called XRDMapList
                 # Redefine kwarg as repeated list
                 kwarglists[key] = [kwarg,] * len(self)
 
-        for xrdmap in timed_iter(self,
-                                 total=len(self),
-                                 iter_name='XRDMap'):
+        for i, xrdmap in timed_iter(enumerate(self),
+                                    total=len(self),
+                                    iter_name='XRDMap'):
 
             kwargs = dict(zip(kwarglists.keys(),
                     [val[i] for val in kwarglists.values()]))
@@ -545,7 +545,7 @@ class XRDMapStack(list): # Maybe should be called XRDMapList
         raise NotImplementedError()
 
 
-    def save_vectorized_data(self, ):
+    def save_vectorized_data(self):
         raise NotImplementedError()
     
     

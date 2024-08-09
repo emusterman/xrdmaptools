@@ -1,6 +1,5 @@
 import matplotlib.pyplot as plt
 import numpy as np
-from skimage.measure import label
 from matplotlib.widgets import Slider
 import matplotlib.patches as patches
 
@@ -31,9 +30,9 @@ def base_slider_plot(image_stack,
     y_max = np.max(y_possible) + 0.5
 
     extent = [0 + shifts[0][1] - 0.5,
-            image_stack[0].shape[1] + shifts[0][1] - 0.5,
-            0 - shifts[0][0] - 0.5,
-            image_stack[0].shape[0] - shifts[0][0] - 0.5]
+              image_stack[0].shape[1] + shifts[0][1] - 0.5,
+              0 - shifts[0][0] - 0.5,
+              image_stack[0].shape[0] - shifts[0][0] - 0.5]
 
     ax.set_xlim(x_min, x_max)
     ax.set_ylim(y_min, y_max)
@@ -77,16 +76,21 @@ def base_slider_plot(image_stack,
 
     # The function to be called anytime a slider's value changes
     def update(val):
-        global image
+        nonlocal image
         val_ind = np.argmin(np.abs(slider_vals - val))
 
         extent = [0 + shifts[val_ind][1] - 0.5,
                 image_stack[0].shape[1] + shifts[val_ind][1] - 0.5,
                 0 - shifts[val_ind][0] - 0.5,
                 image_stack[0].shape[0] - shifts[val_ind][0] - 0.5]
+        
+        image.set_data(image_stack[val_ind])
+        image.set_clim(
+            np.min(image_stack[val_ind]),
+            np.max(image_stack[val_ind])
+        )
+        image.set_extent(extent)
 
-        image.remove()
-        image = ax.imshow(image_stack[val_ind], extent=extent)
         ax.set_title(f'{val_ind}')
         fig.canvas.draw_idle()
         

@@ -1240,7 +1240,7 @@ class ImageMap:
 
     # For estimating maximum saturated pixel for comparison with other datasets
     def estimate_saturated_pixel(self,
-                                 raw_max_val=(2**14 - 1), # Saturated value from 
+                                 raw_max_val=(2**14 - 1), # Saturated value from detector 
                                  method='median'):
 
         if method.lower() in ['median', 'med']: # Usually better statistics 
