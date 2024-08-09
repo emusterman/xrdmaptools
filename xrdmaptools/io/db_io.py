@@ -372,17 +372,6 @@ def _repair_data_dict(data_dict,
         
     keys = list(data_dict.keys())
 
-    if len(dropped_rows) > 0 or len(broken_rows) > 0:
-        print(f'Repairing data with "{repair_method}" method...')
-    else:
-        # If all rows are loaded, convert to numpy array
-        # I am not sure if this condition will ever be met
-        for key in keys:
-            if not np.any([isinstance(row, h5py._hl.dataset.Dataset)
-                        for row in data_dict[key]]):
-                data_dict[key] = np.asarray(data_dict[key])
-        return data_dict  
-
     # Check data shape
     num_rows = -1
     for key in keys:
@@ -395,19 +384,32 @@ def _repair_data_dict(data_dict,
     if repair_method == 'fill':
         # Generate map with first two indices of shape of first key. Should be map_shape
         data_dict['null_map'] = [[] for _ in range(num_rows)]
+
+    # Check to see if there are any repairs
+    if len(dropped_rows) > 0 or len(broken_rows) > 0:
+        print(f'Repairing data with "{repair_method}" method...')
+    else:
+        # If all rows are loaded, convert to numpy array
+        # I am not sure if this condition will ever be met
+        for key in keys:
+            if not np.any([isinstance(row, h5py._hl.dataset.Dataset)
+                           for row in data_dict[key]]):
+                data_dict[key] = np.asarray(data_dict[key])
+        return data_dict  
         
     last_good_row = -1
     queued_rows = []
     for row in range(num_rows):
         # Only drop rows when flattening data. Do not fill data when flattening either
-        if repair_method == 'flatten' and row in dropped_rows:
-            print(f'Removing data from row {row}.')
-            for key in keys:
-                data_dict[key].pop(row)
-            # Adjust remaining rows indices
-            for ind, rem_row in enumerate(dropped_rows):
-                if rem_row > row:
-                    dropped_rows[ind] -= 1
+        if repair_method == 'flatten':
+            if row in dropped_rows:
+                print(f'Removing data from row {row}.')
+                for key in keys:
+                    data_dict[key].pop(row)
+                # Adjust remaining rows indices
+                for ind, rem_row in enumerate(dropped_rows):
+                    if rem_row > row:
+                        dropped_rows[ind] -= 1
         
         # Only Replace data for broken rows
         elif repair_method == 'replace':

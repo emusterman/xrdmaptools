@@ -8,6 +8,7 @@ def base_slider_plot(image_stack,
                      slider_vals=None,
                      slider_label='Index',
                      shifts=None,
+                     **kwargs
                      ):
 
     fig = plt.figure(figsize=(5, 5), dpi=200)
@@ -37,7 +38,7 @@ def base_slider_plot(image_stack,
     ax.set_xlim(x_min, x_max)
     ax.set_ylim(y_min, y_max)
 
-    image = ax.imshow(image_stack[0], extent=extent)
+    image = ax.imshow(image_stack[0], extent=extent, **kwargs)
     ax.set_title(f'0')
 
     if np.any(np.asarray(shifts) != 0):

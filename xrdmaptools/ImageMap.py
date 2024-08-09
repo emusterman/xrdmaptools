@@ -123,7 +123,10 @@ class ImageMap:
             if dask_enabled:
                 print('WARNING: Cannot enable dask without image_data. Proceeding without dask.')
                 dask_enabled = False
-            self.images = None      
+            self.images = None
+
+            if image_shape is None:
+                raise ValueError('image_shape must be provided if image_data is not.')     
         
         # Working with integration_data shape
         if integration_data is not None:
@@ -163,9 +166,9 @@ class ImageMap:
             self.integrations = None
         
         # Some useful parameters
-        if not hasattr(self, 'map_shape'):
+        if not hasattr(self, 'map_shape') or self.map_shape is not None:
             self.map_shape = map_shape
-        if not hasattr(self, 'image_shape'):
+        if not hasattr(self, 'image_shape') or self.image_shape is not None:
             self.image_shape = image_shape
         
         if self.map_shape is not None:
@@ -231,6 +234,8 @@ class ImageMap:
 
         #print(self.corrections)
         self.update_map_title(title=title)
+        if isinstance(null_map, list):
+            null_map = np.zeros(self.map_shape, dtype=np.bool_)
         self.null_map = null_map
 
         # Should only trigger on first call to save images to hdf
@@ -291,14 +296,14 @@ class ImageMap:
     
 
     def __str__(self):
-        ostr = f'ImageMap: ({self.images.shape}), dtype={self.images.dtype}'
+        ostr = f'ImageMap: ({self.image_shape}), dtype={self.dtype}'
         return ostr
 
     
     def __repr__(self):
         ostr = 'ImageMap:'
-        ostr += f'\n\tShape:  {self.images.shape}'
-        ostr += f'\n\tDtype:  {self.images.dtype}'
+        ostr += f'\n\tShape:  {self.image_shape}'
+        ostr += f'\n\tDtype:  {self.dtype}'
         ostr += f'\n\tState:  {self.title}'
         return ostr
     
@@ -1334,6 +1339,14 @@ class ImageMap:
 
     
     def nullify_images(self):
+        if not hasattr(self, 'null_map'):
+            raise AttributeError('ImageMap does not have null_map attribute.')
+        elif not np.any(self.null_map):
+            note_str = ('Null map is empty, there are no missing '
+                        + 'pixels. Proceeding without changes')
+            print(note_str)
+            return
+
         self.images[self.null_map] = 0
 
         for attr in ['images', 'blob_masks', 'integrations']:
