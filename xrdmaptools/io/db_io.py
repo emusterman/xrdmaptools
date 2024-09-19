@@ -51,7 +51,7 @@ def load_data(scanid=-1,
         try:
             bs_run = c[int(scanid)] # defualt basic data from tiled for future proofing
             broker = 'tiled'
-        except: # what error should this through???
+        except: # what error should this throw???
             bs_run = db[int(scanid)]
             broker = 'db'
 
@@ -137,24 +137,6 @@ def load_db_data(scanid=-1,
         print('done!')
 
     out = [data_dict, scan_md]
-
-    #data = []
-    #for i, detector in enumerate(detectors):       
-    #    if 'FLY' in scantype:
-    #        d = h.data(f'{detector}_image', stream_name='stream0', fill=True)
-    #    elif 'STEP' in scantype:
-    #        d = h.data(f'{detector}_image', fill=True)
-    #    d = np.array(list(d))
-    #
-    #    if (d.size == 0):
-    #        print('Error collecting dexela data...')
-    #        return
-    #    elif len(d.shape) == 1:
-    #        print('Map is missing pixels!\nStacking all patterns together.')
-    #        flat_d = np.array([x for y in d for x in y]) # List comprehension is dumb
-    #        d = flat_d.reshape(flat_d.shape[0], 1, *flat_d.shape[-2:])
-    #    
-    #    data.append(d)
     
     if returns is not None:
         if 'data_keys' in returns:
@@ -297,6 +279,25 @@ def manual_load_data(scanid=-1,
 
     print(f'Data loaded for scan {scanid}!')
     return out
+
+
+# Helper function
+def get_scantype(scanid=-1,
+                 broker='tiled'):
+        # Load data from tiled
+    if str(broker).lower() in ['tiled']:
+        bs_run = c[int(scanid)]
+
+    # Load data from databroker
+    elif str(broker).lower() in ['db', 'databroker', 'broker']:
+        bs_run = db[int(scanid)]
+
+    else:
+        raise ValueError(f"Unknown broker type: {broker}. Only 'tiled' and 'databroker' suppported.")
+    
+    scantype = bs_run.start['scan']['type']
+
+    return scantype
 
 
 # TODO: implement way of getting units
@@ -496,117 +497,6 @@ def _repair_data_dict(data_dict,
             data_dict[key] = np.asarray(data_dict[key])
     
     return data_dict
-
-
-
-'''def _check_xrd_data_shape(data_list, repair_method='replace'):
-
-    if repair_method.lower() not in ['flatten', 'fill']:
-        raise ValueError('Only "flatten" and "fill" repair methods are supported.')
-
-    # Majority of row shapes
-    mode_shape = tuple(mode([d.shape for d in data_list])[0])
-
-    # Find and fix broken data
-    last_good_row = -1
-    broken_rows = []
-    FLATTEN_FLAG = False
-    for row, d in enumerate(data_list):
-
-        # Check for broken data
-        if d.shape != mode_shape:
-            # Check image shape
-            if d.shape[-2:] != mode_shape[-2:]:
-                print(f'WARNING: XRD data from row {row} has an incorrect image shape.')
-                if repair_method == 'flatten':
-                    print(f'Removing data from row {row}.')
-                    data_list.pop(row)
-
-            # Check for dropped frames
-            elif d.shape[0] != mode_shape[0]:
-                print(f'WARNING: XRD data from row {row} captured only {d.shape[[0]]}/{mode_shape[0]} frames.')
-
-            # Figure out how to fix the data
-            if last_good_row == -1:
-                # Wait to correct rows until a good row is located
-                broken_rows.append(row)
-            else:
-                if repair_method == 'fill':
-                    data_list[row] = data_list[last_good_row]
-                    print(f'XRD data in row {row} is replaced with data in row {last_good_row}.')
-                elif repair_method == 'flatten':
-                    FLATTEN_FLAG = True
-
-        else:
-            last_good_row = row
-            if len(broken_rows) > 0:
-                if repair_method == 'fill':
-                    for b_row in broken_rows:
-                        data_list[b_row] = data_list[last_good_row]
-                        print(f'XRD data in row {b_row} is replaced with data in row {last_good_row}.')
-                elif repair_method == 'flatten':
-                    FLATTEN_FLAG = True
-    
-    if repair_method == 'flatten' and FLATTEN_FLAG:
-        print('Map is missing pixels!\nStacking all patterns together.')
-        flat_d = np.array([x for y in data_list for x in y]) # List comprehension is dumb
-        data_list = flat_d.reshape(flat_d.shape[0], 1, *flat_d.shape[-2:])
-
-    data = np.asarray(data_list)
-
-    return data'''
-
-
-'''def old_check_xrd_data_shape(data_list, repair_method='flatten'):
-
-
-    if repair_method.lower() not in ['flatten', 'fill']:
-        raise ValueError('Only "flatten" and "fill" repair methods are supported.')
-
-    # Majority of row shape
-    mode_shape = tuple(mode([d.shape for d in data_list])[0])
-
-    # Flag rows with broken data
-    dropped_frames_rows = []
-    bad_image_rows = []
-    for row, d in enumerate(data_list):
-        # Check for bad shaped images
-        # This eliminates first row of data when bad shape issues occure
-        if d.shape[-2:] != mode_shape[-2:]:
-            print(f'WARNING: XRD data from row {row} will be removed due to incorrect image shape.')
-            bad_image_rows.append(row)
-            #data_list.pop(row)
-
-        # Then check and flag dropped frames
-        elif d.shape[0] != mode_shape[0]:
-            dropped_frames_rows.append(row)
-
-    # Drop rows with bad image shapes. Should only be first row, but can handle any
-    for row in bad_image_rows:
-        data_list.pop(row)
-        for index, other_row in enumerate(dropped_frames_rows):
-            if other_row == row:
-                # Remove from dropped frames too
-                dropped_frames_rows.pop(index)
-            if other_row > row:
-                # Shift indices down
-                dropped_frames_rows[index] -= 1
-
-    # Repair rows with dropped frames. Decently common unfortunately
-    # Flatten the data. Useful when spatial correlations do not matter (e.g., calibration, dark_field, etc.)
-    if repair_method == 'flatten' and len(dropped_frames_rows) > 0:
-        print('Map is missing pixels!\nStacking all patterns together.')
-        flat_d = np.array([x for y in data_list for x in y]) # List comprehension is dumb
-        data_list = flat_d.reshape(flat_d.shape[0], 1, *flat_d.shape[-2:])
-    
-    # Fill data. Useful when spatial correlations do matter (e.g., maps)
-    elif repair_method == 'fill' and len(dropped_frames_rows) > 0:
-        for row in dropped_frames_rows:
-            pass
-
-    data = np.asarray(data_list)
-
-    return data'''
 
 
 def _get_resource_paths(bs_run, resource_keys):
@@ -1084,7 +974,10 @@ def load_energy_rc_data(scanid=-1,
     data_dict['i0'] = np.array(data_dict['sclr_i0'])
     data_dict['im'] = np.array(data_dict['sclr_im'])
     data_dict['it'] = np.array(data_dict['sclr_it'])
-    del data_dict['energy_energy'], data_dict['sclr_i0'], data_dict['sclr_im'], data_dict['sclr_it']
+    del (data_dict['energy_energy'],
+         data_dict['sclr_i0'],
+         data_dict['sclr_im'],
+         data_dict['sclr_it'])
     data_keys = list(data_dict.keys())
     #print(data_keys)
 
@@ -1097,8 +990,6 @@ def load_energy_rc_data(scanid=-1,
     for r_path in r_paths['TPX_HDF5']:
         with h5py.File(r_path, 'r') as f:
             data_dict[key].append(np.array(f['entry/data/data']))
-    # Stack data into array
-    #data_dict[key] = _check_xrd_data_shape(data_dict[key])
     print('done!')
 
     out = [data_dict, scan_md]
@@ -1106,6 +997,10 @@ def load_energy_rc_data(scanid=-1,
     if returns is not None:
         if 'data_keys' in returns:
             out.append(data_keys)
+        if 'xrd_dets' in returns:
+            xrd_dets = [det for det in scan_md['detectors']
+                        if det in ['merlin', 'dexela']]
+            out.append(xrd_dets)
 
     return out
 
@@ -1114,13 +1009,16 @@ def save_energy_rc_data(scanid=-1,
                         filedir=None,
                         filenames=None):
 
-    data_dict, scan_md, data_keys = load_energy_rc_data(scanid=scanid,
-                                                        returns=['data_keys'])
-
-    xrd_dets = [detector for detector in scan_md['detectors']
-                if detector in ['merlin', 'dexela']]
+    (data_dict,
+     scan_md,
+     data_keys,
+     xrd_dets
+     ) = load_energy_rc_data(scanid=scanid,
+                             returns=['data_keys',
+                                      'xrd_dets'])
     
-    xrd_data = [data_dict[f'{xrd_det}_image'] for xrd_det in xrd_dets]
+    xrd_data = [data_dict[f'{xrd_det}_image']
+                for xrd_det in xrd_dets]
 
     if filenames is None:
         filenames = []
@@ -1140,12 +1038,11 @@ def save_energy_rc_data(scanid=-1,
     md_filename = f'scan{scanid}_energy_rc_metadata.txt'                  
     _save_scan_md(scan_md, scanid,
                   filedir=filedir, filename=md_filename)
+    
 
-
-def save_extended_energy_rc_data(start_id,
+def load_extended_energy_rc_data(start_id,
                                  end_id,
-                                 filedir=None,
-                                 filenames=None):
+                                 returns=None):
 
     all_scan_ids = list(range(start_id, end_id + 1))
     energy_rc_ids = [scan_id for scan_id in all_scan_ids
@@ -1155,10 +1052,14 @@ def save_extended_energy_rc_data(start_id,
 
     for scan_id in energy_rc_ids:
         print(f'Loading data for scan {scan_id}...')
-        data_dict, scan_md, data_keys = load_energy_rc_data(
-                                            scanid=scan_id,
-                                            returns=['data_keys']
-                                            )
+        (data_dict,
+         scan_md,
+         data_keys,
+         xrd_dets
+         ) = load_energy_rc_data(scanid=scan_id,
+                                 returns=['data_keys',
+                                          'xrd_dets']
+                                 )
         data_dicts.append(data_dict)
         scan_mds.append(scan_md)
     
@@ -1185,15 +1086,36 @@ def save_extended_energy_rc_data(start_id,
                     all_md_dict[key].extend(scan_md[key])
                 else:
                     all_md_dict[key].append(scan_md[key])
+    
+    out = [all_data_dict, all_md_dict]
 
-    # Get area detectors
-    xrd_dets = [detector for detector in scan_md['detectors']
-                if detector in ['merlin', 'dexela']]
+    if returns is not None:
+        if 'data_keys' in returns:
+            out.append(all_data_keys)
+        if 'xrd_dets' in returns:
+            out.append(xrd_dets)
+
+    return out
+
+
+def save_extended_energy_rc_data(start_id,
+                                 end_id,
+                                 filedir=None,
+                                 filenames=None):
+    
+    (all_data_dict,
+     all_md_dict,
+     all_data_keys,
+     xrd_dets
+     ) = load_extended_energy_rc_data(start_id,
+                                      end_id,
+                                      returns=None)
+
     # Stack image data
     xrd_data = [np.vstack(all_data_dict[f'{xrd_det}_image'])
                 for xrd_det in xrd_dets]
     # Reshape image data into 4D
-    xrd_data = [data.reshape((1, *data.shape))
+    xrd_data = [data.reshape((data.shape[0], 1, data.shape[-2:]))
                 for data in xrd_data]
     # Remove xrd_data from all_data_dict
     for xrd_det in xrd_dets:
@@ -1201,8 +1123,6 @@ def save_extended_energy_rc_data(start_id,
     # Reformat other data streams into arrays
     for key in all_data_dict.keys():
         all_data_dict[key] = np.asarray(all_data_dict[key])
-    
-    #return all_data_dict, all_md_dict, xrd_data
 
     scan_range_str = f"{all_md_dict['scan_id'][0]}-{all_md_dict['scan_id'][-1]}"
 
@@ -1218,12 +1138,99 @@ def save_extended_energy_rc_data(start_id,
                    filenames=filenames)
 
     param_filename = f'scan{scan_range_str}_energy_rc_parameters.txt'
-    _save_map_parameters(all_data_dict, scan_range_str, data_keys=data_keys,
-                         filedir=filedir, filename=param_filename)
+    _save_map_parameters(all_data_dict,
+                         scan_range_str,
+                         data_keys=all_data_keys, # This might fail
+                         filedir=filedir,
+                         filename=param_filename)
 
     md_filename = f'scan{scan_range_str}_energy_rc_metadata.txt'                  
     _save_scan_md(all_md_dict, scan_range_str,
                   filedir=filedir, filename=md_filename)
+
+
+# def save_extended_energy_rc_data(start_id,
+#                                  end_id,
+#                                  filedir=None,
+#                                  filenames=None):
+
+#     all_scan_ids = list(range(start_id, end_id + 1))
+#     energy_rc_ids = [scan_id for scan_id in all_scan_ids
+#                      if c[scan_id].start['scan']['type'] == 'ENERGY_RC']
+
+#     data_dicts, scan_mds = [], []
+
+#     for scan_id in energy_rc_ids:
+#         print(f'Loading data for scan {scan_id}...')
+#         data_dict, scan_md, data_keys = load_energy_rc_data(
+#                                             scanid=scan_id,
+#                                             returns=['data_keys']
+#                                             )
+#         data_dicts.append(data_dict)
+#         scan_mds.append(scan_md)
+    
+#     # Create empty dicts
+#     all_data_keys = list(data_dicts[0].keys())
+#     _empty_lists = [[] for _ in range(len(all_data_keys))]
+#     all_data_dict = dict(zip(all_data_keys, _empty_lists))
+
+#     all_md_keys = list(scan_mds[0].keys())
+#     _empty_lists = [[] for _ in range(len(all_md_keys))]
+#     all_md_dict = dict(zip(all_md_keys, _empty_lists))
+
+#     # This seems inefficient to reiterate through the data
+#     for data_dict, scan_md in zip(data_dicts, scan_mds):
+#         for key in all_data_keys:
+#             all_data_dict[key].extend(list(data_dict[key]))
+        
+#         for key in all_md_keys:
+#             # Must be a better way to do this
+#             if (all_md_dict[key] != [scan_md[key]]
+#                and all_md_dict[key] != scan_md[key]):
+
+#                 if isinstance(scan_md[key], list):
+#                     all_md_dict[key].extend(scan_md[key])
+#                 else:
+#                     all_md_dict[key].append(scan_md[key])
+
+#     # Get area detectors
+#     xrd_dets = [detector for detector in scan_md['detectors']
+#                 if detector in ['merlin', 'dexela']]
+#     # Stack image data
+#     xrd_data = [np.vstack(all_data_dict[f'{xrd_det}_image'])
+#                 for xrd_det in xrd_dets]
+#     # Reshape image data into 4D
+#     xrd_data = [data.reshape((data.shape[0], 1, data.shape[-2:]))
+#                 for data in xrd_data]
+#     # Remove xrd_data from all_data_dict
+#     for xrd_det in xrd_dets:
+#         del all_data_dict[f'{xrd_det}_image']
+#     # Reformat other data streams into arrays
+#     for key in all_data_dict.keys():
+#         all_data_dict[key] = np.asarray(all_data_dict[key])
+    
+#     #return all_data_dict, all_md_dict, xrd_data
+
+#     scan_range_str = f"{all_md_dict['scan_id'][0]}-{all_md_dict['scan_id'][-1]}"
+
+#     if filenames is None:
+#         filenames = []
+#         for detector in xrd_dets:
+#             filenames.append(f'scan{scan_range_str}_{detector}_energy_rc.tif')
+    
+#     _save_xrd_tifs(xrd_data,
+#                    xrd_dets=xrd_dets,
+#                    scanid=scan_range_str,
+#                    filedir=filedir,
+#                    filenames=filenames)
+
+#     param_filename = f'scan{scan_range_str}_energy_rc_parameters.txt'
+#     _save_map_parameters(all_data_dict, scan_range_str, data_keys=data_keys,
+#                          filedir=filedir, filename=param_filename)
+
+#     md_filename = f'scan{scan_range_str}_energy_rc_metadata.txt'                  
+#     _save_scan_md(all_md_dict, scan_range_str,
+#                   filedir=filedir, filename=md_filename)
 
 
 ### Angle Rocking Curve Scans ###
@@ -1295,6 +1302,10 @@ def load_angle_rc_data(scanid=-1,
     if returns is not None:
         if 'data_keys' in returns:
             out.append(data_keys)
+        if 'xrd_dets' in returns:
+            xrd_dets = [det for det in scan_md['detectors']
+                        if det in ['merlin', 'dexela']]
+            out.append(xrd_dets)
 
     return out
 
@@ -1323,6 +1334,43 @@ def save_angle_rc_data(scanid=-1,
     param_filename = f'scan{scanid}_angle_rc_parameters.txt'
     _save_map_parameters(data_dict, scanid, data_keys=data_keys,
                          filedir=filedir, filename=param_filename)
+    
+
+def load_flying_angle_rc_data(scanid=-1,
+                              broker='manual',
+                              detectors=None,
+                              data_keys=['i0',
+                                         'im',
+                                         'it'],
+                              returns=None,
+                              repair_method='fill'):
+
+    (data_dict,
+     scan_md,
+     data_keys,
+     xrd_dets
+     ) = load_data(scanid=scanid,
+                   broker=broker,
+                   detectors=detectors,
+                   data_keys=data_keys,
+                   returns=['data_keys',
+                            'xrd_dets'],
+                   repair_method=repair_method)
+
+    # Interpolate angular positions
+    thetas = np.linspace(*c[int(scanid)].start['scan']['scan_input'][:3])
+    thetas /= 1000 # mdeg to deg
+    data_dict['theta'] = thetas
+
+    out = [data_dict, scan_md]
+
+    if returns is not None:
+        if 'data_keys' in returns:
+            out.append(data_keys)
+        if 'xrd_dets' in returns:
+            out.append(xrd_dets)
+
+    return out
 
 
 def save_flying_angle_rc_data(scanid=-1,
@@ -1335,29 +1383,26 @@ def save_flying_angle_rc_data(scanid=-1,
                               filenames=None,
                               repair_method='fill'):
 
-    data_dict, scan_md, data_keys, xrd_dets = load_data(scanid=scanid,
-                                                        broker=broker,
-                                                        detectors=detectors,
-                                                        data_keys=data_keys,
-                                                        returns=['data_keys',
-                                                                 'xrd_dets'],
-                                                        repair_method=repair_method)
-
-    # Format xrd data as list from each detector
-    # Convert to 
-    xrd_data = [np.asarray(data_dict[f'{xrd_det}_image'])
-                for xrd_det in xrd_dets]
-
-    # Interpolate angular positions
-    thetas = np.linspace(*c[int(scanid)].start['scan']['scan_input'][:3])
-    thetas /= 1000 # mdeg to deg
-    data_dict['theta'] = thetas
+    # Retrieve and format data
+    (data_dict,
+     scan_md,
+     xrd_dets
+     ) = load_flying_angle_rc_data(
+                    scanid=-1,
+                    broker=broker,
+                    detectors=detectors,
+                    data_keys=data_keys,
+                    returns=['xrd_dets'],
+                    repair_method=repair_method)
 
     if filenames is None:
         filenames = []
         for detector in xrd_dets:
             filenames.append(f'scan{scanid}_{detector}_flying_angle_rc.tif')
-    
+
+    # Convert from dictionary to list
+    xrd_data = [data_dict[f'{xrd_det}_image'] for xrd_det in xrd_dets]
+       
     _save_xrd_tifs(xrd_data,
                    xrd_dets=xrd_dets,
                    scanid=scan_md['scan_id'], # Will return the correct value
@@ -1375,6 +1420,58 @@ def save_flying_angle_rc_data(scanid=-1,
     md_filename = f'scan{scanid}_flying_angle_rc_metadata.txt'                  
     _save_scan_md(scan_md, scanid,
                   filedir=filedir, filename=md_filename)
+
+
+# def save_flying_angle_rc_data(scanid=-1,
+#                               broker='manual',
+#                               detectors=None,
+#                               data_keys=['i0',
+#                                          'im',
+#                                          'it'],
+#                               filedir=None,
+#                               filenames=None,
+#                               repair_method='fill'):
+
+#     data_dict, scan_md, data_keys, xrd_dets = load_data(scanid=scanid,
+#                                                         broker=broker,
+#                                                         detectors=detectors,
+#                                                         data_keys=data_keys,
+#                                                         returns=['data_keys',
+#                                                                  'xrd_dets'],
+#                                                         repair_method=repair_method)
+
+#     # Format xrd data as list from each detector
+#     # Convert to 
+#     xrd_data = [np.asarray(data_dict[f'{xrd_det}_image'])
+#                 for xrd_det in xrd_dets]
+
+#     # Interpolate angular positions
+#     thetas = np.linspace(*c[int(scanid)].start['scan']['scan_input'][:3])
+#     thetas /= 1000 # mdeg to deg
+#     data_dict['theta'] = thetas
+
+#     if filenames is None:
+#         filenames = []
+#         for detector in xrd_dets:
+#             filenames.append(f'scan{scanid}_{detector}_flying_angle_rc.tif')
+    
+#     _save_xrd_tifs(xrd_data,
+#                    xrd_dets=xrd_dets,
+#                    scanid=scan_md['scan_id'], # Will return the correct value
+#                    filedir=filedir,
+#                    filenames=filenames)
+    
+#     param_filename = f'scan{scanid}_flying_angle_rc_parameters.txt'
+#     _save_map_parameters(data_dict, scanid, data_keys=['i0',
+#                                                        'i0_time',
+#                                                        'im',
+#                                                        'it',
+#                                                        'theta'],
+#                          filedir=filedir, filename=param_filename)
+    
+#     md_filename = f'scan{scanid}_flying_angle_rc_metadata.txt'                  
+#     _save_scan_md(scan_md, scanid,
+#                   filedir=filedir, filename=md_filename)
 
 
 

@@ -187,7 +187,7 @@ class XRDMapStack(list): # Maybe should be called XRDMapList
             _xrf = {}
             all_keys = []
             [all_keys.append(key) for key in xrdmap.xrf.keys()
-            for xrdmap in xdm_stack if key not in all_keys]
+            for xrdmap in self.stack if key not in all_keys]
             _empty_lists = [[] for _ in range(len(all_keys))]
 
             _xrf = dict(zip(all_keys, _empty_lists))
@@ -249,7 +249,8 @@ class XRDMapStack(list): # Maybe should be called XRDMapList
                     image_data_key=image_data_key,
                     integration_data_key=integration_data_key,
                     map_shape=map_shape,
-                    image_shape=image_shape
+                    image_shape=image_shape,
+                    **kwargs
                 )
             )
 

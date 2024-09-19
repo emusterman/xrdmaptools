@@ -29,6 +29,7 @@ class Phase(xu.materials.Crystal):
             self.tth = tth
             self.tth_range = (np.min(tth), np.max(tth))
 
+
     def __str__(self):
         return f'{self.name} crystal phase'
     

@@ -243,18 +243,14 @@ class ImageMap:
         if self.hdf_path is not None:
             if not check_hdf_current_images(self.title, self.hdf_path, self.hdf):
                 print('Writing images to hdf...', end='', flush=True)
-                self.save_images(units='counts',
-                                 labels=['map_y_ind',
-                                         'map_x_ind',
-                                         'img_y',
-                                         'img_x'])
+                self.save_images(units='counts')
                 print('done!')
+                
             if self.null_map is not None:
                 self.save_images(self.null_map,
                                  'null_map',
                                  units='bool',
-                                 labels=['map_y_ind',
-                                         'map_x_ind'])
+                                 labels=self.map_labels)
         
         if dask_enabled:
             if self.hdf_path is None and self.hdf is None:
@@ -293,18 +289,20 @@ class ImageMap:
         self.wd = wd
         self.ai = ai
         self.sclr_dict = sclr_dict
+        self.map_labels = ['map_y_ind',
+                           'map_x_ind']
     
 
     def __str__(self):
-        ostr = f'ImageMap: ({self.image_shape}), dtype={self.dtype}'
+        ostr = f'ImageMap: ({self.shape}), dtype={self.dtype}'
         return ostr
 
     
     def __repr__(self):
         ostr = 'ImageMap:'
-        ostr += f'\n\tShape:  {self.image_shape}'
-        ostr += f'\n\tDtype:  {self.dtype}'
-        ostr += f'\n\tState:  {self.title}'
+        ostr += f'\n\tshape:  {self.shape}'
+        ostr += f'\n\tdtype:  {self.dtype}'
+        ostr += f'\n\tstate:  {self.title}'
         return ostr
     
     #################################################
@@ -552,7 +550,7 @@ class ImageMap:
         self.num_images = np.prod(self.map_shape)
 
     
-        # For clearing up memory
+    # For clearing up memory
     def dump_ImageMap(self):
         del self
     
@@ -1089,8 +1087,7 @@ class ImageMap:
             self.save_images(self.scaler_map,
                                 'scaler_map',
                                 units='counts',
-                                labels=['map_y_ind',
-                                        'map_x_ind']) 
+                                labels=self.map_labels) 
         self.corrections['scaler_intensity'] = True
         self.update_map_title()
         self._dask_2_hdf()
@@ -1304,7 +1301,7 @@ class ImageMap:
                 if not self._dask_enabled or override:
                     raw_images = self.images # Should not be a copy
                 else:
-                    warn_msg = ('WARNING: Dask is enabled. Set override to '
+                    warn_str = ('WARNING: Dask is enabled. Set override to '
                                 + 'True in order to determine null_map.'
                                 + '\nProceeding without changes.')
                     print(warn_str)
@@ -1334,8 +1331,7 @@ class ImageMap:
             self.save_images(self.null_map,
                              'null_map',
                              units='bool',
-                             labels=['map_y_ind',
-                                     'map_x_ind'])
+                             labels=self.map_labels)
 
     
     def nullify_images(self):
@@ -1411,6 +1407,8 @@ class ImageMap:
             if hasattr(self, property_name):
                 return getattr(self, property_name)
             else:
+                if not hasattr(self.integrations) or self.integrations is None:
+                    raise AttributeError('Cannot determine integration projection without integrations.')
                 projection = function(self.integrations, axis=axes)
                 setattr(self, property_name, projection)
                 return getattr(self, property_name)
@@ -1596,6 +1594,7 @@ class ImageMap:
     @staticmethod
     def estimate_disk_size(size):
         # External reference function to estimate map size before acquisition
+        raise NotImplementedError()
 
         if not isinstance(size, (tuple, list, np.ndarray)):
             raise TypeError('Size argument must be iterable of map dimensions.')
@@ -1603,13 +1602,16 @@ class ImageMap:
         disk_size = np.prod([*size, 2])
 
 
-    def _get_save_labels(self, arr_shape):
-        units = 'a.u.'
-        labels = []
+    def _get_save_labels(self,
+                         arr_shape,
+                         base_labels=None,
+                         units='a.u.'):
+        
+        if base_labels is None:
+            base_labels = self.map_labels
 
         if len(arr_shape) == 4: # Image map
-            labels = ['map_y_ind',
-                      'map_x_ind']
+            labels = base_labels
             if self.corrections['polar_calibration']:
                 labels.extend(['chi_ind', 'tth_ind'])
             else:
@@ -1622,9 +1624,7 @@ class ImageMap:
                 labels.extend(['img_y', 'img_x'])
 
         elif len(arr_shape) == 3: # Integrations
-            labels = ['map_y_ind',
-                      'map_x_ind',
-                      'tth_ind']
+            labels = base_labels + ['tth_ind']
 
         return units, labels
 

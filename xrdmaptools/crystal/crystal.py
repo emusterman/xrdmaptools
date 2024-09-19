@@ -133,6 +133,11 @@ class LatticeParameters():
         self.b3 = b3
         self.Bmat = Bmat
         self.rec_volume = rec_volume
+
+    def __repr__(self):
+        ostr = f'|a = {self.a:.6f}\t|b = {self.b:.6f}\t|c = {self.c:.6f}'
+        ostr += f'|alpha = {np.degrees(self.alpha):.3f}\t|beta = {np.degrees(self.beta):.3f} \t|gamma = {np.degrees(self.gamma):.3f}'
+        return ostr
     
     ####################
     ### Classmethods ###
@@ -182,10 +187,16 @@ class LatticeParameters():
         alpha = np.radians(Phase.alpha)
         beta = np.radians(Phase.beta)
         gamma = np.radians(Phase.gamma)
-        return cls(a=a, b=b, c=c, alpha=alpha, beta=beta, gamma=gamma)
+        return cls(a=a,
+                   b=b,
+                   c=c,
+                   alpha=alpha,
+                   beta=beta,
+                   gamma=gamma)
     
 
     @classmethod
+    # Broken!!!!
     def from_UBmat(cls, UBmat):
         Ur_vec = cls.mat_2_vec(UBmat) # rotation maintained
         r_params = cls.vec_2_const(*Ur_vec) # rotation lost

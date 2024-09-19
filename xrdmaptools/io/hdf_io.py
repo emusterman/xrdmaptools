@@ -16,21 +16,24 @@ from ..utilities.utilities import pathify
 ### HDF Format ###
 ##################
 
-def initialize_xrdmap_hdf(xrdmap, hdf_file):
+def initialize_xrdmap_hdf(xrdmap,
+                          hdf_file):
+    
     with h5py.File(hdf_file, 'w-') as f:
-        base_grp = f.require_group('xrdmap')
+        base_grp = f.require_group(xrdmap._object_type) # xrdmap or rsm
         base_grp.attrs['scanid'] = xrdmap.scanid
         base_grp.attrs['beamline'] = xrdmap.beamline #'5-ID (SRX)'
         base_grp.attrs['facility'] = xrdmap.facility #'NSLS-II'
         base_grp.attrs['energy'] = xrdmap.energy
         base_grp.attrs['wavelength'] = xrdmap.wavelength
-        base_grp.attrs['time_stamp'] = '' # Not sure why I cannot assign None
+        base_grp.attrs['theta'] = xrdmap.theta
+        base_grp.attrs['time_stamp'] = ''
 
         # Record diffraction data
         curr_grp = base_grp.require_group('image_data') # naming the group after the detector may be a bad idea...
         curr_grp.attrs['detector'] = '' #'dexela'
         curr_grp.attrs['detector_binning'] = '' #(4, 4)
-        curr_grp.attrs['expsure_time_units'] = 's'
+        curr_grp.attrs['dwell_units'] = 's'
 
         # Generate emtpy dataset of extra_metadata
         extra_md = base_grp.create_dataset('extra_metadata',
@@ -59,7 +62,9 @@ def load_xrdmap_hdf(filename,
                     integration_data_key='recent',
                     dask_enabled=False,
                     map_shape=None,
-                    image_shape=None):
+                    image_shape=None,
+                    object_type='xrdmap' # or rsm
+                    ):
 
     # Figuring out hdf file stuff
     hdf_path = pathify(wd, filename, '.h5')
@@ -67,7 +72,7 @@ def load_xrdmap_hdf(filename,
         hdf = h5py.File(hdf_path, 'r')
     else:
         hdf = h5py.File(hdf_path, 'a')
-    base_grp = hdf['xrdmap']
+    base_grp = hdf[object_type]
 
     # Load base metadata
     base_md = dict(base_grp.attrs.items())
@@ -181,118 +186,6 @@ def load_xrdmap_hdf(filename,
         image_map_attrs = {}
         image_corrections = None
 
-
-    # # Image data
-    # if image_data_key is not None:
-    #     if 'image_data' in base_grp.keys():
-    #         img_grp = base_grp['image_data']
-            
-    #         # Check image_data_key in hdf
-    #         if (str(image_data_key).lower() != 'recent'
-    #             and image_data_key not in img_grp.keys()):
-    #             warn_str = (f'WARNING: Requested image_data_key ({image_data_key}) '
-    #                         + 'not found in hdf. Looking for most recent image_data instead...')
-            
-    #         # Determine image_data key in 
-    #         if str(image_data_key).lower() == 'recent':
-    #             time_stamps, img_keys = [], []
-    #             for key in img_grp.keys():
-    #                 if key[0] != '_':
-    #                     time_stamps.append(img_grp[key].attrs['time_stamp'])
-    #                     img_keys.append(key)
-    #             if len(img_keys) < 1:
-    #                 raise RuntimeError('Could not find recent image data to construct ImageMap from hdf.')
-    #             time_stamps = [ttime.mktime(ttime.strptime(x)) for x in time_stamps]
-    #             image_data_key = img_keys[np.argmax(time_stamps)]
-            
-
-    #         print(f'Loading images from ({image_data_key})...', end='', flush=True)
-    #         if dask_enabled:
-    #             # Lazy loads data
-    #             image_dset = img_grp[image_data_key]
-    #             image_data = da.from_array(image_dset, chunks=image_dset.chunks)
-    #         else:
-    #             # Fully loads data
-    #             image_data = img_grp[image_data_key][:]
-
-    #         # Rebuild correction dictionary
-    #         image_corrections = {}
-    #         for key, value in img_grp[image_data_key].attrs.items():
-    #             if key[0] == '_' and key[-11:] == '_correction':
-    #                 image_corrections[key[1:-11]] = value
-
-    #         # Collect ImageMap attributes that are not instantiated...
-    #         # This includes correction references...
-    #         image_map_attrs = {}
-    #         for key in ['dark_field',
-    #                     'flat_field',
-    #                     'air_scatter',
-    #                     'scaler_intensity',
-    #                     'lorentz_correction',
-    #                     'polarization_correction',
-    #                     'solidangle_correction',
-    #                     'absorption_correction',
-    #                     'custom_mask',
-    #                     'defect_mask',
-    #                     'calibration_mask']:
-    #             if f'_{key}' in img_grp.keys():
-    #                 image_map_attrs[key] = img_grp[f'_{key}'][:]
-
-    #         if '_static_background' in img_grp.keys():
-    #             image_map_attrs['background'] = img_grp['_static_background'][:]
-            
-    #         # Not given to ImageMap.__init__ so it won't try to rewrite the data
-    #         if '_null_map' in img_grp.keys():
-    #             image_map_attrs['null_map'] = img_grp['_null_map'][:]
-            
-    #         # Deprecated tag, but kept for backwards compatibility
-    #         if '_spot_masks' in img_grp.keys():
-    #             image_map_attrs['blob_masks'] = img_grp['_spot_masks'][:]
-            
-    #         if '_blob_masks' in img_grp.keys():
-    #             image_map_attrs['blob_masks'] = img_grp['_blob_masks'][:]
-
-    #         if map_shape is not None and image_data.shape[:2] != map_shape:
-    #             warn_str = (f'WARNING: Input map_shape {map_shape} does '
-    #                         + f'not match loaded image data map shape of '
-    #                         + f'{image_data.shape[:2]}.'
-    #                         + '\nDefaulting to loaded data map shape.')
-    #             print(warn_str)
-    #             map_shape = image_data.shape[:2]
-    #         if image_shape is not None and image_data.shape[2:] != image_shape:
-    #             warn_str = (f'WARNING: Input image_shape {image_shape} does '
-    #                         + f'not match loaded image data image shape of '
-    #                         + f'{image_data.shape[2:]}.'
-    #                         + '\nDefaulting to loaded data image shape.')
-    #             print(warn_str)
-    #             image_shape = image_data.shape[2:]
-            
-    #         print('done!')
-        
-    #     else: # No data available
-    #         warn_str = ('WARNING: Image data requested, but not found in hdf!'
-    #                     + '\nProceeding without image data.')
-    #         print(warn_str)
-    #         image_data = None
-    #         image_map_attrs = {}
-    #         image_corrections = None
-    # else: # No data requested
-    #     image_data = None
-    #     image_map_attrs = {}
-    #     image_corrections = None
-
-    #     # Extra catch to find useful mapped parameters outside image_data
-    #     # Not given to ImageMap.__init__ so it won't try to rewrite the data
-    #     if '_null_map' in img_grp.keys():
-    #         image_map_attrs['null_map'] = img_grp['_null_map'][:]
-        
-    #     # Deprecated tag, but kept for backwards compatibility
-    #     if '_spot_masks' in img_grp.keys():
-    #         image_map_attrs['blob_masks'] = img_grp['_spot_masks'][:]
-        
-    #     if '_blob_masks' in img_grp.keys():
-    #         image_map_attrs['blob_masks'] = img_grp['_blob_masks'][:]
-
     # Integration data
     if 'integration_data' in base_grp.keys():
         int_grp = base_grp['integration_data']
@@ -300,7 +193,7 @@ def load_xrdmap_hdf(filename,
         if integration_data_key is not None:
             # Check integration_data_key in hdf
             if (str(integration_data_key).lower() != 'recent'
-                and integration_data_key not in integration_grp.keys()):
+                and integration_data_key not in int_grp.keys()):
                 warn_str = (f'WARNING: Requested integration_data_key ({integration_data_key}) '
                             + 'not found in hdf. Looking for most recent integration_data instead...')
             
@@ -334,46 +227,6 @@ def load_xrdmap_hdf(filename,
         # No data requested or none available
         # No warning if no data available
         integration_data = None
-
-    # if integration_data_key is not None:
-    #     if 'integration_data' in base_grp.keys():
-    #         int_grp = base_grp['integration_data']
-            
-    #         # Check integration_data_key in hdf
-    #         if (str(integration_data_key).lower() != 'recent'
-    #             and integration_data_key not in integration_grp.keys()):
-    #             warn_str = (f'WARNING: Requested integration_data_key ({integration_data_key}) '
-    #                         + 'not found in hdf. Looking for most recent integration_data instead...')
-            
-    #         # Determine image_data key in 
-    #         if str(integration_data_key).lower() == 'recent':
-    #             time_stamps, int_keys = [], []
-    #             for key in int_grp.keys():
-    #                 if key[0] != '_':
-    #                     time_stamps.append(int_grp[key].attrs['time_stamp'])
-    #                     int_keys.append(key)
-    #             if len(int_keys) < 1:
-    #                 raise RuntimeError('Could not find recent image data to construct ImageMap from hdf.')
-    #             time_stamps = [ttime.mktime(ttime.strptime(x)) for x in time_stamps]
-    #             integration_data_key = int_keys[np.argmax(time_stamps)]
-
-    #         print(f'Loading integrations from ({integration_data_key})...', end='', flush=True)
-    #         integration_data = int_grp[integration_data_key][:]
-
-    #         if map_shape is not None and integration_data.shape[:2] != map_shape:
-    #             warn_str = (f'WARNING: Input map_shape {map_shape} does '
-    #                         + f'not match loaded integration data map shape of '
-    #                         + f'{integration_data.shape[:2]}.'
-    #                         + '\nDefaulting to loaded data map shape.')
-    #             print(warn_str)
-    #             map_shape = integration_data.shape[:2]
-    #         print('done!')
-
-    #     else: # No data available
-    #         # No warning to allow silent default values to look for integrations
-    #         integration_data = None
-    # else: # No data requested
-    #     integration_data = None
 
     # Recipricol positions
     if 'reciprocal_positions' in base_grp.keys():
@@ -438,8 +291,8 @@ def load_xrdmap_hdf(filename,
         if len(phase_grp) > 0:
             for phase in phase_grp.keys():
                 phase_dict[phase] = Phase.from_hdf(phase_grp[phase],
-                                                    energy=base_md['energy'],
-                                                    tth=recip_pos['tth'])
+                                                   energy=base_md['energy'],
+                                                   tth=recip_pos['tth'])
         print('done!')
 
     # Load scalers
@@ -476,7 +329,7 @@ def load_xrdmap_hdf(filename,
         if dask_enabled:
             # Re-point towards correct dataset
             hdf = h5py.File(hdf_path, 'a')
-            img_grp = hdf['xrdmap/image_data']
+            img_grp = hdf[f'{object_type}/image_data']
             image_dset = img_grp[image_data_key]
             image_data = da.from_array(image_dset, chunks=image_dset.chunks)
         else:
@@ -484,8 +337,8 @@ def load_xrdmap_hdf(filename,
         print('done!')
 
         # Load peak model
-        if 'spot_model' in hdf['xrdmap/reflections'].attrs.keys():
-            spot_model_name = hdf['xrdmap/reflections'].attrs['spot_model']
+        if 'spot_model' in hdf[f'{object_type}/reflections'].attrs.keys():
+            spot_model_name = hdf[f'{object_type}/reflections'].attrs['spot_model']
             spot_model = _load_peak_function(spot_model_name)
             
     if not dask_enabled:

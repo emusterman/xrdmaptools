@@ -3,7 +3,7 @@ from scipy.interpolate import griddata
 from scipy.interpolate import RegularGridInterpolator
 
 # Local imports
-from ..utilities.utilities import vector_angle, delta_array
+from xrdmaptools.utilities.utilities import vector_angle, delta_array
 
 
 # TODO: a lot
@@ -61,8 +61,7 @@ def q_2_polar(q_vect, wavelength=None, degrees=False):
     # Find tth and chi
     theta = np.pi / 2 - vector_angle(q_vect, [0, 0, -1], degrees=False) # always false
     tth = 2 * theta
-    # Negative qx to switch to pyFAI coordinate system
-    chi = np.arctan2(q_vect[..., 1], -q_vect[..., 0])
+    chi = np.arctan2(q_vect[..., 1], q_vect[..., 0])
 
     if degrees:
         tth = np.degrees(tth)

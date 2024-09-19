@@ -5,7 +5,7 @@ from tqdm.dask import TqdmCallback
 from tqdm import tqdm
 import warnings
 import functools
-from sklearn.metrics.pairwise import euclidean_distances
+from scipy.spatial import distance_matrix
 from scipy.ndimage import sobel
 
 # Must define this as something
@@ -102,7 +102,7 @@ def parallel_loop(function, iterable, *args, **kwargs):
 # Works fairly fast, but calculating distances takes significant memory
 def label_nearest_spots(spots, max_dist=25, max_neighbors=np.inf):
     spots = np.asarray(spots)
-    dist = euclidean_distances(spots)
+    dist = distance_matrix(spots)
 
     spot_indices = list(range(len(spots)))
 

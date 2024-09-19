@@ -32,7 +32,7 @@ from .io.hdf_utils import (
     get_large_map_slices
 )
 from .io.db_io import load_data
-from .reflections.spot_blob_indexing import get_q_vect, _initial_spot_analysis
+from .reflections.spot_blob_indexing import _initial_spot_analysis
 from .reflections.SpotModels import GaussianFunctions
 from .reflections.spot_blob_search import (
     find_blobs,
@@ -82,7 +82,7 @@ class XRDMap():
                  energy=None,
                  wavelength=None,
                  dwell=None,
-                 theta=None,
+                 theta=0,
                  poni_file=None,
                  sclr_dict=None,
                  pos_dict=None,
@@ -97,7 +97,9 @@ class XRDMap():
                  extra_metadata=None,
                  save_hdf=True,
                  dask_enabled=False,
-                 xrf_path=None):
+                 xrf_path=None,
+                 object_type='xrdmap', # flag for rsm
+                 ):
         
         # Adding some metadata
         self.scanid = scanid
@@ -113,11 +115,8 @@ class XRDMap():
         self.facility = facility
         self.time_stamp = time_stamp
         self.scan_input = scan_input
-        self.extra_metadata = extra_metadata # not sure about this...
-        # Scan.start.uid: 7469f8f8-8076-47d5-85a1-ee147fe89d3c
-        # Scan.start.ctime: Mon Feb 27 12:57:12 2023
-        # uid: 7469f8f8-8076-47d5-85a1-ee147fe89d3c
-        # sample.name: 
+        self.extra_metadata = extra_metadata
+        self._object_type = object_type
 
         # Store energy, dwell, and theta
         self._energy = None
@@ -128,6 +127,8 @@ class XRDMap():
             self.wavelength = wavelength
         
         self.dwell = dwell
+        if theta is None:
+            theta = 0
         self.theta = theta
 
         # Add conditional to check approximate image_data size and force dask?
@@ -383,6 +384,8 @@ class XRDMap():
 
         if len(xrd_data) > 1:
             filenames = [f'scan{scan_md["scan_id"]}_{det}_xrd.h5' for det in xrd_dets]
+        else:
+            filenames = [filename]
 
         extra_md = {}
         for key in scan_md.keys():
@@ -396,10 +399,10 @@ class XRDMap():
                 extra_md[key] = scan_md[key]
         
         xrdmaps = []
-        for xrd_data_i in xrd_data:
+        for i, xrd_data_i in enumerate(xrd_data):
             xrdmap = cls(scanid=scan_md['scan_id'],
                          wd=filedir,
-                         filename=filename, # Replace with filenames[i] and enumerate iterable
+                         filename=filenames[i],
                          image_data=xrd_data_i,
                          null_map=null_map,
                          energy=scan_md['energy'],
@@ -904,7 +907,7 @@ class XRDMap():
             self.map.hdf = self.hdf
 
         if dask_enabled or self.map._dask_enabled: # This flag persists even when the dataset is closed!
-            img_grp = self.map.hdf['xrdmap/image_data']
+            img_grp = self.map.hdf[f'{self._object_type}/image_data']
             if self.map.title == 'final_images':
                 if check_hdf_current_images(self.map.title, hdf=self.hdf):
                     dset = img_grp[self.map.title]
@@ -918,7 +921,10 @@ class XRDMap():
     ### Calibrating Map Images ###
     ##############################
     
-    def set_calibration(self, poni_file, filedir=None):
+    def set_calibration(self,
+                        poni_file,
+                        energy=None,
+                        filedir=None):
         if filedir is None:
             filedir = self.wd
 
@@ -944,11 +950,14 @@ class XRDMap():
             raise TypeError(f"{type(poni_file)} is unknown and not supported!")
 
         # Update energy if different from poni file
-        if self.energy is not None:
-            self.ai.energy = self.energy # Allows calibrations acquired at any energy
+        if energy is None:
+            if self.energy is not None:
+                self.ai.energy = self.energy # Allows calibrations acquired at any energy
+            else:
+                print('Energy has not been defined. Defaulting to .poni file value.')
+                self.energy = self.ai.energy
         else:
-            print('Energy has not been defined. Defaulting to .poni file value.')
-            self.energy = self.ai.energy
+            self.ai.energy = energy # Do not update XRDMap energy...
 
         # Update detector shape and pixel size if different from poni file
         if hasattr(self, 'map'):
@@ -1682,7 +1691,7 @@ class XRDMap():
                 self.hdf = h5py.File(self.hdf_path, 'a')
                 keep_hdf = False
 
-            phase_grp = self.hdf['xrdmap'].require_group('phase_list')
+            phase_grp = self.hdf[self._object_type].require_group('phase_list')
 
             # Delete any no longer included phases
             for phase in phase_grp.keys():
@@ -1835,57 +1844,6 @@ class XRDMap():
                                           'multiplier' : multiplier,
                                           'expansion' : expansion})
         
-
-    '''def find_spots(self,
-                   threshold_method='minimum',
-                   multiplier=5,
-                   size=3,
-                   expansion=10,
-                   radius=10):
-        
-        # Cleanup images as necessary
-        self.map._dask_2_numpy()
-        if np.max(self.map.images) != 100:
-            print('Rescaling images to max of 100 and min around 0.')
-            self.map.rescale_images(arr_min=0, upper=100)
-
-
-        # Search each image for significant spots
-        spot_list, mask_list = find_spots(self.map,
-                                          mask=self.map.mask,
-                                          threshold_method=threshold_method,
-                                          multiplier=multiplier,
-                                          size=size,
-                                          expansion=expansion)
-
-        # Initial characterization of each spot
-        stat_list = find_spot_stats(self.map,
-                                    spot_list,
-                                    self.tth_arr,
-                                    self.chi_arr,
-                                    radius=radius)
-
-        # Convert spot stats into dict, then pandas dataframe
-        stat_df = make_stat_df(stat_list, self.map.map_shape)
-
-        # .spots attribute will be the basis will be treated similarly to .map
-        # Most subsequent analysis will be built here
-        # Consider wrapping it in a class like ImageMap or Phase
-        self.spots = stat_df
-        self.map.blob_masks = np.asarray(mask_list).reshape(self.map.shape)
-
-        # Save spots to hdf
-        self.save_spots()
-
-        # Save masks to hdf
-        self.map.save_images(images=self.map.blob_masks,
-                                title='_blob_masks',
-                                units='bool',
-                                extra_attrs={'threshold_method' : threshold_method,
-                                            'size' : size,
-                                            'multiplier' : multiplier,
-                                            'window_radius' : radius})'''
-        
     
     def recharacterize_spots(self,
                              radius=10):
@@ -1914,47 +1872,6 @@ class XRDMap():
         # Save spots to hdf
         self.save_spots()
 
-
-    '''def fit_spots(self, SpotModel, max_dist=0.5, sigma=1):
-
-        # Find spots in self or from hdf
-        if not hasattr(self, 'spots'):
-            print('No reflection spots found...')
-            if self.hdf_path is not None:
-                # Open hdf flag
-                keep_hdf = True
-                if self.hdf is None:
-                    self.hdf = h5py.File(self.hdf_path, 'r')
-                    keep_hdf = False
-
-                if 'reflections' in self.hdf['xrdmap'].keys():
-                    print('Loading reflection spots from hdf...', end='', flush=True)
-                    self.close_hdf()
-                    spots = pd.read_hdf(self.hdf_path, key='xrdmap/reflections/spots')
-                    self.spots = spots
-                    self.open_hdf()
-
-                    # Close hdf and reset attribute
-                    if not keep_hdf:
-                        self.hdf.close()
-                        self.hdf = None
-                    print('done!')
-
-                else:
-                    raise AttributeError('XRDMap does not have any reflection spots! Please find spots first.')
-            else:
-                raise AttributeError('XRDMap does not have any reflection spots! Please find spots first.')
-
-        # Generate list of x, y, I, and spot indices for each blob/spots fits
-        spot_fit_info_list = prepare_fit_spots(self, max_dist=max_dist, sigma=sigma)
-        
-        # Fits spots and adds the fit results to the spots dataframe
-        fit_spots(self, spot_fit_info_list, SpotModel)
-        self.spot_model = SpotModel
-
-        # Save spots to hdf
-        self.save_spots(extra_attrs={'spot_model' : self.spot_model.name})'''
-
     
     def fit_spots(self, SpotModel, max_dist=0.5, sigma=1):
 
@@ -1968,10 +1885,11 @@ class XRDMap():
                     self.hdf = h5py.File(self.hdf_path, 'r')
                     keep_hdf = False
 
-                if 'reflections' in self.hdf['xrdmap'].keys():
+                if 'reflections' in self.hdf[self._object_type].keys():
                     print('Loading reflection spots from hdf...', end='', flush=True)
                     self.close_hdf()
-                    spots = pd.read_hdf(self.hdf_path, key='xrdmap/reflections/spots')
+                    spots = pd.read_hdf(self.hdf_path,
+                                        key=f'{self._object_type}/reflections/spots')
                     self.spots = spots
                     self.open_hdf()
 
@@ -2080,12 +1998,13 @@ class XRDMap():
 
             # Save to hdf
             self.close_hdf()
-            self.spots.to_hdf(self.hdf_path, key='xrdmap/reflections/spots', format='table')
+            self.spots.to_hdf(self.hdf_path,
+                              key=f'{self._object_type}/reflections/spots', format='table')
 
             if extra_attrs is not None:
                 self.open_hdf()
                 for key, value in extra_attrs.items():
-                    self.hdf['xrdmap/reflections'].attrs[key] = value
+                    self.hdf[f'{self._object_type}/reflections'].attrs[key] = value
 
             if keep_hdf:
                 self.open_hdf()
@@ -2163,7 +2082,7 @@ class XRDMap():
                 keep_hdf = False
 
             # Only save the path to connect two files
-            self.hdf['xrdmap'].attrs['xrf_path'] = self.xrf_path
+            self.hdf[self._object_type].attrs['xrf_path'] = self.xrf_path
 
             if not keep_hdf:
                 self.hdf.close()
