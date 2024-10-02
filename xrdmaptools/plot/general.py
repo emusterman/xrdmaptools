@@ -17,10 +17,10 @@ def _plot_parse_xrdmap(xrdmap, indices, mask=False, spots=False, contours=False)
 
     # Extract mask
     out_mask = None
-    if mask and hasattr(xrdmap.map, 'mask'):
-        out_mask = xrdmap.map.mask
-    elif mask and not hasattr(xrdmap.map, 'mask'):
-        print('WARNING: Mask requested, but xrdmap.map does not have a mask!')
+    if mask and hasattr(xrdmap, 'mask'):
+        out_mask = xrdmap.mask
+    elif mask and not hasattr(xrdmap, 'mask'):
+        print('WARNING: Mask requested, but xrdmap does not have a mask!')
 
     # Extract spots
     out_spots = None
@@ -37,7 +37,7 @@ def _plot_parse_xrdmap(xrdmap, indices, mask=False, spots=False, contours=False)
         
         if len(out_spots) < 1:
             out_spots = None
-        elif not xrdmap.map.corrections['polar_calibration']:
+        elif not xrdmap.corrections['polar_calibration']:
             out_spots = estimate_image_coords(out_spots[:, ::-1],
                                               xrdmap.tth_arr,
                                               xrdmap.chi_arr)[:, ::-1]
@@ -47,19 +47,19 @@ def _plot_parse_xrdmap(xrdmap, indices, mask=False, spots=False, contours=False)
 
     # Extract contours
     out_contour_list = None
-    if contours and hasattr(xrdmap.map, 'blob_masks'):
-        blob_img = label(xrdmap.map.blob_masks[tuple(indices)])
+    if contours and hasattr(xrdmap, 'blob_masks'):
+        blob_img = label(xrdmap.blob_masks[tuple(indices)])
         blob_contours = find_blob_contours(blob_img)
         out_contour_list = []
         for blob_contour in blob_contours:
-            if xrdmap.map.corrections['polar_calibration']:
+            if xrdmap.corrections['polar_calibration']:
                 out_contour_list.append(estimate_polar_coords(blob_contour.T,
                                                               xrdmap.tth_arr,
                                                               xrdmap.chi_arr).T)
         else:
             out_contour_list = blob_contours
 
-    elif contours and hasattr(xrdmap.map, 'blob_masks'):
+    elif contours and hasattr(xrdmap, 'blob_masks'):
         print('WARNING: Contours requested, but xrdmap does not have any spot masks to draw contours!')
 
     return tuple([out_mask, out_spots, out_contour_list])
@@ -73,7 +73,7 @@ def _xrdmap_image(xrdmap,
         image = np.asarray(image)
         if len(image.shape) == 1 and len(image) == 2:
             indices = tuple(iter(image))
-            image = xrdmap.map.images[indices]
+            image = xrdmap.images[indices]
         elif len(image.shape) == 2:
             if indices is not None:
                 indices = tuple(indices)
@@ -81,17 +81,17 @@ def _xrdmap_image(xrdmap,
             raise ValueError(f"Incorrect image shape of {image.shape}. Should be two-dimensional.")
     else:
         # Evaluate images
-        # xrdmap.map._dask_2_dask() # Too expensive, just evaluate the one
+        # xrdmap._dask_2_dask() # Too expensive, just evaluate the one
 
         if indices is not None:
             indices = tuple(indices)
-            image = xrdmap.map.images[indices]
+            image = xrdmap.images[indices]
             image = np.asarray(image)
         else:
-            i = np.random.randint(xrdmap.map.map_shape[0])
-            j = np.random.randint(xrdmap.map.map_shape[1])
+            i = np.random.randint(xrdmap.map_shape[0])
+            j = np.random.randint(xrdmap.map_shape[1])
             indices = (i, j)
-            image = xrdmap.map.images[indices]
+            image = xrdmap.images[indices]
             image = np.asarray(image)
 
     return image, indices
@@ -106,25 +106,25 @@ def _xrdmap_integration(xrdmap,
         integration = np.asarray(integration)
         if len(integration.shape) == 1 and len(integration) == 2:
             indices = tuple(iter(integration))
-            integration = xrdmap.map.integrations[indices]
+            integration = xrdmap.integrations[indices]
         elif len(integration.shape) == 1:
             if indices is not None:
                 indices = tuple(indices)
         else:
             raise ValueError(f"Incorrect image shape of {integration.shape}. Should be one-dimensional.")
     else:
-        if not hasattr(xrdmap.map, 'integrations'):
+        if not hasattr(xrdmap, 'integrations'):
             raise ValueError("Integration has not been specified and XRDMap does not have any integrations calculated!")
 
         if indices is not None:
             indices = tuple(indices)
-            integration = xrdmap.map.integrations[indices]
+            integration = xrdmap.integrations[indices]
             integration = np.asarray(integration)
         else:
-            i = np.random.randint(xrdmap.map.map_shape[0])
-            j = np.random.randint(xrdmap.map.map_shape[1])
+            i = np.random.randint(xrdmap.map_shape[0])
+            j = np.random.randint(xrdmap.map_shape[1])
             indices = (i, j)
-            integration = xrdmap.map.integrations[indices]
+            integration = xrdmap.integrations[indices]
             integration = np.asarray(integration)
 
     return integration, indices
@@ -200,15 +200,15 @@ def plot_reconstruction(self,
         raise RuntimeError('xrdmap does not have any spots!')
 
     if indices is None:
-        i = np.random.randint(self.map.map_shape[0])
-        j = np.random.randint(self.map.map_shape[1])
+        i = np.random.randint(self.map_shape[0])
+        j = np.random.randint(self.map_shape[1])
         indices = (i, j)
     else:
         indices = tuple(indices)
-        if (indices[0] < 0 or indices[0] > self.map.map_shape[0]):
-            raise IndexError(f'Indices ({indices}) is out of bounds along axis 0 for map shape ({self.map.map_shape})')
-        elif (indices[1] < 0 or indices[1] > self.map.map_shape[1]):
-            raise IndexError(f'Indices ({indices}) is out of bounds along axis 1 for map shape ({self.map.map_shape})')
+        if (indices[0] < 0 or indices[0] > self.map_shape[0]):
+            raise IndexError(f'Indices ({indices}) is out of bounds along axis 0 for map shape ({self.map_shape})')
+        elif (indices[1] < 0 or indices[1] > self.map_shape[1]):
+            raise IndexError(f'Indices ({indices}) is out of bounds along axis 1 for map shape ({self.map_shape})')
     
     if hasattr(self, 'spot_model'):
         spot_model = self.spot_model
@@ -238,9 +238,9 @@ def plot_reconstruction(self,
     if len(fit_args) > 0:
         #return fit_args
         recon_image = spot_model.multi_2d([self.tth_arr.ravel(), self.chi_arr.ravel()], 0, *fit_args)
-        recon_image = recon_image.reshape(self.map.images.shape[-2:])
+        recon_image = recon_image.reshape(self.images.shape[-2:])
     else:
-        recon_image = np.zeros(self.map.images.shape[-2:])
+        recon_image = np.zeros(self.images.shape[-2:])
 
     if not plot_residual:
         fig, ax = self.plot_image(recon_image,
@@ -249,9 +249,9 @@ def plot_reconstruction(self,
         fig.show()
 
     else:
-        image = self.map.images[indices]
+        image = self.images[indices]
         residual = recon_image - image
-        ext = np.max(np.abs(residual[self.map.mask]))
+        ext = np.max(np.abs(residual[self.mask]))
         fig, ax = self.plot_image(residual,
                             title=f'Residual of (Row = {indices[0]}, Col = {indices[1]})',
                             return_plot=True, indices=indices,

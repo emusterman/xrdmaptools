@@ -22,7 +22,7 @@ def plot_q_space(xrdmap,
 
     # Plot sampled Ewald sphere
     if detector:
-        q_mask = xrdmap.q_arr[:, xrdmap.map.mask]
+        q_mask = xrdmap.q_arr[:, xrdmap.mask]
         ax.plot_trisurf(q_mask[0].ravel()[::skip],
                         q_mask[1].ravel()[::skip],
                         q_mask[2].ravel()[::skip],

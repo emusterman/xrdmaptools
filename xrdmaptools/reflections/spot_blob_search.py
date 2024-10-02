@@ -671,7 +671,7 @@ def segment_blobs(xrdmap, map_indices, mask, blurred_image, max_dist=0.75):
         bkg_mask = [blobs != 0][0]
         blob_mask = [blobs[bkg_mask] == blob][0]
 
-        blob_int = xrdmap.map.images[map_indices][bkg_mask][blob_mask]
+        blob_int = xrdmap.images[map_indices][bkg_mask][blob_mask]
         blob_tth = tth_arr[bkg_mask][blob_mask]
         blob_chi = chi_arr[bkg_mask][blob_mask]
 
@@ -760,8 +760,8 @@ def fit_spots(xrdmap, SpotModel, max_dist=0.75, sigma=1):
     # Preparing fit information
     @dask.delayed
     def segment_and_fit(map_indices):
-        mask = xrdmap.map.blob_masks[map_indices]
-        image = xrdmap.map.images[map_indices]
+        mask = xrdmap.blob_masks[map_indices]
+        image = xrdmap.images[map_indices]
 
         if isinstance(image, da.core.Array):
             image = image.compute()
@@ -782,8 +782,8 @@ def fit_spots(xrdmap, SpotModel, max_dist=0.75, sigma=1):
 
     # Scheduling blob segmentation and spot fitting
     delayed_list = []
-    for index in range(xrdmap.map.num_images):
-        indices = np.unravel_index(index, xrdmap.map.map_shape)
+    for index in range(xrdmap.num_images):
+        indices = np.unravel_index(index, xrdmap.map_shape)
         delayed_list.append(segment_and_fit(indices))        
 
     # Calculation
@@ -799,7 +799,7 @@ def fit_spots(xrdmap, SpotModel, max_dist=0.75, sigma=1):
 
 # Deprecated
 def prepare_fit_spots(xrdmap, max_dist=0.75, sigma=1):
-    map_shape = xrdmap.map.map_shape
+    map_shape = xrdmap.map_shape
 
     @dask.delayed
     def delayed_segment_blobs(xrdmap,
@@ -815,10 +815,10 @@ def prepare_fit_spots(xrdmap, max_dist=0.75, sigma=1):
 
     delayed_list = []
     print('Scheduling blob segmentation for spot fits...')
-    for index in tqdm(range(xrdmap.map.num_images)):
+    for index in tqdm(range(xrdmap.num_images)):
         indices = np.unravel_index(index, map_shape)
-        mask = xrdmap.map.blob_masks[indices]
-        image = xrdmap.map.images[indices]
+        mask = xrdmap.blob_masks[indices]
+        image = xrdmap.images[indices]
 
         if isinstance(image, da.core.Array):
             image = image.compute()

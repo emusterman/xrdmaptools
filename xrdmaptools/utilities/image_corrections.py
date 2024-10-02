@@ -21,34 +21,58 @@ def interpolate_merlin_mask(masked_img):
 
 
 def iterative_outlier_correction(images, size=2, tolerance=2):
-    # Assumption is that the image axes are the last two
+    # Image axes must be last two axes
 
-    images = np.asarray(images)
     image_shape = images.shape[-2:]
     set_shape = images.shape[:-2]
 
     num_pixels_replaced = 0
-    for index in tqdm(range(np.prod(*set_shape))):
+    for index in tqdm(range(np.prod(set_shape))):
         indices = np.unravel_index(index, set_shape)
 
         image = images[indices]
-
-        if isinstance(images, da.core.Array):
-            med_image = dask_ndi.median_filter(image, size=size)
-        else:
-            med_image = ndi.median_filter(image, size=size)
-
+        med_image = ndi.median_filter(image, size=size)
         ratio_image = np.abs(image / med_image)
-        replace_mask = (ratio_image > tolerance)
+        replace_mask = ratio_image > tolerance
 
-        # better way to do this?
-        image[replace_mask] = 0
-        med_image[~replace_mask] = 0
-        images += med_image
-
+        images[indices][replace_mask] = med_image[replace_mask]
+        
         num_pixels_replaced += np.sum(replace_mask)
+        # No return; in-place operation
 
-    return images
+    return num_pixels_replaced
+
+
+
+# def iterative_outlier_correction(images, size=2, tolerance=2):
+#     # Assumption is that the image axes are the last two
+
+#     images = np.asarray(images)
+#     image_shape = images.shape[-2:]
+#     set_shape = images.shape[:-2]
+
+#     num_pixels_replaced = 0
+#     for index in tqdm(range(np.prod(set_shape))):
+#         indices = np.unravel_index(index, set_shape)
+
+#         image = images[indices]
+
+#         if isinstance(images, da.core.Array):
+#             med_image = dask_ndi.median_filter(image, size=size)
+#         else:
+#             med_image = ndi.median_filter(image, size=size)
+
+#         ratio_image = np.abs(image / med_image)
+#         replace_mask = (ratio_image > tolerance)
+
+#         # better way to do this?
+#         image[replace_mask] = 0
+#         med_image[~replace_mask] = 0
+#         images += med_image
+
+#         num_pixels_replaced += np.sum(replace_mask)
+
+#     return images
 
 
 # OPTIMIZE ME: copies a lot of data

@@ -7,11 +7,14 @@ import time as ttime
 import dask.array as da
 
 # Local imports
-from .io.hdf_utils import check_hdf_current_images, get_optimal_chunks
-from .utilities.math import check_precision
-from .utilities.utilities import delta_array
-from .utilities.image_corrections import find_outlier_pixels, rescale_array
-from .utilities.background_estimators import (
+from xrdmaptools.io.hdf_utils import check_hdf_current_images, get_optimal_chunks
+from xrdmaptools.utilities.math import check_precision
+from xrdmaptools.utilities.image_corrections import (
+    find_outlier_pixels,
+    iterative_outlier_correction,
+    rescale_array
+    )
+from xrdmaptools.utilities.background_estimators import (
     fit_spline_bkg,
     fit_poly_bkg,
     masked_gaussian_background,
@@ -19,32 +22,38 @@ from .utilities.background_estimators import (
 )
 
 
-class ImageMap:
-    # This class is only intended for direct image manipulation
-    # Analysis and interpretation of diffraction are reserved for the XRDMap class
+class XRDData:
+    # This class is intended to hold and process raw data with I/O
+    # Analysis and interpretations will be reserved for child classes
 
     def __init__(self,
                  image_data=None,
                  integration_data=None,
                  map_shape=None,
                  image_shape=None,
+                 map_labels=None,
                  dtype=None,
                  title=None,
                  hdf_path=None,
                  hdf=None,
-                 wd=None,
                  ai=None,
                  sclr_dict=None,
                  null_map=None,
                  chunks=None,
                  corrections=None,
-                 dask_enabled=False):
+                 dask_enabled=False,
+                 hdf_type=None):
         
         if (image_data is None
             and integration_data is None
             and (map_shape is None
                  or image_shape is None)):
             raise ValueError('Must specify image_data, integration_data, or image and map shapes.')
+        
+        if hdf_path is None and hdf_type is None:
+            raise ValueError('Must specify hdf_type to use hdf.')
+        else:
+            self._hdf_type = hdf_type
         
         # Load image data
         if image_data is not None:
@@ -159,11 +168,12 @@ class ImageMap:
             
             else:
                 err_str = (f'Insufficient data provided to resolve '
-                           + f'image_data of shape ({integration_data.shape}).'
+                           + f'integration_data of shape ({integration_data.shape}).'
                            + ' 3D array is preferred input.')
                 raise ValueError(err_str)
         else:
             self.integrations = None
+            self.integrations_corrections = None
         
         # Some useful parameters
         if not hasattr(self, 'map_shape') or self.map_shape is not None:
@@ -194,15 +204,13 @@ class ImageMap:
                 self._get_optimal_chunks()
         
         # Working with the many iteraction of hdf
-        # Too much information to pass back and forth
         if isinstance(hdf, h5py._hl.files.File) and hdf_path is None:
             try:
                 hdf_path = hdf.filename
             except ValueError:
-                raise ValueError('ImageMap cannot be instantiated with closed hdf file!')
+                raise ValueError('XRDData cannot be instantiated with closed hdf file!')
         self.hdf = hdf
         self.hdf_path = hdf_path
-        # WARNING: if hdf or hdf_path are None, then they are copied None objects and not linked to the XRDMap attributes
 
         if dtype is None:
             if hasattr(self, 'images') and self.images is not None:
@@ -238,6 +246,14 @@ class ImageMap:
             null_map = np.zeros(self.map_shape, dtype=np.bool_)
         self.null_map = null_map
 
+        if map_labels is None:
+            self.map_labels = ['null_ind',
+                               'null_ind']
+        elif len(map_labels) != 2:
+            raise ValueError('Length of map_labels must be 2.')
+        else:
+            self.map_labels = map_labels
+
         # Should only trigger on first call to save images to hdf
         # Or if the title has been changed for some reason
         if self.hdf_path is not None:
@@ -261,13 +277,13 @@ class ImageMap:
 
             # Check for finalized images
             if self.title == 'final_images':
-                self._hdf_store = self.hdf['xrdmap/image_data/final_images']
+                self._hdf_store = self.hdf[f'{self._hdf_type}/image_data/final_images']
 
             # Otherwise set a temporary storage location in the hdf file
             else:
                 # Check for previously worked on data
                 if check_hdf_current_images('_temp_images', self.hdf_path, self.hdf):
-                    self._hdf_store = self.hdf['xrdmap/image_data/_temp_images']
+                    self._hdf_store = self.hdf[f'{self._hdf_type}/image_data/_temp_images']
                     # Change datatype and chunking to match previous _temp_images
                     if self.images.dtype != self._hdf_store.dtype:
                         self.images = self.images.astype(self._hdf_store.dtype)
@@ -284,22 +300,17 @@ class ImageMap:
                           + 'A temporary hdf storage dataset will be generated '
                           + 'when applying the first correction: dark_field.'))
     
-        if wd is None:
-            wd = os.getcwd()
-        self.wd = wd
         self.ai = ai
         self.sclr_dict = sclr_dict
-        self.map_labels = ['map_y_ind',
-                           'map_x_ind']
-    
+
 
     def __str__(self):
-        ostr = f'ImageMap: ({self.shape}), dtype={self.dtype}'
+        ostr = f'XRDData: ({self.shape}), dtype={self.dtype}'
         return ostr
 
     
     def __repr__(self):
-        ostr = 'ImageMap:'
+        ostr = f'XRDData:'
         ostr += f'\n\tshape:  {self.shape}'
         ostr += f'\n\tdtype:  {self.dtype}'
         ostr += f'\n\tstate:  {self.title}'
@@ -501,9 +512,9 @@ class ImageMap:
         dask_enabled = self._dask_enabled
 
         # Actually load the data
-        image_grp = self.hdf['xrdmap/image_data']
+        image_grp = self.hdf[f'{self._hdf_type}/image_data']
         if check_hdf_current_images(image_data_key, hdf=self.hdf):
-            del(self.images) # Delete previous images from ImageMap to save memory
+            del(self.images) # Delete previous images from XRDData to save memory
             img_dset = image_grp[image_data_key]
             
             if dask_enabled:
@@ -550,11 +561,6 @@ class ImageMap:
         self.map_shape = self.shape[:2]
         self.image_shape = self.shape[-2:]
         self.num_images = np.prod(self.map_shape)
-
-    
-    # For clearing up memory
-    def dump_ImageMap(self):
-        del self
     
     def dump_images(self):
         del self.images
@@ -658,7 +664,7 @@ class ImageMap:
 
             # Upcast before writing to hdf
             self.images = self.images.astype(np.float32)
-            self._hdf_store = self.hdf.require_dataset('xrdmap/image_data/_temp_images',
+            self._hdf_store = self.hdf.require_dataset(f'{self._hdf_type}/image_data/_temp_images',
                                         shape=self.images.shape,
                                         dtype=np.float32,
                                         chunks=self._chunks,
@@ -692,8 +698,8 @@ class ImageMap:
         self.images -= self.dark_field
 
         self.save_images(self.dark_field,
-                        'dark_field',
-                        units='counts')
+                         'dark_field',
+                         units='counts')
         
         self.corrections['dark_field'] = True
         self.update_map_title()
@@ -825,15 +831,19 @@ class ImageMap:
 
         if self._check_correction('outliers', override=override):
             return
-        print('Finding and correcting image outliers...', end='', flush=True)
-        self.images = find_outlier_pixels(self.images,
-                                          size=size,
-                                          tolerance=tolerance)
+        print('Finding and correcting image outliers...')
+        # self.images = find_outlier_pixels(self.images,
+        #                                   size=size,
+        #                                   tolerance=tolerance)
+        num_pixels_replaced = iterative_outlier_correction(
+                                    self.images,
+                                    size=size, 
+                                    tolerance=tolerance)
         
         self.corrections['outliers'] = True
         self.update_map_title()
         self._dask_2_hdf()
-        print('done!')
+        print(f'Done! Replaced {num_pixels_replaced} outlier pixels.')
 
 
     # No correction for defect mask, since it is used whenever mask is called
@@ -1079,8 +1089,11 @@ class ImageMap:
         # Check shape everytime
         scaler_arr = np.asarray(scaler_arr)
         if scaler_arr.shape != self.map_shape:
-            raise ValueError(f'''Scaler array of shape {scaler_arr.shape} does not 
-                            match the map shape of {self.map_shape}.''')
+            if 1 not in self.map_shape:
+                err_str = (f'Scaler array of shape {scaler_arr.shape}'
+                           + f' does not match the map shape of '
+                           + f'{self.map_shape}.')
+                raise ValueError(err_str)
    
         print(f'Normalizing images by {sclr_key} scaler...', end='', flush=True)
         self.images /= scaler_arr.reshape(*self.map_shape, 1, 1)
@@ -1201,14 +1214,15 @@ class ImageMap:
             print('done!')
 
 
-    def get_polar_mask(self, tth_num=None, chi_num=None, units='2th_deg'):
+    def get_polar_mask(self,
+                       tth_num=None,
+                       chi_num=None,
+                       units='2th_deg'):
 
         if tth_num is None:
             tth_num = self.tth_num
         if chi_num is None:
             chi_num = self.chi_num
-        if units is None:
-            units = self.calib_unit
 
         dummy_image = 100 * np.ones(self.image_shape)
 
@@ -1294,7 +1308,7 @@ class ImageMap:
         if (not override
             and hasattr(self, 'null_map')
             and self.null_map is not None):
-            msg_str = 'ImageMap already has null_map. Proceeding without changes.'
+            msg_str = 'Null map already exists. Proceeding without changes.'
             print(msg_str)
             return
         else:
@@ -1311,10 +1325,10 @@ class ImageMap:
 
             else:
                 if self.hdf is not None:
-                    raw_images = self.hdf['xrdmap/image_data/raw_images']
+                    raw_images = self.hdf[f'{self._hdf_type}/image_data/raw_images']
                 elif self.hdf_path is not None:
                     f = h5py.File(self.hdf_path, 'r')
-                    raw_images = f['xrdmap/image_data/raw_images']
+                    raw_images = f[f'{self._hdf_type}/image_data/raw_images']
                 else:
                     raise RuntimeError('Cannot determine null_map without raw_images or access to hdf.')
             
@@ -1324,10 +1338,6 @@ class ImageMap:
                 indices = np.unravel_index(index, self.map_shape)
                 if np.any(raw_images[indices] != 0):
                     null_map[indices] = False
-            # for i in range(raw_images.shape[0]):
-            #     for j in range(raw_images.shape[1]):
-            #         if np.any(raw_images[i, j] != 0):
-            #             null_map[i, j] = False
             
             self.null_map = np.asarray(null_map)
             self.save_images(self.null_map,
@@ -1338,7 +1348,7 @@ class ImageMap:
     
     def nullify_images(self):
         if not hasattr(self, 'null_map'):
-            raise AttributeError('ImageMap does not have null_map attribute.')
+            raise AttributeError('XRDData does not have null_map attribute.')
         elif not np.any(self.null_map):
             note_str = ('Null map is empty, there are no missing '
                         + 'pixels. Proceeding without changes')
@@ -1377,18 +1387,18 @@ class ImageMap:
                 if check_hdf_current_images('_temp_images', self.hdf_path, self.hdf):
                     # Save images to current store location. Should be _temp_images
                     self.save_images(title='_temp_images')
-                    temp_dset = self.hdf['xrdmap/image_data/_temp_images']
+                    temp_dset = self.hdf[f'{self._hdf_type}/image_data/_temp_images']
                     
                     # Must be done explicitly outside of self.save_images()
                     for key, value in self.corrections.items():
                         temp_dset.attrs[f'_{key}_correction'] = value
 
                     # Relabel to final images and del temp dataset
-                    self.hdf['xrdmap/image_data/final_images'] = temp_dset
+                    self.hdf[f'{self._hdf_type}/image_data/final_images'] = temp_dset
                     del temp_dset
 
                     # Remap store location. Should only reference data from now on
-                    self._hdf_store = self.hdf['xrdmap/image_data/final_images']
+                    self._hdf_store = self.hdf[f'{self._hdf_type}/image_data/final_images']
 
                 else:
                     self.save_images()
@@ -1567,13 +1577,12 @@ class ImageMap:
         # Return current map size which should be most of the memory usage
         # Helps to estimate file size too
         if dtype is None:
-            byte_size = self.images.dtype.itemsize
+            byte_size = self.images.itemsize
         else:
             try:
-                np.dtype(dtype)
                 byte_size = dtype().itemsize
             except TypeError as e:
-                raise e(f'dtype input of {dtype} is not numpy datatype.')
+                raise e(f'dtype input of {dtype} is not a numpy datatype.')
 
         disk_size = self.images.size * byte_size
         units = 'B'
@@ -1592,7 +1601,7 @@ class ImageMap:
         print(f'Diffraction map size is {disk_size:.3f} {units}.')
 
     # WIP apparently???
-    # This should probably not be in ImageMap anyway
+    # This should probably not be in XRDData anyway
     @staticmethod
     def estimate_disk_size(size):
         # External reference function to estimate map size before acquisition
@@ -1620,6 +1629,7 @@ class ImageMap:
                 labels.extend(['img_y', 'img_x'])
 
         elif len(arr_shape) == 2: # Image
+            labels = []
             if self.corrections['polar_calibration']:
                 labels.extend(['chi_ind', 'tth_ind'])
             else:
@@ -1665,7 +1675,7 @@ class ImageMap:
             if title[0] != '_':
                 title = f'_{title}'
         elif images.ndim != 4:
-            raise ValueError(f'Images input has {images.ndim} dimensions instead of 2 (image) or 4 (ImageMap).')
+            raise ValueError(f'Images input has {images.ndim} dimensions instead of 2 (image) or 4 (XRDData).')
         elif images.ndim == 4 and compression is None:
             compression = 'gzip'
             compression_opts = 4 # changed default from 8 to h5py default
@@ -1699,7 +1709,7 @@ class ImageMap:
             images = None
             dask_flag = True
 
-        img_grp = self.hdf['/xrdmap/image_data']
+        img_grp = self.hdf[f'{self._hdf_type}/image_data']
         
         if title not in img_grp.keys():
             dset = img_grp.require_dataset(
@@ -1771,7 +1781,7 @@ class ImageMap:
             if hasattr(self, 'integrations') and self.integrations is not None:
                 integrations = self.integrations
             else:
-                err_str = 'ImageMap does not have integrations and none have been given.'
+                err_str = 'XRDData does not have integrations and none have been given.'
                 raise ValueError(err_str)
         else:
             # This conditional is for single images mostly (e.g., dark-field)
@@ -1802,7 +1812,7 @@ class ImageMap:
         integrations_shape = integrations.shape
         integrations_dtype = integrations.dtype
 
-        int_grp = self.hdf['xrdmap'].require_group('integration_data')
+        int_grp = self.hdf[self._hdf_type].require_group('integration_data')
         
         if title not in int_grp.keys():
             dset = int_grp.require_dataset(

@@ -104,7 +104,17 @@ def rsm_spot_search(qs,
                     intensity,
                     nn_dist=0.025,
                     significance=0.1,
-                    subsample=1):
+                    subsample=1,
+                    label_int_method='mean'):
+    
+    if label_int_method.lower() in ['mean', 'avg', 'average']:
+        label_int_func = np.mean
+    elif label_int_method.lower() in ['sum', 'total']:
+        label_int_func = np.sum
+    else:
+        err_str = ("Unknown label_int_method. "
+                   + "'mean' or 'sum' are supported.")
+        raise ValueError(err_str)        
     
     new_qs = qs[::subsample]
     new_int = intensity[::subsample]
@@ -135,7 +145,9 @@ def rsm_spot_search(qs,
             found_labels = np.unique(labels[nn_idxs])
             found_labels = found_labels[~np.isnan(found_labels)]
             local_intensity = np.sum(new_int[nn_idxs]) / len(nn_idxs)
-            nearby_intensities = [np.sum(new_int[labels == label]) / np.sum(labels == label) for label in found_labels]
+            nearby_intensities = [np.sum(new_int[labels == label])
+                                  / np.sum(labels == label)
+                                  for label in found_labels]
 
             # Single round conversion of nearby labels' intensities
             for i, nearby_intensity in enumerate(nearby_intensities):
@@ -146,7 +158,9 @@ def rsm_spot_search(qs,
             # Re-find nearby intensities
             found_labels = np.unique(labels[nn_idxs])
             found_labels = found_labels[~np.isnan(found_labels)]
-            nearby_intensities = [np.sum(new_int[labels == label]) / np.sum(labels == label) for label in found_labels]
+            nearby_intensities = [np.sum(new_int[labels == label])
+                                  / np.sum(labels == label)
+                                  for label in found_labels]
 
             # Is the local itensity below the significance of nearby?
             if np.max(nearby_intensities) > (local_intensity / significance):
@@ -200,7 +214,7 @@ def rsm_spot_search(qs,
     # spots = [arbitrary_center_of_mass(intensity[labels == i], *qs[labels == i].T) for i in range(int(np.max(labels)) + 1)]
     # Ignores nan values
     spots = [arbitrary_center_of_mass(intensity[full_labels == val], *qs[full_labels == val].T) for val in np.unique(full_labels)[:-1]]
-    label_ints = [np.sum(intensity[full_labels == val]) for val in np.unique(full_labels)[:-1]]
+    label_ints = [label_int_func(intensity[full_labels == val]) for val in np.unique(full_labels)[:-1]]
 
     return full_labels, spots, label_ints
 

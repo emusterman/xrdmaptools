@@ -11,12 +11,14 @@ from itertools import product
 ##################
 
 
-def check_hdf_current_images(title, hdf_file=None, hdf=None):
+def check_hdf_current_images(title,
+                             hdf_file=None,
+                             hdf=None):
     if hdf is None and hdf_file is not None:
         with h5py.File(hdf_file, 'r') as f:
-            return title in f['/xrdmap/image_data']
+            return title in f[f'{list(f.keys())[0]}/image_data']
     elif hdf is not None:
-        return title in hdf['/xrdmap/image_data']
+        return title in hdf[f'{list(f.keys())[0]}/image_data']
     else:
         raise ValueError('Must specify hdf_file or hdf.')
     
