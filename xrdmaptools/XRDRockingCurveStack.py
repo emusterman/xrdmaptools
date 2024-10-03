@@ -456,37 +456,53 @@ class XRDRockingCurveStack(XRDBaseScan):
     def vectorize_images(self,
                          override=False):
 
-        if (not override or not hasattr(self, 'blob_masks')):
+        if not override and not hasattr(self, 'blob_masks'):
             raise ValueError('Must find 2D blobs first to avoid overly large datasets.')
         
         edges = ([[] for _ in range(12)])
-        full_q_arr = np.empty((self.num_images, 3, *self.image_shape),
-                            dtype=self.dtype)
-        for i, wavelength in tqdm(enumerate(self.wavelength),
-                                total=self.num_images):
-            q_arr = get_q_vect(self.tth_arr,
-                            self.chi_arr,
-                            wavelength=wavelength,
-                            degrees=self.polar_units == 'deg')
-            full_q_arr[i] = q_arr
 
-        edges = [None,] * 12
-        # First image edges
-        edges[0] = full_q_arr[0, :, 0, :]
-        edges[1] = full_q_arr[0, :, -1, :]
-        edges[2] = full_q_arr[0, :, :, 0]
-        edges[3] = full_q_arr[0, :, :, -1]
-        # Last image edges
-        edges[4] = full_q_arr[-1, :, 0, :]
-        edges[5] = full_q_arr[-1, :, -1, :]
-        edges[6] = full_q_arr[-1, :, :, 0]
-        edges[7] = full_q_arr[-1, :, :, -1]
-        # Image corners
-        edges[8] = full_q_arr[:, :, 0, 0].T
-        edges[9] = full_q_arr[:, :, 0, -1].T
-        edges[10] = full_q_arr[:, :, -1, 0].T
-        edges[11] = full_q_arr[:, :, -1, -1].T
+        # Resever memory, a little faster and throws errors sooner
+        q_vectors = np.zeros((np.sum(self.blob_masks), 3), dtype=self.dtype)
+
+        filled_indices = 0
+        for i, wavelength in tqdm(enumerate(self.wavelength), total=self.num_images):
+            q_arr = get_q_vect(self.tth_arr,
+                               self.chi_arr,
+                               wavelength=wavelength,
+                               degrees=self.polar_units == 'deg'
+                               ).astype(self.dtype)
+            
+            next_indices = np.sum(self.blob_masks[i])
+            # Fill q_vectors from q_arr
+            for idx in range(3):
+                q_vectors[filled_indices : filled_indices + next_indices,
+                        idx] = q_arr[idx][self.blob_masks[i].squeeze()]
+            filled_indices += next_indices
+
+            # Find edges
+            if i == 0:
+                edges[4] = q_arr[:, 0].T
+                edges[5] = q_arr[:, -1].T
+                edges[6] = q_arr[:, :, 0].T
+                edges[7] = q_arr[:, :, -1].T
+            elif i == len(self.wavelength) - 1:
+                edges[8] = q_arr[:, 0].T
+                edges[9] = q_arr[:, -1].T
+                edges[10] = q_arr[:, :, 0].T
+                edges[11] = q_arr[:, :, -1].T
+            else: # Corners
+                edges[0].append(q_arr[:, 0, 0])
+                edges[1].append(q_arr[:, 0, -1])
+                edges[2].append(q_arr[:, -1, 0])
+                edges[3].append(q_arr[:, -1, -1])
         
+        for i in range(4):
+            edges[i] = np.asarray(edges[i])
+        
+        # Assign useful variables
+        self.q_vectors = q_vectors
+        self.intensity = self.images[self.blob_masks] # A bit redundant; copies data
+
 
     #######################
     ### Blobs and Spots ###
