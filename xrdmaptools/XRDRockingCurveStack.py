@@ -9,6 +9,7 @@ import pandas as pd
 from copy import deepcopy
 from tqdm import tqdm
 import json
+import matplotlib.pyplot as plt
 
 # from .XRDMap import XRDMap
 # from .utilities.utilities import timed_iter
@@ -32,6 +33,10 @@ from xrdmaptools.io.hdf_io_rev import (
 from xrdmaptools.reflections.spot_blob_search import (
     find_blobs
     )
+from xrdmaptools.reflections.spot_blob_search_3d import (
+    rsm_blob_search,
+    rsm_spot_search
+)
 
 
 class XRDRockingCurveStack(XRDBaseScan):
@@ -500,6 +505,7 @@ class XRDRockingCurveStack(XRDBaseScan):
             edges[i] = np.asarray(edges[i])
         
         # Assign useful variables
+        self.edges = edges
         self.q_vectors = q_vectors
         self.intensity = self.images[self.blob_masks] # A bit redundant; copies data
 
@@ -543,46 +549,174 @@ class XRDRockingCurveStack(XRDBaseScan):
                                           'expansion' : expansion})
         
 
-        def find_3D_blobs(self,
-                          intensity_cutoff=0,
-                          override=False):
-            raise NotImplementedError()
-        
+    def find_3D_blobs(self,
+                      max_dist=0.05,
+                      max_neighbors=5,
+                      subsample=1,
+                      intensity_cutoff=0,
+                      override=False):
 
-        def find_3D_spots(self,
-                          intensity_cutoff=0,
-                          override=False):
-            raise NotImplementedError()
+        if not hasattr(self, 'q_vectors') or not hasattr(self, 'intensity'):
+            raise AttributeError('Cannot performe 3D spot search without first vectorizing images.')
+
+        int_mask = (self.intensity
+                    >= np.min(self.intensity) + intensity_cutoff
+                    * (np.max(self.intensity) - np.min(self.intensity)))
+                    
+        labels = rsm_blob_search(self.q_vectors[int_mask],
+                                 max_dist=max_dist,
+                                 max_neighbors=max_neighbors,
+                                 subsample=subsample)
+        
+        self.blob_labels = labels
+        
+    
+
+    def find_3D_spots(self,
+                      nn_dist=0.005,
+                      significance=0.1,
+                      subsample=1,
+                      intensity_cutoff=0,
+                      label_int_method='mean'
+                      ):
+
+        if not hasattr(self, 'q_vectors') or not hasattr(self, 'intensity'):
+            raise AttributeError('Cannot performe 3D spot search without first vectorizing images.')
+
+        int_mask = (self.intensity
+                    >= np.min(self.intensity) + intensity_cutoff
+                    * (np.max(self.intensity) - np.min(self.intensity)))
+
+        (spot_labels,
+        spots,
+        label_ints) = rsm_spot_search(self.q_vectors[int_mask],
+                                        self.intensity[int_mask],
+                                        nn_dist=nn_dist,
+                                        significance=significance,
+                                        subsample=subsample)
+
+        self.spot_labels = spot_labels
+        self.spots_3d = spots
+        self.spot_ints = label_ints
 
 
     ###########################################
     ### Indexing, Corrections, and Analysis ###
     ###########################################
 
-    def pair_casting_indexing(self):
+    def index_spots(self,
+                    spots=None,
+                    spot_intensity_cut_off=0,
+                    method='pair_casting',
+                    **kwargs
+                    ):
         raise NotImplementedError()
 
-    # Indexing
-
     # Strain math
+    def get_strain_orientation(self):
+        raise NotImplementedError()
 
-    # 3D plotting
+    
+    def get_zero_point_correction():
+        raise NotImplementedError()
 
     ##########################
     ### Plotting Functions ###
     ##########################
 
-    def plot_image_stack(self,):
+    def plot_image_stack(self,
+                         return_plot=False):
+        raise NotImplementedError()
+        
+        fig, ax = base_slider_plot()
+
+        if return_plot:
+            return fig, ax
+        else:
+            fig.show()
+
+    
+    def plot_3D_scatter(self,
+                        skip=None,
+                        q_vectors=None,
+                        intensity=None,
+                        edges=None,
+                        return_plot=False,
+                        **kwargs
+                        ):
+
+        fig, ax = plt.subplots(1, 1, 
+                               figsize=(5, 5),
+                               dpi=200,
+                               subplot_kw={'projection':'3d'})
+
+        if q_vectors is None and hasattr(self, 'q_vectors'):
+            q_vectors = self.q_vectors
+        else:
+            err_str = 'Must provide or already have q_vectors.'
+            raise ValueError(err_str)
+        
+        if intensity is None and hasattr(self, 'intensity'):
+            intensity = self.intensity
+        else:
+            err_str = 'Must provide or already have intensity.'
+            raise ValueError(err_str)
+        
+        if edges is None and hasattr(self, 'edges'):
+            edges = self.edges
+        
+        if skip is None:
+            skip = np.round(len(q_vectors) / 5000, 0).astype(int) # skips to about 5000 points
+        
+        kwargs.setdefault('s', 1)
+        kwargs.setdefault('cmap', 'viridis')
+        kwargs.setdefault('alpha', 0.1)
+
+        ax.scatter(*q_vectors[::skip].T, c=intensity[::skip], **kwargs)
+
+        for edge in edges:
+            ax.plot(*edge.T, c='gray', lw=1)
+
+        ax.set_xlabel('qx [Å⁻¹]')
+        ax.set_ylabel('qy [Å⁻¹]')
+        ax.set_zlabel('qz [Å⁻¹]')
+        ax.set_aspect('equal')
+
+        if return_plot:
+            return fig, ax
+        else:
+            fig.show()        
+
+
+    def plot_isosurfaces_volume(self,):
         raise NotImplementedError()
 
     
-    def plot_3D_scatter(self,):
-        raise NotImplementedError()
+    def plot_sampled_volume_edges(self,
+                                  edges=None,
+                                  return_plot=False):
 
+        if edges is None and hasattr(self, edges):
+            edges = self.edges
+        else:
+            err_st= ('Cannot plot sampled volume '
+                     + 'without given or known edges!')
+            raise ValueError(err_str)
+        
+        fig, ax = plt.subplots(1, 1, 
+                               figsize=(5, 5),
+                               dpi=200,
+                               subplot_kw={'projection':'3d'})
 
-    def plot_3D_volume(self,):
-        raise NotImplementedError()
+        for edge in edges:
+            ax.plot(*edge.T, c='gray', lw=1)
 
-    
-    def plot_3D_sampled_outline(self,):
-        raise NotImplementedError()
+        ax.set_xlabel('qx [Å⁻¹]')
+        ax.set_ylabel('qy [Å⁻¹]')
+        ax.set_zlabel('qz [Å⁻¹]')
+        ax.set_aspect('equal')
+
+        if return_plot:
+            return fig, ax
+        else:
+            fig.show()

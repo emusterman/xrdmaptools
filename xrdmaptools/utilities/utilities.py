@@ -213,10 +213,24 @@ def delta_array(arr):
 
 
 def vector_angle(v1, v2, degrees=False):
-    angle = np.arccos(np.dot(v1, v2) / (np.linalg.norm(v1, axis=-1) *  np.linalg.norm(v2, axis=-1)))
+    angle = np.arccos(np.dot(v1, v2)
+                      / (np.linalg.norm(v1, axis=-1)
+                         *  np.linalg.norm(v2, axis=-1)))
     if degrees:
         angle = np.degrees(angle)
     return angle
+
+def mutli_vector_angle(v1s, v2s, degrees=False):
+    v1_units = v1s / np.linalg.norm(v1s, axis=1).reshape(-1, 1)
+    v2_units = v2s / np.linalg.norm(v2s, axis=1).reshape(-1, 1)
+
+    # Not happy about the round. This is not perfect...
+    angles = np.arccos(np.inner(v1_units, v2_units).round(6))
+
+    if degrees:
+        angles = np.degrees(angles)
+    
+    return angles
 
 
 def vprint(message, **kwargs):

@@ -15,6 +15,12 @@ def rsm_blob_search(qs,
                     max_neighbors=4,
                     subsample=1):
 
+    if (subsample % int(subsample) != 0
+        or subsample < 1):
+        err_str = ("'subsample' kwarg must be whole number "
+                   + "greater than zero.")
+        raise ValueError(err_str)
+
     if max_neighbors < 4:
         print('WARNING: max_neighbors < 4 can lead to unexpected behavior.')
     
@@ -52,8 +58,8 @@ def rsm_blob_search(qs,
                 labels[labels == label] = min_label
 
     delayed_list = []
-    print('Scheduling blob search...')
-    for i in tqdm(range(len(new_qs))):
+    # print('Scheduling blob search...')
+    for i in range(len(new_qs)):
         # Check to see if already labeled
         if not np.isnan(labels[i]):
             continue
@@ -106,6 +112,12 @@ def rsm_spot_search(qs,
                     significance=0.1,
                     subsample=1,
                     label_int_method='mean'):
+
+    if (subsample % int(subsample) != 0
+        or subsample < 1):
+        err_str = ("'subsample' kwarg must be whole number "
+                   + "greater than zero.")
+        raise ValueError(err_str)
     
     if label_int_method.lower() in ['mean', 'avg', 'average']:
         label_int_func = np.mean
@@ -211,12 +223,13 @@ def rsm_spot_search(qs,
     else:
         full_labels = labels
 
-    # spots = [arbitrary_center_of_mass(intensity[labels == i], *qs[labels == i].T) for i in range(int(np.max(labels)) + 1)]
     # Ignores nan values
-    spots = [arbitrary_center_of_mass(intensity[full_labels == val], *qs[full_labels == val].T) for val in np.unique(full_labels)[:-1]]
-    label_ints = [label_int_func(intensity[full_labels == val]) for val in np.unique(full_labels)[:-1]]
+    spots = [arbitrary_center_of_mass(intensity[full_labels == val], *qs[full_labels == val].T)
+             for val in np.unique(full_labels)[:-1]]
+    label_ints = [label_int_func(intensity[full_labels == val])
+                  for val in np.unique(full_labels)[:-1]]
 
-    return full_labels, spots, label_ints
+    return full_labels, np.asarray(spots), np.asarray(label_ints)
 
 
 def rsm_characterize_spots():
