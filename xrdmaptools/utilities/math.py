@@ -2,11 +2,9 @@ import numpy as np
 import scipy.constants as constants
 
 
-#############################
-### Fundamental Relations ###
-#############################
-# TODO: Wrap conversion functions inside a class
-# Or maybe not...
+###################################
+### Fundamental X-ray Relations ###
+###################################
 
 def energy_2_wavelength(energy):
     # Convert energy into keV
@@ -42,6 +40,52 @@ def tth_2_q(tth, wavelength, radians=False, n=1):
 def q_2_tth(q, wavelength, radians=False, n=1):
     return d_2_tth(convert_qd(q), wavelength, radians=radians, n=n) # Returns |q|
 
+########################
+### Vector Functions ###
+########################
+
+def vector_angle(v1, v2, degrees=False):
+    angle = np.arccos(np.dot(v1, v2)
+                      / (np.linalg.norm(v1, axis=-1)
+                         *  np.linalg.norm(v2, axis=-1)))
+    if degrees:
+        angle = np.degrees(angle)
+    return angle
+
+
+def mutli_vector_angle(v1s, v2s, degrees=False):
+    v1_units = v1s / np.linalg.norm(v1s, axis=1).reshape(-1, 1)
+    v2_units = v2s / np.linalg.norm(v2s, axis=1).reshape(-1, 1)
+
+    # Not happy about the round. This is not perfect...
+    angles = np.arccos(np.inner(v1_units, v2_units).round(6))
+
+    if degrees:
+        angles = np.degrees(angles)
+    
+    return angles
+
+
+########################
+### Useful Functions ###
+########################
+
+def arbitrary_center_of_mass(weights, *args):
+
+    weights = np.asarray(weights)
+    for i, arg in enumerate(args):
+        arg = np.asarray(arg)
+        if weights.shape != arg.shape:
+            raise ValueError(f'Shape of arg {i + 1} does not match shape of weights!')
+        
+    val_list = []
+    for arg in args:
+        arg = np.asarray(arg)
+        val = np.dot(weights.ravel(), arg.ravel()) / np.sum(weights)
+        val_list.append(val)
+
+    return tuple(val_list)
+
 
 #####################################
 ### Fitting Convenience Functions ###
@@ -66,6 +110,9 @@ def check_precision(*dtypes):
         info.append(val)
     return info
 
+#######################
+### Other Functions ###
+#######################
 
 def circular_mask(shape, center, radius):
 
@@ -85,7 +132,10 @@ def plane_eq(xy, a, b, c):
     y = xy[1]
 
     return a * x + b * y + c
-    
+
+#####################
+### Ray Functions ###
+#####################
 
 class k_vector():
     # Class for working diffracted rays as parametric lines
@@ -161,7 +211,6 @@ def lstsq_line_intersect(P0, P1):
 
 
 def det_plane_from_ai(ai, skip=None):
-
 
     num_pixels = np.prod(*ai.detector.shape)
 

@@ -179,23 +179,6 @@ def combine_nearby_spots(spots, *weights, max_dist, max_neighbors=np.inf):
     return combined_spots, combined_weights
 
 
-def arbitrary_center_of_mass(weights, *args):
-
-    weights = np.asarray(weights)
-    for i, arg in enumerate(args):
-        arg = np.asarray(arg)
-        if weights.shape != arg.shape:
-            raise ValueError(f'Shape of arg {i + 1} does not match shape of weights!')
-        
-    val_list = []
-    for arg in args:
-        arg = np.asarray(arg)
-        val = np.dot(weights.ravel(), arg.ravel()) / np.sum(weights)
-        val_list.append(val)
-
-    return tuple(val_list)
-
-
 def delta_array(arr):
     # Returns the geometric mean of the delta array
     sobel_h = sobel(arr, 0)  # horizontal gradient
@@ -212,25 +195,33 @@ def delta_array(arr):
     return magnitude
 
 
-def vector_angle(v1, v2, degrees=False):
-    angle = np.arccos(np.dot(v1, v2)
-                      / (np.linalg.norm(v1, axis=-1)
-                         *  np.linalg.norm(v2, axis=-1)))
-    if degrees:
-        angle = np.degrees(angle)
-    return angle
+def rescale_array(arr, lower=0, upper=1, arr_min=None, arr_max=None, mask=None):
+    # Works for arrays of any size including images!
 
-def mutli_vector_angle(v1s, v2s, degrees=False):
-    v1_units = v1s / np.linalg.norm(v1s, axis=1).reshape(-1, 1)
-    v2_units = v2s / np.linalg.norm(v2s, axis=1).reshape(-1, 1)
-
-    # Not happy about the round. This is not perfect...
-    angles = np.arccos(np.inner(v1_units, v2_units).round(6))
-
-    if degrees:
-        angles = np.degrees(angles)
+    if mask is not None:
+        arr[~mask] = np.nan
+    if arr_min is None:
+        arr_min = np.nanmin(arr)
+    if arr_max is None:
+        arr_max = np.nanmax(arr)
+        if upper is None:
+            upper = arr_max
     
-    return angles
+    ext = upper - lower
+    
+    # Copied array operation
+    #scaled_arr = lower + ext * ((arr - arr_min) / (arr_max - arr_min))
+    
+    # In-place operation. Much faster
+    arr -= arr_min
+    arr /= (arr_max - arr_min)
+    arr *= ext
+    arr += lower
+
+    if mask is not None:
+        arr[~mask] = 0
+
+    return arr # I don't really need to return the array after this...
 
 
 def vprint(message, **kwargs):

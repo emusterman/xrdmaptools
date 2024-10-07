@@ -12,7 +12,6 @@ from tqdm import tqdm
 
 # Local imports
 from xrdmaptools.XRDBaseScan import XRDBaseScan
-from xrdmaptools.utilities.math import *
 from xrdmaptools.utilities.utilities import (
     pathify,
     _check_dict_key
@@ -20,9 +19,6 @@ from xrdmaptools.utilities.utilities import (
 from xrdmaptools.io.hdf_utils import (
     get_large_map_slices
 )
-from xrdmaptools.io.hdf_io_rev import (
-    load_xrdbase_hdf
-    )
 from xrdmaptools.io.db_io import load_data
 from xrdmaptools.reflections.spot_blob_indexing import _initial_spot_analysis
 from xrdmaptools.reflections.SpotModels import GaussianFunctions
@@ -41,7 +37,6 @@ from xrdmaptools.plot.interactive_plotting import (
 from xrdmaptools.plot.general import (
     plot_map,
     )
-from xrdmaptools.geometry.geometry import *
 
 
 class XRDMap(XRDBaseScan):
@@ -68,8 +63,6 @@ class XRDMap(XRDBaseScan):
         self.pos_dict = None
         if pos_dict is not None:
             self.set_positions(pos_dict)
-
-        
 
         # Save xrf_path location. Do not load unless explicitly called
         self.xrf_path = xrf_path

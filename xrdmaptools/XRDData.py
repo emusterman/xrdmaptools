@@ -9,10 +9,10 @@ import dask.array as da
 # Local imports
 from xrdmaptools.io.hdf_utils import check_hdf_current_images, get_optimal_chunks
 from xrdmaptools.utilities.math import check_precision
+from xrdmaptools.utilities.utilities import rescale_array
 from xrdmaptools.utilities.image_corrections import (
     find_outlier_pixels,
     iterative_outlier_correction,
-    rescale_array
     )
 from xrdmaptools.utilities.background_estimators import (
     fit_spline_bkg,

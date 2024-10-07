@@ -19,7 +19,10 @@ from xrdmaptools.utilities.math import (
     energy_2_wavelength,
     wavelength_2_energy
 )
-from xrdmaptools.geometry.geometry import get_q_vect
+from xrdmaptools.geometry.geometry import (
+    get_q_vect,
+    q_2_polar
+)
 from xrdmaptools.io.db_io import (
     get_scantype,
     load_energy_rc_data,
@@ -569,6 +572,7 @@ class XRDRockingCurveStack(XRDBaseScan):
                                  subsample=subsample)
         
         self.blob_labels = labels
+        self.blob_int_mask = int_mask
         
     
 
@@ -595,9 +599,28 @@ class XRDRockingCurveStack(XRDBaseScan):
                                         significance=significance,
                                         subsample=subsample)
 
+        tth, chi, wavelength = q_2_polar(spots, degrees=(rsm.polar_units == 'deg'))
+
+        temp_dict = {
+            'intensity' : label_ints,
+            'qx' : spots[:, 0],
+            'qy' : spots[:, 1],
+            'qz' : spots[:, 2],
+            'tth' : tth,
+            'chi' : chi,
+            'wavelength': wavelength,
+            # 'theta' : theta
+            }
+
+        # Save 3d spots similar to 3d spots
+        spots_3d = pd.DataFrame.from_dict(temp_dict)
+        rsm.spots_3d = spots_3d
+        del temp_dict, spots, label_ints
+
+        # Information for rebuilding spots
+        # from vectorized images
         self.spot_labels = spot_labels
-        self.spots_3d = spots
-        self.spot_ints = label_ints
+        self.spot_int_mask = int_mask
 
 
     ###########################################
@@ -650,27 +673,41 @@ class XRDRockingCurveStack(XRDBaseScan):
                                dpi=200,
                                subplot_kw={'projection':'3d'})
 
-        if q_vectors is None and hasattr(self, 'q_vectors'):
-            q_vectors = self.q_vectors
+        if q_vectors is None:
+            if hasattr(self, 'q_vectors'):
+                q_vectors = self.q_vectors
+            else:
+                err_str = 'Must provide or already have q_vectors.'
+                raise ValueError(err_str)
         else:
-            err_str = 'Must provide or already have q_vectors.'
-            raise ValueError(err_str)
+            q_vectors = np.asarray(q_vectors)
         
-        if intensity is None and hasattr(self, 'intensity'):
-            intensity = self.intensity
+        if intensity is None:
+            if hasattr(self, 'intensity'):
+                intensity = self.intensity
+            else:
+                err_str = 'Must provide or already have intensity.'
+                raise ValueError(err_str)
         else:
-            err_str = 'Must provide or already have intensity.'
-            raise ValueError(err_str)
+            intensity = np.asarray(intensity)
         
         if edges is None and hasattr(self, 'edges'):
             edges = self.edges
+        else:
+            edges = []
         
         if skip is None:
             skip = np.round(len(q_vectors) / 5000, 0).astype(int) # skips to about 5000 points
+            if skip == 0:
+                skip = 1
         
         kwargs.setdefault('s', 1)
         kwargs.setdefault('cmap', 'viridis')
         kwargs.setdefault('alpha', 0.1)
+
+        if 'title' in kwargs:
+            title = kwargs.pop('title')
+            ax.set_title(title)
 
         ax.scatter(*q_vectors[::skip].T, c=intensity[::skip], **kwargs)
 
@@ -696,12 +733,13 @@ class XRDRockingCurveStack(XRDBaseScan):
                                   edges=None,
                                   return_plot=False):
 
-        if edges is None and hasattr(self, edges):
-            edges = self.edges
-        else:
-            err_st= ('Cannot plot sampled volume '
-                     + 'without given or known edges!')
-            raise ValueError(err_str)
+        if edges is None:
+            if hasattr(self, edges):
+                edges = self.edges
+            else:
+                err_st= ('Cannot plot sampled volume '
+                        + 'without given or known edges!')
+                raise ValueError(err_str)
         
         fig, ax = plt.subplots(1, 1, 
                                figsize=(5, 5),

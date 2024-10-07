@@ -23,16 +23,21 @@ import dask.array as da
 from collections import OrderedDict
 
 # Local imports
-from ..utilities.math import circular_mask, compute_r_squared
-from ..utilities.utilities import arbitrary_center_of_mass, label_nearest_spots
-from ..utilities.image_corrections import rescale_array
+from ..utilities.math import (
+    circular_mask,
+    compute_r_squared,
+    arbitrary_center_of_mass
+)
+from ..utilities.utilities import (
+    label_nearest_spots,
+    rescale_array
+)
 from ..geometry.geometry import (
     estimate_image_coords,
     estimate_polar_coords,
     modular_azimuthal_shift,
     modular_azimuthal_reshift
 )
-
 from .SpotModels import generate_bounds
 
 

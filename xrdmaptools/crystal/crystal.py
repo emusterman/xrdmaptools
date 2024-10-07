@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 from itertools import combinations
 
 # Local imports
-from ..utilities.utilities import vector_angle
+from xrdmaptools.utilities.math import vector_angle
 
 # Assumption that all angles are in radians...
 # Reciprocal space WITHOUT the 2 * pi factor of q-space
@@ -136,7 +136,9 @@ class LatticeParameters():
 
     def __repr__(self):
         ostr = f'|a = {self.a:.6f}\t|b = {self.b:.6f}\t|c = {self.c:.6f}'
-        ostr += f'|alpha = {np.degrees(self.alpha):.3f}\t|beta = {np.degrees(self.beta):.3f} \t|gamma = {np.degrees(self.gamma):.3f}'
+        ostr += (f'|alpha = {np.degrees(self.alpha):.3f}'
+                 + f'\t|beta = {np.degrees(self.beta):.3f}'
+                 + f'\t|gamma = {np.degrees(self.gamma):.3f}')
         return ostr
     
     ####################
@@ -196,10 +198,9 @@ class LatticeParameters():
     
 
     @classmethod
-    # Broken!!!!
-    def from_UBmat(cls, UBmat):
-        Ur_vec = cls.mat_2_vec(UBmat) # rotation maintained
-        r_params = cls.vec_2_const(*Ur_vec) # rotation lost
+    def from_reciprocal_stretch_tensor(cls, B):
+        Ur_vec = cls.mat_2_vec(B)
+        r_params = cls.vec_2_const(*Ur_vec)
         return cls.from_rec_const(*r_params)
     
     ########################

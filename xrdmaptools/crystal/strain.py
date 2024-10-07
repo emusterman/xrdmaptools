@@ -33,7 +33,7 @@ def get_strain_orientation(q_vectors,
     U, B = linalg.polar(UBmat, side='right')
 
     # Build strained lattice paremeters from right-stretch tensor
-    strained = LatticeParameters.from_UBmat(B) # rename this!!!
+    strained = LatticeParameters.from_reciprocal_stretch_tensor(B)
 
     # Get transformation matrix between strained and unstrained lattices
     Tij = np.dot(strained.Amat, linalg.inv(unsrained.Amat))

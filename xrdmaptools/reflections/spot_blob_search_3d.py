@@ -5,7 +5,7 @@ import dask
 from tqdm.dask import TqdmCallback
 
 # Local Imports
-from xrdmaptools.utilities.utilities import arbitrary_center_of_mass
+from xrdmaptools.utilities.math import arbitrary_center_of_mass
 
 
 

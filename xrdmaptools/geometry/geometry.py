@@ -3,7 +3,8 @@ from scipy.interpolate import griddata
 from scipy.interpolate import RegularGridInterpolator
 
 # Local imports
-from xrdmaptools.utilities.utilities import vector_angle, delta_array
+from xrdmaptools.utilitis.math import vector_angle
+from xrdmaptools.utilities.utilities import delta_array
 
 
 # TODO: a lot
@@ -45,13 +46,6 @@ def get_q_vect(tth, chi, wavelength, return_kf=False, degrees=False):
     q_vect = 2 * np.pi / wavelength * delta_k
 
     return q_vect
-
-
-def vector_angle(v1, v2, degrees=False):
-    angle = np.arccos(np.dot(v1, v2) / (np.linalg.norm(v1, axis=-1) *  np.linalg.norm(v2, axis=-1)))
-    if degrees:
-        angle = np.degrees(angle)
-    return angle
 
 
 def q_2_polar(q_vect, wavelength=None, degrees=False):
@@ -295,6 +289,26 @@ def modular_azimuthal_reshift(arr, max_arr=None):
 
     return arr
 
+
+def det_plane_from_ai(ai, skip=None):
+
+
+    num_pixels = np.prod(*ai.detector.shape)
+
+    if skip is None:
+        # skip to about 2500 points
+        skip = np.round(np.sqrt(num_pixels
+                                / 2500), 0).astype(int)
+
+    # 2, 1, 0 order to adjust to NSLS-II coordinate system
+    points = np.asarray([ai.position_array()[::skip, ::skip, i].ravel()
+                         for i in [2, 1, 0]])
+
+    d = np.mean(points, axis=1, keepdims=True)
+    svd = np.linalg.svd(points - d)
+
+    # Return plane normal n = (a, b, c) and point (d)
+    return svd[0][:, -1], d.squeeze()
 
 
 

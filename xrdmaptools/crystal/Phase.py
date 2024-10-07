@@ -10,8 +10,11 @@ from matplotlib.widgets import Slider
 from collections import OrderedDict
 
 # Local imports
-from ..utilities.math import *
-from ..utilities.image_corrections import rescale_array
+from xrdmaptools.utilities.math import (
+    tth_2_q,
+    vector_angle
+)
+from xrdmaptools.utilities.utilities import rescale_array
 
 
 
@@ -148,7 +151,11 @@ class Phase(xu.materials.Crystal):
 
 
     # May need to add a conditional to pass this function if Phase generated from XRD card
-    def get_hkl_reflections(self, tth_range=None, energy=None, ignore_less=1, save_reflections=True):
+    def get_hkl_reflections(self,
+                            tth_range=None,
+                            energy=None,
+                            ignore_less=1,
+                            save_reflections=True):
         if energy is None:
             if hasattr(self, 'energy'):
                 energy = self.energy
@@ -206,8 +213,28 @@ class Phase(xu.materials.Crystal):
             self.reflections = data
         else:
             return data
-    
 
+    # Returns full recirpocal lattice
+    # TODO: all qmin trimming
+    def generate_reciprocal_lattice(qmax=None,
+                                    return_values=True):
+
+        if qmax is None:
+            q_max = tth_2_q(self.tth_range[1], wavelength=self.wavelength)
+
+        all_hkls = list(self.lattice.get_allowed_hkl(qmax=qmax))
+        all_qs = self.Q(all_hkls)
+        all_fs = np.abs(self.StructureFactor(all_qs))**2
+        rescale_array(all_fs, arr_min = 0, upper=100)
+
+        self.all_hkls = all_hkls
+        self.all_qs = all_qs
+        self.all_fs = all_fs
+
+        if return_values:
+            return self.all_hkls, self.all_qs, self.all_fs
+
+    
     def planeDistances(self, hkl_lst):
         # Re-write of planeDistance to accomadate multiple plances at once
         return 2 * np.pi / np.linalg.norm(self.Q(hkl_lst), axis=1)
@@ -427,48 +454,6 @@ def phase_selector(xrd, phases, tth, ignore_less=1):
     return phase_vals
 
 
-# TODO: implement into Phase class
-# Allow for trimming a qmin value
-# Add builtin conversion from tth to q extrema
-def generate_reciprocal_lattice(phase, qmax):
-    # Example
-    # all_hkls, all_qs, all_fs = generate_reciprocal_lattice(test.phases['Stibnite'],
-                                #tth_range=(np.min(test.tth_arr), np.max(test.tth_arr)))
-
-    # qmax=tth_2_q(tth_range[1], wavelength=test.wavelength)
-
-    all_hkls = list(phase.lattice.get_allowed_hkl(qmax=qmax))
-    all_qs = phase.Q(all_hkls)
-    all_fs = np.abs(phase.StructureFactor(all_qs))**2
-    rescale_array(all_fs, arr_min = 0, upper=100)
-
-    return all_hkls, all_qs, all_fs
-
-
-'''def generate_reciprocal_lattice(phase, tth_range=(0, 90)):
-    # Example
-    # all_hkls, all_qs, all_fs = generate_reciprocal_lattice(test.phases['Stibnite'],
-                                #tth_range=(np.min(test.tth_arr), np.max(test.tth_arr)))
-
-    reflections = phase.get_hkl_reflections(tth_range=tth_range, save_reflections=False)
-
-    all_hkls = []
-    all_qs = []
-    all_fs = []
-    for refl in reflections['hkl']:
-        equi_refl = phase.lattice.equivalent_hkls(refl)
-
-        for refl_i in equi_refl:
-            all_hkls.append(refl_i)
-            all_qs.append(phase.Q(refl_i))
-            # Q values are in 1/A
-
-    all_fs = np.abs(phase.StructureFactorForQ(all_qs, en0=phase.energy))
-    all_fs = rescale_array(all_fs, lower=1, upper=100)
-
-    return all_hkls, all_qs, all_fs'''
-
-
  # Unused
 def find_label_peaks(theta, intensity, phase):
     '''
@@ -494,55 +479,3 @@ def find_label_peaks(theta, intensity, phase):
         print(f'Peak indexed as\t{tuple(phase["HKL Reflection"][min_ref_ind])}')
         print(f'Peak is {min_ref:.4f}° away.')
     
-    
-##################
-### Deprecated ###   
-##################
-    
-'''def phase_selector(xrd_plot, phases):
-    # Re-write to accept list of possible phases
-
-    fig, ax = plt.subplots()
-
-    xrd_two_theta = xrd_plot[0]
-    xrd_intensities = xrd_plot[1]
-
-    phase_two_theta = phases['2th Angles'][:]
-    phase_intensities = phases['Intensities'][:]
-    
-    phase_mask = (phase_two_theta <= np.max(xrd_two_theta)) & (phase_two_theta >= np.min(xrd_two_theta))
-    phase_scale = np.max(xrd_intensities) / np.max(phase_intensities[phase_mask])
-
-    xrd_plot = ax.plot(xrd_two_theta, xrd_intensities, label='XRD Spectra')
-    phase_plot = ax.vlines(phase_two_theta, ymin=0, ymax=phase_intensities * phase_scale, colors='k', alpha=0.5, label='Phase')
-
-    ax.set_xlim(0.975 * np.min(xrd_two_theta), 1.025 * np.max(xrd_two_theta))
-    ax.set_ylim(0, 1.15 * np.max(xrd_intensities))
-    ax.set_title("XRD Pattern for " + stibnite.name)
-    ax.set_xlabel("2 theta [degrees]")
-    ax.set_ylabel("Relative Intensity [%]")
-    ax.set_title('Click on legend line to toggle line on/off')
-    leg = ax.legend(fancybox=True, shadow=True)
-
-    lines = [xrd_plot, phase_plot]
-    lined = {}  # Will map legend lines to original lines.
-    for legline, origline in zip(leg.get_lines(), lines):
-        legline.set_picker(True)  # Enable picking on the legend line.
-        lined[legline] = origline
-
-
-    def on_pick(event):
-        # On the pick event, find the original line corresponding to the legend
-        # proxy line, and toggle its visibility.
-        legline = event.artist
-        origline = lined[legline]
-        if origline == xrd_plot:
-            return
-        visible = not origline.get_visible()
-        origline.set_visible(visible)
-        # Change the alpha on the line in the legend, so we can see what lines
-        # have been toggled.
-        legline.set_alpha(1.0 if visible else 0.2)
-        fig.canvas.draw()
-
-    fig.canvas.mpl_connect('pick_event', on_pick)'''
