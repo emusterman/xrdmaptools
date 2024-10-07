@@ -53,7 +53,7 @@ def vector_angle(v1, v2, degrees=False):
     return angle
 
 
-def mutli_vector_angle(v1s, v2s, degrees=False):
+def mutli_vector_angles(v1s, v2s, degrees=False):
     v1_units = v1s / np.linalg.norm(v1s, axis=1).reshape(-1, 1)
     v2_units = v2s / np.linalg.norm(v2s, axis=1).reshape(-1, 1)
 
@@ -132,6 +132,20 @@ def plane_eq(xy, a, b, c):
     y = xy[1]
 
     return a * x + b * y + c
+
+
+# Higher order polynomial for generic curve fitting
+def general_polynomial(x, *args):
+
+    order = len(args) - 1
+
+    y = 0
+    for i, arg in enumerate(args):
+        y += arg * x**(order - i)
+
+    return y
+
+
 
 #####################
 ### Ray Functions ###
