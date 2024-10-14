@@ -9,7 +9,9 @@ import pandas as pd
 from copy import deepcopy
 from tqdm import tqdm
 import json
+import time as ttime
 import matplotlib.pyplot as plt
+from plotly import graph_objects as go
 
 # from .XRDMap import XRDMap
 # from .utilities.utilities import timed_iter
@@ -19,6 +21,7 @@ from xrdmaptools.utilities.math import (
     energy_2_wavelength,
     wavelength_2_energy
 )
+from xrdmaptools.crystal.rsm import map_2_grid
 from xrdmaptools.geometry.geometry import (
     get_q_vect,
     q_2_polar
@@ -36,10 +39,11 @@ from xrdmaptools.io.hdf_io_rev import (
 from xrdmaptools.reflections.spot_blob_search import (
     find_blobs
     )
-from xrdmaptools.reflections.spot_blob_search_3d import (
+from xrdmaptools.reflections.spot_blob_search_3D import (
     rsm_blob_search,
     rsm_spot_search
 )
+from xrdmaptools.plot.image_stack import base_slider_plot
 
 
 class XRDRockingCurveStack(XRDBaseScan):
@@ -49,49 +53,64 @@ class XRDRockingCurveStack(XRDBaseScan):
 
     def __init__(self,
                  image_data=None,
+                 image_shape=None,
+                 map_shape=None,
                  sclr_dict=None,
                  **xrdbasekwargs
                  ):
+
+        if (image_data is None
+            and (map_shape is None
+                 or image_shape is None)):
+            raise ValueError('Must specify image_data, or image and map shapes.')
         
-        # Parse image_data into useble format
-        image_data = np.asarray(image_data)
-        data_ndim = image_data.ndim
-        data_shape = image_data.shape 
+        if image_data is not None:
+            # Parse image_data into useble format
+            image_data = np.asarray(image_data)
+            data_ndim = image_data.ndim
+            data_shape = image_data.shape 
 
-        if data_ndim == 3: # Most likely
-            if np.any(data_shape == 1):
-                err_str = (f'image_data shape is {data_shape}. '
-                          + 'For 3D data, no axis should equal 1.')
-                raise ValueError(err_str)
-        elif data_ndim == 4: # This will work with standard hdf formatting
-            if np.all(data_shape[:2] == 1):
-                err_str = (f'image_data shape is {data_shape}. '
-                          + 'For 4D data, first two axes cannot both equal 1.')
-                raise ValueError(err_str)
-            elif (data_shape[0] == 1 or data_shape[1] != 1):
-                image_data = image_data.swapaxes(0, 1)
-            elif (data_shape[0] != 1 or data_shape[1] == 1):
-                pass
+            if data_ndim == 3: # Most likely
+                if np.any(data_shape == 1):
+                    err_str = (f'image_data shape is {data_shape}. '
+                            + 'For 3D data, no axis should equal 1.')
+                    raise ValueError(err_str)
+            elif data_ndim == 4: # This will work with standard hdf formatting
+                if np.all(data_shape[:2] == 1):
+                    err_str = (f'image_data shape is {data_shape}. '
+                            + 'For 4D data, first two axes cannot both equal 1.')
+                    raise ValueError(err_str)
+                elif (data_shape[0] == 1 or data_shape[1] != 1):
+                    image_data = image_data.swapaxes(0, 1)
+                elif (data_shape[0] != 1 or data_shape[1] == 1):
+                    pass
+                else:
+                    err_str = (f'image_data shape is {data_shape}. '
+                            + 'For 4D data, one of the first two axes must equal 1.')
+                    raise ValueError(err_str)
             else:
-                err_str = (f'image_data shape is {data_shape}. '
-                          + 'For 4D data, one of the first two axes must equal 1.')
+                err_str = (f'Unable to parse image_data with {data_ndim} '
+                        + f'dimensions with shape {data_shape}.')
                 raise ValueError(err_str)
-        else:
-            err_str = (f'Unable to parse image_data with {data_ndim} '
-                       + f'dimensions with shape {data_shape}.')
-            raise ValueError(err_str)
 
-        # Define num_images early for energy and wavelength setters
-        self.num_images = np.prod(image_data.shape[:-2])
+            # Define num_images early for energy and wavelength setters
+            #self.num_images = np.prod(image_data.shape[:-2])
+            self.map_shape = image_data.shape[:2]
+            # self.num_images = np.prod(self._image_shape)
+        else:
+            self.map_shape = map_shape
         
         # Parse sclr_dict into useble format
+
         if sclr_dict is not None and isinstance(sclr_dict, dict):
             for key, value in sclr_dict.items():
-                sclr_dict[key] = value.reshape(image_data.shape[:2])
+                sclr_dict[key] = value.reshape(self.map_shape)
 
         XRDBaseScan.__init__(
             self,
             image_data=image_data,
+            image_shape=image_shape,
+            map_shape=map_shape,
             sclr_dict=sclr_dict,
             map_labels=['rocking_ind',
                            'null_ind'],
@@ -131,8 +150,8 @@ class XRDRockingCurveStack(XRDBaseScan):
     # Modify parent function
     def __repr__(self):
         lines = XRDBaseScan.__repr__(self).splitlines(True)
-        lines[4] = f'\tEnergy Range:\t\t{min(self.energy):.3f}-{max(self.energy):.3f} keV'
-        ostr = '\n'.join(lines)
+        lines[4] = f'\tEnergy Range:\t\t{min(self.energy):.3f}-{max(self.energy):.3f} keV\n'
+        ostr = ''.join(lines)
         return ostr
 
 
@@ -273,14 +292,6 @@ class XRDRockingCurveStack(XRDBaseScan):
         super().set_calibration(*args,
                                 energy=self.energy[0],
                                 **kwargs)    
-
-    # Convenience function
-    def load_map_parameters():
-        raise NotImplementedError()
-    
-    # q_arr might get called wrong
-    def initial_spot_analysis():
-        raise NotImplementedError()
     
     # Replacement for pixel_spots()
     def selected_spots(self,
@@ -295,8 +306,6 @@ class XRDRockingCurveStack(XRDBaseScan):
     def updated_apply_absorption_correction():
         raise NotImplementedError()
 
-    def updated_save_labels():
-        raise NotImplementedError()
 
      
     #####################
@@ -462,9 +471,10 @@ class XRDRockingCurveStack(XRDBaseScan):
     ################################################
 
     def vectorize_images(self,
-                         override=False):
+                         override_blob_search=False,
+                         rewrite_shape=False):
 
-        if not override and not hasattr(self, 'blob_masks'):
+        if not override_blob_search and not hasattr(self, 'blob_masks'):
             raise ValueError('Must find 2D blobs first to avoid overly large datasets.')
         
         edges = ([[] for _ in range(12)])
@@ -511,11 +521,143 @@ class XRDRockingCurveStack(XRDBaseScan):
         self.edges = edges
         self.q_vectors = q_vectors
         self.intensity = self.images[self.blob_masks] # A bit redundant; copies data
+        # Write to hdf
+        self.save_vectorization(q_vectors=self.q_vectors,
+                                intensity=self.intensity,
+                                edges=self.edges,
+                                rewrite_shape=rewrite_shape)
+
+
+    def save_vectorization(self,
+                           q_vectors=None,
+                           intensity=None,
+                           edges=None,
+                           rewrite_shape=False):
+
+        if self.hdf_path is not None:
+            print('Saving vectorized image data...')
+            # Open hdf flag
+            keep_hdf = True
+            if self.hdf is None:
+                self.hdf = h5py.File(self.hdf_path, 'a')
+                keep_hdf = False
+
+            # Write data to hdf
+            vect_grp = self.hdf[self._hdf_type].require_group('vectorized_data')
+            vect_grp.attrs['time_stamp'] = ttime.ctime()
+
+            # Save q_vectors and intensity
+            for attr, attr_name in zip([q_vectors, intensity],
+                                       ['q_vectors', 'intensity']):
+
+                # Check for values/attributes. Must have both q_vectors and intensity
+                if attr is None:
+                    if (hasattr(self, attr_name)
+                        and getttr(self, attr_name) is not None):
+                        attr = getattr(self, attr_name)
+                    else:
+                        self.hdf.close()
+                        self.hdf = None
+                        err_str = (f'Cannot save {attr_name} if not '
+                                   + 'given or already an attribute.')
+                        raise AttributeError(err_str)
+
+                # Check for dataset and compatibility
+                attr = np.asarray(attr)
+                if attr_name not in vect_grp.keys():
+                    dset = vect_grp.require_dataset(
+                            attr_name,
+                            data=attr,
+                            shape=attr.shape,
+                            dtype=attr.dtype)
+                else:
+                    dset = vect_grp[attr_name]
+
+                    if (dset.shape == attr.shape
+                        and dset.dtype == attr.dtype):
+                        dset[...] = attr
+                    
+                    # Avoid creating new data, unless specified explicitly
+                    elif rewrite_shape:
+                        warn_str = (f'WARNING: Rewriting {attr_name} '
+                                   + 'dataset shape. This could bloat '
+                                   + 'overall file size.')
+                        print(warn_str)
+                        del vect_grp['attr_name']
+                        dset = vect_grp.require_dataset(
+                            attr_name,
+                            data=attr,
+                            shape=attr.shape,
+                            dtype=attr.dtype)
+            
+            # Check for edge information
+            if edges is None:
+                if hasattr(self, 'edges') and self.edges is not None:
+                    edges = self.edges
+                else:
+                    print('WARNING: No edges given or found. Edges will not be saved.')
+
+            # Only save edge information if given
+            if edges is not None:
+                edge_grp = vect_grp.require_group('edges')
+                edge_grp.attrs['time_stamp'] = ttime.ctime()
+
+                # Check for existenc and compatibility
+                for i, edge in enumerate(edges):
+                    edge = np.asarray(edge)
+                    edge_title = f'edge_{i}'
+                    if edge_title not in edge_grp.keys():
+                        edge_grp.require_dataset(
+                            edge_title,
+                            data=edge,
+                            shape=edge.shape,
+                            dtype=edge.dtype)
+                    else:
+                        dset = edge_grp[edge_title]
+
+                        if (dset.shape == edge.shape
+                            and dset.dtype == edge.dtype):
+                            dset[...] = edge
+                        elif (dset.shape != edge.shape
+                              and dset.dtype == edge.dtype):
+                              dset[...] = edge.astype(dset.dtype)
+                        else:
+                            self.hdf.close()
+                            self.hdf = None
+                            err_str = (f'Edge shape for {edge_title} '
+                                       + f'({edge.shape}) does not '
+                                       + 'match datset shape '
+                                       + f'({dset.shape}). '
+                                       + 'This should not '
+                                       + 'have happened.')
+                            # Shape changes should not happen. Throw error
+                            raise RuntimeError(err_str)
+
+            # Close hdf and reset attribute
+            if not keep_hdf:
+                self.hdf.close()
+                self.hdf = None
 
 
     #######################
     ### Blobs and Spots ###
     #######################
+
+    def get_vector_int_mask(self,
+                            intensity=None,
+                            intensity_cutoff=0):
+
+        if intensity is None:
+            if (hasattr(self, 'intensity')
+                and self.intensity is not None):
+                intensity = self.intensity
+        
+        int_mask = (intensity
+                    >= np.min(intensity) + intensity_cutoff
+                    * (np.max(intensity) - np.min(intensity)))
+
+        return int_mask
+
 
     # Same as XRDMap.find_blobs()
     def find_2D_blobs(self,
@@ -544,12 +686,12 @@ class XRDRockingCurveStack(XRDBaseScan):
 
         # Save blob_masks to hdf
         self.save_images(images=self.blob_masks,
-                             title='_blob_masks',
-                             units='bool',
-                             extra_attrs={'threshold_method' : threshold_method,
-                                          'size' : size,
-                                          'multiplier' : multiplier,
-                                          'expansion' : expansion})
+                         title='_blob_masks',
+                         units='bool',
+                         extra_attrs={'threshold_method' : threshold_method,
+                                      'size' : size,
+                                      'multiplier' : multiplier,
+                                      'expansion' : expansion})
         
 
     def find_3D_blobs(self,
@@ -557,14 +699,16 @@ class XRDRockingCurveStack(XRDBaseScan):
                       max_neighbors=5,
                       subsample=1,
                       intensity_cutoff=0,
-                      override=False):
+                      save_to_hdf=True):
 
         if not hasattr(self, 'q_vectors') or not hasattr(self, 'intensity'):
             raise AttributeError('Cannot performe 3D spot search without first vectorizing images.')
 
-        int_mask = (self.intensity
-                    >= np.min(self.intensity) + intensity_cutoff
-                    * (np.max(self.intensity) - np.min(self.intensity)))
+        int_mask = self.get_vector_int_mask(
+                        intensity_cutoff=intensity_cutoff)
+        # print(self.q_vectors.shape)
+        # print(int_mask.shape)
+        # print(self.q_vectors[int_mask].shape)
                     
         labels = rsm_blob_search(self.q_vectors[int_mask],
                                  max_dist=max_dist,
@@ -573,33 +717,37 @@ class XRDRockingCurveStack(XRDBaseScan):
         
         self.blob_labels = labels
         self.blob_int_mask = int_mask
+
+        if save_to_hdf:
+            self.save_vector_information(
+                self.blob_labels,
+                'blob_labels',
+                extra_attrs={'blob_int_cutoff' : intensity_cutoff})
         
     
-
     def find_3D_spots(self,
                       nn_dist=0.005,
                       significance=0.1,
                       subsample=1,
                       intensity_cutoff=0,
-                      label_int_method='mean'
-                      ):
+                      label_int_method='mean',
+                      save_to_hdf=False):
 
         if not hasattr(self, 'q_vectors') or not hasattr(self, 'intensity'):
-            raise AttributeError('Cannot performe 3D spot search without first vectorizing images.')
+            raise AttributeError('Cannot perform 3D spot search without first vectorizing images.')
 
-        int_mask = (self.intensity
-                    >= np.min(self.intensity) + intensity_cutoff
-                    * (np.max(self.intensity) - np.min(self.intensity)))
+        int_mask = self.get_vector_int_mask(
+                        intensity_cutoff=intensity_cutoff)
 
         (spot_labels,
-        spots,
-        label_ints) = rsm_spot_search(self.q_vectors[int_mask],
-                                        self.intensity[int_mask],
-                                        nn_dist=nn_dist,
-                                        significance=significance,
-                                        subsample=subsample)
+         spots,
+         label_ints) = rsm_spot_search(self.q_vectors[int_mask],
+                                       self.intensity[int_mask],
+                                       nn_dist=nn_dist,
+                                       significance=significance,
+                                       subsample=subsample)
 
-        tth, chi, wavelength = q_2_polar(spots, degrees=(rsm.polar_units == 'deg'))
+        tth, chi, wavelength = q_2_polar(spots, degrees=(self.polar_units == 'deg'))
 
         temp_dict = {
             'intensity' : label_ints,
@@ -612,16 +760,107 @@ class XRDRockingCurveStack(XRDBaseScan):
             # 'theta' : theta
             }
 
-        # Save 3d spots similar to 3d spots
-        spots_3d = pd.DataFrame.from_dict(temp_dict)
-        rsm.spots_3d = spots_3d
+        # Save 3D spots similar to 3D spots
+        spots_3D = pd.DataFrame.from_dict(temp_dict)
+        self.spots_3D = spots_3D
         del temp_dict, spots, label_ints
-
         # Information for rebuilding spots
         # from vectorized images
         self.spot_labels = spot_labels
         self.spot_int_mask = int_mask
 
+        # Write to hdf
+        if save_to_hdf:
+            self.save_3D_spots()
+            self.save_vector_information(
+                self.spot_labels,
+                'spot_labels',
+                extra_attrs={'spot_int_cutoff' : intensity_cutoff})
+
+
+    # Analog of 2D spots from xrdmap
+    def save_3D_spots(self, extra_attrs=None):
+        # Save spots to hdf
+        if self.hdf_path is not None:
+            print('Saving 3D spots to hdf...')
+
+            # Open hdf flag
+            keep_hdf = True
+            if self.hdf is None:
+                self.hdf = h5py.File(self.hdf_path, 'a')
+                keep_hdf = False
+
+            # Save to hdf
+            self.close_hdf()
+            self.spots_3D.to_hdf(self.hdf_path,
+                            key=f'{self._hdf_type}/reflections/spots_3D',
+                            format='table')
+
+            if extra_attrs is not None:
+                self.open_hdf()
+                for key, value in extra_attrs.items():
+                    self.hdf[f'{self._hdf_type}/reflections/spots_3D'].attrs[key] = value
+
+            if keep_hdf:
+                self.open_hdf()
+            else:
+                self.close_hdf()
+            
+            print('done!')
+
+
+    def save_vector_information(self,
+                                data,
+                                title,
+                                extra_attrs=None):
+
+        if self.hdf_path is not None:
+            # Open hdf flag
+            keep_hdf = True
+            if self.hdf is None:
+                self.hdf = h5py.File(self.hdf_path, 'a')
+                keep_hdf = False
+            
+            # Get vector group
+            vect_grp = self.hdf[self._hdf_type].require_group('vectorized_data')
+
+            if title not in vect_grp.keys():
+                dset = vect_grp.require_dataset(
+                    title,
+                    data=data,
+                    shape=data.shape,
+                    dtype=data.dtype)
+            else:
+                dset = vect_grp[title]
+
+                if (dset.shape == data.shape
+                    and dset.dtype == data.dtype):
+                    dset[...] = data
+                elif (dset.shape != data.shape
+                      and dset.dtype == data.dtype):
+                      dset[...] = data.astype(dset.dtype)
+                else:
+                    warn_str = (f'WARNING: {title} dataset shape does '
+                                + 'not match given data; rewriting '
+                                + 'with new shape. This may bloat '
+                                + 'the file size.')
+                    print(warn_str)
+                    del vect_grp[title]
+                    dset = vect_grp.require_dataset(
+                        title,
+                        data=data,
+                        shape=data.shape,
+                        dtype=data.dtype)
+            
+            # Add extra information
+            if extra_attrs is not None:
+                for key, value in extra_attrs.items():
+                    dset.attrs[key] = value
+
+            # Close hdf and reset attribute
+            if not keep_hdf:
+                self.hdf.close()
+                self.hdf = None
 
     ###########################################
     ### Indexing, Corrections, and Analysis ###
@@ -648,13 +887,33 @@ class XRDRockingCurveStack(XRDBaseScan):
     ##########################
 
     def plot_image_stack(self,
-                         return_plot=False):
-        raise NotImplementedError()
+                         images=None,
+                         slider_vals=None,
+                         slider_label='Index',
+                         vmin=None,
+                         vmax=None,
+                         return_plot=False,
+                         **kwargs):
+
+        if images is None:
+            images = self.images.squeeze()
+
+        if slider_vals is None:
+            slider_vals = self.energy
+            slider_label = 'Energy [keV]'
         
-        fig, ax = base_slider_plot()
+        (fig,
+        ax,
+        slider) = base_slider_plot(
+            images,
+            slider_vals=slider_vals,
+            slider_label=slider_label,
+            vmin=vmin,
+            vmax=vmax,
+            **kwargs)
 
         if return_plot:
-            return fig, ax
+            return fig, ax # Not returning the slider may break it...
         else:
             fig.show()
 
@@ -683,11 +942,12 @@ class XRDRockingCurveStack(XRDBaseScan):
             q_vectors = np.asarray(q_vectors)
         
         if intensity is None:
-            if hasattr(self, 'intensity'):
+            if (hasattr(self, 'intensity')
+                and len(self.intensity) == len(q_vectors)):
                 intensity = self.intensity
             else:
-                err_str = 'Must provide or already have intensity.'
-                raise ValueError(err_str)
+                intensity = np.zeros(len(q_vectors),
+                                     dtype=q_vectors.dtype)
         else:
             intensity = np.asarray(intensity)
         
@@ -725,16 +985,152 @@ class XRDRockingCurveStack(XRDBaseScan):
             fig.show()        
 
 
-    def plot_isosurfaces_volume(self,):
-        raise NotImplementedError()
+    def plot_3D_isosurfaces(self,
+                            q_vectors=None,
+                            intensity=None,
+                            gridstep=0.005,
+                            isomin=None,
+                            isomax=None,
+                            min_offset=None,
+                            max_offset=None,
+                            opacity=0.1,
+                            surface_count=20,
+                            renderer='browser'):
+        if q_vectors is None:
+            if hasattr(self, 'q_vectors'):
+                q_vectors = self.q_vectors
+            else:
+                err_str = 'Must provide or already have q_vectors.'
+                raise ValueError(err_str)
+        else:
+            q_vectors = np.asarray(q_vectors)
 
+        if intensity is None:
+            if (hasattr(self, 'intensity')
+                and len(self.intensity) == len(q_vectors)):
+                intensity = self.intensity
+            else:
+                err_str = 'Must provide or already have intensity.'
+                raise ValueError(err_str)
+        else:
+            intensity = np.asarray(intensity)
+
+        # Copy values; they will be modified.
+        plot_qs = q_vectors.copy()
+        plot_ints = intensity.copy()
+        min_int = np.min(plot_ints)
+
+        # Check given q_ext
+        for axis in range(3):
+            q_ext = (np.max(q_vectors[:, axis])
+                    - np.min(q_vectors[:, axis]))
+            if  q_ext < gridstep:
+                err_str = (f'Gridstep ({gridstep}) is smaller than '
+                        + f'q-vectors range along axis {axis} '
+                        + f'({q_ext:.4f}).')
+                raise ValueError(err_str)
+
+        tth, chi, wavelength = q_2_polar(
+                            plot_qs,
+                            degrees=self.polar_units == 'deg')
+        energy = wavelength_2_energy(wavelength)
+        # print(energy)
+
+        # Assumes energy is rocking axis...
+        energy_step = np.abs(np.mean(np.gradient(self.energy)))
+        min_energy = np.min(self.energy)
+        max_energy = np.max(self.energy)
+        # print(energy_step)
+
+        low_mask = energy <= min_energy + energy_step
+        high_mask = energy >= max_energy - energy_step
+        # print(f'{np.min(self.energy)=}')
+        # print(f'{np.max(self.energy)=}')
+
+        # If there are bounded pixels, padd with zeros
+        # print(np.sum([low_mask, high_mask]))
+        if np.sum([low_mask, high_mask]) > 0:
+            low_qs = get_q_vect(
+                        tth[low_mask],
+                        chi[low_mask],
+                        wavelength=energy_2_wavelength(min_energy
+                                                    - energy_step),
+                        degrees=self.polar_units == 'deg'
+                        ).astype(self.dtype).T
+            
+            high_qs = get_q_vect(
+                        tth[high_mask],
+                        chi[high_mask],
+                        wavelength=energy_2_wavelength(max_energy
+                                                    + energy_step),
+                        degrees=self.polar_units == 'deg'
+                        ).astype(self.dtype).T
+
+            # Extend plot qs and ints
+            plot_qs = np.vstack([plot_qs, low_qs, high_qs])
+            plot_ints = np.hstack([
+                            plot_ints,
+                            np.ones(low_mask.sum()) * min_int,
+                            np.ones(high_mask.sum()) * min_int])
+        
+        # return plot_qs, plot_ints
+
+        # Interpolate data for isosurface generation
+        (x_grid,
+        y_grid,
+        z_grid,
+        int_grid) = map_2_grid(plot_qs,
+                            plot_ints,
+                            gridstep=gridstep)
+
+        gen_offset = ((np.max(int_grid) - np.min(int_grid))
+                        / (2 * surface_count))
+        if isomin is None:
+            if min_offset is None:
+                isomin = np.min(int_grid) + gen_offset
+            else:
+                isomin = np.min(int_grid) + min_offset
+        
+        if isomax is None:
+            if max_offset is None:
+                isomax = np.max(int_grid) - gen_offset
+            else:
+                isomax = np.max(int_grid) - max_offset
+        
+        # Generate isosurfaces from plotly graph object
+        data = go.Volume(
+            x=x_grid.flatten(),
+            y=y_grid.flatten(),
+            z=z_grid.flatten(),
+            value=int_grid.flatten(),
+            isomin=isomin,
+            isomax=isomax,
+            opacity=opacity,
+            surface_count=surface_count,
+            colorscale=colorscale
+        )
+
+        # Find data extent
+        x_range = np.max(x_grid) - np.min(x_grid)
+        y_range = np.max(y_grid) - np.min(y_grid)
+        z_range = np.max(z_grid) - np.min(z_grid)
+
+        # Generate figure and plot
+        fig = go.Figure(data=data)
+        fig.update_layout(scene_aspectmode='manual',
+                            scene_aspectratio=dict(
+                            x=x_range,
+                            y=y_range,
+                            z=z_range))
+        fig.show(renderer=renderer)
+        
     
-    def plot_sampled_volume_edges(self,
-                                  edges=None,
-                                  return_plot=False):
+    def plot_sampled_volume(self,
+                            edges=None,
+                            return_plot=False):
 
         if edges is None:
-            if hasattr(self, edges):
+            if hasattr(self, 'edges'):
                 edges = self.edges
             else:
                 err_st= ('Cannot plot sampled volume '
@@ -758,3 +1154,147 @@ class XRDRockingCurveStack(XRDBaseScan):
             return fig, ax
         else:
             fig.show()
+
+
+
+
+def plot_3D_isosurfaces(self,
+                        q_vectors=None,
+                        intensity=None,
+                        gridstep=0.005,
+                        isomin=None,
+                        isomax=None,
+                        min_offset=None,
+                        max_offset=None,
+                        opacity=0.1,
+                        surface_count=20,
+                        colorscale='viridis',
+                        renderer='browser'):
+
+    if q_vectors is None:
+        if hasattr(self, 'q_vectors'):
+            q_vectors = self.q_vectors
+        else:
+            err_str = 'Must provide or already have q_vectors.'
+            raise ValueError(err_str)
+    else:
+        q_vectors = np.asarray(q_vectors)
+
+    if intensity is None:
+        if (hasattr(self, 'intensity')
+            and len(self.intensity) == len(q_vectors)):
+            intensity = self.intensity
+        else:
+            err_str = 'Must provide or already have intensity.'
+            raise ValueError(err_str)
+    else:
+        intensity = np.asarray(intensity)
+
+    # Copy values; they will be modified.
+    plot_qs = q_vectors.copy()
+    plot_ints = intensity.copy()
+    min_int = np.min(plot_ints)
+
+    # Check given q_ext
+    for axis in range(3):
+        q_ext = (np.max(q_vectors[:, axis])
+                 - np.min(q_vectors[:, axis]))
+        if  q_ext < gridstep:
+            err_str = (f'Gridstep ({gridstep}) is smaller than '
+                       + f'q-vectors range along axis {axis} '
+                       + f'({q_ext:.4f}).')
+            raise ValueError(err_str)
+
+    tth, chi, wavelength = q_2_polar(
+                        plot_qs,
+                        degrees=self.polar_units == 'deg')
+    energy = wavelength_2_energy(wavelength)
+    # print(energy)
+
+    # Assumes energy is rocking axis...
+    energy_step = np.abs(np.mean(np.gradient(self.energy)))
+    min_energy = np.min(self.energy)
+    max_energy = np.max(self.energy)
+    # print(energy_step)
+
+    low_mask = energy <= min_energy + energy_step
+    high_mask = energy >= max_energy - energy_step
+    # print(f'{np.min(self.energy)=}')
+    # print(f'{np.max(self.energy)=}')
+
+    # If there are bounded pixels, padd with zeros
+    # print(np.sum([low_mask, high_mask]))
+    if np.sum([low_mask, high_mask]) > 0:
+        low_qs = get_q_vect(
+                    tth[low_mask],
+                    chi[low_mask],
+                    wavelength=energy_2_wavelength(min_energy
+                                                   - energy_step),
+                    degrees=self.polar_units == 'deg'
+                    ).astype(self.dtype).T
+        
+        high_qs = get_q_vect(
+                    tth[high_mask],
+                    chi[high_mask],
+                    wavelength=energy_2_wavelength(max_energy
+                                                   + energy_step),
+                    degrees=self.polar_units == 'deg'
+                    ).astype(self.dtype).T
+
+        # Extend plot qs and ints
+        plot_qs = np.vstack([plot_qs, low_qs, high_qs])
+        plot_ints = np.hstack([
+                        plot_ints,
+                        np.ones(low_mask.sum()) * min_int,
+                        np.ones(high_mask.sum()) * min_int])
+    
+    # return plot_qs, plot_ints
+
+    # Interpolate data for isosurface generation
+    (x_grid,
+    y_grid,
+    z_grid,
+    int_grid) = map_2_grid(plot_qs,
+                           plot_ints,
+                           gridstep=gridstep)
+
+    gen_offset = ((np.max(int_grid) - np.min(int_grid))
+                    / (2 * surface_count))
+    if isomin is None:
+        if min_offset is None:
+            isomin = np.min(int_grid) + gen_offset
+        else:
+            isomin = np.min(int_grid) + min_offset
+    
+    if isomax is None:
+        if max_offset is None:
+            isomax = np.max(int_grid) - gen_offset
+        else:
+            isomax = np.max(int_grid) - max_offset
+    
+    # Generate isosurfaces from plotly graph object
+    data = go.Volume(
+        x=x_grid.flatten(),
+        y=y_grid.flatten(),
+        z=z_grid.flatten(),
+        value=int_grid.flatten(),
+        isomin=isomin,
+        isomax=isomax,
+        opacity=opacity,
+        surface_count=surface_count,
+        colorscale=colorscale
+    )
+
+    # Find data extent
+    x_range = np.max(x_grid) - np.min(x_grid)
+    y_range = np.max(y_grid) - np.min(y_grid)
+    z_range = np.max(z_grid) - np.min(z_grid)
+
+    # Generate figure and plot
+    fig = go.Figure(data=data)
+    fig.update_layout(scene_aspectmode='manual',
+                        scene_aspectratio=dict(
+                        x=x_range,
+                        y=y_range,
+                        z=z_range))
+    fig.show(renderer=renderer)

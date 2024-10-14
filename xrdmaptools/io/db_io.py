@@ -1109,17 +1109,19 @@ def save_extended_energy_rc_data(start_id,
      xrd_dets
      ) = load_extended_energy_rc_data(start_id,
                                       end_id,
-                                      returns=None)
+                                      returns=['data_keys',
+                                               'xrd_dets'])
 
     # Stack image data
     xrd_data = [np.vstack(all_data_dict[f'{xrd_det}_image'])
                 for xrd_det in xrd_dets]
     # Reshape image data into 4D
-    xrd_data = [data.reshape((data.shape[0], 1, data.shape[-2:]))
+    xrd_data = [data.reshape((data.shape[0], 1, *data.shape[-2:]))
                 for data in xrd_data]
     # Remove xrd_data from all_data_dict
     for xrd_det in xrd_dets:
         del all_data_dict[f'{xrd_det}_image']
+        all_data_keys.remove(f'{xrd_det}_image')
     # Reformat other data streams into arrays
     for key in all_data_dict.keys():
         all_data_dict[key] = np.asarray(all_data_dict[key])

@@ -3,7 +3,7 @@ from scipy.interpolate import griddata
 from scipy.interpolate import RegularGridInterpolator
 
 # Local imports
-from xrdmaptools.utilitis.math import vector_angle
+from xrdmaptools.utilities.math import vector_angle
 from xrdmaptools.utilities.utilities import delta_array
 
 

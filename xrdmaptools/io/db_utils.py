@@ -3,7 +3,7 @@
 
 
 # Local imports
-from ..XRDMap import XRDMap
+from ..XRDMap_rev import XRDMap
 
 # A very convenient wrapper without returning the class
 def make_xrdmap_hdf(scanid=-1,
@@ -11,8 +11,7 @@ def make_xrdmap_hdf(scanid=-1,
                     filedir=None,
                     filename=None,
                     poni_file=None,
-                    repair_method='fill',
-                    return_xrdmap=False):
+                    repair_method='fill'):
     
     print('*' * 72)
     xrdmap = XRDMap.from_db(
@@ -22,12 +21,9 @@ def make_xrdmap_hdf(scanid=-1,
                 filename=filename,
                 poni_file=poni_file,
                 save_hdf=True,
-                repair_method=repair_method
+                repair_method=repair_method,
+                dask_enabled=True # Hard-coded to allow lazy loading
                    )
     print('*' * 72)
-
-    if return_xrdmap: 
-        # Just XRDMap.from_db at this point
-        return xrdmap
     
 

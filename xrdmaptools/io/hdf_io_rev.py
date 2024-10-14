@@ -79,23 +79,39 @@ def load_xrdbase_hdf(filename,
     # Load reflection first
     # Built-in pandas hdf support needs this
     spots = None
+    spots_3D = None
     spot_model = None
     if 'reflections' in base_grp.keys():
         print('Loading reflection spots...', end='', flush=True)
         # I really dislike that pandas cannot handle an already open file
+        has_spots, has_spots_3D = False, False
+        if 'spots' in base_grp['reflections'].keys():
+            has_spots = True
+        if 'spots_3D' in base_grp['reflections'].keys():
+            has_spots_3D = True
+
         hdf.close()
-        spots = pd.read_hdf(hdf_path,
-                            key=f'{hdf_type}/reflections/spots')
+        if has_spots:
+            spots = pd.read_hdf(hdf_path,
+                                key=f'{hdf_type}/reflections/spots')
+        
+        if has_spots_3D:
+            spots_3D = pd.read_hdf(hdf_path,
+                                key=f'{hdf_type}/reflections/spots_3D')
+
         if not dask_enabled:
             hdf = h5py.File(hdf_path, 'r')
+            base_grp = hdf[hdf_type]
         else:
             hdf = h5py.File(hdf_path, 'a')
-        base_grp = hdf[hdf_type]
+            base_grp = hdf[hdf_type]
 
-        # Load peak model
-        if 'spot_model' in hdf[f'{hdf_type}/reflections'].attrs.keys():
-            spot_model_name = hdf[f'{hdf_type}/reflections'].attrs['spot_model']
+        # Load spot model
+        if (has_spots
+            and spot_model in hdf[f'{hdf_type}/reflections/spots'].attrs.keys()):
+            spot_model_name = hdf[f'{hdf_type}/reflections/spots'].attrs['spot_model']
             spot_model = _load_peak_function(spot_model_name)
+        print('done!')
 
     # Load base metadata
     base_md = dict(base_grp.attrs.items())
@@ -138,6 +154,9 @@ def load_xrdbase_hdf(filename,
     # Load pixel positions
     pos_dict = _load_xrd_hdf_positions(base_grp) 
 
+    # Load vectorized data
+    vect_dict = _load_xrd_hdf_vectorized_data(base_grp)
+
     # Final hdf considerations
     if not dask_enabled:
         hdf = None
@@ -155,9 +174,11 @@ def load_xrdbase_hdf(filename,
                   'poni_file' : poni_od,
                   'phases' : phase_dict,
                   'spots' : spots,
+                  'spots_3D' : spots_3D,
                   'spot_model' : spot_model,
                   'sclr_dict' : sclr_dict,
                   'pos_dict' : pos_dict,
+                  'vect_dict' : vect_dict,
                   'hdf' : hdf}
 
     return ouput_dict
@@ -250,7 +271,7 @@ def _load_xrd_hdf_image_data(base_grp,
             image_corrections = None
 
         # Mapped attributes can be useful with our without images; load them
-        # Not given to XRDData.__init__ so it won't try to rewrite the data
+        # Not given to XRDData.__init__
         if '_null_map' in img_grp.keys():
             image_attrs['null_map'] = img_grp['_null_map'][:]
         
@@ -431,7 +452,32 @@ def _load_xrd_hdf_positions(base_grp):
     return pos_dict
 
 
+def _load_xrd_hdf_vectorized_data(base_grp):
+    vect_dict = None
+    if 'vectorized_data' in base_grp.keys():
+        print('Loading vectorized data...', end='', flush=True)
+        vect_grp = base_grp['vectorized_data']
+        vect_dict = {}
 
+        for key, value in base_grp['vectorized_data'].items():
+            if key == 'edges':
+                edges = []
+                for edge_title, edge_dset in value.items():
+                    edges.append(edge_dset[:])
+                vect_dict[key] = edges
+            else:
+                vect_dict[key] = value[:]
+
+            # Collect extra_attrs
+            for attr_key, attr_value in value.attrs.items():
+                vect_dict[attr_key] = attr_value
+        
+        # On the off-chance the group was created, but without any datasets
+        if len(vect_dict.keys()) == 0:
+            vect_dict = None
+
+        print('done!')
+    return vect_dict
 
 
 

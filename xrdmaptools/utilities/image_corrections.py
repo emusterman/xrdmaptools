@@ -20,7 +20,7 @@ def interpolate_merlin_mask(masked_img):
     return healed_img
 
 
-def iterative_outlier_correction(images, size=2, tolerance=2):
+def iterative_outlier_correction(images, size=2, tolerance=0.5):
     # Image axes must be last two axes
 
     image_shape = images.shape[-2:]
@@ -32,8 +32,8 @@ def iterative_outlier_correction(images, size=2, tolerance=2):
 
         image = images[indices]
         med_image = ndi.median_filter(image, size=size)
-        ratio_image = np.abs(image / med_image)
-        replace_mask = ratio_image > tolerance
+        sig_image = np.abs((image - med_image) / med_image)
+        replace_mask = sig_image > tolerance
 
         images[indices][replace_mask] = med_image[replace_mask]
         

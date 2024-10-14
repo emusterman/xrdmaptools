@@ -76,8 +76,11 @@ class XRDData:
                     image_data = image_data.compute()
                 # list input is handled lazily, but should only be from databroker
                 elif isinstance(image_data, list):
-                    print('Converting rows of images into lazily loaded 4D array...')
-                    image_data = da.stack(image_data) # bad chunking will be fixed later
+                    if dask_enabled:
+                        # print('Converting rows of images into lazily loaded 4D array...')
+                        image_data = da.stack(image_data) # bad chunking will be fixed later
+                    else:
+                        image_data = np.stack(image_data)
                 # Otherwise as a numpy array
                 else:
                     image_data = np.asarray(image_data)
@@ -450,7 +453,7 @@ class XRDData:
 
     # Function to dump accummulated processed images and maps
     # Not sure if will be needed between processing the full map
-    def reset_attributes(self):
+    def reset_projections(self):
         old_attr = list(self.__dict__.keys())       
         for attr in old_attr:
             if attr in ['_composite_image',
@@ -458,7 +461,18 @@ class XRDData:
                         '_max_map', '_max_image',
                         '_med_map', '_med_image',
                         '_sum_map', '_sum_image',
-                        '_mean_map', '_mean_image',]:
+                        '_mean_map', '_mean_image',
+                        '_composite_integration',
+                        '_min_integration_map',
+                        '_min_integration',
+                        '_max_integration_map',
+                        '_max_integration',
+                        '_med_integration_map',
+                        '_med_integration',
+                        '_sum_integration_map',
+                        '_sum_integration',
+                        '_mean_integration_map',
+                        '_mean_integration']:
                 delattr(self, attr)
 
 
@@ -493,7 +507,7 @@ class XRDData:
             pass
 
         # Clear old values everytime this is checked
-        self.reset_attributes()
+        self.reset_projections()
 
     
     def load_images_from_hdf(self,
@@ -630,7 +644,7 @@ class XRDData:
         if self.corrections[correction]:
             warn_str = f'WARNING: {correction} correction already applied!'
             if override:
-                warn_str += f'\nOverriding warning and {correction} anyway'
+                warn_str += f'\nOverriding warning and correcting {correction} anyway.'
                 print(warn_str)
                 return False
             else:
@@ -826,7 +840,7 @@ class XRDData:
         
     def correct_outliers(self,
                          size=2,
-                         tolerance=3,
+                         tolerance=0.5,
                          override=False):
 
         if self._check_correction('outliers', override=override):
@@ -1358,7 +1372,7 @@ class XRDData:
         self.images[self.null_map] = 0
 
         for attr in ['images', 'blob_masks', 'integrations']:
-            if hasattr(self, attr):
+            if hasattr(self, attr) and getattr(self, attr) is not None:
                 # This should all be done in place
                 getattr(self, attr)[self.null_map] = 0
         
@@ -1768,7 +1782,6 @@ class XRDData:
             self.hdf = None
 
 
-    # TODO: update _get_save_labels to handle integrations
     def save_integrations(self, integrations=None, title=None,
                           units=None, labels=None,
                           mode='a', extra_attrs=None):

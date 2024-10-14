@@ -82,6 +82,7 @@ class XRDMap(XRDBaseScan):
                 poni_file=None,
                 data_keys=None,
                 save_hdf=True,
+                dask_enabled=False,
                 repair_method='fill'):
     
         # No fluorescence key
@@ -147,7 +148,8 @@ class XRDMap(XRDBaseScan):
                          scan_input=scan_md['scan_input'],
                          time_stamp=scan_md['time_str'],
                          extra_metadata=extra_md,
-                         save_hdf=save_hdf
+                         save_hdf=save_hdf,
+                         dask_enabled=dask_enabled,
                          )
             
             xrdmaps.append(xrdmap)
@@ -865,7 +867,7 @@ class XRDMap(XRDBaseScan):
             if extra_attrs is not None:
                 self.open_hdf()
                 for key, value in extra_attrs.items():
-                    self.hdf[f'{self._hdf_type}/reflections'].attrs[key] = value
+                    self.hdf[f'{self._hdf_type}/reflections/spots'].attrs[key] = value
 
             if keep_hdf:
                 self.open_hdf()

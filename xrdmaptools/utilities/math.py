@@ -8,8 +8,8 @@ import scipy.constants as constants
 
 def energy_2_wavelength(energy):
     # Convert energy into keV
-    if np.any(energy > 1000):
-        energy = energy / 1000
+    if np.any(energy > 1e3):
+        energy /= 1e3
     factor = 1e7 * constants.h * constants.c / constants.e
     return factor / energy
 
@@ -53,7 +53,7 @@ def vector_angle(v1, v2, degrees=False):
     return angle
 
 
-def mutli_vector_angles(v1s, v2s, degrees=False):
+def multi_vector_angles(v1s, v2s, degrees=False):
     v1_units = v1s / np.linalg.norm(v1s, axis=1).reshape(-1, 1)
     v2_units = v2s / np.linalg.norm(v2s, axis=1).reshape(-1, 1)
 

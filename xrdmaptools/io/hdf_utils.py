@@ -16,9 +16,10 @@ def check_hdf_current_images(title,
                              hdf=None):
     if hdf is None and hdf_file is not None:
         with h5py.File(hdf_file, 'r') as f:
-            return title in f[f'{list(f.keys())[0]}/image_data']
+            return_bool = title in f[f'{list(f.keys())[0]}/image_data']
+        return return_bool
     elif hdf is not None:
-        return title in hdf[f'{list(f.keys())[0]}/image_data']
+        return title in hdf[f'{list(hdf.keys())[0]}/image_data']
     else:
         raise ValueError('Must specify hdf_file or hdf.')
     

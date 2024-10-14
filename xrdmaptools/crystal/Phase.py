@@ -11,6 +11,7 @@ from collections import OrderedDict
 
 # Local imports
 from xrdmaptools.utilities.math import (
+    energy_2_wavelength,
     tth_2_q,
     vector_angle
 )
@@ -23,14 +24,9 @@ class Phase(xu.materials.Crystal):
     # Find way to generate Phase class automatically from XRD card files too
     # Add flag to limit functionality depending on if from cif or XRD card
 
-    def __init__(self, name, lat, energy=None, tth=None):
+    def __init__(self, name, lat):
         super().__init__(name, lat, cij=None, thetaDebye=None)
         self.reflections = None # Place holder to check later
-        if energy is not None:
-            self.energy = energy
-        if tth is not None:
-            self.tth = tth
-            self.tth_range = (np.min(tth), np.max(tth))
 
 
     def __str__(self):
@@ -105,19 +101,6 @@ class Phase(xu.materials.Crystal):
             dset = wbase.require_dataset(f'{atom[0].name}[{i}]', data=data, shape=data.shape, dtype=data.dtype)
             dset.attrs['number'] = atom[0].num
             dset.attrs['position'] = atom[1][0]
-    
-
-    @property
-    def energy(self):
-            return self._energy
-    
-    @energy.setter
-    def energy(self, val):
-        if val < 1e3:
-            val *= 1e3
-        self._energy = val
-
-        return self._energy
 
 
     @staticmethod
@@ -152,21 +135,13 @@ class Phase(xu.materials.Crystal):
 
     # May need to add a conditional to pass this function if Phase generated from XRD card
     def get_hkl_reflections(self,
+                            energy,
                             tth_range=None,
-                            energy=None,
                             ignore_less=1,
                             save_reflections=True):
-        if energy is None:
-            if hasattr(self, 'energy'):
-                energy = self.energy
-            else:
-                raise IOError('Must define energy somewhere.')
-            
+
         if tth_range is None:
-            if hasattr(self, 'tth_range'):
-                tth_range = self.tth_range
-            else:
-                tth_range = (0, 90)
+            tth_range = (0, 90)
 
         wavelength = energy_2_wavelength(energy)
 
@@ -216,12 +191,10 @@ class Phase(xu.materials.Crystal):
 
     # Returns full recirpocal lattice
     # TODO: all qmin trimming
-    def generate_reciprocal_lattice(qmax=None,
+    def generate_reciprocal_lattice(self,
+                                    qmax,
                                     return_values=True):
-
-        if qmax is None:
-            q_max = tth_2_q(self.tth_range[1], wavelength=self.wavelength)
-
+                                    
         all_hkls = list(self.lattice.get_allowed_hkl(qmax=qmax))
         all_qs = self.Q(all_hkls)
         all_fs = np.abs(self.StructureFactor(all_qs))**2
@@ -296,6 +269,7 @@ def write_calibration_file(mat, name=None, tt_cutoff=90, ignore_less=1,
                            filedir=None, filename=None,
                            simulate_convolution=False):
     '''
+                and self.intensity is not None):
     
     '''
     if name == None:
@@ -367,7 +341,7 @@ def approximate_powder_xrd(xrd_map, poni, energy=None, background=None):
     raise NotImplementedError()
 
 
-def phase_selector(xrd, phases, tth, ignore_less=1):
+def phase_selector(xrd, phases, energy, tth, ignore_less=1):
     # TODO:
     # Add 2d plot for better understanding of peak character and significance
     # Add background subtraction?
@@ -378,7 +352,7 @@ def phase_selector(xrd, phases, tth, ignore_less=1):
 
     norm_xrd_int = rescale_array(xrd, upper=100, arr_min=0)
 
-    [phase.get_hkl_reflections(tth_range=(np.min(tth), np.max(tth)),
+    [phase.get_hkl_reflections(energy, tth_range=(np.min(tth), np.max(tth)),
                                ignore_less=ignore_less)
         for phase in phases];
 

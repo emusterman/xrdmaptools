@@ -47,7 +47,7 @@ def energy_rocking_curve(e_low,
                          plotme=False,
                          return_to_start=True):
 
-    start_energy = energy.user_readback.get()
+    start_energy = energy.energy.position
 
     # Define some useful variables
     e_cen = (e_high + e_low) / 2
@@ -96,7 +96,7 @@ def relative_energy_rocking_curve(e_range,
                                   peakup=False, # rewrite default
                                   **kwargs):
     
-    en_current = energy.user_readback.get()
+    en_current = energy.energy.position
     e_low = en_current - (e_range / 2)
     e_high = en_current + (e_range / 2)
     

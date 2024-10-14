@@ -10,7 +10,7 @@ from xrdmaptools.utilities.math import arbitrary_center_of_mass
 
 
 # 3D analog of blob_search
-def rsm_blob_search(qs,
+def rsm_blob_search(q_vectors,
                     max_dist=0.01,
                     max_neighbors=4,
                     subsample=1):
@@ -24,7 +24,7 @@ def rsm_blob_search(qs,
     if max_neighbors < 4:
         print('WARNING: max_neighbors < 4 can lead to unexpected behavior.')
     
-    new_qs = qs[::subsample]
+    new_qs = q_vectors[::subsample]
 
     labels = np.array([np.nan,] * len(new_qs))
     next_label = 0
@@ -78,15 +78,15 @@ def rsm_blob_search(qs,
 
     if subsample > 1:
         print('Upsampling data...')
-        full_kdtree = KDTree(qs)
-        indices = list(range(len(qs)))[::subsample]
-        full_labels = np.empty(len(qs))
+        full_kdtree = KDTree(q_vectors)
+        indices = list(range(len(q_vectors)))[::subsample]
+        full_labels = np.empty(len(q_vectors))
         full_labels[:] = np.nan
         full_labels[indices] = labels
         
         for i in tqdm(range(len(full_labels))):
             if np.isnan(full_labels[i]):
-                dist, nn_idxs = full_kdtree.query(qs[i],
+                dist, nn_idxs = full_kdtree.query(q_vectors[i],
                                     k=np.max([max_neighbors + 1, subsample, 20]),
                                     distance_upper_bound=max_dist)
                 
@@ -101,6 +101,10 @@ def rsm_blob_search(qs,
                     full_labels[i] = full_labels[nn_idxs[np.nanargmin(dist)]]
     else:
         full_labels = labels
+    
+    # Re-label remaining nans as new blob. Downsize datatype
+    full_labels[np.isnan(full_labels)] = np.nanmax(full_labels) + 1
+    full_labels = full_labels.astype(np.uint16)
       
     return full_labels
 
@@ -223,11 +227,15 @@ def rsm_spot_search(qs,
     else:
         full_labels = labels
 
-    # Ignores nan values
+    # Get q_vectors and intensity. Ignores nans
     spots = [arbitrary_center_of_mass(intensity[full_labels == val], *qs[full_labels == val].T)
              for val in np.unique(full_labels)[:-1]]
     label_ints = [label_int_func(intensity[full_labels == val])
                   for val in np.unique(full_labels)[:-1]]
+
+    # Re-label remaining nans as new blob (without spot info). Downsize datatype
+    full_labels[np.isnan(full_labels)] = np.nanmax(full_labels) + 1
+    full_labels = full_labels.astype(np.uint16)           
 
     return full_labels, np.asarray(spots), np.asarray(label_ints)
 

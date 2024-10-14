@@ -6,7 +6,6 @@ from itertools import product, combinations
 
 # Local imports
 from .SpotModels import GaussianFunctions
-from ..crystal.Phase import generate_reciprocal_lattice
 from ..crystal.orientation import euler_rotation
 from ..geometry.geometry import get_q_vect
 
@@ -16,7 +15,7 @@ def _initial_spot_analysis(xrdmap, SpotModel=None):
     # TODO: rewrite with spots dataframe and wavelength as inputs...
 
     # Extract fit stats
-    print('Extracting more information from peak parameters...')
+    print('Extracting more information from spot parameters...')
     if SpotModel is not None and any([x[:3] == 'fit' for x in xrdmap.spots.loc[0].keys()]):
         interested_params = [x for x in xrdmap.spots.iloc[0].keys()
                              if x[:3] == 'fit'][:6]
@@ -77,76 +76,76 @@ def _initial_spot_analysis(xrdmap, SpotModel=None):
 # Uninformed symmetry reductions of euler space
 # Cannot handle multiple grains
 # Does not handle missing reflections
-def iterative_dictionary_indexing(spot_qs,
-                                  Phase,
-                                  tth_range,
-                                  cut_off=0.1,
-                                  start_angle=10,
-                                  angle_resolution=0.001,
-                                  euler_bounds=[[-180, 180],
-                                                [0, 180],
-                                                [-180, 180]]):
-    from itertools import product
+# def iterative_dictionary_indexing(spot_qs,
+#                                   Phase,
+#                                   tth_range,
+#                                   cut_off=0.1,
+#                                   start_angle=10,
+#                                   angle_resolution=0.001,
+#                                   euler_bounds=[[-180, 180],
+#                                                 [0, 180],
+#                                                 [-180, 180]]):
+#     from itertools import product
 
-    #spot_qs = pixel_df[['qx', 'qy', 'qz']].values
-    all_hkls, all_qs, all_fs = generate_reciprocal_lattice(Phase, tth_range=tth_range)
+#     #spot_qs = pixel_df[['qx', 'qy', 'qz']].values
+#     all_hkls, all_qs, all_fs = generate_reciprocal_lattice(Phase, tth_range=tth_range)
 
-    dist = euclidean_distances(all_qs)
-    min_q = np.min(dist[dist > 0])
+#     dist = euclidean_distances(all_qs)
+#     min_q = np.min(dist[dist > 0])
 
-    step = start_angle
-    #print(f'Finding orientations with {step} deg resolution...')
-    phi1_list = np.arange(*euler_bounds[0], step)
-    PHI_list = np.arange(*euler_bounds[1], step)
-    phi2_list = np.arange(*euler_bounds[2], step)
-    orientations = list(product(phi1_list, PHI_list, phi2_list))
+#     step = start_angle
+#     #print(f'Finding orientations with {step} deg resolution...')
+#     phi1_list = np.arange(*euler_bounds[0], step)
+#     PHI_list = np.arange(*euler_bounds[1], step)
+#     phi2_list = np.arange(*euler_bounds[2], step)
+#     orientations = list(product(phi1_list, PHI_list, phi2_list))
 
-    fit_ori = []
-    fit_min = []
-    ITERATE = True
-    while ITERATE:
-        step /= 2 # half the resolution each time
-        if step <= angle_resolution:
-            ITERATE = False
+#     fit_ori = []
+#     fit_min = []
+#     ITERATE = True
+#     while ITERATE:
+#         step /= 2 # half the resolution each time
+#         if step <= angle_resolution:
+#             ITERATE = False
 
-        #print(f'Evaluating the current Euler space...')
-        min_list = []
-        for orientation in orientations:
-            dist = euclidean_distances(spot_qs, euler_rotation(all_qs, *orientation))
-            min_list.append(np.sum(np.min(dist, axis=1)**2))
+#         #print(f'Evaluating the current Euler space...')
+#         min_list = []
+#         for orientation in orientations:
+#             dist = euclidean_distances(spot_qs, euler_rotation(all_qs, *orientation))
+#             min_list.append(np.sum(np.min(dist, axis=1)**2))
         
-        fit_min.append(np.min(min_list))
-        fit_ori.append(orientations[np.argmin(min_list)])
+#         fit_min.append(np.min(min_list))
+#         fit_ori.append(orientations[np.argmin(min_list)])
         
-        min_mask = min_list < cut_off * (np.max(min_list) - np.min(min_list)) + np.min(min_list)
-        best_orientations = np.asarray(orientations)[min_mask]
+#         min_mask = min_list < cut_off * (np.max(min_list) - np.min(min_list)) + np.min(min_list)
+#         best_orientations = np.asarray(orientations)[min_mask]
 
-        #print(f'Finding new orientations with {step:.4f} deg resolution...')
-        new_orientations = []
-        for orientation in best_orientations:
-            phi1, PHI, phi2 = orientation
-            new_phi1 = [phi1 - step, phi1, phi1 + step]
-            new_PHI = [PHI - step, PHI, PHI + step]
-            new_phi2 = [phi2 - step, phi2, phi2 + step]
+#         #print(f'Finding new orientations with {step:.4f} deg resolution...')
+#         new_orientations = []
+#         for orientation in best_orientations:
+#             phi1, PHI, phi2 = orientation
+#             new_phi1 = [phi1 - step, phi1, phi1 + step]
+#             new_PHI = [PHI - step, PHI, PHI + step]
+#             new_phi2 = [phi2 - step, phi2, phi2 + step]
 
-            sub_orientations = product(new_phi1, new_PHI, new_phi2)
+#             sub_orientations = product(new_phi1, new_PHI, new_phi2)
 
-            for sub_orientation in sub_orientations:
-                if sub_orientation not in new_orientations:
-                    new_orientations.append(sub_orientation)
+#             for sub_orientation in sub_orientations:
+#                 if sub_orientation not in new_orientations:
+#                     new_orientations.append(sub_orientation)
             
-            orientations = new_orientations
+#             orientations = new_orientations
 
-    #print(f'Evaluating the last Euler space...')
-    min_list = []
-    for orientation in orientations:
-        dist = euclidean_distances(spot_qs, euler_rotation(all_qs, *orientation))
-        min_list.append(np.sum(np.min(dist, axis=1)**2))
+#     #print(f'Evaluating the last Euler space...')
+#     min_list = []
+#     for orientation in orientations:
+#         dist = euclidean_distances(spot_qs, euler_rotation(all_qs, *orientation))
+#         min_list.append(np.sum(np.min(dist, axis=1)**2))
     
-    fit_min.append(np.min(min_list))
-    fit_ori.append(orientations[np.argmin(min_list)])
+#     fit_min.append(np.min(min_list))
+#     fit_ori.append(orientations[np.argmin(min_list)])
 
-    return fit_ori, fit_min
+#     return fit_ori, fit_min
 
 
 def ewald_iterative_indexing(spot_qs,

@@ -86,7 +86,7 @@ class XRDBaseScan(XRDData):
         # Adding some metadata
         self.scanid = scanid
         if filename is None:
-            filename = f'scan{scanid}_xrd'
+            filename = f'scan{scanid}_{self._hdf_type}' # This may break some things...
         self.filename = filename
 
         if wd is None:
@@ -202,7 +202,7 @@ class XRDBaseScan(XRDData):
             ostr += f'\n\tHDF Path:\t{self.hdf_path}\n'
 
         # Data info
-        ostr += '\n\t' + '\t'.join(XRDData.__repr__(self).splitlines(True))
+        ostr += '\t' + '\t'.join(XRDData.__repr__(self).splitlines(True))
 
         # Other info
         if hasattr(self, 'ai'): # pull geometry info
@@ -223,7 +223,7 @@ class XRDBaseScan(XRDData):
     ### Loading data into XRDBaseScan ###
     ################################
 
-    @classmethod # Allows me to define and initiatie the class simultaneously
+    @classmethod
     def from_hdf(cls,
                  hdf_filename,
                  wd=None,
@@ -249,7 +249,7 @@ class XRDBaseScan(XRDData):
                                           map_shape=map_shape,
                                           image_shape=image_shape,
                                           dask_enabled=dask_enabled)
-            
+
             # Remove several pieces to allow for unpacking
             base_md = input_dict.pop('base_md')
             image_attrs = input_dict.pop('image_attrs')
@@ -260,7 +260,10 @@ class XRDBaseScan(XRDData):
             phases = input_dict.pop('phases')
             spots = input_dict.pop('spots')
             spot_model = input_dict.pop('spot_model')
-            
+            spots_3D = input_dict.pop('spots_3D')
+            vect_dict = input_dict.pop('vect_dict')
+
+            # Compare image and integration data
             if (input_dict['image_data'] is not None
                 and input_dict['integration_data'] is not None):
                 if not np.all([val1 == val2
@@ -273,7 +276,7 @@ class XRDBaseScan(XRDData):
             # Remove unused values (keeps pos_dict out of rocking curve...)
             for key, value in list(input_dict.items()):
                 if value is None:
-                    del input_dict[key]
+                    del input_dict[key]      
 
             # Instantiate XRDBaseScan
             inst = cls(**input_dict,
@@ -299,11 +302,33 @@ class XRDBaseScan(XRDData):
             
             # Add phases
             inst.phases = phases
+            # Add spots
             if spots is not None:
                 inst.spots = spots
             if spot_model is not None:
                 inst.spot_model = spot_model
-
+            if spots_3D is not None:
+                inst.spots_3D = spots_3D
+            
+            # Add vector information. Not super elegant
+            if vect_dict is not None:
+                has_blob_int, has_spot_int = False, False
+                for key, value in vect_dict.items():
+                    # Check for int cutoffs
+                    # Wait to make sure intensity is processed
+                    if key == 'blob_int_cutoff':
+                        has_blob_int = True
+                    elif key == 'spot_int_cutoff':
+                        has_spot_int = True
+                    else:
+                        setattr(inst, key, value)
+                if has_blob_int:
+                    inst.blob_int_mask = inst.get_vector_int_mask(
+                            intensity_cutoff=vect_dict['blob_int_cutoff'])
+                if has_spot_int:
+                    inst.spot_int_mask = inst.get_vector_int_mask(
+                            intensity_cutoff=vect_dict['spot_int_cutoff'])
+            
             print(f'{cls.__name__} loaded!')
             return inst
         
@@ -588,7 +613,8 @@ class XRDBaseScan(XRDData):
                  hdf=None,
                  hdf_filename=None,
                  hdf_path=None,
-                 dask_enabled=False):
+                 dask_enabled=False,
+                 save_current=False):
         
         # Check for previous iterations
         if ((hasattr(self, 'hdf') and self.hdf is not None)
@@ -625,6 +651,9 @@ class XRDBaseScan(XRDData):
             self.hdf = h5py.File(self.hdf_path, 'a')
         else:
             self.hdf = None
+
+        if save_current:
+            self.save_current_hdf()
 
 
     # Saves current major features
@@ -1075,9 +1104,6 @@ class XRDBaseScan(XRDData):
         if phase_name is not None:
             phase.name = phase_name
         
-        if self.energy is not None:
-            phase.energy = self.energy
-        
         self.add_phase(phase)
     
 
@@ -1113,20 +1139,33 @@ class XRDBaseScan(XRDData):
                 self.hdf = None
 
 
-    def select_phases(self, remove_less_than=-1,
-                      image=None, tth_num=4096,
-                      unit='2th_deg', ignore_less=1,
+    def select_phases(self,
+                      remove_less_than=-1,
+                      image=None,
+                      energy=None,
+                      tth_num=4096,
+                      unit='2th_deg',
+                      ignore_less=1,
                       save_to_hdf=True):
+        
+        if not hasattr(self, 'ai') or self.ai is None:
+            raise AttributeError('Must first set calibration before selecting phases.')
         
         if image is None:
             if self.corrections['polar_calibration']:
                 image = self._processed_images_composite
             else:
                 image = self.composite_image
-            
-
+        
+        if energy is None:
+            if isinstance(self.energy, list):
+                err_str = ('A specific incident X-ray energy must be '
+                        + 'provided to use the phase selector tool.')
+                raise RuntimeError(err_str)
+            else:
+                energy = self.energy
+        
         tth, xrd = self.integrate1d_image(image=image, tth_num=tth_num, unit=unit)
-        # Add background subraction??
 
         # Plot phase_selector
         phase_vals = phase_selector(xrd, list(self.phases.values()), tth, ignore_less=ignore_less)
