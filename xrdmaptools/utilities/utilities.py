@@ -59,7 +59,6 @@ def pathify(directory, filename, ext):
     path = check_ext(path, ext)
     return path
 
-    
 
 # Does not work!
 def timed_func(func):

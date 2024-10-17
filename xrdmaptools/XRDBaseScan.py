@@ -658,6 +658,13 @@ class XRDBaseScan(XRDData):
 
     # Saves current major features
     def save_current_hdf(self):
+        
+        if self.hdf_path is None:
+            print('WARNING: Changes cannot be written to hdf without '
+                  + 'first indicating a file location.\nProceeding '
+                  + 'without changes.')
+            return # Hard-coded even though all should pass
+
         if hasattr(self, 'images'):
             if self._dask_enabled:
                 self.dask_2_hdf()
@@ -1061,7 +1068,7 @@ class XRDBaseScan(XRDData):
         if phase_name not in self.phases.keys():
             self.phases[phase_name] = phase
         else:
-            print(f"Did not add {phase_name} since it is already a possible phases.")
+            print(f"Did not add {phase_name} since it is already a possible phase.")
 
 
     def remove_phase(self, phase):

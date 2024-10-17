@@ -36,7 +36,7 @@ def get_strain_orientation(q_vectors,
     strained = LatticeParameters.from_reciprocal_stretch_tensor(B)
 
     # Get transformation matrix between strained and unstrained lattices
-    Tij = np.dot(strained.Amat, linalg.inv(unsrained.Amat))
+    Tij = np.dot(strained.Amat, linalg.inv(unstrained.Amat))
     # This can be acquired in reciprocal space too, but switched positions
     # to account for the changed sign
     # Tij = np.dot(unstrained.Bmat, np.linalg.inv(strained.Bmat))
@@ -44,9 +44,11 @@ def get_strain_orientation(q_vectors,
     # Decompose transformation matrix into strain components
     # This is in the crystal reference frame!
     # Is this Eulerian, Lagrangian, or infinitesimal strain???
-    eij_full = 0.5 * (Tij + Tij.T) / 2
+    eij_full = 0.5 * (Tij + Tij.T) - np.eye(3)
 
-    return eij_full, U.T # Convert from active to passive rotation
+    return (eij_full,
+            U.T, # Convert from active to passive rotation
+            strained)
 
 
 

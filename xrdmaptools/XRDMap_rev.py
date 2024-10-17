@@ -49,6 +49,7 @@ class XRDMap(XRDBaseScan):
 
     def __init__(self,
                  pos_dict=None,
+                 swapped_axes=False,
                  xrf_path=None,
                  **xrdbasekwargs
                  ):
@@ -60,9 +61,16 @@ class XRDMap(XRDBaseScan):
             **xrdbasekwargs,
             )
 
+        # Set position dictionary
         self.pos_dict = None
         if pos_dict is not None:
             self.set_positions(pos_dict)
+
+        # Swap axes if called. Tranposes major data components
+        # This flag is used to avoid changing the original saved data
+        self._swapped_axes = swapped_axes
+        if self._swapped_axes:
+            self.swap_axes(only_images=True)
 
         # Save xrf_path location. Do not load unless explicitly called
         self.xrf_path = xrf_path
@@ -262,13 +270,48 @@ class XRDMap(XRDBaseScan):
             )
         
         print('Finished fracturing maps.')
+
+    #################################
+    ### Modified Parent Functions ###
+    #################################
+
+    # Re-writing image save functions which 
+    # will be affected by swapped axes
+
+    # This may need to be called in __init__???
+    def _check_swapped_axes(func):
+        def wrapped(self, *args, **kwargs)
+            if self._swapped_axes:
+                self.swap_axes(only_images=True)
+            
+            super().func(self, *args, **kwargs)
+            
+            if self._swapped_axes:
+                self.swap_axes(only_images=True)
+
+        return wrapped
+
+    save_images = _check_swapped_axes(save_images)
+    save_integrations = _check_swapped_axes(save_integrations)
+    _dask_2_hdf = _check_swapped_axes(_dask_2_hdf)
+
+
+    def start_saving_hdf(self, *args, **kwargs)
+
+        if self._swapped_axes:
+            warn_str = ('WARNING: Axes have been swapped. Changes may '
+                        + 'not have been propely recorded and could '
+                        + 'cause inconsistencies.')
+            print(warn_str)
+        
+        super().start_saving_hdf(*args, **kwargs)
     
     
     ##################
     ### Properties ###
     ##################
 
-            
+    # Only inherited properties thus far...        
 
     ##############################
     ### Calibrating Map Images ###
@@ -515,80 +558,121 @@ class XRDMap(XRDBaseScan):
 
 
     # Method to swap axes, specifically swapping the default format of fast and slow axes
-    def swap_axes(self, exclude_images=False, save_updates=False):
+    def swap_axes(self,
+                  only_images=False,
+                  # exclude_images=False,
+                  # save_updates=False
+                  ):
         # This will break if images are loaded with dask.
         # _temp_images will be of the wrong shape...
         # could be called before _temp_images dataset is instantiated??
         # exclude_images included to swap axes upon instantiation
         # Never save images. Leave that for specific situations...
+        
 
-        if self.title == 'final_images' and not exclude_images:
-            warn_str = ('WARNING: images have been finalized.'
-                        + '\nSaving other attributes with swapped '
-                        + 'axes may create inconsistencies.')
+        if self._dask_enabled and self.title != 'final_images':
+            warn_str = ('WARNING: Dask is enabled and saving to a '
+                        + 'temporary dataset! Swapping axes may '
+                        + 'create issues when updating this dataset '
+                        + 'or saving images.')
             print(warn_str)
 
-        self.images = self.images.swapaxes(0, 1)
 
-        if hasattr(self, 'pos_dict'):
-            for key in list(self.pos_dict.keys()):
-                self.pos_dict[key] = self.pos_dict[key].swapaxes(0, 1)
-        if hasattr(self, 'sclr_dict'):
-            for key in list(self.sclr_dict.keys()):
-                self.sclr_dict[key] = self.sclr_dict[key].swapaxes(0, 1)
-        if hasattr(self, 'blob_masks'):
+        # if self.title == 'final_images' and not exclude_images:
+        #     warn_str = ('WARNING: images have been finalized.'
+        #                 + '\nSaving other attributes with swapped '
+        #                 + 'axes may create inconsistencies.')
+        #     print(warn_str)
+
+
+        # Swap map axes
+        if hasattr(self, 'images') and self.images is not None:
+            self.images = self.images.swapaxes(0, 1)
+        if hasattr(self, 'integrations') and self.integrations is not None:
+            self.integrations = self.integrations.swapaxes(0, 1)
+
+        # Update shape values
+        self.shape = self.images.shape # This will force a new save in hdf
+        self.map_shape = self.shape[:2]
+
+        # Delete any cached maps
+        old_attr = list(self.__dict__.keys())       
+        for attr in old_attr:
+            if attr in ['_min_map',
+                        '_max_map',
+                        '_med_map',
+                        '_sum_map',
+                        '_mean_map',
+                        '_min_integration_map',
+                        '_max_integration_map',
+                        '_med_integration_map',
+                        '_sum_integration_map',
+                        '_mean_integration_map',]:
+                delattr(self, attr)
+
+        # Depending on the order of when the axes are
+        # swapped any of these could break...
+        if hasattr(self, 'blob_masks') and self.blob_masks is not None:
             self.blob_masks = self.blob_masks.swapaxes(0, 1)
+        if hasattr(self, 'null_map') and self.null_map is not None:
+            self.null_map = self.null_map.swapaxes(0, 1)
+        if hasattr(self, 'scaler_map') and self.scaler_map is not None:
+            self.scaler_map = self.scaler_map.swapaxes(0, 1)
 
-        # Update image attributes if included
-        if not exclude_images:
-            # Update shape values
-            self.shape = self.images.shape # This will force a new save in hdf
-            self.map_shape = self.shape[:2]
+        # Modify other attributes as needed
+        if not only_images:
+            if hasattr(self, 'pos_dict'):
+                for key in list(self.pos_dict.keys()):
+                    self.pos_dict[key] = self.pos_dict[key].swapaxes(0, 1)
+            if hasattr(self, 'sclr_dict'):
+                for key in list(self.sclr_dict.keys()):
+                    self.sclr_dict[key] = self.sclr_dict[key].swapaxes(0, 1)
 
-            # Delete any cached maps
-            old_attr = list(self.__dict__.keys())       
-            for attr in old_attr:
-                if attr in ['_min_map',
-                            '_max_map',
-                            '_med_map',
-                            '_sum_map',
-                            '_mean_map',
-                            '_min_integration_map',
-                            '_max_integration_map',
-                            '_med_integration_map',
-                            '_sum_integration_map',
-                            '_mean_integration_map',]:
-                    delattr(self, attr)
-            
-        # Update spot map_indices
-        if hasattr(self, 'spots'):
-            map_x_ind = self.spots['map_x'].values
-            map_y_ind = self.spots['map_y'].values
-            self.spots['map_x'] = map_y_ind
-            self.spots['map_y'] = map_x_ind
+            # Update spot map_indices
+            if hasattr(self, 'spots'):
+                map_x_ind = self.spots['map_x'].values
+                map_y_ind = self.spots['map_y'].values
+                self.spots['map_x'] = map_y_ind
+                self.spots['map_y'] = map_x_ind
 
-        if save_updates:
+            # Save new values
             # Do NOT rewrite images. This will copy the dataset
-
             if hasattr(self, 'pos_dict'):
                 # Write to hdf file
                 self.save_sclr_pos('positions',
                                     self.pos_dict,
                                     self.position_units)
-                
             if hasattr(self, 'sclr_dict'):
                 self.save_sclr_pos('scalers',
                                     self.sclr_dict,
                                     self.scaler_units)
-                
             if hasattr(self, 'spots'):
                 self.save_spots()
+
+        # Flip swapped axes tag from whatever it was
+        # But when intenionally called
+        if not only_images: 
+            self._swapped_axes = not self._swapped_axes
+
+            # Save changes to hdf if available
+            if self.hdf_path is not None:
+                # Open hdf flag
+                keep_hdf = True
+                if self.hdf is None:
+                    self.hdf = h5py.File(self.hdf_path, 'a')
+                    keep_hdf = False
+
+                self.hdf[self._hdf_type].attrs['swapped_axes'] = self._swapped_axes
+
+                if not keep_hdf:
+                    self.hdf.close()
+                    self.hdf = None
 
 
     def interpolate_positions(self, scan_input=None):
 
         if scan_input is None:
-            if hasattr(self, 'scan_input'):
+            if hasattr(self, 'scan_input') and self.scan_input is not None:
                 scan_input = self.scan_input
             else:
                 raise ValueError('Cannot interpolate positiions without scan input.')
@@ -628,7 +712,7 @@ class XRDMap(XRDBaseScan):
                    multiplier=5,
                    size=3,
                    expansion=10,
-                   override_rescale=False):
+                   override_rescale=True):
     
         # Cleanup images as necessary
         self._dask_2_numpy()
@@ -664,7 +748,7 @@ class XRDMap(XRDBaseScan):
                    expansion=10,
                    min_distance=3,
                    radius=10,
-                   override_rescale=False):
+                   override_rescale=True):
         
         if (hasattr(self, 'blob_masks')
             and self.blob_masks is not None):

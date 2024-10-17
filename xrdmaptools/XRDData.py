@@ -1326,7 +1326,6 @@ class XRDData:
             print(msg_str)
             return
         else:
-            f = None
             if self.title == 'raw_images':
                 if not self._dask_enabled or override:
                     raw_images = self.images # Should not be a copy
@@ -1615,7 +1614,6 @@ class XRDData:
         print(f'Diffraction map size is {disk_size:.3f} {units}.')
 
     # WIP apparently???
-    # This should probably not be in XRDData anyway
     @staticmethod
     def estimate_disk_size(size):
         # External reference function to estimate map size before acquisition

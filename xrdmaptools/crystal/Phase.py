@@ -13,10 +13,11 @@ from collections import OrderedDict
 from xrdmaptools.utilities.math import (
     energy_2_wavelength,
     tth_2_q,
+    q_2_tth,
+    convert_qd,
     vector_angle
 )
 from xrdmaptools.utilities.utilities import rescale_array
-
 
 
 class Phase(xu.materials.Crystal):
@@ -52,8 +53,7 @@ class Phase(xu.materials.Crystal):
 
     @classmethod
     def from_hdf(cls, group, **kwargs):
-        # Load values to reconstruct phase instance from standard hdf group or dataset
-        # Will need to implement a save to hdf group function as well...    
+        # Load values to reconstruct phase instance from standard hdf group or dataset  
         name = group.name.split('/')[-1]
         
         params = OrderedDict()
@@ -63,12 +63,12 @@ class Phase(xu.materials.Crystal):
         
         space_group = group.attrs['space_group']
         space_group_number = group.attrs['space_group_number']
-
+        
+        # Rebuild lattice from atomic positions and space group
         wbase = group['WyckoffBase']
         atom_lst = []
         for atom_key in wbase.keys():
             atom = Atom(atom_key.split('[')[0], wbase[atom_key].attrs['number'])
-            #atom = Atom(atom_key, atom_dict[atom_key])
             pos = wbase[atom_key].attrs['position']
             if np.any(np.isnan(wbase[atom_key][0])):
                 positions = None
@@ -98,7 +98,10 @@ class Phase(xu.materials.Crystal):
             data = np.array(atom[1][1:])
             #data = np.array([np.nan for pos in data if pos is None else pos])
             data = np.array([np.nan if pos is None else pos for pos in data])
-            dset = wbase.require_dataset(f'{atom[0].name}[{i}]', data=data, shape=data.shape, dtype=data.dtype)
+            dset = wbase.require_dataset(f'{atom[0].name}[{i}]',
+                                         data=data,
+                                         shape=data.shape,
+                                         dtype=data.dtype)
             dset.attrs['number'] = atom[0].num
             dset.attrs['position'] = atom[1][0]
 
@@ -193,23 +196,23 @@ class Phase(xu.materials.Crystal):
     # TODO: all qmin trimming
     def generate_reciprocal_lattice(self,
                                     qmax,
-                                    return_values=True):
+                                    return_values=False):
                                     
         all_hkls = list(self.lattice.get_allowed_hkl(qmax=qmax))
         all_qs = self.Q(all_hkls)
         all_fs = np.abs(self.StructureFactor(all_qs))**2
         rescale_array(all_fs, arr_min = 0, upper=100)
 
-        self.all_hkls = all_hkls
-        self.all_qs = all_qs
-        self.all_fs = all_fs
+        self.all_hkls = np.asarray(all_hkls)
+        self.all_qs = np.asarray(all_qs)
+        self.all_fs = np.asarray(all_fs) # might be redundant
 
         if return_values:
             return self.all_hkls, self.all_qs, self.all_fs
 
     
     def planeDistances(self, hkl_lst):
-        # Re-write of planeDistance to accomadate multiple plances at once
+        # Re-write of planeDistance to accomadate multiple planes at once
         return 2 * np.pi / np.linalg.norm(self.Q(hkl_lst), axis=1)
     
 

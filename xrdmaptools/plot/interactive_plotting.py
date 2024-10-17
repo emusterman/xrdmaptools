@@ -526,6 +526,7 @@ def interactive_1D_1D_plot(dyn_kw1={},
     binding_id = plt.connect('motion_notify_event', onmove)
     return fig, ax
 
+
 # TODO: Add checks to make sure all shared axes information matches
 def interactive_shared_2D_1D_plot(dyn_2D_kw={},
                                   dyn_1D_kw={},

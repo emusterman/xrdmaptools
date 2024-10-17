@@ -287,12 +287,13 @@ class XRDRockingCurveStack(XRDBaseScan):
     ### Re-Written Methods ###
     ##########################
 
-    # This currently breaks integrations, which are not particularly useful...
+
     def set_calibration(self, *args, **kwargs):
         super().set_calibration(*args,
                                 energy=self.energy[0],
                                 **kwargs)    
     
+
     # Replacement for pixel_spots()
     def selected_spots(self,
                        index=None,
@@ -482,6 +483,7 @@ class XRDRockingCurveStack(XRDBaseScan):
         # Resever memory, a little faster and throws errors sooner
         q_vectors = np.zeros((np.sum(self.blob_masks), 3), dtype=self.dtype)
 
+        print('Vectorizing images...')
         filled_indices = 0
         for i, wavelength in tqdm(enumerate(self.wavelength), total=self.num_images):
             q_arr = get_q_vect(self.tth_arr,
@@ -701,8 +703,11 @@ class XRDRockingCurveStack(XRDBaseScan):
                       intensity_cutoff=0,
                       save_to_hdf=True):
 
-        if not hasattr(self, 'q_vectors') or not hasattr(self, 'intensity'):
-            raise AttributeError('Cannot performe 3D spot search without first vectorizing images.')
+        if (not hasattr(self, 'q_vectors')
+            or not hasattr(self, 'intensity')):
+            err_str = ('Cannot performe 3D spot search without '
+                       + 'first vectorizing images.')
+            raise AttributeError(err_str)
 
         int_mask = self.get_vector_int_mask(
                         intensity_cutoff=intensity_cutoff)
@@ -836,8 +841,8 @@ class XRDRockingCurveStack(XRDBaseScan):
                 if (dset.shape == data.shape
                     and dset.dtype == data.dtype):
                     dset[...] = data
-                elif (dset.shape != data.shape
-                      and dset.dtype == data.dtype):
+                elif (dset.shape == data.shape
+                      and dset.dtype != data.dtype):
                       dset[...] = data.astype(dset.dtype)
                 else:
                     warn_str = (f'WARNING: {title} dataset shape does '
@@ -1158,143 +1163,143 @@ class XRDRockingCurveStack(XRDBaseScan):
 
 
 
-def plot_3D_isosurfaces(self,
-                        q_vectors=None,
-                        intensity=None,
-                        gridstep=0.005,
-                        isomin=None,
-                        isomax=None,
-                        min_offset=None,
-                        max_offset=None,
-                        opacity=0.1,
-                        surface_count=20,
-                        colorscale='viridis',
-                        renderer='browser'):
+# def plot_3D_isosurfaces(self,
+#                         q_vectors=None,
+#                         intensity=None,
+#                         gridstep=0.005,
+#                         isomin=None,
+#                         isomax=None,
+#                         min_offset=None,
+#                         max_offset=None,
+#                         opacity=0.1,
+#                         surface_count=20,
+#                         colorscale='viridis',
+#                         renderer='browser'):
 
-    if q_vectors is None:
-        if hasattr(self, 'q_vectors'):
-            q_vectors = self.q_vectors
-        else:
-            err_str = 'Must provide or already have q_vectors.'
-            raise ValueError(err_str)
-    else:
-        q_vectors = np.asarray(q_vectors)
+#     if q_vectors is None:
+#         if hasattr(self, 'q_vectors'):
+#             q_vectors = self.q_vectors
+#         else:
+#             err_str = 'Must provide or already have q_vectors.'
+#             raise ValueError(err_str)
+#     else:
+#         q_vectors = np.asarray(q_vectors)
 
-    if intensity is None:
-        if (hasattr(self, 'intensity')
-            and len(self.intensity) == len(q_vectors)):
-            intensity = self.intensity
-        else:
-            err_str = 'Must provide or already have intensity.'
-            raise ValueError(err_str)
-    else:
-        intensity = np.asarray(intensity)
+#     if intensity is None:
+#         if (hasattr(self, 'intensity')
+#             and len(self.intensity) == len(q_vectors)):
+#             intensity = self.intensity
+#         else:
+#             err_str = 'Must provide or already have intensity.'
+#             raise ValueError(err_str)
+#     else:
+#         intensity = np.asarray(intensity)
 
-    # Copy values; they will be modified.
-    plot_qs = q_vectors.copy()
-    plot_ints = intensity.copy()
-    min_int = np.min(plot_ints)
+#     # Copy values; they will be modified.
+#     plot_qs = q_vectors.copy()
+#     plot_ints = intensity.copy()
+#     min_int = np.min(plot_ints)
 
-    # Check given q_ext
-    for axis in range(3):
-        q_ext = (np.max(q_vectors[:, axis])
-                 - np.min(q_vectors[:, axis]))
-        if  q_ext < gridstep:
-            err_str = (f'Gridstep ({gridstep}) is smaller than '
-                       + f'q-vectors range along axis {axis} '
-                       + f'({q_ext:.4f}).')
-            raise ValueError(err_str)
+#     # Check given q_ext
+#     for axis in range(3):
+#         q_ext = (np.max(q_vectors[:, axis])
+#                  - np.min(q_vectors[:, axis]))
+#         if  q_ext < gridstep:
+#             err_str = (f'Gridstep ({gridstep}) is smaller than '
+#                        + f'q-vectors range along axis {axis} '
+#                        + f'({q_ext:.4f}).')
+#             raise ValueError(err_str)
 
-    tth, chi, wavelength = q_2_polar(
-                        plot_qs,
-                        degrees=self.polar_units == 'deg')
-    energy = wavelength_2_energy(wavelength)
-    # print(energy)
+#     tth, chi, wavelength = q_2_polar(
+#                         plot_qs,
+#                         degrees=self.polar_units == 'deg')
+#     energy = wavelength_2_energy(wavelength)
+#     # print(energy)
 
-    # Assumes energy is rocking axis...
-    energy_step = np.abs(np.mean(np.gradient(self.energy)))
-    min_energy = np.min(self.energy)
-    max_energy = np.max(self.energy)
-    # print(energy_step)
+#     # Assumes energy is rocking axis...
+#     energy_step = np.abs(np.mean(np.gradient(self.energy)))
+#     min_energy = np.min(self.energy)
+#     max_energy = np.max(self.energy)
+#     # print(energy_step)
 
-    low_mask = energy <= min_energy + energy_step
-    high_mask = energy >= max_energy - energy_step
-    # print(f'{np.min(self.energy)=}')
-    # print(f'{np.max(self.energy)=}')
+#     low_mask = energy <= min_energy + energy_step
+#     high_mask = energy >= max_energy - energy_step
+#     # print(f'{np.min(self.energy)=}')
+#     # print(f'{np.max(self.energy)=}')
 
-    # If there are bounded pixels, padd with zeros
-    # print(np.sum([low_mask, high_mask]))
-    if np.sum([low_mask, high_mask]) > 0:
-        low_qs = get_q_vect(
-                    tth[low_mask],
-                    chi[low_mask],
-                    wavelength=energy_2_wavelength(min_energy
-                                                   - energy_step),
-                    degrees=self.polar_units == 'deg'
-                    ).astype(self.dtype).T
+#     # If there are bounded pixels, padd with zeros
+#     # print(np.sum([low_mask, high_mask]))
+#     if np.sum([low_mask, high_mask]) > 0:
+#         low_qs = get_q_vect(
+#                     tth[low_mask],
+#                     chi[low_mask],
+#                     wavelength=energy_2_wavelength(min_energy
+#                                                    - energy_step),
+#                     degrees=self.polar_units == 'deg'
+#                     ).astype(self.dtype).T
         
-        high_qs = get_q_vect(
-                    tth[high_mask],
-                    chi[high_mask],
-                    wavelength=energy_2_wavelength(max_energy
-                                                   + energy_step),
-                    degrees=self.polar_units == 'deg'
-                    ).astype(self.dtype).T
+#         high_qs = get_q_vect(
+#                     tth[high_mask],
+#                     chi[high_mask],
+#                     wavelength=energy_2_wavelength(max_energy
+#                                                    + energy_step),
+#                     degrees=self.polar_units == 'deg'
+#                     ).astype(self.dtype).T
 
-        # Extend plot qs and ints
-        plot_qs = np.vstack([plot_qs, low_qs, high_qs])
-        plot_ints = np.hstack([
-                        plot_ints,
-                        np.ones(low_mask.sum()) * min_int,
-                        np.ones(high_mask.sum()) * min_int])
+#         # Extend plot qs and ints
+#         plot_qs = np.vstack([plot_qs, low_qs, high_qs])
+#         plot_ints = np.hstack([
+#                         plot_ints,
+#                         np.ones(low_mask.sum()) * min_int,
+#                         np.ones(high_mask.sum()) * min_int])
     
-    # return plot_qs, plot_ints
+#     # return plot_qs, plot_ints
 
-    # Interpolate data for isosurface generation
-    (x_grid,
-    y_grid,
-    z_grid,
-    int_grid) = map_2_grid(plot_qs,
-                           plot_ints,
-                           gridstep=gridstep)
+#     # Interpolate data for isosurface generation
+#     (x_grid,
+#     y_grid,
+#     z_grid,
+#     int_grid) = map_2_grid(plot_qs,
+#                            plot_ints,
+#                            gridstep=gridstep)
 
-    gen_offset = ((np.max(int_grid) - np.min(int_grid))
-                    / (2 * surface_count))
-    if isomin is None:
-        if min_offset is None:
-            isomin = np.min(int_grid) + gen_offset
-        else:
-            isomin = np.min(int_grid) + min_offset
+#     gen_offset = ((np.max(int_grid) - np.min(int_grid))
+#                     / (2 * surface_count))
+#     if isomin is None:
+#         if min_offset is None:
+#             isomin = np.min(int_grid) + gen_offset
+#         else:
+#             isomin = np.min(int_grid) + min_offset
     
-    if isomax is None:
-        if max_offset is None:
-            isomax = np.max(int_grid) - gen_offset
-        else:
-            isomax = np.max(int_grid) - max_offset
+#     if isomax is None:
+#         if max_offset is None:
+#             isomax = np.max(int_grid) - gen_offset
+#         else:
+#             isomax = np.max(int_grid) - max_offset
     
-    # Generate isosurfaces from plotly graph object
-    data = go.Volume(
-        x=x_grid.flatten(),
-        y=y_grid.flatten(),
-        z=z_grid.flatten(),
-        value=int_grid.flatten(),
-        isomin=isomin,
-        isomax=isomax,
-        opacity=opacity,
-        surface_count=surface_count,
-        colorscale=colorscale
-    )
+#     # Generate isosurfaces from plotly graph object
+#     data = go.Volume(
+#         x=x_grid.flatten(),
+#         y=y_grid.flatten(),
+#         z=z_grid.flatten(),
+#         value=int_grid.flatten(),
+#         isomin=isomin,
+#         isomax=isomax,
+#         opacity=opacity,
+#         surface_count=surface_count,
+#         colorscale=colorscale
+#     )
 
-    # Find data extent
-    x_range = np.max(x_grid) - np.min(x_grid)
-    y_range = np.max(y_grid) - np.min(y_grid)
-    z_range = np.max(z_grid) - np.min(z_grid)
+#     # Find data extent
+#     x_range = np.max(x_grid) - np.min(x_grid)
+#     y_range = np.max(y_grid) - np.min(y_grid)
+#     z_range = np.max(z_grid) - np.min(z_grid)
 
-    # Generate figure and plot
-    fig = go.Figure(data=data)
-    fig.update_layout(scene_aspectmode='manual',
-                        scene_aspectratio=dict(
-                        x=x_range,
-                        y=y_range,
-                        z=z_range))
-    fig.show(renderer=renderer)
+#     # Generate figure and plot
+#     fig = go.Figure(data=data)
+#     fig.update_layout(scene_aspectmode='manual',
+#                         scene_aspectratio=dict(
+#                         x=x_range,
+#                         y=y_range,
+#                         z=z_range))
+#     fig.show(renderer=renderer)

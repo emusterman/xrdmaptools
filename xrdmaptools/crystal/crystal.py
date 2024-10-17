@@ -8,6 +8,7 @@ from xrdmaptools.utilities.math import vector_angle
 
 # Assumption that all angles are in radians...
 # Reciprocal space WITHOUT the 2 * pi factor of q-space
+# The 2 * pi factor is stored in the Phase class reciprocal lattice vectors
 
 
 class LatticeParameters():
@@ -136,7 +137,7 @@ class LatticeParameters():
 
     def __repr__(self):
         ostr = f'|a = {self.a:.6f}\t|b = {self.b:.6f}\t|c = {self.c:.6f}'
-        ostr += (f'|alpha = {np.degrees(self.alpha):.3f}'
+        ostr += (f'\n|alpha = {np.degrees(self.alpha):.3f}'
                  + f'\t|beta = {np.degrees(self.beta):.3f}'
                  + f'\t|gamma = {np.degrees(self.gamma):.3f}')
         return ostr

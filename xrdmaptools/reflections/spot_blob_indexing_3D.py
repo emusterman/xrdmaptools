@@ -56,7 +56,7 @@ def pair_casting_index_pattern(all_spot_qs,
                                            axis=0))
     
     # Find all valid pairs within near_q and near_angle
-    connection_pair_list = find_all_valid_pairs(
+    connection_pairs = find_all_valid_pairs(
             all_spot_qs,
             all_ref_qs,
             near_q,
@@ -64,8 +64,8 @@ def pair_casting_index_pattern(all_spot_qs,
             degrees=degrees)
 
     # Symmetrically reduce pairs
-    connection_pair_list = reduce_symmetric_equivalents(
-            connection_pair_list,
+    connection_pairs = reduce_symmetric_equivalents(
+            connection_pairs,
             all_spot_qs,
             all_ref_qs,
             all_ref_hkls,
@@ -74,7 +74,7 @@ def pair_casting_index_pattern(all_spot_qs,
 
     # Iteratively decompose patterns
     best_connections, best_qofs = iterative_pattern_decomposition(
-            connection_pair_list,
+            connection_pairs,
             all_spot_qs,
             all_ref_qs,
             all_ref_fs,
@@ -131,7 +131,7 @@ def find_all_valid_pairs(all_spot_qs,
     ref_angles = multi_vector_angles(all_ref_qs, all_ref_qs, degrees=degrees)
 
     blank_connection = np.array([np.nan,] * len(phase_mask))
-    connection_pair_list = []
+    connection_pairs = []
     for pair in tqdm(spot_pair_indices):
         ref_combos = list(product(*[np.nonzero(mag_diff_arr[i] < near_q)[0]
                           for i in pair]))
@@ -149,12 +149,12 @@ def find_all_valid_pairs(all_spot_qs,
                 connection = blank_connection.copy()
                 connection[phase_inds[pair[0]]] = combo[0]
                 connection[phase_inds[pair[1]]] = combo[1]
-                connection_pair_list.append(connection)
+                connection_pairs.append(connection)
 
-    return np.asarray(connection_pair_list)
+    return np.asarray(connection_pairs)
 
 
-def reduce_symmetric_equivalents(connection_pair_list,
+def reduce_symmetric_equivalents(connection_pairs,
                                  all_spot_qs,
                                  all_ref_qs,
                                  all_ref_hkls,
@@ -170,7 +170,7 @@ def reduce_symmetric_equivalents(connection_pair_list,
     pair_orientations = []
     pair_mis_mag = []
     pair_rmse = []
-    for pair_connection in tqdm(connection_pair_list):
+    for pair_connection in tqdm(connection_pairs):
         (spot_indices,
         ref_indices) = _get_connection_indices(pair_connection)
         pair_ref_hkls = all_ref_hkls[ref_indices]
@@ -200,9 +200,9 @@ def reduce_symmetric_equivalents(connection_pair_list,
     pair_rmse = np.asarray(pair_rmse).round(10)
 
     # Reducing symmetrically equivalent pairs
-    eval_pair_mask = np.array([True,] * len(connection_pair_list))
+    eval_pair_mask = np.array([True,] * len(connection_pairs))
     keep_pair_mask = eval_pair_mask.copy()
-    for pair_i in tqdm(range(len(connection_pair_list))):
+    for pair_i in tqdm(range(len(connection_pairs))):
         # Immediately kick out already evaluated pairs
         if not eval_pair_mask[pair_i]:
             continue
@@ -226,26 +226,34 @@ def reduce_symmetric_equivalents(connection_pair_list,
 
             keep_pair_mask[np.nonzero(similar_pair_mask)[0][min_indices]] = True
         
-    return connection_pair_list[keep_pair_mask]
+    return connection_pairs[keep_pair_mask]
 
 
-def pair_casting_indexing(connection_pair_list,
+def pair_casting_indexing(connection_pairs,
                           all_spot_qs,
                           all_ref_qs,
                           all_ref_fs,
                           q_mask,
                           near_q,
                           iter_max=50,
-                          keep_initial_pair=False):
+                          keep_initial_pair=False,
+                          exclude_found_pairs=False,
+                          verbose_iterator=True):
 
     all_spot_qs = np.asarray(all_spot_qs)
     all_ref_qs = np.asarray(all_ref_qs)
     all_ref_fs = np.asarray(all_ref_fs)
 
+    if verbose_iterator:
+        iterated = tqdm(enumerate(connection_pairs),
+                        total=len(connection_pairs))
+    else:
+        iterated = enumerate(connection_pairs)
+
     connections = []
     qofs = []
-    for i, pair in tqdm(enumerate(connection_pair_list),
-                        total=len(connection_pair_list)):
+    multi_reflections = []
+    for i, pair in iterated:
 
         prev_connection = pair.copy()
         (pair_spot_inds,
@@ -257,6 +265,7 @@ def pair_casting_indexing(connection_pair_list,
         ITERATE = True
         while ITERATE:
             connection = pair.copy()
+            recalc_flag = False
             if not keep_initial_pair:
                 connection[:] = np.nan # blank the connection
 
@@ -270,19 +279,18 @@ def pair_casting_indexing(connection_pair_list,
             all_rot_qs = orientation.apply(all_ref_qs, inverse=False)
             temp_q_mask = q_mask.generate(all_rot_qs)
 
-            # Build kdtree from measured spots and query to referene
-            # lattice to avoids non-crystallographic indexing
-            #kdtree = KDTree(conn_spots)
+            # Query kdtree for find closest reference lattice points
             pot_conn = kdtree.query_ball_point(all_rot_qs[temp_q_mask],
                                                r=near_q)
             
             if keep_initial_pair:
-                # Remove original pair reflections
+                # Remove original pair reflections from pot_conn
                 for ind in pair_ref_inds:
                     if ind in np.nonzero(temp_q_mask)[0]:
                         pot_conn[np.nonzero(np.nonzero(temp_q_mask)[0] == ind)[0][0]] = []
             
-            # Cast and expand connection
+            # Cast and fill into blank connection
+            multi = []
             for conn_i, conn in enumerate(pot_conn):
                 if len(conn) > 0:
                     if keep_initial_pair:
@@ -297,8 +305,12 @@ def pair_casting_indexing(connection_pair_list,
                         connection[conn[0]] = np.nonzero(temp_q_mask)[0][conn_i]
                     else:
                         # Add closest of multiple candidate reflections
-                        _, ref_idx = kdtree.query(all_rot_qs[temp_q_mask][conn_i])
-                        connection[ref_idx] = np.nonzero(temp_q_mask)[0][conn_i]
+                        _, spot_idx = kdtree.query(all_rot_qs[temp_q_mask][conn_i])
+                        connection[spot_idx] = np.nonzero(temp_q_mask)[0][conn_i]
+                        #multi.append(spot_idx)
+                        multi += conn # concatenate lists
+                        #recalc_flag = True
+            multi = tuple(np.unique(multi))
             
             # Compare connection with previous connection
             curr_spot_inds, curr_ref_inds = _get_connection_indices(connection)
@@ -308,6 +320,14 @@ def pair_casting_indexing(connection_pair_list,
                 if (np.all(curr_spot_inds == prev_spot_inds)
                     and np.all (curr_ref_inds == prev_ref_inds)):
                     ITERATE = False
+                    break
+
+            # Kick out any casting that is orientationally indeterminant
+            if len(curr_spot_inds) < 2:
+                # Revert to previous solution
+                connection = prev_connection.copy()
+                ITERATE = False
+                break
 
             # Prepare for next iteration
             prev_connection = connection.copy()
@@ -334,11 +354,19 @@ def pair_casting_indexing(connection_pair_list,
 
         connections.append(connection)
         qofs.append(qof)
+        multi_reflections.append(multi)
 
-    return connections, qofs
+        # Find and exclude included pairs
+        if exclude_found_pairs:
+            pass
+            ~np.isnan(connection_pairs)[curr_spot_inds]
+            connection
 
 
-def iterative_pattern_decomposition(connection_pair_list,
+    return connections, qofs, multi_reflections
+
+
+def iterative_pattern_decomposition(connection_pairs,
                                     all_spot_qs,
                                     all_ref_qs,
                                     all_ref_fs,
@@ -351,16 +379,16 @@ def iterative_pattern_decomposition(connection_pair_list,
     best_connections = []
     best_qofs = []
     excluded_spot_indices = []
-    included_spot_mask = np.asarray([True,] * len(connection_pair_list[0]))
+    included_spot_mask = np.asarray([True,] * len(connection_pairs[0]))
     blank_full_connection = np.asarray([np.nan,] * len(included_spot_mask))
-    current_pair_list = connection_pair_list.copy()
+    current_pair_list = connection_pairs.copy()
 
     iter_count = 0
     ITERATE = True
     while ITERATE:
 
         # Evaluate all pairs
-        connections, qofs = pair_casting_indexing(
+        connections, qofs, _ = pair_casting_indexing(
                                     current_pair_list,
                                     all_spot_qs[included_spot_mask],
                                     all_ref_qs,
@@ -409,6 +437,177 @@ def iterative_pattern_decomposition(connection_pair_list,
     return best_connections, best_qofs
 
 
+def decaying_pattern_decomposition(connection_pairs,
+                                   all_spot_qs,
+                                   all_ref_qs,
+                                   all_ref_fs,
+                                   q_mask,
+                                   near_q,
+                                   qof_minimum=0,
+                                   keep_initial_pair=False,
+                                   max_ori_refine_iter=50,
+                                   max_ori_decomp_count=20):
+
+    best_connections, best_qofs = [], []
+    excluded_spot_indices = []
+    included_conn_mask = np.asarray([True,] * len(connection_pairs))
+    included_spot_mask = np.asarray([True,] * len(connection_pairs[0]))
+    blank_full_connection = np.asarray([np.nan,] * len(included_spot_mask))
+
+    def _internal_indexing(pairs,
+                           spots,
+                           verbose_iterator=True):
+        out = pair_casting_indexing(
+                    pairs,
+                    spots,
+                    all_ref_qs,
+                    all_ref_fs,
+                    q_mask,
+                    near_q,
+                    iter_max=max_ori_refine_iter,
+                    keep_initial_pair=keep_initial_pair,
+                    verbose_iterator=verbose_iterator)
+        return out
+    
+    (orig_connections,
+    orig_qofs,
+    orig_multi_reflections) = _internal_indexing(
+                                connection_pairs,
+                                all_spot_qs)
+
+    connections = np.asarray(orig_connections.copy())
+    qofs = np.asarray(orig_qofs.copy())
+    multi_reflections = orig_multi_reflections.copy()
+
+    iter_count = 0
+    ITERATE = True
+    while ITERATE:
+
+        # print(np.array([np.sum(~np.isnan(conn))
+        #                 for conn in connections[included_conn_mask]]).max())
+        
+        # Find best connection
+        best_ind = np.nanargmax(qofs[included_conn_mask]) # Should not be nan???
+        best_connection = connections[included_conn_mask][best_ind]
+        best_qof = qofs[included_conn_mask][best_ind]
+
+        # Conditional to catch catastrophic failures
+        if np.sum(~np.isnan(best_connection)) <= 1:
+            print('ERROR: All indexing failed!')
+            print('Returning previously successful indexing.')
+            print('override: returning connections, qofs, included_conn_mask, best_connections, best_qofs')
+            return connections, qofs, included_conn_mask, best_connections, best_qofs
+            return best_connections, best_qofs
+        
+        # Record best parameters
+        best_connections.append(best_connection)
+        best_qofs.append(best_qof)
+
+        # Update connections
+        full_spot_inds, full_ref_inds = _get_connection_indices(best_connection)
+        excluded_spot_indices.extend(full_spot_inds)
+        included_spot_mask[excluded_spot_indices] = False
+
+        # Update masks for different types of results
+        valid_conn_mask = ~np.any([~np.isnan(connections[:, idx])
+                                   for idx in excluded_spot_indices],
+                                   axis=0)
+        valid_pair_mask = ~np.any([~np.isnan(connection_pairs[:, idx])
+                                   for idx in excluded_spot_indices],
+                                   axis=0)
+
+        # Find all pairs which may have changed from previous connection
+        # Could change full_spot_inds to excluded_spot_indices to be more
+        # comprehensive. This would repeat calculations though
+        # multi_mask = [np.any([ind in multi for ind in full_spot_inds])
+        #               for multi in multi_reflections]
+
+        # # Combine masks and recalculate
+        # recalc_mask = included_conn_mask & multi_mask
+
+        exclude_ambig_num = np.array([np.sum([ind in multi
+                                        for ind in full_spot_inds])
+                                      for multi in multi_reflections])
+        # exclude_ambig_num = np.array([np.sum([ind in multi
+        #                                 for ind in excluded_spot_indices])
+        #                               for multi in multi_reflections])
+        all_ambig_num = np.array([len(multi)
+                                  for multi in multi_reflections])
+
+        ambig_mask = ((exclude_ambig_num > 0) # Has an excluded index
+                       & ((all_ambig_num
+                           - exclude_ambig_num) > 0)) # And has other valid indices
+
+        # Useful masks
+        recalc_mask = ambig_mask & ~(~valid_pair_mask & ~valid_conn_mask)
+        included_conn_mask = valid_conn_mask.copy()
+        included_conn_mask[recalc_mask] = True
+
+        # Conditionals to kill iteration
+        iter_count += 1
+        if (len(all_spot_qs) - len(excluded_spot_indices) < 1 # Cannot solve orientations
+            or best_qof < qof_minimum
+            or included_conn_mask.sum() < 1
+            or iter_count >= max_ori_decomp_count): # Reach maxed allowed orientations
+            ITERATE = False
+            break
+
+        # Evaluate new pairs as needed
+        if recalc_mask.sum() > 0:
+            # Down-cast connections
+            new_pairs = []
+            # for pair in connection_pairs[recalc_mask]:
+            #     new_pairs.append(pair[included_spot_mask])
+            # new_pairs = np.asarray(new_pairs)
+
+            for idx in range(len(connection_pairs)):
+                if recalc_mask[idx]:
+                    if (~valid_pair_mask & valid_conn_mask)[idx]:
+                        # Original pair is invalid, but connection is valid.
+                        # Append connection
+                        new_pairs.append(connections[idx][included_spot_mask])
+                    else:
+                        # Append original pair
+                        new_pairs.append(connection_pairs[idx][included_spot_mask])
+
+            # Re-index connections
+            (new_connections,
+            new_qofs,
+            new_multi_reflections) = _internal_indexing(
+                                        new_pairs,
+                                        all_spot_qs[included_spot_mask],
+                                        verbose_iterator=False)
+
+            # return new_connections, new_qofs
+            
+            # Expand new connections
+            full_new_connections = []
+            for conn in new_connections:
+                full_new_connection = blank_full_connection.copy()
+                full_new_connection[included_spot_mask] = conn
+                full_new_connections.append(full_new_connection)
+
+            
+            if np.any(np.array([np.sum(~np.isnan(conn))
+                                for conn in full_new_connections]) < 2):
+                print('Found error.')
+                return (recalc_mask,
+                        new_pairs,
+                        included_spot_mask,
+                        included_conn_mask,
+                        full_new_connections,
+                        new_qofs)
+            
+            # Update values
+            connections[recalc_mask] = full_new_connections
+            qofs[recalc_mask] = new_qofs
+            # multi_reflections cannot be converted to array
+            for i, idx in enumerate(np.nonzero(recalc_mask)[0]):
+                multi_reflections[idx] = new_multi_reflections[i]
+        
+    return best_connections, best_qofs
+
+
 #########################
 ### Utility Functions ###
 #########################
@@ -447,7 +646,7 @@ def weighted_distance_qof(fit_spot_qs,
                           all_rot_qs,
                           all_ref_fs,
                           sigma=1,
-                          int_weight=0.5):
+                          int_weight=0):
 
     # # Determine which reflections are indexed
     # found_spot_mask = [tuple(ref) in [tuple(x) for x in ref_qs] for ref in all_ref_qs]
@@ -458,7 +657,8 @@ def weighted_distance_qof(fit_spot_qs,
     # Gaussian with specified standard deviation
     # centered at zero sampled at distance
     dist_val = np.sum(np.exp(-(np.asarray(dist))**2 / (2 * sigma**2)))
-    norm_dist_val = dist_val / len(all_spot_qs)
+    # norm_dist_val = dist_val / len(all_spot_qs)
+    norm_dist_val = dist_val / len(all_rot_qs)
 
     int_val = (np.sum(fit_ref_fs)
               / np.sum(all_ref_fs))
@@ -520,53 +720,55 @@ def fit_orientation_index(connection,
                             
     return fit_orienation, qof
 
+# Deprecated
+# def generate_q_mask(q_vectors,
+#                     tth_ext,
+#                     chi_ext,
+#                     wavelength_ext,
+#                     poly_args,
+#                     degrees=False,
+#                     ext=0):
     
-def generate_q_mask(q_vectors,
-                    tth_ext,
-                    chi_ext,
-                    wavelength_ext,
-                    poly_args,
-                    degrees=False,
-                    ext=0):
+#     # Check extent parameters
+#     for param in [tth_ext, chi_ext, wavelength_ext]:
+#         if len(param) != 2:
+#             raise ValueError('Input extents must be of length 2.')
+#         if param[0] > param[1]:
+#             raise ValuError('Input extents must be (minimum, maximum).')
+
+#     tth, chi, wavelength = q_2_polar(q_vectors,
+#                                      degrees=degrees)
     
-    # Check extent parameters
-    for param in [tth_ext, chi_ext, wavelength_ext]:
-        if len(param) != 2:
-            raise ValueError('Input extents must be of length 2.')
-        if param[0] > param[1]:
-            raise ValuError('Input extents must be (minimum, maximum).')
+#     chi_upr_mask = chi <= general_polynomial(tth, *poly_args[0]) * (1 + ext)
+#     chi_lwr_mask = chi >= general_polynomial(tth, *poly_args[1]) * (1 - ext)
+#     tth_upr_mask = tth <= general_polynomial(chi, *poly_args[2]) * (1 + ext)
+#     tth_lwr_mask = tth >= general_polynomial(chi, *poly_args[3]) * (1 - ext)
 
-    tth, chi, wavelength = q_2_polar(q_vectors,
-                                     degrees=degrees)
+#     tth_mask = np.all([tth >= tth_ext[0] * (1 - ext),
+#                        tth <= tth_ext[1] * (1 + ext)],
+#                        axis=0)
+#     chi_mask = np.all([chi >= chi_ext[0] * (1 - ext),
+#                        chi <= chi_ext[1] * (1 + ext)],
+#                        axis=0)
+#     wavelength_mask = np.all([wavelength >= wavelength_ext[0] * (1 - ext),
+#                               wavelength <= wavelength_ext[1] * (1 + ext)],
+#                               axis=0)
     
-    chi_upr_mask = chi <= general_polynomial(tth, *poly_args[0]) * (1 + ext)
-    chi_lwr_mask = chi >= general_polynomial(tth, *poly_args[1]) * (1 - ext)
-    tth_upr_mask = tth <= general_polynomial(chi, *poly_args[2]) * (1 + ext)
-    tth_lwr_mask = tth >= general_polynomial(chi, *poly_args[3]) * (1 - ext)
+#     q_mask = np.all([
+#         chi_lwr_mask,
+#         chi_upr_mask,
+#         tth_lwr_mask,
+#         tth_upr_mask,
+#         tth_mask,
+#         chi_mask,
+#         wavelength_mask
+#         ], axis=0)
 
-    tth_mask = np.all([tth >= tth_ext[0] * (1 - ext),
-                       tth <= tth_ext[1] * (1 + ext)],
-                       axis=0)
-    chi_mask = np.all([chi >= chi_ext[0] * (1 - ext),
-                       chi <= chi_ext[1] * (1 + ext)],
-                       axis=0)
-    wavelength_mask = np.all([wavelength >= wavelength_ext[0] * (1 - ext),
-                              wavelength <= wavelength_ext[1] * (1 + ext)],
-                              axis=0)
-    
-    q_mask = np.all([
-        chi_lwr_mask,
-        chi_upr_mask,
-        tth_lwr_mask,
-        tth_upr_mask,
-        tth_mask,
-        chi_mask,
-        wavelength_mask
-        ], axis=0)
-
-    return q_mask
+#     return q_mask
 
 
+# Class for bounding reciprocal space volumes mapped by energy rocking curves
+# Angle rocking curves are not currently supported, although they should be simpler
 class QMask():
 
     def __init__(self,
@@ -594,6 +796,8 @@ class QMask():
         self.degrees = degrees
 
         # Determine edges
+        # Inelegant method of throwing higher
+        # order polynomials at the problem
         p0 = np.zeros(poly_order + 1)
         for indexing, poly in zip([(0), # [0, :] 
                                    (-1), # [-1, :]
@@ -631,7 +835,6 @@ class QMask():
         #                          tth_arr[:, 0], p0=p0)
         # right_poly, _ = curve_fit(general_polynomial, chi_arr[:, -1],
         #                           tth_arr[:, -1], p0=p0)
-
 
     
     @classmethod
@@ -742,7 +945,7 @@ def _decompose_connection(connection,
 
 ### Deprecated ###
 
-'''def fixed_pair_casting_indexing(connection_pair_list,
+'''def fixed_pair_casting_indexing(connection_pairs,
                                 all_spot_qs,
                                 all_ref_qs,
                                 all_ref_fs,
@@ -752,7 +955,7 @@ def _decompose_connection(connection,
 
     connections = []
     qof = []
-    for i, pair in tqdm(enumerate(connection_pair_list)):
+    for i, pair in tqdm(enumerate(connection_pairs)):
 
         prev_connection = pair.copy()
         (pair_spot_inds,
@@ -838,7 +1041,7 @@ def _decompose_connection(connection,
 
 
 
-def initial_pair_casting_indexing(connection_pair_list,
+def initial_pair_casting_indexing(connection_pairs,
                                   all_spot_qs,
                                   all_ref_qs,
                                   all_ref_fs,
@@ -848,7 +1051,7 @@ def initial_pair_casting_indexing(connection_pair_list,
 
     connections = []
     qofs = []
-    for i, pair in tqdm(enumerate(connection_pair_list)):
+    for i, pair in tqdm(enumerate(connection_pairs)):
 
         prev_connection = pair.copy()
         (pair_spot_inds,

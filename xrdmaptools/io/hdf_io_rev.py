@@ -108,7 +108,7 @@ def load_xrdbase_hdf(filename,
 
         # Load spot model
         if (has_spots
-            and spot_model in hdf[f'{hdf_type}/reflections/spots'].attrs.keys()):
+            and 'spot_model' in hdf[f'{hdf_type}/reflections/spots'].attrs.keys()):
             spot_model_name = hdf[f'{hdf_type}/reflections/spots'].attrs['spot_model']
             spot_model = _load_peak_function(spot_model_name)
         print('done!')
@@ -144,9 +144,7 @@ def load_xrdbase_hdf(filename,
     recip_pos, poni_od = _load_xrd_hdf_reciprocal_positions(base_grp)
 
     # Load phases
-    phase_dict = _load_xrd_hdf_phases(base_grp,
-                                      energy=base_md['energy'],
-                                      tth=recip_pos['tth'])
+    phase_dict = _load_xrd_hdf_phases(base_grp)
 
     # Load scalers
     sclr_dict = _load_xrd_hdf_scalers(base_grp)
@@ -410,18 +408,14 @@ def _load_xrd_hdf_reciprocal_positions(base_grp):
     return recip_pos, poni_od
 
 
-def _load_xrd_hdf_phases(base_grp,
-                         energy=None,
-                         tth=None):
+def _load_xrd_hdf_phases(base_grp):
     phase_dict = {}
     if 'phase_list' in base_grp.keys():
         print('Loading saved phases...', end='', flush=True)
         phase_grp = base_grp['phase_list']
         if len(phase_grp) > 0:
             for phase in phase_grp.keys():
-                phase_dict[phase] = Phase.from_hdf(phase_grp[phase],
-                                                   energy=energy,
-                                                   tth=tth)
+                phase_dict[phase] = Phase.from_hdf(phase_grp[phase])
         print('done!')
     return phase_dict
 
