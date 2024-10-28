@@ -3,7 +3,7 @@
 
 
 # Local imports
-from ..XRDMap_rev import XRDMap
+from ..XRDMap import XRDMap
 
 # A very convenient wrapper without returning the class
 def make_xrdmap_hdf(scanid=-1,

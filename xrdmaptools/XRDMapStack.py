@@ -10,7 +10,7 @@ import pandas as pd
 # from .XRDMap import XRDMap
 # from .utilities.utilities import timed_iter
 
-from xrdmaptools.XRDMap_rev import XRDMap
+from xrdmaptools.XRDMap import XRDMap
 from xrdmaptools.utilities.utilities import (
     timed_iter,
     pathify
