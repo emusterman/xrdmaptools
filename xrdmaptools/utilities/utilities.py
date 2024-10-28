@@ -223,6 +223,15 @@ def rescale_array(arr, lower=0, upper=1, arr_min=None, arr_max=None, mask=None):
     return arr # I don't really need to return the array after this...
 
 
+def generate_intensity_mask(intensity, intensity_cutoff=0):
+
+        int_mask = (intensity
+                    >= np.min(intensity) + intensity_cutoff
+                    * (np.max(intensity) - np.min(intensity)))
+
+        return int_mask
+
+
 def vprint(message, **kwargs):
     global _verbose
     if _verbose:

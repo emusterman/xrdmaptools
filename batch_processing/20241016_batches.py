@@ -14,12 +14,19 @@ from xrdmaptools.utilities.utilities import (
     timed_iter
 )
 
+from tiled.client import from_profile
+
+c = from_profile('srx')
+
 
 def rsm_batch1():
 
     base_wd = '/nsls2/data/srx/proposals/2024-2/pass-314118/'
     scanlist = [
+        '156179-156201'
         # '156205-156227',
+        # '156229-156251',
+        # '156253-156275',
         # '156277-156299',
         # '156301-156323',
         # '156325-156347',
@@ -27,20 +34,20 @@ def rsm_batch1():
         # '156373-156395',
         # '156397-156419',
         # '156421-156443',
-        '156445-156467',
-        '156469-156491',
-        '156493-156515',
-        '156517-156539',
-        '156541-156563',
-        '156565-156587',
-        '156589-156611',
-        '156613-156635',
-        '156637-156659',
-        '156661-156683',
-        '156685-156707',
-        '156709-156731',
-        '156733-156755',
-        '156757-156775',
+        # '156445-156467',
+        # '156469-156491',
+        # '156493-156515',
+        # '156517-156539',
+        # '156541-156563',
+        # '156565-156587',
+        # '156589-156611',
+        # '156613-156635',
+        # '156637-156659',
+        # '156661-156683',
+        # '156685-156707',
+        # '156709-156731',
+        # '156733-156755',
+        # '156757-156775',
         ]
     
     dark_field = io.imread(f'{base_wd}dark_fields/scan156203_dexela_median_composite.tif')
@@ -182,3 +189,70 @@ def get_rsm_baseline_positions1():
                 f.write(f'{line}\t')
             f.write('\n')
 
+
+
+def get_rsm_baseline_positions2():
+
+    scanlist = [
+        '156205-156227',
+        '156229-156251',
+        '156253-156275',
+        '156277-156299',
+        '156301-156323',
+        '156325-156347',
+        '156349-156371',
+        '156373-156395',
+        '156397-156419',
+        '156421-156443',
+        '156445-156467',
+        '156469-156491',
+        '156493-156515',
+        '156517-156539',
+        '156541-156563',
+        '156565-156587',
+        '156589-156611',
+        '156613-156635',
+        '156637-156659',
+        '156661-156683',
+        '156685-156707',
+        '156709-156731',
+        '156733-156755',
+        '156757-156775',
+        ]
+
+
+    fine_x, coarse_x, fine_y, coarse_y, coarse_z = [], [], [], [], []
+    for scanrange in scanlist:
+        print(f'Finding data for scans {scanrange}.')
+        scan_start = int(scanrange[:6])
+        scan_end = int(scanrange[-6:])
+
+        sx, x, sy, y, z = [], [], [], [], []
+        for scan in range(scan_start, scan_end + 1):
+            bs_run = c[scan]
+
+            # pos_keys = ['x', 'y', 'z']
+            stage_keys = ['nano_stage_sx',
+                          'nano_stage_topx',
+                          'nano_stage_sy',
+                          'nano_stage_y',
+                          'nano_stage_z']
+            pos_values = [bs_run['baseline']['data'][key][0] for key in stage_keys]
+
+            sx.append(pos_values[0])
+            x.append(pos_values[1])
+            sy.append(pos_values[2])
+            y.append(pos_values[3])
+            z.append(pos_values[4])
+
+        fine_x.append(np.mean(sx))
+        coarse_x.append(np.mean(x))
+        fine_y.append(np.mean(sy))
+        coarse_y.append(np.mean(y))
+        coarse_z.append(np.mean(z))
+
+    with open(f'{base_wd}energy_rc/scan_positions.txt', "w") as f:
+        for lines in [scanlist, fine_x, coarse_x, fine_y, coarse_y, coarse_z]:
+            for line in lines:
+                f.write(f'{line}\t')
+            f.write('\n')

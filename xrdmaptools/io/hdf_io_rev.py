@@ -26,7 +26,7 @@ def initialize_xrdbase_hdf(xrdbase,
         base_grp.attrs['energy'] = xrdbase.energy
         base_grp.attrs['wavelength'] = xrdbase.wavelength
         base_grp.attrs['theta'] = xrdbase.theta
-        base_grp.attrs['time_stamp'] = ''
+        base_grp.attrs['time_stamp'] = ttime.ctime()
 
         # Record diffraction data
         curr_grp = base_grp.require_group('image_data') # naming the group after the detector may be a bad idea...
@@ -125,7 +125,8 @@ def load_xrdbase_hdf(filename,
     # Load image data
     (image_data,
      image_attrs,
-     image_corrections) = _load_xrd_hdf_image_data(
+     image_corrections,
+     image_data_key) = _load_xrd_hdf_image_data(
                                 base_grp,
                                 image_data_key=image_data_key,
                                 map_shape=map_shape,
@@ -135,7 +136,8 @@ def load_xrdbase_hdf(filename,
     # Load integration data
     (integration_data,
      integration_attrs,
-     integration_corrections) = _load_xrd_hdf_integration_data(
+     integration_corrections,
+     integration_data_key) = _load_xrd_hdf_integration_data(
                                     base_grp,
                                     integration_data_key=integration_data_key,
                                     map_shape=map_shape)
@@ -165,9 +167,11 @@ def load_xrdbase_hdf(filename,
                   'image_data' : image_data,
                   'image_attrs' : image_attrs,
                   'image_corrections' : image_corrections,
+                  'image_data_key' : image_data_key,
                   'integration_data' : integration_data,
                   'integration_attrs' : integration_attrs,
                   'integration_corrections' : integration_corrections,
+                  'integration_data_key' : integration_data_key,
                   'recip_pos' : recip_pos,
                   'poni_file' : poni_od,
                   'phases' : phase_dict,
@@ -226,12 +230,11 @@ def _load_xrd_hdf_image_data(base_grp,
                     image_corrections[key[1:-11]] = value
 
             # Collect XRDData attributes that are not instantiated...
-            # This includes correction references...
             image_attrs = {}
             for key in ['dark_field',
                         'flat_field',
                         'air_scatter',
-                        'scaler_intensity',
+                        'scaler_map',
                         'lorentz_correction',
                         'polarization_correction',
                         'solidangle_correction',
@@ -267,6 +270,7 @@ def _load_xrd_hdf_image_data(base_grp,
             image_data = None
             image_attrs = {}
             image_corrections = None
+            image_data_key = None
 
         # Mapped attributes can be useful with our without images; load them
         # Not given to XRDData.__init__
@@ -288,8 +292,9 @@ def _load_xrd_hdf_image_data(base_grp,
         image_data = None
         image_attrs = {}
         image_corrections = None
+        image_data_key = None
     
-    return image_data, image_attrs, image_corrections
+    return image_data, image_attrs, image_corrections, image_data_key
 
 
 def _load_xrd_hdf_integration_data(base_grp,
@@ -344,6 +349,7 @@ def _load_xrd_hdf_integration_data(base_grp,
             integration_data = None
             integration_attrs = {}
             integration_corrections = {}
+            integration_data_key = None
     
     else:
         # No data requested or none available
@@ -351,8 +357,9 @@ def _load_xrd_hdf_integration_data(base_grp,
         integration_data = None
         integration_attrs = {}
         integration_corrections = {}
+        integration_data_key = None
     
-    return integration_data, integration_attrs, integration_corrections
+    return integration_data, integration_attrs, integration_corrections, integration_data_key
 
 
 def _load_xrd_hdf_reciprocal_positions(base_grp):
@@ -475,8 +482,37 @@ def _load_xrd_hdf_vectorized_data(base_grp):
 
 
 
-def initialize_xrdmapstack_hdf():
+def initialize_xrdmapstack_hdf(xrdmapstack,
+                               hdf_file):
     raise NotImplementedError()
+    
+    with h5py.File(hdf_file, 'w-') as f:
+        base_grp = f.require_group(xrdmapstack._hdf_type) # xrdmap or rsm
+        base_grp.attrs['scanid'] = xrdmapstack.scanid
+        base_grp.attrs['beamline'] = xrdmapstack.beamline #'5-ID (SRX)'
+        base_grp.attrs['facility'] = xrdmapstack.facility #'NSLS-II'
+        base_grp.attrs['energy'] = xrdmapstack.energy
+        base_grp.attrs['wavelength'] = xrdmapstack.wavelength
+        base_grp.attrs['theta'] = xrdmapstack.theta
+        base_grp.attrs['time_stamp'] = ttime.ctime()
+
+        # Record diffraction data
+        curr_grp = base_grp.require_group('map_data')
+        dset = curr_grp.require_dataset()
+
+        # Generate emtpy dataset of extra_metadata
+        extra_md = base_grp.create_dataset('extra_metadata',
+                                            data=h5py.Empty("f"))
+        for key, value in xrdmapstack.extra_metadata.items():
+            extra_md.attrs[key] = value
+
+        # Special consideration for when dwell wasn't being recorded...
+        if (not hasattr(xrdmapstack, 'dwell')
+            or xrdmapstack.dwell is None):
+            dwell = ''
+        else:
+            dwell = xrdmapstack.dwell
+        base_grp.attrs['dwell'] = dwell
 
 
 def load_xrdmapstack_hdf():

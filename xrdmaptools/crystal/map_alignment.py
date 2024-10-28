@@ -11,17 +11,17 @@ from skimage.transform import warp_polar, rotate
 from skimage.registration import phase_cross_correlation
 from matplotlib.widgets import Slider
 
-from xrdmaptools.plot.stacked import base_slider_plot
-from xrdmaptools.utilities.utilities import arbitrary_center_of_mass
+from xrdmaptools.plot.image_stack import base_slider_plot
+from xrdmaptools.utilities.math import arbitrary_center_of_mass
 
 
 def rotation_scale_translation_registration(
                     ref_img,
                     mov_img,
                     rotation_upsample=1000,
-                               shift_upsample=1000,
-                               bandpass=(0, 1),
-                               fix_rotation=False):
+                    shift_upsample=1000,
+                    bandpass=(0, 1),
+                    fix_rotation=False):
     
     # Get rotation component
     if not fix_rotation:
@@ -140,8 +140,11 @@ def com_auto_alignment(image_stack):
     
 
 def manual_alignment(image_stack,
-                    slider_vals=None,
-                    slider_label='Index'):
+                     slider_vals=None,
+                     slider_label='Index',
+                     vmin=None,
+                     vmax=None,
+                     **kwargs):
     # Built on interactive plotting functionality    
 
     fig = plt.figure(figsize=(5, 5), dpi=200)
@@ -151,8 +154,20 @@ def manual_alignment(image_stack,
     # ax.set_xlim(0, image_stack[0].shape[1])
     # ax.set_ylim(0, image_stack[0].shape[0])
 
+    if vmin is None:
+        img_vmin = np.min(image_stack)
+    else:
+        img_vmin = vmin
+    if vmax is None:
+        img_vmax = np.max(image_stack)
+    else:
+        img_vmax = vmax
+
     # Define placeholder values
-    image = ax.imshow(image_stack[0])
+    image = ax.imshow(image_stack[0],
+                      vmin=img_vmin,
+                      vmax=img_vmax,
+                      **kwargs)
     image_index = 0
     marker_list = []
     marker_coords = []
@@ -202,10 +217,17 @@ def manual_alignment(image_stack,
 
         # Update image
         image.set_data(image_stack[image_index])
-        image.set_clim(
-            np.min(image_stack[image_index]),
-            np.max(image_stack[image_index])
-        )
+        
+        if vmin is None:
+            img_vmin = np.min(image_stack[image_index])
+        else:
+            img_vmin = vmin
+        if vmax is None:
+            img_vmax = np.max(image_stack[image_index])
+        else:
+            img_vmax = vmax
+        
+        image.set_clim(img_vmin, img_vmax)
 
         # Unhide new marker, if already found
         if not np.all(np.isnan(marker_coords[image_index])):
@@ -241,6 +263,67 @@ def manual_alignment(image_stack,
         #return marker_coords
 
     slider.on_changed(update_image)
+    cid = fig.canvas.mpl_connect('button_press_event', on_click)
+    fig.canvas.mpl_connect('close_event', on_close)
+
+    #plt.show()
+    plt.show(block=True)
+    plt.pause(0.01)
+    return marker_coords
+
+
+def test_manual_alignment(image_stack,
+                          slider_vals=None,
+                          **kwargs):
+    # Built on interactive plotting functionality
+
+    fig, ax, slider = base_slider_plot(
+                        image_stack,
+                        slider_vals=slider_vals,
+                        **kwargs
+                        )   
+    fig.suptitle('Manual Map Alignment')
+
+    # Define placeholder values
+    image = ax.imshow(image_stack[0])
+    marker_list = []
+    marker_coords = []
+    for i in range(len(image_stack)):
+        marker = ax.scatter([], [],
+                            marker='+',
+                            linewidth=1,
+                            color='red')
+        marker.set_visible(False)
+        marker_list.append(marker)
+        marker_coords.append((np.nan, np.nan))
+
+    def on_click(event):
+        if event.inaxes == ax:
+            nonlocal slider, marker_list, marker_coords
+            image_index = np.nonzero(slider_vals == slider.val)[0][0]
+            marker_coords[image_index] = event.ydata, event.xdata
+
+            # Having no datapoints may already hide the markers
+            if not marker_list[image_index]._visible:
+                marker_list[image_index].set_visible(True)
+
+            marker_list[image_index].set_offsets(
+                [*marker_coords[image_index][::-1]] # reverse to make (x, y)
+                )
+            fig.canvas.draw_idle()
+
+    def on_close(event):
+        nonlocal marker_coords
+        if np.any(np.isnan(np.asarray(marker_coords))):
+            warn_str = ('WARNING: manual map alignment plot closed '
+                        + 'before all maps were properly aligned.')
+            print(warn_str)
+        
+        manual_shifts = np.round([np.asarray(marker_coords[0]) - np.asarray(coords)
+                                  for coords in marker_coords], 3)
+        marker_coords = tuple([(shift_y, shift_x) for shift_y, shift_x in manual_shifts])
+        #return marker_coords
+
     cid = fig.canvas.mpl_connect('button_press_event', on_click)
     fig.canvas.mpl_connect('close_event', on_close)
 

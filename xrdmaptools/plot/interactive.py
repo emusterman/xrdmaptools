@@ -219,7 +219,8 @@ def _update_marker(axi=None,
 def _display_map(data=None,
                  map_kw={},
                  axes=None,
-                 cmap='viridis'):
+                 cmap='viridis',
+                 update=False):
     '''
         
     '''
@@ -268,14 +269,20 @@ def _display_map(data=None,
     elif map_kw['scale'] in ['log', 'logrithmic']:
         map_kw['scale'] = LogNorm
 
+    # if update:
+    #     axes[0].set_data(map_kw['map'])
+    #     axes[0].set_clim(map_kw['vmin'],
+    #                      map_kw['vmax'])
+    
+    # else:
     # Plot Image! Add colorbar???
     axes[0].imshow(map_kw['map'],
-                   cmap=cmap,
-                   extent=map_extent,
-                   norm=map_kw['scale'](
-                       vmin=map_kw['vmin'],
-                       vmax=map_kw['vmax']
-                       ))
+                cmap=cmap,
+                extent=map_extent,
+                norm=map_kw['scale'](
+                    vmin=map_kw['vmin'],
+                    vmax=map_kw['vmax']
+                    ))
     
     # Set map title
     if map_kw['title'] != None:
@@ -650,6 +657,15 @@ def integrateable_1D_plot(dyn_kw={},
 
     # Generate plot
     fig, ax = plt.subplots(1, 2, figsize=(10, 5), dpi=200)
+    
+
+    # Fill and save set values
+    map_kw = _fill_kwargs(map_kw,
+            ['vmin',
+             'vmax'])
+    map_vmin = map_kw['vmin']
+    map_vmax = map_kw['vmax']
+
     dyn_kw['axes'] = ax
     _display_map(dyn_kw['data'],
                  map_kw=map_kw,
@@ -667,7 +683,7 @@ def integrateable_1D_plot(dyn_kw={},
                          marker_color=marker_color)
 
 
-    def onselect():
+    def onselect(xmin, xmax):
         indmin, indmax = np.searchsorted(dyn_kw['x_ticks'],
                                          (xmin, xmax))
         indmax = min(len(dyn_kw['x_ticks']) - 1, indmax)
@@ -677,12 +693,17 @@ def integrateable_1D_plot(dyn_kw={},
                          axis=(-1))
             
             map_kw['map'] = new_map
-            map_kw['title'] = 'Selected ROI'
-            
-            _display_map(dyn_kw['data'],
-                 map_kw=map_kw,
-                 axes=ax,
-                 cmap=cmap)
+            # map_kw['title'] = 'Selected ROI'
+            map_kw['title'] = f'Sum from {xmin:.2f}-{xmax:.2f}'
+            map_kw['vmin'] = map_vmin
+            map_kw['vmax'] = map_vmax
+
+            _display_map(
+                # dyn_kw['data'],
+                map_kw=map_kw,
+                axes=ax,
+                cmap=cmap,
+                update=True)
             fig.canvas.draw_idle()
 
     # Make interactive
@@ -691,8 +712,6 @@ def integrateable_1D_plot(dyn_kw={},
             global dynamic_toggle, marker
             dynamic_toggle = not dynamic_toggle
             update_axes(event)
-        elif event.inaxes == ax[1]:
-            onselect()
 
     # Make dynamic
     def onmove(event):
@@ -702,8 +721,8 @@ def integrateable_1D_plot(dyn_kw={},
                 update_axes(event)
 
     span = SpanSelector(
-        ax[0],
-        onclick,
+        ax[1],
+        onselect,
         "horizontal",
         useblit=True,
         props=dict(alpha=0.5, facecolor="tab:red"),
@@ -711,363 +730,8 @@ def integrateable_1D_plot(dyn_kw={},
         drag_from_anywhere=True
     )
 
+    # ax[1].plot(dyn_kw['data'][0, 0])
+
     cid = fig.canvas.mpl_connect('button_press_event', onclick)
     binding_id = plt.connect('motion_notify_event', onmove)
-    return fig, ax
-
-
-
-
-### Limited Interactive Plotting Functions ###
-# No longer supported
-
-# def interactive_1d_plot(integrated_data, x_ticks=None,
-#                         display_map=None, display_title=None,
-#                         y_min=None, y_max=None,
-#                         map_vmin=None, map_vmax=None, map_norm=Normalize,
-#                         cmap='viridis', marker_color='red'):
-#     '''
-    
-#     '''
-    
-#     # Check axes range
-#     if x_ticks is None:
-#         x_ticks = range(integrated_data.shape[-1])
-
-#     # Generate plot
-#     fig, ax = plt.subplots(1, 2, figsize=(10, 5), dpi=200)
-#     _display_map(integrated_data,
-#                  axes=ax,
-#                  display_map=display_map,
-#                  display_title=display_title,
-#                  cmap=cmap,
-#                  map_vmin=map_vmin,
-#                  map_vmax=map_vmax,
-#                  map_norm=map_norm)
-
-#     # Plot display map with marker
-#     global marker, dynamic_toggle
-#     marker = ax[0].scatter(0, 0)
-#     marker.set_visible(False)
-#     dynamic_toggle = False
-
-#     # Make interactive
-#     def onclick(event):
-#         if event.inaxes == ax[0]:
-#             global dynamic_toggle, marker
-#             _update_axes(event,
-#                         integrated_data,
-#                         x_ticks=xticks,
-#                         fig=fig,
-#                         axes=ax, 
-#                         cmap=cmap,
-#                         marker_color=marker_color,
-#                         y_min=y_min,
-#                         y_max=y_max,
-#                         map_norm=map_norm)
-
-#     cid = fig.canvas.mpl_connect('button_press_event', onclick)
-#     return fig, ax
-
-
-# def interactive_2d_plot(image_data, x_ticks=None, y_ticks=None,
-#                         display_map=None, display_title=None,
-#                         map_vmin=None, map_vmax=None, map_norm=Normalize,
-#                         cmap='viridis', marker_color='red',
-#                         img_vmin=None, img_vmax=None, img_norm=Normalize):
-#     '''
-    
-#     '''
-
-#     # Check axes range
-#     if x_ticks is None:
-#         x_ticks = range(image_data.shape[-1])
-#     if y_ticks is None:
-#         y_ticks = range(image_data.shape[-2])
-
-#     # Generate plot
-#     fig, ax = plt.subplots(1, 2, figsize=(10, 5), dpi=200)
-#     _display_map(image_data,
-#                  axes=ax,
-#                  display_map=display_map,
-#                  display_title=display_title,
-#                  cmap=cmap,
-#                  map_vmin=map_vmin,
-#                  map_vmax=map_vmax,
-#                  map_norm=map_norm)
-
-#     # Plot display map with marker
-#     global marker, dynamic_toggle
-#     marker = ax[0].scatter(0, 0)
-#     marker.set_visible(False)
-#     dynamic_toggle = False
-
-#     # Make interactive
-#     def onclick(event):
-#         if event.inaxes == ax[0]:
-#             global dynamic_toggle, marker
-#             _update_axes(event,
-#                         image_data,
-#                         x_ticks=xticks,
-#                         y_ticks=yticks,
-#                         fig=fig,
-#                         axes=ax,
-#                         cmap=cmap,
-#                         marker_color=marker_color,
-#                         img_vmin=img_vmin,
-#                         img_vmax=img_vmax,
-#                         img_norm=img_norm)
-
-#     cid = fig.canvas.mpl_connect('button_press_event', onclick)
-#     return fig, ax
-
-
-# def interactive_combined_plot(integrated_data, image_data, x_ticks=None, y_ticks=None,
-#                               display_map=None, display_title=None,
-#                               map_vmin=None, map_vmax=None, map_norm=Normalize,
-#                               y_min=None, y_max=None,
-#                               cmap='viridis', marker_color='red',
-#                               img_vmin=None, img_vmax=None, img_norm=Normalize):
-#     '''
-    
-#     '''
-
-#     # Check axes range
-#     if x_ticks is None:
-#         x_ticks = range(image_data.shape[-1])
-#     if y_ticks is None:
-#         y_ticks = range(image_data.shape[-2])
-
-#     # Generate plot
-#     fig = plt.figure(figsize=(8, 7), dpi=200)
-#     subfigs = fig.subfigures(1, 2, wspace=0.1)
-#     ax = [subfigs[0].subplots(1, 1),
-#           *subfigs[1].subplots(2, 1, gridspec_kw={'height_ratios': [3, 1]}, sharex=True)]
-#     subfigs[1].subplots_adjust(hspace=0)
-#     _display_map(integrated_data,
-#                  axes=ax,
-#                  display_map=display_map,
-#                  display_title=display_title,
-#                  cmap=cmap,
-#                  map_vmin=map_vmin,
-#                  map_vmax=map_vmax,
-#                  map_norm=map_norm)
-
-#     # Plot display map with marker
-#     global marker, dynamic_toggle
-#     marker = ax[0].scatter(0, 0)
-#     marker.set_visible(False)
-#     dynamic_toggle = False
-
-#     # Make interactive
-#     def onclick(event):
-#         if event.inaxes == ax[0]:
-#             global dynamic_toggle, marker
-#             _update_axes(event,
-#                         integrated_data,
-#                         x_ticks=xticks,
-#                         fig=fig,
-#                         axes=[ax[0], ax[2]],
-#                         cmap=cmap,
-#                         marker_color=marker_color,
-#                         y_min=y_min,
-#                         y_max=y_max)
-#             _update_axes(event,
-#                         image_data,
-#                         x_ticks=xticks,
-#                         y_ticks=yticks,
-#                         fig=fig,
-#                         axes=ax,
-#                         cmap=cmap,
-#                         marker_color=marker_color,
-#                         img_vmin=img_vmin,
-#                         img_vmax=img_vmax,
-#                         img_norm=img_norm)
-#             ax[2].set_title('')          
-
-#     cid = fig.canvas.mpl_connect('button_press_event', onclick)
-#     return fig, ax
-
-
-# def dynamic_1d_plot(integrated_data, x_ticks=None,
-#                     display_map=None, display_title=None,
-#                     map_vmin=None, map_vmax=None, map_norm=Normalize,
-#                     y_min=None, y_max=None,
-#                     cmap='viridis', marker_color='red'):
-#     '''
-    
-#     '''
-
-#     # Check axes range
-#     if x_ticks is None:
-#         x_ticks = range(integrated_data.shape[-1])
-
-#     # Generate plot
-#     fig, ax = plt.subplots(1, 2, figsize=(10, 5), dpi=200)
-#     _display_map(integrated_data,
-#                  axes=ax,
-#                  display_map=display_map,
-#                  display_title=display_title,
-#                  cmap=cmap,
-#                  map_vmin=map_vmin,
-#                  map_vmax=map_vmax,
-#                  map_norm=map_norm)
-
-#     # Plot display map with marker
-#     global marker, dynamic_toggle
-#     marker = ax[0].scatter(0, 0)
-#     marker.set_visible(False)
-#     dynamic_toggle = True
-
-#     # Make dynamic
-#     def onmove(event):
-#         global dynamic_toggle
-#         if dynamic_toggle:
-#             if event.inaxes == ax[0]:
-#                 _update_axes(event,
-#                             integrated_data,
-#                             x_ticks=xticks,
-#                             fig=fig,
-#                             axes=ax,
-#                             cmap=cmap,
-#                             marker_color=marker_color,
-#                             y_min=y_min,
-#                             y_max=y_max)
-#                 fig.canvas.draw_idle()
-
-#     binding_id = plt.connect('motion_notify_event', onmove)
-#     return fig, ax
-
-
-# def dynamic_2d_plot(image_data, x_ticks=None, y_ticks=None,
-#                         display_map=None, display_title=None,
-#                         cmap='viridis', marker_color='red',
-#                         map_vmin=None, map_vmax=None, map_norm=Normalize,
-#                         img_vmin=None, img_vmax=None, img_norm=Normalize):
-#     '''
-    
-#     '''
-
-#     # Check axes range
-#     if x_ticks is None:
-#         x_ticks = range(image_data.shape[-1])
-#     if y_ticks is None:
-#         y_ticks = range(image_data.shape[-2])
-
-#     # Generate plot
-#     fig, ax = plt.subplots(1, 2, figsize=(10, 5), dpi=200)
-#     _display_map(image_data,
-#                  axes=ax,
-#                  display_map=display_map,
-#                  display_title=display_title,
-#                  cmap=cmap,
-#                  map_vmin=map_vmin,
-#                  map_vmax=map_vmax,
-#                  map_norm=map_norm)
-
-#     # Plot display map with marker
-#     global marker, dynamic_toggle
-#     marker = ax[0].scatter(0, 0)
-#     marker.set_visible(False)
-#     dynamic_toggle = True
-    
-#     # Make dynamic
-#     def onmove(event):
-#         global dynamic_toggle
-#         if dynamic_toggle:
-#             if event.inaxes == ax[0]:
-#                 _update_axes(event,
-#                             image_data,
-#                             x_ticks=xticks, 
-#                             y_ticks=yticks,
-#                             fig=fig,
-#                             axes=ax,
-#                             cmap=cmap,
-#                             marker_color=marker_color,
-#                             img_vmin=img_vmin,
-#                             img_vmax=img_vmax,
-#                             img_norm=img_norm)
-#                 fig.canvas.draw_idle()
-
-#     binding_id = plt.connect('motion_notify_event', onmove)
-#     return fig, ax
-
-
-# def dynamic_combined_plot(integrated_data,
-#                           image_data,
-#                           x_ticks=None,
-#                           y_ticks=None,
-#                           display_map=None,
-#                           display_title=None,
-#                           map_vmin=None,
-#                           map_vmax=None,
-#                           map_norm=Normalize,
-#                           cmap='viridis',
-#                           marker_color='red',
-#                           img_vmin=None,
-#                           img_vmax=None,
-#                           img_norm=Normalize,
-#                           y_min=None,
-#                           y_max=None):
-#     '''
-    
-#     '''
-
-#     # Check axes range
-#     if x_ticks is None:
-#         x_ticks = range(image_data.shape[-1])
-#     if y_ticks is None:
-#         y_ticks = range(image_data.shape[-2])
-
-#     # Generate plot
-#     fig = plt.figure(figsize=(8, 7), dpi=200)
-#     subfigs = fig.subfigures(1, 2, wspace=0.1)
-#     ax = [subfigs[0].subplots(1, 1),
-#           *subfigs[1].subplots(2, 1, gridspec_kw={'height_ratios': [3, 1]}, sharex=True)]
-#     subfigs[1].subplots_adjust(hspace=0)
-#     _display_map(integrated_data,
-#                  axes=ax,
-#                  display_map=display_map,
-#                  display_title=display_title,
-#                  cmap=cmap,
-#                  map_vmin=map_vmin,
-#                  map_vmax=map_vmax,
-#                  map_norm=map_norm)
-
-#     # Plot display map with marker
-#     global marker, dynamic_toggle
-#     marker = ax[0].scatter(0, 0)
-#     marker.set_visible(False)
-#     dynamic_toggle = True
-
-#     # Make dynamic
-#     def onmove(event):
-#         global dynamic_toggle
-#         if dynamic_toggle:
-#             if event.inaxes == ax[0]:
-#                 _update_axes(event,
-#                             integrated_data,
-#                             x_ticks=xticks,
-#                             fig=fig,
-#                             axes=[ax[0], ax[2]],
-#                             cmap=cmap,
-#                             marker_color=marker_color,
-#                             y_min=y_min,
-#                             y_max=y_max)
-#                 _update_axes(event,
-#                             image_data,
-#                             x_ticks=xticks,
-#                             y_ticks=yticks,
-#                             fig=fig,
-#                             axes=ax,
-#                             cmap=cmap,
-#                             marker_color=marker_color,
-#                             img_vmin=img_vmin,
-#                             img_vmax=img_vmax,
-#                             img_norm=img_norm)
-#                 ax[2].set_title('')  
-
-#     binding_id = plt.connect('motion_notify_event', onmove)
-#     return fig, ax
-
-
+    return fig, ax, span

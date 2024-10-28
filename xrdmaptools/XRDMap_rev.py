@@ -30,7 +30,7 @@ from xrdmaptools.reflections.spot_blob_search import (
     remake_spot_list,
     fit_spots
     )
-from xrdmaptools.plot.interactive_plotting import (
+from xrdmaptools.plot.interactive import (
     interactive_2D_plot,
     interactive_1D_plot
     )
@@ -53,6 +53,11 @@ class XRDMap(XRDBaseScan):
                  xrf_path=None,
                  **xrdbasekwargs
                  ):
+
+        # Force data into native shape
+        # This prevents inconsistencies later
+        # But will cause pos_dict and sclr_dict to be re-written
+        self._swapped_axes = False
         
         XRDBaseScan.__init__(
             self,
@@ -275,36 +280,34 @@ class XRDMap(XRDBaseScan):
     ### Modified Parent Functions ###
     #################################
 
-    # Re-writing image save functions which 
+    # Re-writing save functions which 
     # will be affected by swapped axes
-
-    # This may need to be called in __init__???
     def _check_swapped_axes(func):
-        def wrapped(self, *args, **kwargs)
+        def wrapped(self, *args, **kwargs):
+
             if self._swapped_axes:
                 self.swap_axes(only_images=True)
             
-            super().func(self, *args, **kwargs)
+            func(self, *args, **kwargs)
             
             if self._swapped_axes:
                 self.swap_axes(only_images=True)
 
         return wrapped
 
-    save_images = _check_swapped_axes(save_images)
-    save_integrations = _check_swapped_axes(save_integrations)
-    _dask_2_hdf = _check_swapped_axes(_dask_2_hdf)
+    save_images = _check_swapped_axes(XRDBaseScan.save_images)
+    save_integrations = _check_swapped_axes(XRDBaseScan.save_integrations)
+    _dask_2_hdf = _check_swapped_axes(XRDBaseScan._dask_2_hdf)
 
+    # def start_saving_hdf(self, *args, **kwargs):
 
-    def start_saving_hdf(self, *args, **kwargs)
-
-        if self._swapped_axes:
-            warn_str = ('WARNING: Axes have been swapped. Changes may '
-                        + 'not have been propely recorded and could '
-                        + 'cause inconsistencies.')
-            print(warn_str)
+    #     if self._swapped_axes:
+    #         warn_str = ('WARNING: Axes have been swapped. Changes may '
+    #                     + 'not have been propely recorded and could '
+    #                     + 'cause inconsistencies.')
+    #         print(warn_str)
         
-        super().start_saving_hdf(*args, **kwargs)
+    #     super().start_saving_hdf(*args, **kwargs)
     
     
     ##################
@@ -570,7 +573,7 @@ class XRDMap(XRDBaseScan):
         # Never save images. Leave that for specific situations...
         
 
-        if self._dask_enabled and self.title != 'final_images':
+        if self._dask_enabled and self.title != 'final':
             warn_str = ('WARNING: Dask is enabled and saving to a '
                         + 'temporary dataset! Swapping axes may '
                         + 'create issues when updating this dataset '
@@ -578,7 +581,7 @@ class XRDMap(XRDBaseScan):
             print(warn_str)
 
 
-        # if self.title == 'final_images' and not exclude_images:
+        # if self.title == 'final' and not exclude_images:
         #     warn_str = ('WARNING: images have been finalized.'
         #                 + '\nSaving other attributes with swapped '
         #                 + 'axes may create inconsistencies.')
@@ -624,29 +627,21 @@ class XRDMap(XRDBaseScan):
             if hasattr(self, 'pos_dict'):
                 for key in list(self.pos_dict.keys()):
                     self.pos_dict[key] = self.pos_dict[key].swapaxes(0, 1)
+                self.save_sclr_pos('positions',
+                                    self.pos_dict,
+                                    self.position_units)
             if hasattr(self, 'sclr_dict'):
                 for key in list(self.sclr_dict.keys()):
                     self.sclr_dict[key] = self.sclr_dict[key].swapaxes(0, 1)
-
+                self.save_sclr_pos('scalers',
+                                   self.sclr_dict,
+                                   self.scaler_units)
             # Update spot map_indices
             if hasattr(self, 'spots'):
                 map_x_ind = self.spots['map_x'].values
                 map_y_ind = self.spots['map_y'].values
                 self.spots['map_x'] = map_y_ind
                 self.spots['map_y'] = map_x_ind
-
-            # Save new values
-            # Do NOT rewrite images. This will copy the dataset
-            if hasattr(self, 'pos_dict'):
-                # Write to hdf file
-                self.save_sclr_pos('positions',
-                                    self.pos_dict,
-                                    self.position_units)
-            if hasattr(self, 'sclr_dict'):
-                self.save_sclr_pos('scalers',
-                                    self.sclr_dict,
-                                    self.scaler_units)
-            if hasattr(self, 'spots'):
                 self.save_spots()
 
         # Flip swapped axes tag from whatever it was
@@ -687,6 +682,10 @@ class XRDMap(XRDBaseScan):
                                          interp_x_val,
                                          indexing='ij')
 
+        if self._swapped_axes:
+            interp_x = interp_x.swapaxes(0, 1)
+            interp_y = interp_y.swapaxes(0, 1)
+
         if hasattr(self, 'pos_dict'):
             self.pos_dict['interp_x'] = interp_x
             self.pos_dict['interp_y'] = interp_y
@@ -720,6 +719,7 @@ class XRDMap(XRDBaseScan):
             print('Rescaling images to max of 100 and min around 0.')
             self.rescale_images(arr_min=0, upper=100, lower=0)
 
+            #         sclr_dict[key] = value.reshape(self.map_shape)
         # Search each image for significant spots
         blob_mask_list = find_blobs(
                             self.images,
@@ -732,13 +732,13 @@ class XRDMap(XRDBaseScan):
         self.blob_masks = np.asarray(blob_mask_list).reshape(self.shape)
 
         # Save blob_masks to hdf
-        self.save_images(images=self.blob_masks,
-                             title='_blob_masks',
-                             units='bool',
-                             extra_attrs={'threshold_method' : threshold_method,
-                                          'size' : size,
-                                          'multiplier' : multiplier,
-                                          'expansion' : expansion})
+        self.save_images(images='blob_masks',
+                         title='_blob_masks',
+                         units='bool',
+                         extra_attrs={'threshold_method' : threshold_method,
+                                      'size' : size,
+                                      'multiplier' : multiplier,
+                                      'expansion' : expansion})
         
 
     def find_spots(self,
@@ -753,7 +753,7 @@ class XRDMap(XRDBaseScan):
         if (hasattr(self, 'blob_masks')
             and self.blob_masks is not None):
             print('WARNING: XRDMap already has blob_masks attribute. '
-                  + 'This will be overwritten wtih new parameters.')
+                  + 'This will be overwritten with new parameters.')
             
         # Cleanup images as necessary
         self._dask_2_numpy()
@@ -788,7 +788,7 @@ class XRDMap(XRDBaseScan):
         self.save_spots(extra_attrs={'radius' : radius})
 
         # Save blob_masks to hdf
-        self.save_images(images=self.blob_masks,
+        self.save_images(images='blob_masks',
                          title='_blob_masks',
                          units='bool',
                          extra_attrs={'threshold_method' : threshold_method,
@@ -970,7 +970,10 @@ class XRDMap(XRDBaseScan):
     ### Interfacing with Fluorescence Data from pyxrf Results ###
     #############################################################
     
-    def load_xrfmap(self, xrf_dir=None, xrf_name=None, full_data=True):
+    def load_xrfmap(self,
+                    xrf_dir=None,
+                    xrf_name=None,
+                    full_data=True):
 
         # Look for path if no information is provided
         if (xrf_dir is None

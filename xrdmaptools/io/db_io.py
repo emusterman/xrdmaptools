@@ -81,6 +81,7 @@ def load_tiled_data(scanid=-1,
     xrd_dets = [detector for detector in detectors if detector in ['merlin', 'dexela']]
 
     scan_md = _load_scan_metadata(bs_run)
+    print(f'Loading data from tiled for scan {scan_md["scan_id"]}...')
 
     data_dict = {}
     # enc1 is x for nano_scan_and_fly. Is it always the fast axis or always x??
@@ -103,7 +104,8 @@ def load_tiled_data(scanid=-1,
         if 'xrd_dets' in returns:
             out.append(xrd_dets)
 
-    return tuple(out)
+    print(f'Data loaded for scan {scan_md["scan_id"]}!')
+    return out
 
 
 # Base function for loading data from DataBroker
@@ -122,6 +124,7 @@ def load_db_data(scanid=-1,
     xrd_dets = [detector for detector in detectors if detector in ['merlin', 'dexela']]
 
     scan_md = _load_scan_metadata(bs_run)
+    print(f'Loading data from databroker for scan {scan_md["scan_id"]}...')
 
     data_dict = {}
     # enc1 is x for nano_scan_and_fly. Is it always the fast axis or always x??
@@ -144,6 +147,7 @@ def load_db_data(scanid=-1,
         if 'xrd_dets' in returns:
             out.append(xrd_dets)
 
+    print(f'Data loaded for scan {scan_md["scan_id"]}!')
     return out
 
 
@@ -160,9 +164,8 @@ def manual_load_data(scanid=-1,
     elif str(broker).lower() in ['db', 'databroker', 'broker']:
         bs_run = db[int(scanid)]
 
-    print(f'Manually loading data for scan {scanid}...')
-    
     scan_md = _load_scan_metadata(bs_run)
+    print(f'Manually loading data for scan {scan_md["scan_id"]}...')
 
     # Get relevant hdf information
     data_keys, resource_keys, xrd_dets = _get_resource_keys(bs_run,
@@ -174,8 +177,9 @@ def manual_load_data(scanid=-1,
     # Load data
     _empty_lists = [[] for _ in range(len(data_keys))]
     data_dict = dict(zip(data_keys, _empty_lists))
-
     dropped_rows, broken_rows = [], []
+    
+    # These are all essentially handlers with more conditionals for fixing data
     r_key = 'ZEBRA_HDF51'
     if r_key in r_paths.keys():
         print('Loading encoders...')
@@ -244,7 +248,7 @@ def manual_load_data(scanid=-1,
         dropped_rows += dr_rows
         broken_rows += br_rows
 
-    # Not sure if this is correct
+    # Not tested!!!
     r_key = 'MERLIN_FLY_V1'
     if r_key in r_paths.keys():
         print('Loading merlin...')
@@ -277,7 +281,7 @@ def manual_load_data(scanid=-1,
         if 'xrd_dets' in returns:
             out.append(xrd_dets)
 
-    print(f'Data loaded for scan {scanid}!')
+    print(f'Data loaded for scan {scan_md["scan_id"]}!')
     return out
 
 

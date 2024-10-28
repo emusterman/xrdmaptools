@@ -243,7 +243,6 @@ class XRDData:
                 'background' : False
             }
 
-        #print(self.corrections)
         self.update_map_title(title=title)
         if isinstance(null_map, list):
             null_map = np.zeros(self.map_shape, dtype=np.bool_)
@@ -259,15 +258,17 @@ class XRDData:
 
         # Should only trigger on first call to save images to hdf
         # Or if the title has been changed for some reason
-        if self.hdf_path is not None:
-            if not check_hdf_current_images(self.title, self.hdf_path, self.hdf):
+        if (self.hdf_path is not None
+            and self.images is not None):
+            if not check_hdf_current_images(f'{self.title}_images',
+                                            self.hdf_path,
+                                            self.hdf):
                 print('Writing images to hdf...', end='', flush=True)
                 self.save_images(units='counts')
                 print('done!')
                 
             if self.null_map is not None:
-                self.save_images(self.null_map,
-                                 'null_map',
+                self.save_images(images='null_map',
                                  units='bool',
                                  labels=self.map_labels)
         
@@ -279,7 +280,7 @@ class XRDData:
                 self.hdf = h5py.File(self.hdf_path, 'a')
 
             # Check for finalized images
-            if self.title == 'final_images':
+            if self.title == 'final':
                 self._hdf_store = self.hdf[f'{self._hdf_type}/image_data/final_images']
 
             # Otherwise set a temporary storage location in the hdf file
@@ -355,16 +356,15 @@ class XRDData:
                 if np.any(self.mask != 1) and axes != (0, 1):
 
                     # Mask away discounted pixels
-                    val = function(self.map.images[..., self.map.mask],
-                                   axis=-1).astype(self.map.dtype)
+                    val = function(self.images[..., self.mask],
+                                   axis=-1).astype(self.dtype)
 
                     if self._dask_enabled:
                         val = val.compute()
 
                     setattr(self, property_name, val)
                 else:
-                    # This will have some precision issues depending on the specified dtype
-                    # Consider masking the output?
+                    # dtype may cause overflow errors
                     val = function(self.images, axis=axes).astype(self.dtype)
                     if self._dask_enabled:
                         val = val.compute()
@@ -387,11 +387,11 @@ class XRDData:
     med_map = projection_factory('med_map', np.median, (2, 3))
     med_image = projection_factory('med_image', np.median, (0, 1))
 
-    # Will not be accurate at default dtype of np.uint16. Consider upconversion?
+    # Will not be accurate at default dtype of np.uint16
     mean_map = projection_factory('mean_map', np.mean, (2, 3))
     mean_image = projection_factory('mean_image', np.mean, (0, 1))
 
-    # Will probably cause overflow errors
+    # May cause overflow errors
     sum_map = projection_factory('sum_map', np.sum, (2, 3))
     sum_image = projection_factory('sum_image', np.sum, (0, 1))
 
@@ -403,15 +403,15 @@ class XRDData:
         if hasattr(self, f'_composite_image'):
             return getattr(self, f'_composite_image')
         else:
-            setattr(self, f'_{self.title}_composite',
+            setattr(self, f'_{self.title}_composite_image',
                     self.max_image - self.min_image)
             
             # Set the generic value to this as well
-            self._composite_image = getattr(self, f'_{self.title}_composite')
+            self._composite_image = getattr(self, f'_{self.title}_composite_image')
 
             # Save image to hdf. Should update if changed
-            self.save_images(self._composite_image,
-                             f'_{self.title}_composite')
+            self.save_images(images='_composite_image',
+                             title=f'_{self.title}_composite_image')
 
             # Finally return the requested attribute
             return getattr(self, f'_composite_image')
@@ -484,7 +484,7 @@ class XRDData:
             self.title = title
     
         elif np.all(~np.array(list(self.corrections.values()))):
-            self.title = 'raw_images' # This should not be needed...
+            self.title = 'raw' # This should not be needed...
 
         elif any([self.corrections[key]
                     for key in ['dark_field',
@@ -501,7 +501,7 @@ class XRDData:
                         self.title = 'background_corrected'
 
                         if (self.corrections['polar_calibration']):
-                            self.title = 'calibrated_images'
+                            self.title = 'calibrated'
         else:
             # No update
             pass
@@ -544,9 +544,7 @@ class XRDData:
 
             if close_hdf_on_finish:
                 self.hdf.close()
-                self.hdf = None
-                close_hdf_on_finish = False # To switch other call to turn off
-
+                self.hdf =XRDData
             # Define/determine chunks and rechunk if necessary
             if isinstance(self.images, da.core.Array):
                 # Redo chunking along image dimensions if not already
@@ -566,7 +564,7 @@ class XRDData:
             self.hdf.close()
             self.hdf = None
 
-        self.update_map_title(title=image_data_key) # Force title
+        self.update_map_title(title=image_data_key[:-7]) # Force title; truncate '_images'
         self._dask_2_hdf()
 
         # Update useful data
@@ -626,7 +624,7 @@ class XRDData:
         # Computes and stores current iteration of lazy computation to hdf file
         # Probably the most useful
         if self.hdf is not None and self._dask_enabled:
-            if self.title == 'final_images':
+            if self.title == 'final':
                 warn_str = ('WARNING: Images cannot be updated when '
                             + 'they have already been finalized.'
                             + '\nProceeding without updating images.')
@@ -641,16 +639,24 @@ class XRDData:
     ########################################
 
     def _check_correction(self, correction, override=False):
-        if self.corrections[correction]:
+        apply_correction = True
+        if self.title == 'final':
+            warn_str = f'WARNING: XRDData has been finalized!'
+            apply_correction = False
+        elif self.corrections[correction]:
             warn_str = f'WARNING: {correction} correction already applied!'
-            if override:
-                warn_str += f'\nOverriding warning and correcting {correction} anyway.'
-                print(warn_str)
-                return False
-            else:
-                warn_str += f'\nProceeding without changes.'
-                print(warn_str)
-                return True
+            apply_correction = False
+        
+        if apply_correction:
+            return False
+        elif override:
+            warn_str += f'\nOverriding warning and correcting {correction} anyway.'
+            print(warn_str)
+            return False
+        else:
+            warn_str += f'\nProceeding without changes.'
+            print(warn_str)
+            return True
 
 
     ### Initial image corrections ###
@@ -711,8 +717,7 @@ class XRDData:
         print('Correcting dark-field...', end='', flush=True)
         self.images -= self.dark_field
 
-        self.save_images(self.dark_field,
-                         'dark_field',
+        self.save_images(images='dark_field',
                          units='counts')
         
         self.corrections['dark_field'] = True
@@ -751,8 +756,7 @@ class XRDData:
             self.flat_field = flat_field + correction
             self.images /= self.flat_field
 
-            self.save_images(self.flat_field,
-                            'flat_field')
+            self.save_images(images='flat_field')
             
             self.corrections['flat_field'] = True
             self.update_map_title()
@@ -829,8 +833,7 @@ class XRDData:
         self.air_scatter = air_scatter
         self.images /= self.air_scatter
 
-        self.save_images(self.air_scatter,
-                        'air_scatter')
+        self.save_images(images='air_scatter')
         
         self.corrections['air_scatter'] = True
         self.update_map_title()
@@ -857,7 +860,10 @@ class XRDData:
         self.corrections['outliers'] = True
         self.update_map_title()
         self._dask_2_hdf()
-        print(f'Done! Replaced {num_pixels_replaced} outlier pixels.')
+        perc_corr = (num_pixels_replaced / self.images.size) * 100
+        ostr = (f'Done! Replaced {num_pixels_replaced} '
+                + f'({perc_corr:.2f} %) outlier pixels.')
+        print(ostr)
 
 
     # No correction for defect mask, since it is used whenever mask is called
@@ -879,8 +885,7 @@ class XRDData:
             self.defect_mask = mask
 
         # Write mask to disk
-        self.save_images(self.defect_mask,
-                         'defect_mask') 
+        self.save_images(images='defect_mask') 
         
         self.corrections['pixel_defects'] = True
         self.update_map_title()
@@ -892,8 +897,7 @@ class XRDData:
         if mask is not None:
             self.custom_mask = np.asarray(mask).astype(np.bool_)
             # Write mask to disk
-            self.save_images(self.custom_mask,
-                             'custom_mask')
+            self.save_images(images='custom_mask')
         else:
             print('No custom mask provided!')
 
@@ -919,8 +923,7 @@ class XRDData:
         
         # Save and apply Lorentz corrections
         self.lorentz_correction = lorentz_correction
-        self.save_images(self.lorentz_correction,
-                            'lorentz_correction')
+        self.save_images(images='lorentz_correction')
     
         if apply:
             print('Applying Lorentz correction...', end='', flush=True)
@@ -959,8 +962,7 @@ class XRDData:
         # From pyFAI
         polar = self.ai.polarization(factor=polarization).astype(self.dtype)
         self.polarization_correction = polar
-        self.save_images(self.polarization_correction,
-                            'polarization_correction')
+        self.save_images(images='polarization_correction')
         
         if apply:
             print('Applying X-ray polarization correction...', end='', flush=True)
@@ -988,8 +990,7 @@ class XRDData:
         # From pyFAI
         solidangle_correction = self.ai.solidAngleArray().astype(self.dtype)
         self.solidangle_correction = solidangle_correction
-        self.save_images(self.solidangle_correction,
-                            'solidangle_correction')
+        self.save_images(images='solidangle_correction')
         
         if apply:
             print('Applying solid angle correction...', end='', flush=True)
@@ -1048,10 +1049,9 @@ class XRDData:
                 x = np.sqrt(xi**2 + yi**2)
 
             abs_arr = np.exp(-x / a)
-            self.absorption_correction = abs_arr\
+            self.absorption_correction = abs_arr
             # Not sure about saving this...
-            self.save_images(self.absorption_correction,
-                            'absorption_correction')
+            self.save_images(images='absorption_correction')
 
         elif exp_dict['mode'] == 'reflection':
             raise NotImplementedError()
@@ -1074,7 +1074,7 @@ class XRDData:
         if self._check_correction('scaler_intensity', override=override):
             return
         
-        elif scaler_arr is None:
+        elif scaler_arr is None:16168
             if hasattr(self, 'sclr_dict') and self.sclr_dict is not None:
                 if 'i0' in self.sclr_dict.keys():
                     scaler_arr = self.sclr_dict['i0']
@@ -1113,10 +1113,9 @@ class XRDData:
         self.images /= scaler_arr.reshape(*self.map_shape, 1, 1)
         self.scaler_map = scaler_arr
         if not hasattr(self, 'sclr_dict'): # Trying to catch non-saved values
-            self.save_images(self.scaler_map,
-                                'scaler_map',
-                                units='counts',
-                                labels=self.map_labels) 
+            self.save_images(images='scaler_map',
+                             units='counts',
+                             labels=self.map_labels) 
         self.corrections['scaler_intensity'] = True
         self.update_map_title()
         self._dask_2_hdf()
@@ -1210,8 +1209,8 @@ class XRDData:
         # No need to waste storage space otherwise
         # Unlikely to be used
         if np.squeeze(self.background).shape == self.images.shape[-2:]:
-            self.save_images(self.background,
-                             'static_background')
+            self.save_images(images='background',
+                             title='static_background')
         else:
             # Delete full map background to save on memory
             del self.background
@@ -1326,7 +1325,7 @@ class XRDData:
             print(msg_str)
             return
         else:
-            if self.title == 'raw_images':
+            if self.title == 'raw':
                 if not self._dask_enabled or override:
                     raw_images = self.images # Should not be a copy
                 else:
@@ -1353,8 +1352,7 @@ class XRDData:
                     null_map[indices] = False
             
             self.null_map = np.asarray(null_map)
-            self.save_images(self.null_map,
-                             'null_map',
+            self.save_images(images='null_map',
                              units='bool',
                              labels=self.map_labels)
 
@@ -1381,14 +1379,14 @@ class XRDData:
         if np.any(self.corrections.values()):
             print('Caution: Images not corrected for:')
         # Check corrections:
-        for key in self.corrections:
+        for key in sorted(list(self.corrections.keys())):
             if not self.corrections[key]:
                 print(f'\t{key}')
 
         # Some cleanup
         print('Cleaning and updating image information...')
         self._dask_2_hdf()
-        self.update_map_title(title='final_images')
+        self.update_map_title(title='final')
         self.disk_size()
 
         if save_images:
@@ -1432,7 +1430,7 @@ class XRDData:
             if hasattr(self, property_name):
                 return getattr(self, property_name)
             else:
-                if not hasattr(self.integrations) or self.integrations is None:
+                if not hasattr(self, 'integrations') or self.integrations is None:
                     raise AttributeError('Cannot determine integration projection without integrations.')
                 projection = function(self.integrations, axis=axes)
                 setattr(self, property_name, projection)
@@ -1471,8 +1469,9 @@ class XRDData:
             self._composite_integration = getattr(self, f'_{self.title}_composite_integration')
 
             # Save image to hdf. Should update if changed
-            self.save_integrations(self._composite_integration,
-                    f'_{self.title}_composite_integration')
+            self.save_integrations(
+                    integrations='_composite_integration',
+                    title=f'_{self.title}_composite_integration')
 
             # Finally return the requested attribute
             return getattr(self, f'_composite_integration')
@@ -1613,6 +1612,7 @@ class XRDData:
             return disk_size
         print(f'Diffraction map size is {disk_size:.3f} {units}.')
 
+
     # WIP apparently???
     @staticmethod
     def estimate_disk_size(size):
@@ -1666,14 +1666,32 @@ class XRDData:
         if self.hdf_path is None:
             return # Should disable working with hdf if no information is provided
         
+        # Save all images
         if images is None:
+            if not hasattr(self, 'images') or self.images is None:
+                raise RuntimeError('Must provide images to write to hdf.')
             images = self.images
+            if title is None:
+                title = f'{self.title}_images'
+        
+        # Save particular attribute of XRDData
+        elif isinstance(images, str):
+            # Can directly grap attributes. This is for overwriting this function
+            if (hasattr(self, images)
+                and getattr(self, images) is not None):
+                if title is None:
+                    title = images
+                images = getattr(self, images)
+            else:
+                err_str = f"{self.__class__.__name__} does not have attribute '{images}'."
+                raise AttributeError(err_str)
+
+        # Save custom images
         else:
             # This conditional is for single images mostly (e.g., dark-field)
             images = np.asarray(images)
-        
-        if title is None:
-            title = self.title
+            if title is None:
+                raise ValueError('Must define title to save custom images.')
 
         # Get labels
         _units, _labels = self._get_save_labels(images.shape)
@@ -1720,7 +1738,8 @@ class XRDData:
             dask_images = images.copy()
             images = None
             dask_flag = True
-
+        
+        # print(f'Image to save have shape {image_shape}')
         img_grp = self.hdf[f'{self._hdf_type}/image_data']
         
         if title not in img_grp.keys():
@@ -1780,27 +1799,44 @@ class XRDData:
             self.hdf = None
 
 
-    def save_integrations(self, integrations=None, title=None,
-                          units=None, labels=None,
-                          mode='a', extra_attrs=None):
+    def save_integrations(self,
+                          integrations=None,
+                          title=None,
+                          units=None,
+                          labels=None,
+                          mode='a',
+                          extra_attrs=None):
         # No dask support
 
         if self.hdf_path is None:
             return # Should disable working with hdf if no information is provided
-        
+
+        # Save all integrations
         if integrations is None:
-            if hasattr(self, 'integrations') and self.integrations is not None:
-                integrations = self.integrations
+            if not hasattr(self, 'integrations') or self.integrations is None:
+                raise RuntimeError('Must provide integrations to write to hdf.')
+            integrations = self.integrations
+            if title is None:
+                title = f'{self.title}_integrations'
+        
+        # Save particular attribute of XRDData
+        elif isinstance(integrations, str):
+            # Can directly grap attributes. This is for overwriting this function
+            if (hasattr(self, integrations)
+                and getattr(self, integrations) is not None):
+                if title is None:
+                    title = integrations
+                integrations = getattr(self, integrations)
             else:
-                err_str = 'XRDData does not have integrations and none have been given.'
-                raise ValueError(err_str)
+                err_str = f"{self.__class__.__name__} does not have attribute '{integrations}'."
+                raise AttributeError(err_str)
+
+        # Save custom images
         else:
             # This conditional is for single images mostly (e.g., dark-field)
             integrations = np.asarray(integrations)
-        
-        # Set title
-        if title is None:
-            title = f'{self.title}_integrations'
+            if title is None:
+                raise ValueError('Must define title to save custom images.')
         
         # Check shape and set title
         if integrations.ndim != 3:

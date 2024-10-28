@@ -20,7 +20,8 @@ from xrdmaptools.utilities.math import *
 from xrdmaptools.utilities.utilities import (
     delta_array,
     pathify,
-    _check_dict_key
+    _check_dict_key,
+    generate_intensity_mask
 )
 from xrdmaptools.io.hdf_io_rev import (
     initialize_xrdbase_hdf,
@@ -56,14 +57,6 @@ class XRDBaseScan(XRDData):
                  filename=None,
                  hdf_filename=None,
                  hdf=None,
-                 image_data=None,
-                 integration_data=None,
-                 map_shape=None,
-                 image_shape=None,
-                 title=None,
-                 map_labels=None,
-                 null_map=None,
-                 chunks=None,
                  energy=None,
                  wavelength=None,
                  dwell=None,
@@ -81,6 +74,8 @@ class XRDBaseScan(XRDData):
                  extra_metadata=None,
                  save_hdf=True,
                  dask_enabled=False,
+                 extra_attrs=None,
+                 **xrddatakwargs
                  ):
         
         # Adding some metadata
@@ -106,8 +101,6 @@ class XRDBaseScan(XRDData):
         self._wavelength = np.nan
         self._theta = np.nan
 
-        # Add conditional to check approximate image_data size and force dask?
-
         if not save_hdf:
             if dask_enabled:
                 raise ValueError('Enabling dask requires an hdf file for storage.')
@@ -121,18 +114,11 @@ class XRDBaseScan(XRDData):
         
         XRDData.__init__(
             self,
-            image_data=image_data,
-            integration_data=integration_data,
-            map_shape=map_shape,
-            image_shape=image_shape,
-            title=title,
-            map_labels=map_labels,
             hdf_path=self.hdf_path,
             hdf=self.hdf,
-            chunks=chunks,
-            null_map=null_map,
             dask_enabled=dask_enabled,
-            hdf_type=self._hdf_type # Gets redefined as same value...
+            hdf_type=self._hdf_type, # Gets redefined as same value...
+            **xrddatakwargs
         )    
             
         # Store energy, dwell, and theta
@@ -179,6 +165,12 @@ class XRDBaseScan(XRDData):
         if chi_resolution is None:
             chi_resolution = 0.05
         self.chi_resolution = chi_resolution
+        
+        # Catch-all of extra attributes.
+        # Gets them into __init__ sooner
+        if extra_attrs is not None:
+            for key, value in extra_attrs.items():
+                setattr(self, key, value)
 
     
     # Overwrite parent functions
@@ -254,8 +246,10 @@ class XRDBaseScan(XRDData):
             base_md = input_dict.pop('base_md')
             image_attrs = input_dict.pop('image_attrs')
             image_corrections = input_dict.pop('image_corrections')
+            image_data_key = input_dict.pop('image_data_key')
             integration_attrs = input_dict.pop('integration_attrs')
             integration_corrections = input_dict.pop('integration_corrections')
+            integration_data_key = input_dict.pop('integration_data_key')
             recip_pos = input_dict.pop('recip_pos')
             phases = input_dict.pop('phases')
             spots = input_dict.pop('spots')
@@ -263,20 +257,78 @@ class XRDBaseScan(XRDData):
             spots_3D = input_dict.pop('spots_3D')
             vect_dict = input_dict.pop('vect_dict')
 
+            # Scrub data keys. For backward compatibility
+            if image_data_key is not None:
+                image_title = '_'.join([x for x in image_data_key.split('_')
+                                        if x not in ['images', 'integrations']])
+            else:
+                image_title = None
+            if integration_data_key is not None:
+                integration_title = '_'.join([x for x in integration_data_key.split('_')
+                                            if x not in ['images', 'integrations']])
+            else:
+                integration_title = None
+
             # Compare image and integration data
+            title = image_title
+            corrections = image_corrections
             if (input_dict['image_data'] is not None
                 and input_dict['integration_data'] is not None):
-                if not np.all([val1 == val2
+
+                if image_title != integration_title:
+                    warn_str = (f'WARNING: Image data from '
+                                + f'({image_data_key}) does '
+                                + 'not match integration data '
+                                + f'from ({integration_data_key}).')
+                    print(warn_str)
+                
+                # Check corrections if the titles match
+                elif not np.all([val1 == val2
                                for val1, val2 in zip(image_corrections.values(),
                                                      integration_corrections.values())]):
                     warn_str = ('WARNING: Different corrections applied to images and integrations.'
                                 + ' Using image corrections.')
                     print(warn_str)
+            elif (input_dict['image_data'] is None
+                  and input_dict['integration_data'] is not None):
+                title = integration_title # truncate _integrations
+                corrections = integration_corrections        
             
             # Remove unused values (keeps pos_dict out of rocking curve...)
             for key, value in list(input_dict.items()):
                 if value is None:
-                    del input_dict[key]      
+                    del input_dict[key]
+
+            # Set up extra attributes
+            extra_attrs = {}
+            extra_attrs.update(image_attrs)
+            extra_attrs.update(integration_attrs)
+            extra_attrs['phases'] = phases
+            # Add phases
+            extra_attrs['phases'] = phases
+            # Add spots
+            if spots is not None:
+                extra_attrs['spots'] = spots
+            if spot_model is not None:
+                extra_attrs['spot_model'] = spot_model
+            if spots_3D is not None:
+                extra_attrs['spots_3D'] = spots_3D
+
+             # Add vector information. Not super elegant
+            if vect_dict is not None:
+                for key, value in vect_dict.items():
+                    # Check for int cutoffs
+                    # Wait to make sure intensity is processed
+                    if key == 'blob_int_cutoff':
+                        extra_attrs['blob_int_mask'] = generate_intensity_mask(
+                            vect_dict['intensity'],
+                            intensity_cutoff=vect_dict['blob_int_cutoff'])
+                    elif key == 'spot_int_cutoff':
+                        extra_attrs['spot_int_mask'] = generate_intensity_mask(
+                            vect_dict['intensity'],
+                            intensity_cutoff=vect_dict['spot_int_cutoff'])
+                    else:
+                        extra_attrs[key] = value
 
             # Instantiate XRDBaseScan
             inst = cls(**input_dict,
@@ -284,50 +336,39 @@ class XRDBaseScan(XRDData):
                        **recip_pos,
                        map_shape=map_shape,
                        image_shape=image_shape,
+                       title=title,
+                       corrections=corrections,
                        wd=wd,
                        filename=hdf_filename[:-3], # remove the .h5 extention
                        hdf_filename=hdf_filename,
                        dask_enabled=dask_enabled,
+                       extra_attrs=extra_attrs,
                        **kwargs)
             
-            # Add corrections. Bias towards images
-            if image_corrections is not None:
-                inst.corrections = image_corrections
+            # # Add extra attributes
+            # for key, value in image_attrs.items():
+            #     setattr(inst, key, value)
+            # for key, value in integration_attrs.items():
+            #     setattr(inst, key, value)
             
-            # Add extra attributes
-            for key, value in image_attrs.items():
-                setattr(inst, key, value)
-            for key, value in integration_attrs.items():
-                setattr(inst, key, value)
-            
-            # Add phases
-            inst.phases = phases
-            # Add spots
-            if spots is not None:
-                inst.spots = spots
-            if spot_model is not None:
-                inst.spot_model = spot_model
-            if spots_3D is not None:
-                inst.spots_3D = spots_3D
-            
-            # Add vector information. Not super elegant
-            if vect_dict is not None:
-                has_blob_int, has_spot_int = False, False
-                for key, value in vect_dict.items():
-                    # Check for int cutoffs
-                    # Wait to make sure intensity is processed
-                    if key == 'blob_int_cutoff':
-                        has_blob_int = True
-                    elif key == 'spot_int_cutoff':
-                        has_spot_int = True
-                    else:
-                        setattr(inst, key, value)
-                if has_blob_int:
-                    inst.blob_int_mask = inst.get_vector_int_mask(
-                            intensity_cutoff=vect_dict['blob_int_cutoff'])
-                if has_spot_int:
-                    inst.spot_int_mask = inst.get_vector_int_mask(
-                            intensity_cutoff=vect_dict['spot_int_cutoff'])
+            # # Add vector information. Not super elegant
+            # if vect_dict is not None:
+            #     has_blob_int, has_spot_int = False, False
+            #     for key, value in vect_dict.items():
+            #         # Check for int cutoffs
+            #         # Wait to make sure intensity is processed
+            #         if key == 'blob_int_cutoff':
+            #             has_blob_int = True
+            #         elif key == 'spot_int_cutoff':
+            #             has_spot_int = True
+            #         else:
+            #             setattr(inst, key, value)
+            #     if has_blob_int:
+            #         inst.blob_int_mask = inst.get_vector_int_mask(
+            #                 intensity_cutoff=vect_dict['blob_int_cutoff'])
+            #     if has_spot_int:
+            #         inst.spot_int_mask = inst.get_vector_int_mask(
+            #                 intensity_cutoff=vect_dict['spot_int_cutoff'])
             
             print(f'{cls.__name__} loaded!')
             return inst
@@ -766,9 +807,10 @@ class XRDBaseScan(XRDData):
 
         if dask_enabled or self._dask_enabled: # This flag persists even when the dataset is closed!
             img_grp = self.hdf[f'{self._hdf_type}/image_data']
-            if self.title == 'final_images':
-                if check_hdf_current_images(self.title, hdf=self.hdf):
-                    dset = img_grp[self.title]
+            if self.title == 'final':
+                if check_hdf_current_images(f'{self.title}_images',
+                                            hdf=self.hdf):
+                    dset = img_grp[f'{self.title}_images']
             elif check_hdf_current_images('_temp_images', hdf=self.hdf):
                 dset = img_grp['_temp_images']
             self.images = da.asarray(dset) # I had .persist(), but it broke things...
@@ -972,6 +1014,7 @@ class XRDBaseScan(XRDData):
                                       polarization_factor=None,
                                       **kwargs)
 
+
     # Convenience function for image to polar coordinate transformation (estimate!)
     def estimate_polar_coords(self, coords, method='linear'):
         return estimate_polar_coords(coords, self.tth_arr, self.chi_arr, method=method)
@@ -980,6 +1023,65 @@ class XRDBaseScan(XRDData):
     # Convenience function for polar to image coordinate transformation (estimate!)
     def estimate_image_coords(self, coords, method='nearest'):
         return estimate_image_coords(coords, self.tth_arr, self.chi_arr, method=method)
+
+    
+    def save_reciprocal_positions(self):
+        
+        if self.hdf_path is not None:
+            # Check for values to save           
+            if self.tth is None:
+                tth = []
+            else:
+                tth = self.tth
+            if self.chi is None:
+                chi = []
+            else:
+                chi = self.chi
+
+            print('Writing reciprocal positions to disk...', end='', flush=True)
+            # Open hdf flag
+            keep_hdf = True
+            if self.hdf is None:
+                self.hdf = h5py.File(self.hdf_path, 'a')
+                keep_hdf = False
+
+            # This group may already exist if poni file was already initialized
+            curr_grp = self.hdf[self._hdf_type].require_group('reciprocal_positions')
+            if hasattr(self, 'extent'):
+                curr_grp.attrs['extent'] = self.extent
+
+            labels = ['tth_pos', 'chi_pos']
+            comments = ["'tth', is the two theta scattering angle",
+                        "'chi' is the azimuthal angle"]
+            keys = ['tth', 'chi']
+            data = [tth, chi]
+            resolution = [self.tth_resolution, self.chi_resolution]
+
+            for i, key in enumerate(keys):
+                # Skip values that are None
+                if data[i] is None:
+                    data[i] = np.array([])
+                else:
+                    data[i] = np.asarray(data[i])
+
+                if key in curr_grp.keys():
+                    del curr_grp[key]
+                dset = curr_grp.require_dataset(key,
+                                                data=data[i],
+                                                dtype=data[i].dtype,
+                                                shape=data[i].shape)
+                dset.attrs['labels'] = labels[i]
+                dset.attrs['comments'] = comments[i]
+                #dset.attrs['units'] = self.calib_unit #'° [deg.]'
+                dset.attrs['dtype'] = str(data[i].dtype)
+                dset.attrs['time_stamp'] = ttime.ctime()
+                dset.attrs[f'{key}_resolution'] = resolution[i]
+
+            # Close hdf and reset attribute
+            if not keep_hdf:
+                self.hdf.close()
+                self.hdf = None
+            print('done!')
     
     ##################################
     ### Scaler and Position Arrays ###
@@ -991,8 +1093,13 @@ class XRDBaseScan(XRDData):
 
         # Store sclr_dict as attribute
         for key, value in list(sclr_dict.items()):
-            if value.shape != self.map_shape:
+            if value.ndim  != 2: # Only intended for rocking curves
                 sclr_dict[key] = value.reshape(self.map_shape)
+            # if value.shape != self.map_shape:
+            #     # Swapped axes are transposed later...
+            #     if value.shape != self.map_shape.T:
+            #         # This step is intended to convert 1D to 2D
+            #         sclr_dict[key] = value.reshape(self.map_shape)
 
         self.sclr_dict = sclr_dict
         self.scaler_units = scaler_units
@@ -1026,7 +1133,7 @@ class XRDBaseScan(XRDData):
                         and value.dtype == dset.dtype):
                         dset[...] = value
                     else:
-                        del dset # deletes flag, but not the data...
+                        del curr_grp[key] # deletes flag, but not the data...
                         dset = curr_grp.require_dataset(
                                                     key,
                                                     data=value,

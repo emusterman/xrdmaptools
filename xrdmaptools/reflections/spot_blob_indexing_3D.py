@@ -240,9 +240,21 @@ def pair_casting_indexing(connection_pairs,
                           exclude_found_pairs=False,
                           verbose_iterator=True):
 
+    # Modify and set up some values
+    connection_pairs = np.asarray(connection_pairs)
+    evaluated_pair_mask = np.array([False,] * len(connection_pairs))
     all_spot_qs = np.asarray(all_spot_qs)
     all_ref_qs = np.asarray(all_ref_qs)
     all_ref_fs = np.asarray(all_ref_fs)
+
+    # all_spot_inds = []
+    # all_ref_inds = []
+    # for pair in connection_pairs:
+    #     spot_inds, ref_inds = _get_connection_indices(pair)
+    #     all_spot_inds.append(spot_inds)
+    #     all_ref_inds.append(ref_inds)
+    first_best = True
+    bad_indices = []
 
     if verbose_iterator:
         iterated = tqdm(enumerate(connection_pairs),
@@ -253,7 +265,16 @@ def pair_casting_indexing(connection_pairs,
     connections = []
     qofs = []
     multi_reflections = []
+    evaluated_pairs = 0
     for i, pair in iterated:
+        
+        # Check if the pair has already be included
+        if (exclude_found_pairs
+            and evaluated_pair_mask[i]):
+            continue
+
+        if i in bad_indices:
+            print('Bad index evaluated')
 
         prev_connection = pair.copy()
         (pair_spot_inds,
@@ -355,17 +376,29 @@ def pair_casting_indexing(connection_pairs,
         connections.append(connection)
         qofs.append(qof)
         multi_reflections.append(multi)
+        evaluated_pairs += 1
 
         # Find and exclude included pairs
         if exclude_found_pairs:
-            pass
-            ~np.isnan(connection_pairs)[curr_spot_inds]
-            connection
+            evaluated_pair_mask[i] = True # Should be redundant
+            if len(curr_spot_inds) > 2:
+                found_pair_mask = (np.sum([connection_pairs[:, si] == ri
+                                   for si, ri in zip(*_get_connection_indices(connection))],
+                                   axis=0) >= 2)
+                # print(evaluated_pair_mask.shape)
+                # print(found_pair_mask.shape)
+                print(f'{len(curr_spot_inds)=}', f'{found_pair_mask.sum()=}')
+                evaluated_pair_mask[found_pair_mask] = True
+            if len(curr_spot_inds) > 9 and first_best:
+                first_best = False
+                bad_indices = np.nonzero(found_pair_mask)[0]
+            
 
-
+    print(evaluated_pairs)
     return connections, qofs, multi_reflections
 
 
+# Deprecated. Slow
 def iterative_pattern_decomposition(connection_pairs,
                                     all_spot_qs,
                                     all_ref_qs,
@@ -622,9 +655,9 @@ def get_quality_of_fit(fit_spot_qs,
                        **kwargs):
 
     # Ideal conditions
-    # 1. Penalize missing reflections weighted according to their expected intensity
-    # 2. Do not penalize extra reflections which are not indexing (allows for overlapping orientations)
-    # 3. Penalize reflections wighted by their distance from expected postions
+    # 1. Penalize missing reference reflections weighted according to their expected intensity
+    # 2. Do not penalize extra measured reflections which are not indexing (allows for overlapping orientations)
+    # 3. Penalize reflections weighted by their distance from expected postions
 
     # qof = get_rmse(all_spot_qs[fit_spot_inds],
     #                  all_rot_qs[fit_ref_inds])
@@ -676,17 +709,7 @@ def complete_distance_qof(fit_spot_qs,
                           int_weight=0.5): # Gaussian standard deviation to evaluate
 
     # # Determine which reflections are indexed
-    # found_spot_mask = [tuple(ref) in [tuple(x) for x in ref_qs] for ref in all_ref_qs]
-
-    dist = [np.sqrt(np.sum([(p - q)**2 for p, q in zip(v1, v2)]))
-            for v1, v2 in zip(fit_spot_qs, fit_rot_qs)]
-
-    # Gaussian with specified standard deviation
-    # centered at zero sampled at distance
-    qof = np.sum(np.exp(-(np.asarray(dist))**2 / (2 * sigma**2)))
-
-    max_qof = len(all_rot_qs)
-    norm_qof = qof / max_qof
+    # found_spot_mask = [tupl                              returns=['xrd_dets'],
 
     return norm_qof
     
@@ -699,72 +722,26 @@ def get_rmse(fit_spot_qs,
     return rmse
 
 
-def fit_orientation_index(connection,
-                          spot_qs,
-                          ref_qs,
-                          **qof_kwargs):
+# def fit_orientation_index(connection,
+#                           spot_qs,
+#                           ref_qs,
+#                           **qof_kwargs):
 
-    fit_spot_qs, fit_ref_qs = _decompose_connection(
-                                connection,
-                                spot_qs,
-                                ref_qs)
+#     fit_spot_qs, fit_ref_qs = _decompose_connection(
+#                                 connection,
+#                                 spot_qs,
+#                                 ref_qs)
 
-    # Find rotation
-    # reference then spots give passive rotation...I think
-    fit_orientation, _ = Rotation.align_vectors(fit_ref_qs,
-                                                fit_ref_spots) 
+#     # Find rotation
+#     # reference then spots give passive rotation...I think
+#     fit_orientation, _ = Rotation.align_vectors(fit_ref_qs,
+#                                                 fit_ref_spots) 
 
-    qof = get_quality_of_fit(spot_qs,
-                             ref_qs,
-                             **qof_kwargs)
+#     qof = get_quality_of_fit(spot_qs,
+#                              ref_qs,
+#                              **qof_kwargs)
                             
-    return fit_orienation, qof
-
-# Deprecated
-# def generate_q_mask(q_vectors,
-#                     tth_ext,
-#                     chi_ext,
-#                     wavelength_ext,
-#                     poly_args,
-#                     degrees=False,
-#                     ext=0):
-    
-#     # Check extent parameters
-#     for param in [tth_ext, chi_ext, wavelength_ext]:
-#         if len(param) != 2:
-#             raise ValueError('Input extents must be of length 2.')
-#         if param[0] > param[1]:
-#             raise ValuError('Input extents must be (minimum, maximum).')
-
-#     tth, chi, wavelength = q_2_polar(q_vectors,
-#                                      degrees=degrees)
-    
-#     chi_upr_mask = chi <= general_polynomial(tth, *poly_args[0]) * (1 + ext)
-#     chi_lwr_mask = chi >= general_polynomial(tth, *poly_args[1]) * (1 - ext)
-#     tth_upr_mask = tth <= general_polynomial(chi, *poly_args[2]) * (1 + ext)
-#     tth_lwr_mask = tth >= general_polynomial(chi, *poly_args[3]) * (1 - ext)
-
-#     tth_mask = np.all([tth >= tth_ext[0] * (1 - ext),
-#                        tth <= tth_ext[1] * (1 + ext)],
-#                        axis=0)
-#     chi_mask = np.all([chi >= chi_ext[0] * (1 - ext),
-#                        chi <= chi_ext[1] * (1 + ext)],
-#                        axis=0)
-#     wavelength_mask = np.all([wavelength >= wavelength_ext[0] * (1 - ext),
-#                               wavelength <= wavelength_ext[1] * (1 + ext)],
-#                               axis=0)
-    
-#     q_mask = np.all([
-#         chi_lwr_mask,
-#         chi_upr_mask,
-#         tth_lwr_mask,
-#         tth_upr_mask,
-#         tth_mask,
-#         chi_mask,
-#         wavelength_mask
-#         ], axis=0)
-
-#     return q_mask
+#     return fit_orienation, qof
 
 
 # Class for bounding reciprocal space volumes mapped by energy rocking curves
@@ -937,206 +914,3 @@ def _decompose_connection(connection,
 
     return conn_spots, conn_refs
 
-
-
-
-
-
-
-### Deprecated ###
-
-'''def fixed_pair_casting_indexing(connection_pairs,
-                                all_spot_qs,
-                                all_ref_qs,
-                                all_ref_fs,
-                                q_mask,
-                                near_q
-                                iter_max=50):
-
-    connections = []
-    qof = []
-    for i, pair in tqdm(enumerate(connection_pairs)):
-
-        prev_connection = pair.copy()
-        (pair_spot_inds,
-         pair_ref_inds) = _get_connection_indices(pair)
-
-        iter_count = 0
-        ITERATE = True
-        while ITERATE:
-            # Forces original pair
-            connection = pair.copy()
-
-            # Find orientation and rotate reference lattice
-            (conn_spots,
-             conn_refs) = _decompose_connection(prev_connection,
-                                                all_spot_qs,
-                                                all_ref_qs)
-            orientation, _ = Rotation.align_vectors(conn_spots,
-                                                    conn_refs)
-            all_rot_qs = orientation.apply(all_ref_qs, inverse=False)
-            temp_q_mask = q_mask.generate(all_rot_qs)
-
-            # Build kdtree from measured spots and query to referene
-            # lattice to avoids non-crystallographic indexing
-            kdtree = KDTree(conn_spots)
-            pot_conn = kdtree.query_ball_point(all_rot_qs[temp_q_mask],
-                                               r=near_q)
-            
-            # Remove original pair reflections
-            for ind in pair_ref_inds:
-                if ind in np.nonzero(q_mask)[0]:
-                    pot_conn[np.nonzero(np.nonzero(q_mask)[0] == ind)[0][0]] = []
-            
-            # Cast and expand connection
-            for conn_i, conn in enumerate(pot_conn):
-                if len(conn) > 0:
-                    # Remove reflections near original pair
-                    for ind in pair_spot_inds:
-                        if ind in conn:
-                            conn.remove(ind)
-                    if len(conn) == 0:
-                        continue
-                    elif len(conn) == 1:
-                        # Add candidate reflection
-                        connection[conn[0]] = np.nonzero(q_mask)[0][conn_i]
-                    else:
-                        # Add closest of multiple candidate reflections
-                        _, ref_idx = kdtree.query(all_rot_qs[q_mask][conn_i])
-                        connection[ref_idx] = np.nonzero(q_mask)[0][conn_i]
-            
-            # Compare connection with previous connection
-            curr_spot_inds, curr_ref_inds = _get_connection_indices(connection)
-            prev_spot_inds, prev_ref_inds = _get_connection_indices(prev_connection)
-
-            if len(curr_spot_inds) == len(prev_spot_inds):
-                if (np.all(curr_spot_inds == prev_spot_inds)
-                    and np.all (curr_ref_inds == prev_ref_inds)):
-                    ITERATE = False
-
-            # Prepare for next iteration
-            prev_connection = connection.copy()
-            iter_count += 1
-            if iter_count >= iter_max:
-                ITERATE = False
-                # Re-update orientation
-                conn_spots = all_spot_qs[curr_spot_inds]
-                conn_refs = all_ref_qs[curr_ref_inds]
-                orientation, _ = Rotation.align_vectors(conn_spots,
-                                                        conn_refs)
-        
-        # Find qof
-        all_rot_qs = orientation.apply(all_ref_qs, inverse=False)
-        temp_q_mask = q_mask.generate(all_rot_qs)
-        qof = get_quality_of_fit(all_spot_qs[curr_spot_inds],
-                                 all_rot_qs[curr_ref_inds],
-                                 all_rot_qs,
-                                 all_ref_fs,
-                                 sigma=near_q)
-
-        connections.append(connection)
-        qofs.append(qof)
-
-    return connections, qofs
-
-
-
-def initial_pair_casting_indexing(connection_pairs,
-                                  all_spot_qs,
-                                  all_ref_qs,
-                                  all_ref_fs,
-                                  near_q,
-                                  q_mask,
-                                  iter_max=50):
-
-    connections = []
-    qofs = []
-    for i, pair in tqdm(enumerate(connection_pairs)):
-
-        prev_connection = pair.copy()
-        (pair_spot_inds,
-         pair_ref_inds) = _get_connection_indices(pair)
-
-        iter_count = 0
-        ITERATE = True
-        while ITERATE:
-            # Blank baseline connection
-            connection = pair.copy()
-            connection[:] = np.nan
-
-            # Find orientation and rotate reference lattice
-            (conn_spots,
-             conn_refs) = _decompose_connection(prev_connection,
-                                                all_spot_qs,
-                                                all_ref_qs)
-            orientation, _ = Rotation.align_vectors(conn_spots,
-                                                    conn_refs)
-            all_rot_qs = orientation.apply(all_ref_qs, inverse=False)
-            temp_q_mask = q_mask.generate(all_rot_qs)
-
-            # Build kdtree from measured spots and query to referene
-            # lattice to avoids non-crystallographic indexing
-            kdtree = KDTree(conn_spots)
-            pot_conn = kdtree.query_ball_point(all_rot_qs[temp_q_mask],
-                                               r=near_q)
-            
-            # Cast and expand connection
-            for conn_i, conn in enumerate(pot_conn):
-                if len(conn) > 0:
-                    if len(conn) == 0:
-                        continue
-                    elif len(conn) == 1:
-                        # Add candidate reflection
-                        connection[conn[0]] = np.nonzero(q_mask)[0][conn_i]
-                    else:
-                        # Add closest of multiple candidate reflections
-                        _, ref_idx = kdtree.query(all_rot_qs[q_mask][conn_i])
-                        connection[ref_idx] = np.nonzero(q_mask)[0][conn_i]
-            
-            # Eliminate invalid connections and replace with original pair
-            if np.sum(~np.isnan(connection)) <= 1:
-                connection = pair.copy()
-                ITERATE = False
-                (conn_spots,
-                 conn_refs) = _decompose_connection(connection,
-                                                    all_spot_qs,
-                                                    all_ref_qs)
-                orientation, _ = Rotation.align_vectors(conn_spots,
-                                                        conn_refs)
-                break
-
-            # Compare connection with previous connection
-            curr_spot_inds, curr_ref_inds = _get_connection_indices(connection)
-            prev_spot_inds, prev_ref_inds = _get_connection_indices(prev_connection)
-
-            if len(curr_spot_inds) == len(prev_spot_inds):
-                if (np.all(curr_spot_inds == prev_spot_inds)
-                    and np.all (curr_ref_inds == prev_ref_inds)):
-                    ITERATE = False
-
-            # Prepare for next iteration
-            prev_connection = connection.copy()
-            iter_count += 1
-            if iter_count >= iter_max:
-                ITERATE = False
-                # Re-update orientation
-                (conn_spots,
-                 conn_refs) = _decompose_connection(prev_connection,
-                                                    all_spot_qs,
-                                                    all_ref_qs)
-                orientation, _ = Rotation.align_vectors(conn_spots,
-                                                        conn_refs)
-        
-        # Find qof
-        all_rot_qs = orientation.apply(all_ref_qs, inverse=False)
-        temp_q_mask = q_mask.generate(all_rot_qs)
-        qof = get_quality_of_fit(all_spot_qs[curr_spot_inds],
-                                 all_rot_qs[curr_ref_inds],
-                                 all_rot_qs,
-                                 all_ref_fs,
-                                 sigma=near_q)
-
-        connections.append(connection)
-        qofs.append(qof)
-    
-    return connections, qofs'''
