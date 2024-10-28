@@ -215,6 +215,8 @@ def manual_load_data(scanid=-1,
         if 'sis_time' not in data_keys and 'sis_time' in data_dict.keys():
             del data_dict['sis_time']
         for key in ['i0', 'im', 'it', 'i0_time']:
+            if key not in data_dict:
+                continue
             dr_rows, br_rows = _flag_broken_rows(data_dict[key], key)
             dropped_rows += dr_rows
             broken_rows += br_rows
@@ -437,7 +439,8 @@ def _repair_data_dict(data_dict,
 
         # Only Fill data for broken rows
         elif repair_method == 'fill':
-            data_dict['null_map'][row] = np.zeros(len(list(data_dict.values())[0][last_good_row]), dtype=np.bool_)
+            data_dict['null_map'][row] = np.zeros(len(list(data_dict.values())[0][last_good_row]),\
+                                                  dtype=np.bool_)
             if row in broken_rows:
                 if last_good_row == -1:
                     queued_rows.append(row)
@@ -736,6 +739,10 @@ def _save_map_parameters(data_dict,
         filename = f'scan{scanid}_map_parameters.txt'
     if data_keys == []:
         data_keys = ['enc1', 'enc2', 'i0', 'i0_time', 'im', 'it']
+        for key in data_keys:
+            if key not in data_dict:
+                data_keys.remove(key)
+                print(f'WARNING: data_key ({key}) requested but not in data_dict.')
 
     map_data = np.stack([data_dict[key].ravel() for key in data_keys])
     np.savetxt(f'{filedir}{filename}', map_data)
@@ -933,6 +940,9 @@ def save_full_scan(scanid=-1,
                   scan_md['scan_id'],
                   filedir=filedir)
 
+######################
+### Rocking Curves ###
+######################
 
 ### Energy Rocking Curve Scans ###
 
@@ -1154,91 +1164,6 @@ def save_extended_energy_rc_data(start_id,
     _save_scan_md(all_md_dict, scan_range_str,
                   filedir=filedir, filename=md_filename)
 
-
-# def save_extended_energy_rc_data(start_id,
-#                                  end_id,
-#                                  filedir=None,
-#                                  filenames=None):
-
-#     all_scan_ids = list(range(start_id, end_id + 1))
-#     energy_rc_ids = [scan_id for scan_id in all_scan_ids
-#                      if c[scan_id].start['scan']['type'] == 'ENERGY_RC']
-
-#     data_dicts, scan_mds = [], []
-
-#     for scan_id in energy_rc_ids:
-#         print(f'Loading data for scan {scan_id}...')
-#         data_dict, scan_md, data_keys = load_energy_rc_data(
-#                                             scanid=scan_id,
-#                                             returns=['data_keys']
-#                                             )
-#         data_dicts.append(data_dict)
-#         scan_mds.append(scan_md)
-    
-#     # Create empty dicts
-#     all_data_keys = list(data_dicts[0].keys())
-#     _empty_lists = [[] for _ in range(len(all_data_keys))]
-#     all_data_dict = dict(zip(all_data_keys, _empty_lists))
-
-#     all_md_keys = list(scan_mds[0].keys())
-#     _empty_lists = [[] for _ in range(len(all_md_keys))]
-#     all_md_dict = dict(zip(all_md_keys, _empty_lists))
-
-#     # This seems inefficient to reiterate through the data
-#     for data_dict, scan_md in zip(data_dicts, scan_mds):
-#         for key in all_data_keys:
-#             all_data_dict[key].extend(list(data_dict[key]))
-        
-#         for key in all_md_keys:
-#             # Must be a better way to do this
-#             if (all_md_dict[key] != [scan_md[key]]
-#                and all_md_dict[key] != scan_md[key]):
-
-#                 if isinstance(scan_md[key], list):
-#                     all_md_dict[key].extend(scan_md[key])
-#                 else:
-#                     all_md_dict[key].append(scan_md[key])
-
-#     # Get area detectors
-#     xrd_dets = [detector for detector in scan_md['detectors']
-#                 if detector in ['merlin', 'dexela']]
-#     # Stack image data
-#     xrd_data = [np.vstack(all_data_dict[f'{xrd_det}_image'])
-#                 for xrd_det in xrd_dets]
-#     # Reshape image data into 4D
-#     xrd_data = [data.reshape((data.shape[0], 1, data.shape[-2:]))
-#                 for data in xrd_data]
-#     # Remove xrd_data from all_data_dict
-#     for xrd_det in xrd_dets:
-#         del all_data_dict[f'{xrd_det}_image']
-#     # Reformat other data streams into arrays
-#     for key in all_data_dict.keys():
-#         all_data_dict[key] = np.asarray(all_data_dict[key])
-    
-#     #return all_data_dict, all_md_dict, xrd_data
-
-#     scan_range_str = f"{all_md_dict['scan_id'][0]}-{all_md_dict['scan_id'][-1]}"
-
-#     if filenames is None:
-#         filenames = []
-#         for detector in xrd_dets:
-#             filenames.append(f'scan{scan_range_str}_{detector}_energy_rc.tif')
-    
-#     _save_xrd_tifs(xrd_data,
-#                    xrd_dets=xrd_dets,
-#                    scanid=scan_range_str,
-#                    filedir=filedir,
-#                    filenames=filenames)
-
-#     param_filename = f'scan{scan_range_str}_energy_rc_parameters.txt'
-#     _save_map_parameters(all_data_dict, scan_range_str, data_keys=data_keys,
-#                          filedir=filedir, filename=param_filename)
-
-#     md_filename = f'scan{scan_range_str}_energy_rc_metadata.txt'                  
-#     _save_scan_md(all_md_dict, scan_range_str,
-#                   filedir=filedir, filename=md_filename)
-
-
 ### Angle Rocking Curve Scans ###
 
 def load_angle_rc_data(scanid=-1,
@@ -1365,6 +1290,7 @@ def load_flying_angle_rc_data(scanid=-1,
 
     # Interpolate angular positions
     thetas = np.linspace(*c[int(scanid)].start['scan']['scan_input'][:3])
+    #thetas = thetas.reshape(map_shape)
     thetas /= 1000 # mdeg to deg
     data_dict['theta'] = thetas
 
@@ -1394,7 +1320,7 @@ def save_flying_angle_rc_data(scanid=-1,
      scan_md,
      xrd_dets
      ) = load_flying_angle_rc_data(
-                    scanid=-1,
+                    scanid=scanid,
                     broker=broker,
                     detectors=detectors,
                     data_keys=data_keys,
@@ -1417,7 +1343,6 @@ def save_flying_angle_rc_data(scanid=-1,
     
     param_filename = f'scan{scanid}_flying_angle_rc_parameters.txt'
     _save_map_parameters(data_dict, scanid, data_keys=['i0',
-                                                       'i0_time',
                                                        'im',
                                                        'it',
                                                        'theta'],
@@ -1428,62 +1353,11 @@ def save_flying_angle_rc_data(scanid=-1,
                   filedir=filedir, filename=md_filename)
 
 
-# def save_flying_angle_rc_data(scanid=-1,
-#                               broker='manual',
-#                               detectors=None,
-#                               data_keys=['i0',
-#                                          'im',
-#                                          'it'],
-#                               filedir=None,
-#                               filenames=None,
-#                               repair_method='fill'):
-
-#     data_dict, scan_md, data_keys, xrd_dets = load_data(scanid=scanid,
-#                                                         broker=broker,
-#                                                         detectors=detectors,
-#                                                         data_keys=data_keys,
-#                                                         returns=['data_keys',
-#                                                                  'xrd_dets'],
-#                                                         repair_method=repair_method)
-
-#     # Format xrd data as list from each detector
-#     # Convert to 
-#     xrd_data = [np.asarray(data_dict[f'{xrd_det}_image'])
-#                 for xrd_det in xrd_dets]
-
-#     # Interpolate angular positions
-#     thetas = np.linspace(*c[int(scanid)].start['scan']['scan_input'][:3])
-#     thetas /= 1000 # mdeg to deg
-#     data_dict['theta'] = thetas
-
-#     if filenames is None:
-#         filenames = []
-#         for detector in xrd_dets:
-#             filenames.append(f'scan{scanid}_{detector}_flying_angle_rc.tif')
-    
-#     _save_xrd_tifs(xrd_data,
-#                    xrd_dets=xrd_dets,
-#                    scanid=scan_md['scan_id'], # Will return the correct value
-#                    filedir=filedir,
-#                    filenames=filenames)
-    
-#     param_filename = f'scan{scanid}_flying_angle_rc_parameters.txt'
-#     _save_map_parameters(data_dict, scanid, data_keys=['i0',
-#                                                        'i0_time',
-#                                                        'im',
-#                                                        'it',
-#                                                        'theta'],
-#                          filedir=filedir, filename=param_filename)
-    
-#     md_filename = f'scan{scanid}_flying_angle_rc_metadata.txt'                  
-#     _save_scan_md(scan_md, scanid,
-#                   filedir=filedir, filename=md_filename)
-
-
-
+#############################
+### Convenience Functions ###
+#############################
 
 # Convenience/utility function for generating record of scan_ids
-
 def generate_scan_logfile(start_id,
                           end_id=-1,
                           filename=None,
@@ -1495,7 +1369,7 @@ def generate_scan_logfile(start_id,
 
     if end_id == -1:
         bs_run = c[-1]
-        end_id = int(c['scan_id'])
+        end_id = int(bs_run.start['scan_id'])
 
     if filename is None:
         filename = f'logfile_{start_id}-{end_id}'
@@ -1505,6 +1379,7 @@ def generate_scan_logfile(start_id,
     scan_ids = []
     scan_types = []
     scan_statuses = []
+    scan_detectors = []
     scan_inputs = []
 
 
@@ -1522,12 +1397,25 @@ def generate_scan_logfile(start_id,
                 scan_types.append(str(start['scan']['type']))
                 
                 if 'scan_input' in start['scan'].keys():
-                    scan_inputs.append(str(start['scan']['scan_input']))
+                    scan_input = start['scan']['scan_input']
+                    scan_input = [np.round(x, 3) for x in scan_input] # Cleans up floating point errors?
+                    #print(scan_input)
+                    scan_inputs.append(scan_input)
                 else:
                     scan_inputs.append(str([]))
+                
+                if 'detectors' in start['scan'].keys():
+                    detectors = start['scan']['detectors']
+                    # Remove common detectors that are almost always included
+                    # detectors = [det for det in detectors
+                    #              if det not in ['nanoZebra', 'sclr1']]
+                    scan_detectors.append(str(detectors))
+                else:
+                    scan_detectors.append(str([]))
             else:
                 scan_ids.append(str(start['scan_id']))
                 scan_types.append('UNKOWN')
+                scan_detectors.append(str([]))
                 scan_inputs.append(str([]))
             
             if stop is None:
@@ -1540,6 +1428,14 @@ def generate_scan_logfile(start_id,
 
     logfile = f'{filedir}{filename}.txt'
 
-    with open(logfile, 'a') as log:
-        for scan_id, scan_type, scan_status, scan_input in zip(scan_ids, scan_types, scan_statuses, scan_inputs):
-            log.write(f'{scan_id}\t{scan_type}\t{scan_status}\t{scan_input}\n')
+    with open(logfile, 'w') as log:
+        for (scan_id,
+             scan_type,
+             scan_status,
+             scan_detector,
+             scan_input) in zip(scan_ids,
+                                scan_types, 
+                                scan_statuses,
+                                scan_detectors,
+                                scan_inputs):
+            log.write(f'{scan_id}\t{scan_type}\t{scan_status}\t{scan_detector}\t{scan_input}\n')
