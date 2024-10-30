@@ -1074,7 +1074,7 @@ class XRDData:
         if self._check_correction('scaler_intensity', override=override):
             return
         
-        elif scaler_arr is None:16168
+        elif scaler_arr is None:
             if hasattr(self, 'sclr_dict') and self.sclr_dict is not None:
                 if 'i0' in self.sclr_dict.keys():
                     scaler_arr = self.sclr_dict['i0']
@@ -1267,6 +1267,7 @@ class XRDData:
         
         # Update _temp images
         self._dask_2_hdf()
+        self.reset_projections()
 
 
     # For estimating maximum saturated pixel for comparison with other datasets

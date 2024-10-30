@@ -272,6 +272,7 @@ def manual_alignment(image_stack,
     return marker_coords
 
 
+# Can this be built on base_slider_plot???
 def test_manual_alignment(image_stack,
                           slider_vals=None,
                           **kwargs):

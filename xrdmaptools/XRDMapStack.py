@@ -7,9 +7,6 @@ import h5py
 import numpy as np
 import pandas as pd
 
-# from .XRDMap import XRDMap
-# from .utilities.utilities import timed_iter
-
 from xrdmaptools.XRDMap import XRDMap
 from xrdmaptools.utilities.utilities import (
     timed_iter,

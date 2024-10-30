@@ -355,9 +355,11 @@ def phase_selector(xrd, phases, energy, tth, ignore_less=1):
 
     norm_xrd_int = rescale_array(xrd, upper=100, arr_min=0)
 
-    [phase.get_hkl_reflections(energy, tth_range=(np.min(tth), np.max(tth)),
-                               ignore_less=ignore_less)
-        for phase in phases];
+    for phase in phases:
+        phase.get_hkl_reflections(energy,
+                                  tth_range=(np.min(tth),
+                                  np.max(tth)),
+                                  ignore_less=ignore_less)
 
     xrd_plot = ax.plot(tth, norm_xrd_int, label='Composite XRD', c='k', zorder=(len(phases) + 1))
     fig.subplots_adjust(right=0.75)

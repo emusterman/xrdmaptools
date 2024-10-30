@@ -918,11 +918,13 @@ class XRDRockingCurveStack(XRDBaseScan):
             vmin=vmin,
             vmax=vmax,
             **kwargs)
+        
 
         if return_plot:
-            return fig, ax # Not returning the slider may break it...
+            return fig, ax, slider # Not returning the slider may break it...
         else:
             fig.show()
+            self.__slider = slider # Need a reference...
 
 
     def plot_3D_scatter(self,
@@ -956,6 +958,42 @@ class XRDRockingCurveStack(XRDBaseScan):
                                   skip=skip,
                                   edges=edges,
                                   **kwargs)
+
+        if return_plot:
+            return fig, ax
+        else:
+            fig.show()
+    
+
+    # Convenience wrapper of plot_3D_scatter to plot found 3D spots
+    def plot_3D_spots(self,
+                      spots_3D=None,
+                      edges=None,
+                      skip=None,
+                      return_plot=False,
+                      **kwargs):
+        
+        if spots_3D is None:
+            if not hasattr(self, 'spots_3D'):
+                raise AttributeError('Cannot plot 3D spots without spots.')
+            else:
+                spots_3D = self.spots_3D
+        elif not isinstance(spots_3D, pd.core.frame.DataFrame):
+            err_str = ('Spots must be given as Pandas DataFrame '
+                       + f'not {type(spots_3D)}.')
+            raise TypeError(err_str)
+        
+        q_vectors = spots_3D[['qx', 'qy', 'qz']]
+        intensity = spots_3D['intensity']
+
+        fig, ax = self.plot_3D_scatter(
+                        q_vectors=q_vectors,
+                        intensity=intensity,
+                        edges=None,
+                        skip=None,
+                        return_plot=False,
+                        **kwargs
+                        )
 
         if return_plot:
             return fig, ax

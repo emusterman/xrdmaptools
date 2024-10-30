@@ -10,7 +10,7 @@ from tqdm import tqdm
 ### Background Estimators ###
 #############################
 
-### ImageMap ###
+### Full Map background ###
 
 # Unused general masked filter function
 def masked_filter(imagemap, filter, mask=None, **kwargs):
@@ -235,69 +235,6 @@ def masked_bruckner_background(imagemap, size=10, max_iterations=100,
     return bkg_map
 
 
-'''def masked_bruckner_background(imagemap, size=10, iterations=100, mask=None, verbose=False):
-
-    # Determine mask
-    if mask is None:
-        if np.any(imagemap.mask != 1):
-            mask = imagemap.mask
-        else:
-            mask = np.ones(imagemap.images.shape[-2:], dtype=np.bool_)
-            print('WARNING: No mask could be constructed.')
-
-    # Divisor image for ignoring mask contributions
-    div_image = np.ones(imagemap.images.shape[-2:])
-    div_image[~mask] = 0
-    div_filter = uniform_filter(div_image, size=size)
-    
-    bkg_map = np.zeros_like(imagemap.images)
-
-    # Cycle through all map images. TODO: Parallelize this
-    for index in tqdm(range(imagemap.num_images)):
-        indices = np.unravel_index(index, imagemap.map_shape)
-
-        # Inititial cleanup
-        old_image = np.copy(imagemap.images[indices])
-        init_min = np.min(old_image)
-        init_avg = np.mean(old_image)
-        init_thresh = init_avg + 2 * (init_avg - init_min)
-        init_mask = (old_image >= init_thresh)
-        old_image[init_mask] = init_thresh
-
-        # Filter before iterative approach
-        zero_image = np.copy(old_image)
-        #return zero_image, mask
-        zero_image[~mask] = 0 # should be redundant
-        zero_filter = uniform_filter(zero_image, size=size)
-
-        old_image = zero_filter / div_filter
-        old_image[~mask] = 0
-
-        # Bruckner Algorithm
-        for i in range(iterations):
-            zero_image = np.copy(old_image)
-            zero_image[~mask] = 0 # should be redundant
-            zero_filter = uniform_filter(zero_image, size=size)
-
-            avg_image = zero_filter / div_filter
-            avg_image[~mask] = 0    
-
-            min_image = np.min(np.array([old_image, avg_image]), axis=0)
-            
-            if np.max(np.abs(old_image - min_image)) > 5e-4:
-                old_image = np.copy(min_image)
-            else:
-                if verbose:
-                    print(f'Background converged after {i + 1} iterations!')
-                break
-        
-        bkg_map[indices] = min_image
-
-    return bkg_map'''
-
-
-
-
 ### Single Image ###
 
 def masked_image_filter(image, mask, filter, **kwargs):
@@ -423,3 +360,8 @@ def masked_bruckner_image_background(image, size, iterations, mask):
             break
 
     return min_image
+
+# TODO:
+######################
+### 1D Backgrounds ###
+######################

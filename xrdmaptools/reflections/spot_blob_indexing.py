@@ -72,6 +72,9 @@ def _initial_spot_analysis(xrdmap, SpotModel=None):
     print('done!')
 
 
+### Most of these don't work very well
+
+
 # Blind brute force approach to indexing diffraction patterns
 # Uninformed symmetry reductions of euler space
 # Cannot handle multiple grains

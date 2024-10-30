@@ -7,6 +7,7 @@ import scipy.constants as constants
 ###################################
 
 def energy_2_wavelength(energy):
+    energy = np.asarray(energy)
     # Convert energy into keV
     if np.any(energy > 1e3):
         energy /= 1e3
@@ -14,9 +15,10 @@ def energy_2_wavelength(energy):
     return factor / energy
 
 
-def wavelength_2_energy(wavelength):
+def wavelength_2_energy(wavelength): # This assumes angstroms
     factor = 1e7 * constants.h * constants.c / constants.e
     return factor / wavelength
+
 
 # Bragg relations
 def tth_2_d(tth, wavelength, radians=False, n=1):
@@ -24,21 +26,22 @@ def tth_2_d(tth, wavelength, radians=False, n=1):
         tth = np.degrees(tth)
     return n * wavelength / (2 * np.sin(np.radians(tth / 2)))
 
+
 def d_2_tth(d, wavelength, radians=False, n=1):
     tth = 2 * np.arcsin(n * wavelength / (2 * d))
     if not radians:
         tth = np.degrees(tth)
     return tth
 
-# Reciprocal space TODO: Add reciprocal space vector components
-def convert_qd(input):
-    return 2 * np.pi / input # Returns |q|
+# Reciprocal space magnitude |q|
+def convert_qd(qd): # Assumes 2pi factor
+    return 2 * np.pi / qd
 
 def tth_2_q(tth, wavelength, radians=False, n=1):
-    return convert_qd(tth_2_d(tth, wavelength, radians=radians, n=n)) # Returns |q|
+    return convert_qd(tth_2_d(tth, wavelength, radians=radians, n=n))
 
 def q_2_tth(q, wavelength, radians=False, n=1):
-    return d_2_tth(convert_qd(q), wavelength, radians=radians, n=n) # Returns |q|
+    return d_2_tth(convert_qd(q), wavelength, radians=radians, n=n)
 
 ########################
 ### Vector Functions ###
@@ -146,13 +149,12 @@ def general_polynomial(x, *args):
     return y
 
 
-
 #####################
 ### Ray Functions ###
 #####################
 
 class k_vector():
-    # Class for working diffracted rays as parametric lines
+    # Class for working with diffracted rays as parametric lines
 
     def __init__(self,
                  point,
@@ -206,6 +208,7 @@ class k_vector():
 
 def lstsq_line_intersect(P0, P1):
     # From Traa, Johannes "Least-Squares intersection of Lines" (2013)
+    # This is hard to find though...
 
     # Generate all line direction vectors
     n = (P1 - P0) / np.linalg.norm(P1 - P0, axis=1)[:, np.newaxis] # normalized

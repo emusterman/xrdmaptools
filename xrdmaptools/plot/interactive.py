@@ -643,10 +643,13 @@ def _find_image_extent(x_ticks, y_ticks):
 
 from matplotlib.widgets import SpanSelector
 
-def integrateable_1D_plot(dyn_kw={},
-                          map_kw={},
-                          cmap='viridis',
-                          marker_color='red'):
+def integrateable_static_1D_plot():
+    raise NotImplementedError()
+
+def integrateable_dynamic_1D_plot(dyn_kw={},
+                                  map_kw={},
+                                  cmap='viridis',
+                                  marker_color='red'):
     '''
     
     '''

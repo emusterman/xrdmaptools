@@ -2,8 +2,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from plotly import graph_objects as go
 
-
-
+from xrdmaptools.crystal.rsm import map_2_grid
 
 
 #########################################
