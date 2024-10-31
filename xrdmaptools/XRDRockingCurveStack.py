@@ -62,6 +62,7 @@ class XRDRockingCurveStack(XRDBaseScan):
                  image_shape=None,
                  map_shape=None,
                  sclr_dict=None,
+                 rocking_axis=None,
                  **xrdbasekwargs
                  ):
 
@@ -122,29 +123,88 @@ class XRDRockingCurveStack(XRDBaseScan):
                            'null_ind'],
             **xrdbasekwargs
             )
+
         
         # Check for changes. Wavelength will depend on energy
         if (np.all(~np.isnan(self.energy))
             and np.all(~np.isnan(self.theta))):
+            # If all the same raise error
             if all([
-                all(np.round(i, 4) == np.round(self.energy[0], 4) for i in self.energy),
-                all(np.round(i, 4) == np.round(self.theta[0], 4) for i in self.theta)
+                all(np.round(i, 4) == np.round(self.energy[0], 4)
+                    for i in self.energy),
+                all(np.round(i, 4) == np.round(self.theta[0], 4)
+                    for i in self.theta)
             ]):
-                err_str = ('Rocking curves must be constructed by varying '
-                        + 'energy/wavelength or theta. Given values are constant.')
+                err_str = ('Rocking curves must be constructed '
+                           + 'by varying energy/wavelength or '
+                           + 'theta. Given values are constant.')
                 raise ValueError(err_str)
-        
-        # Re-write certain values:
-        if self.hdf_path is not None:
-            if self._dask_enabled:
-                self.hdf[self._hdf_type].attrs['energy'] = self.energy
-                self.hdf[self._hdf_type].attrs['wavelength'] = self.wavelength
-                self.hdf[self._hdf_type].attrs['theta'] = self.theta
+
+        # Find rocking axis
+        if rocking_axis.lower() in ['energy', 'wavelength']:
+            self.rocking_axis = 'energy'
+        elif rocking_axis.lower() in ['angle', 'theta']:
+            self.rocking_axis = 'angle'
+        else:
+            warn_str = (f'Rocking axis ({rocking_axis}) is not '
+                        + 'supported. Attempting to find '
+                        + 'automatically.')
+            print(warn_str)
+            rocking_axis = None
+            
+        if rocking_axis is None:
+            min_en = np.min(self.energy)
+            max_en = np.max(self.energy)
+            min_ang = np.min(self.theta)
+            max_ang = np.max(self.theta)
+
+            # Convert to eV
+            if max_en < 1000:
+                max_en *= 1000
+                min_en *= 1000
+
+            mov_en = max_en - min_en > 5
+            mov_ang = max_ang - min_ang > 0.05
+
+            if mov_en and not mov_ang:
+                self.rocking_axis = 'energy'
+            elif mov_ang and not mov_en:
+                self.rocking_axis = 'angle'
+            elif mov_en and mov_ang:
+                err_str = ('Ambiguous rocking direction. '
+                            + 'Energy varies by more than 5 eV and '
+                            + 'theta varies by more than 50 mdeg.')
+                raise RuntimeError(err_str)
             else:
-                with h5py.File(self.hdf_path, 'a') as f:
-                    f[self._hdf_type].attrs['energy'] = self.energy
-                    f[self._hdf_type].attrs['wavelength'] = self.wavelength
-                    f[self._hdf_type].attrs['theta'] = self.theta
+                err_str = ('Ambiguous rocking direction. '
+                            + 'Energy varies by less than 5 eV and '
+                            + 'theta varies by less than 50 mdeg.')
+                raise RuntimeError(err_str)
+
+        @XRDBaseScan.protect_hdf()
+        def save_extra_attrs(self): # Not sure if this needs self...
+            self.hdf[self._hdf_type].attrs['energy'] = self.energy
+            self.hdf[self._hdf_type].attrs['wavelength'] = self.wavelength
+            self.hdf[self._hdf_type].attrs['theta'] = self.theta
+            self.hdf[self._hdf_type].attrs['rocking_axis'] = self.rocking_axis
+        save_extra_attrs(self)
+        
+        # # Re-write certain values:
+        # if self.hdf_path is not None:
+        #     # Open hdf flag
+        #     keep_hdf = True
+        #     if self.hdf is None:
+        #         self.hdf = h5py.File(self.hdf_path, 'a')
+        #         keep_hdf = False
+
+        #     self.hdf[self._hdf_type].attrs['energy'] = self.energy
+        #     self.hdf[self._hdf_type].attrs['wavelength'] = self.wavelength
+        #     self.hdf[self._hdf_type].attrs['theta'] = self.theta
+        #     self.hdf[self._hdf_type].attrs['rocking_axis'] = self.rocking_axis
+            
+        #     if not keep_hdf:
+        #         self.hdf.close()
+        #         self.hdf = None
 
     # Overwrite parent function
     def __str__(self):
@@ -367,6 +427,7 @@ class XRDRockingCurveStack(XRDBaseScan):
     @q_arr.deleter
     def q_arr(self):
         self._del_arr()
+    
 
     ##########################
     ### Re-Written Methods ###
@@ -401,6 +462,7 @@ class XRDRockingCurveStack(XRDBaseScan):
         
         if isinstance(scanid, str):
             scantype = 'EXTENDED_ENERGY_RC'
+            rocking_axis = 'energy'
 
             (data_dict,
              scan_md,
@@ -418,10 +480,15 @@ class XRDRockingCurveStack(XRDBaseScan):
             scantype = get_scantype(scanid,
                                     broker=temp_broker)
 
-            if scantype in ['ENERGY_RC', 'ANGLE_RC']:
+            if scantype == 'ENERGY_RC':
                 load_func = load_step_rc_data
+                rocking_axis = 'energy'
+            elif scantype == 'ANGLE_RC':
+                load_func = load_step_rc_data
+                rocking_axis = 'angle'
             elif scantype == 'XRF_FLY':
-                load_func = load_flying_angle_rc_data    
+                load_func = load_flying_angle_rc_data
+                rocking_axis = 'angle'    
             else:
                 err_str = f'Unable to handle scan type of {scantype}.'
                 raise RuntimeError(err_str)
@@ -479,8 +546,13 @@ class XRDRockingCurveStack(XRDBaseScan):
                     # time_stamp=scan_md['time_str'],
                     extra_metadata=None,
                     save_hdf=save_hdf,
-                    null_map=null_map
+                    null_map=null_map,
+                    rocking_axis=rocking_axis
                     )
+            
+            # # Add xrf if it exists
+            # if 'xs_fluor' in data_dict.keys():
+            #     rc.xrf = {'data':data_dict['xs_fluor']}
             
             rocking_curves.append(rc)
 
@@ -570,14 +642,15 @@ class XRDRockingCurveStack(XRDBaseScan):
         filled_indices = 0
         for i in tqdm(range(self.num_images)):
         # for i, wavelength in tqdm(enumerate(self.wavelength), total=self.num_images):
-            wavelength = self.wavelength[i]
-            angle = self.theta[i]
+            # wavelength = self.wavelength[i]
+            # angle = self.theta[i]
+            q_arr = self.q_arr[i].astype(self.dtype)
 
-            q_arr = get_q_vect(self.tth_arr,
-                               self.chi_arr,
-                               wavelength=wavelength,
-                               degrees=self.polar_units == 'deg'
-                               ).astype(self.dtype)
+            # q_arr = get_q_vect(self.tth_arr,
+            #                    self.chi_arr,
+            #                    wavelength=wavelength,
+            #                    degrees=self.polar_units == 'deg'
+            #                    ).astype(self.dtype)
             
             next_indices = np.sum(self.blob_masks[i])
             # Fill q_vectors from q_arr
@@ -616,116 +689,118 @@ class XRDRockingCurveStack(XRDBaseScan):
                                 edges=self.edges,
                                 rewrite_shape=rewrite_shape)
 
-
+    @XRDBaseScan.protect_hdf()
     def save_vectorization(self,
                            q_vectors=None,
                            intensity=None,
                            edges=None,
                            rewrite_shape=False):
 
-        if self.hdf_path is not None:
-            print('Saving vectorized image data...')
-            # Open hdf flag
-            keep_hdf = True
-            if self.hdf is None:
-                self.hdf = h5py.File(self.hdf_path, 'a')
-                keep_hdf = False
+        # if self.hdf_path is not None:
+        print('Saving vectorized image data...')
+            # # Open hdf flag
+            # keep_hdf = True
+            # if self.hdf is None:
+            #     self.hdf = h5py.File(self.hdf_path, 'a')
+            #     keep_hdf = False
 
-            # Write data to hdf
-            vect_grp = self.hdf[self._hdf_type].require_group('vectorized_data')
-            vect_grp.attrs['time_stamp'] = ttime.ctime()
+        # Write data to hdf
+        vect_grp = self.hdf[self._hdf_type].require_group(
+                                                'vectorized_data')
+        vect_grp.attrs['time_stamp'] = ttime.ctime()
 
-            # Save q_vectors and intensity
-            for attr, attr_name in zip([q_vectors, intensity],
-                                       ['q_vectors', 'intensity']):
+        # Save q_vectors and intensity
+        for attr, attr_name in zip([q_vectors, intensity],
+                                    ['q_vectors', 'intensity']):
 
-                # Check for values/attributes. Must have both q_vectors and intensity
-                if attr is None:
-                    if (hasattr(self, attr_name)
-                        and getttr(self, attr_name) is not None):
-                        attr = getattr(self, attr_name)
+            # Check for values/attributes.
+            # Must have both q_vectors and intensity
+            if attr is None:
+                if (hasattr(self, attr_name)
+                    and getttr(self, attr_name) is not None):
+                    attr = getattr(self, attr_name)
+                else:
+                    self.hdf.close()
+                    self.hdf = None
+                    err_str = (f'Cannot save {attr_name} if not '
+                                + 'given or already an attribute.')
+                    raise AttributeError(err_str)
+
+            # Check for dataset and compatibility
+            attr = np.asarray(attr)
+            if attr_name not in vect_grp.keys():
+                dset = vect_grp.require_dataset(
+                        attr_name,
+                        data=attr,
+                        shape=attr.shape,
+                        dtype=attr.dtype)
+            else:
+                dset = vect_grp[attr_name]
+
+                if (dset.shape == attr.shape
+                    and dset.dtype == attr.dtype):
+                    dset[...] = attr
+                
+                # Avoid creating new data, unless specified explicitly
+                elif rewrite_shape:
+                    warn_str = (f'WARNING: Rewriting {attr_name} '
+                                + 'dataset shape. This could bloat '
+                                + 'overall file size.')
+                    print(warn_str)
+                    del vect_grp['attr_name']
+                    dset = vect_grp.require_dataset(
+                        attr_name,
+                        data=attr,
+                        shape=attr.shape,
+                        dtype=attr.dtype)
+        
+        # Check for edge information
+        if edges is None:
+            if hasattr(self, 'edges') and self.edges is not None:
+                edges = self.edges
+            else:
+                print('WARNING: No edges given or found. Edges will not be saved.')
+
+        # Only save edge information if given
+        if edges is not None:
+            edge_grp = vect_grp.require_group('edges')
+            edge_grp.attrs['time_stamp'] = ttime.ctime()
+
+            # Check for existenc and compatibility
+            for i, edge in enumerate(edges):
+                edge = np.asarray(edge)
+                edge_title = f'edge_{i}'
+                if edge_title not in edge_grp.keys():
+                    edge_grp.require_dataset(
+                        edge_title,
+                        data=edge,
+                        shape=edge.shape,
+                        dtype=edge.dtype)
+                else:
+                    dset = edge_grp[edge_title]
+
+                    if (dset.shape == edge.shape
+                        and dset.dtype == edge.dtype):
+                        dset[...] = edge
+                    elif (dset.shape != edge.shape
+                            and dset.dtype == edge.dtype):
+                            dset[...] = edge.astype(dset.dtype)
                     else:
                         self.hdf.close()
                         self.hdf = None
-                        err_str = (f'Cannot save {attr_name} if not '
-                                   + 'given or already an attribute.')
-                        raise AttributeError(err_str)
+                        err_str = (f'Edge shape for {edge_title} '
+                                    + f'({edge.shape}) does not '
+                                    + 'match datset shape '
+                                    + f'({dset.shape}). '
+                                    + 'This should not '
+                                    + 'have happened.')
+                        # Shape changes should not happen. Throw error
+                        raise RuntimeError(err_str)
 
-                # Check for dataset and compatibility
-                attr = np.asarray(attr)
-                if attr_name not in vect_grp.keys():
-                    dset = vect_grp.require_dataset(
-                            attr_name,
-                            data=attr,
-                            shape=attr.shape,
-                            dtype=attr.dtype)
-                else:
-                    dset = vect_grp[attr_name]
-
-                    if (dset.shape == attr.shape
-                        and dset.dtype == attr.dtype):
-                        dset[...] = attr
-                    
-                    # Avoid creating new data, unless specified explicitly
-                    elif rewrite_shape:
-                        warn_str = (f'WARNING: Rewriting {attr_name} '
-                                   + 'dataset shape. This could bloat '
-                                   + 'overall file size.')
-                        print(warn_str)
-                        del vect_grp['attr_name']
-                        dset = vect_grp.require_dataset(
-                            attr_name,
-                            data=attr,
-                            shape=attr.shape,
-                            dtype=attr.dtype)
-            
-            # Check for edge information
-            if edges is None:
-                if hasattr(self, 'edges') and self.edges is not None:
-                    edges = self.edges
-                else:
-                    print('WARNING: No edges given or found. Edges will not be saved.')
-
-            # Only save edge information if given
-            if edges is not None:
-                edge_grp = vect_grp.require_group('edges')
-                edge_grp.attrs['time_stamp'] = ttime.ctime()
-
-                # Check for existenc and compatibility
-                for i, edge in enumerate(edges):
-                    edge = np.asarray(edge)
-                    edge_title = f'edge_{i}'
-                    if edge_title not in edge_grp.keys():
-                        edge_grp.require_dataset(
-                            edge_title,
-                            data=edge,
-                            shape=edge.shape,
-                            dtype=edge.dtype)
-                    else:
-                        dset = edge_grp[edge_title]
-
-                        if (dset.shape == edge.shape
-                            and dset.dtype == edge.dtype):
-                            dset[...] = edge
-                        elif (dset.shape != edge.shape
-                              and dset.dtype == edge.dtype):
-                              dset[...] = edge.astype(dset.dtype)
-                        else:
-                            self.hdf.close()
-                            self.hdf = None
-                            err_str = (f'Edge shape for {edge_title} '
-                                       + f'({edge.shape}) does not '
-                                       + 'match datset shape '
-                                       + f'({dset.shape}). '
-                                       + 'This should not '
-                                       + 'have happened.')
-                            # Shape changes should not happen. Throw error
-                            raise RuntimeError(err_str)
-
-            # Close hdf and reset attribute
-            if not keep_hdf:
-                self.hdf.close()
-                self.hdf = None
+            # # Close hdf and reset attribute
+            # if not keep_hdf:
+            #     self.hdf.close()
+            #     self.hdf = None
 
 
     #######################
@@ -902,58 +977,59 @@ class XRDRockingCurveStack(XRDBaseScan):
             print('done!')
 
 
+    @XRDBaseScan.protect_hdf()
     def save_vector_information(self,
                                 data,
                                 title,
                                 extra_attrs=None):
 
-        if self.hdf_path is not None:
-            # Open hdf flag
-            keep_hdf = True
-            if self.hdf is None:
-                self.hdf = h5py.File(self.hdf_path, 'a')
-                keep_hdf = False
+        # if self.hdf_path is not None:
+        #     # Open hdf flag
+        #     keep_hdf = True
+        #     if self.hdf is None:
+        #         self.hdf = h5py.File(self.hdf_path, 'a')
+        #         keep_hdf = False
             
-            # Get vector group
-            vect_grp = self.hdf[self._hdf_type].require_group('vectorized_data')
+        # Get vector group
+        vect_grp = self.hdf[self._hdf_type].require_group('vectorized_data')
 
-            if title not in vect_grp.keys():
+        if title not in vect_grp.keys():
+            dset = vect_grp.require_dataset(
+                title,
+                data=data,
+                shape=data.shape,
+                dtype=data.dtype)
+        else:
+            dset = vect_grp[title]
+
+            if (dset.shape == data.shape
+                and dset.dtype == data.dtype):
+                dset[...] = data
+            elif (dset.shape == data.shape
+                    and dset.dtype != data.dtype):
+                    dset[...] = data.astype(dset.dtype)
+            else:
+                warn_str = (f'WARNING: {title} dataset shape does '
+                            + 'not match given data; rewriting '
+                            + 'with new shape. This may bloat '
+                            + 'the file size.')
+                print(warn_str)
+                del vect_grp[title]
                 dset = vect_grp.require_dataset(
                     title,
                     data=data,
                     shape=data.shape,
                     dtype=data.dtype)
-            else:
-                dset = vect_grp[title]
+        
+        # Add extra information
+        if extra_attrs is not None:
+            for key, value in extra_attrs.items():
+                dset.attrs[key] = value
 
-                if (dset.shape == data.shape
-                    and dset.dtype == data.dtype):
-                    dset[...] = data
-                elif (dset.shape == data.shape
-                      and dset.dtype != data.dtype):
-                      dset[...] = data.astype(dset.dtype)
-                else:
-                    warn_str = (f'WARNING: {title} dataset shape does '
-                                + 'not match given data; rewriting '
-                                + 'with new shape. This may bloat '
-                                + 'the file size.')
-                    print(warn_str)
-                    del vect_grp[title]
-                    dset = vect_grp.require_dataset(
-                        title,
-                        data=data,
-                        shape=data.shape,
-                        dtype=data.dtype)
-            
-            # Add extra information
-            if extra_attrs is not None:
-                for key, value in extra_attrs.items():
-                    dset.attrs[key] = value
-
-            # Close hdf and reset attribute
-            if not keep_hdf:
-                self.hdf.close()
-                self.hdf = None
+            # # Close hdf and reset attribute
+            # if not keep_hdf:
+            #     self.hdf.close()
+            #     self.hdf = None
 
     ###########################################
     ### Indexing, Corrections, and Analysis ###

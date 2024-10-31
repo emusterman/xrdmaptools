@@ -26,6 +26,7 @@ def initialize_xrdbase_hdf(xrdbase,
         base_grp.attrs['energy'] = xrdbase.energy
         base_grp.attrs['wavelength'] = xrdbase.wavelength
         base_grp.attrs['theta'] = xrdbase.theta
+        base_grp.attrs['use_stage_rotation'] = int(xrdbase.use_stage_rotation)
         base_grp.attrs['time_stamp'] = ttime.ctime()
 
         # Record diffraction data

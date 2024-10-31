@@ -61,6 +61,7 @@ class XRDBaseScan(XRDData):
                  wavelength=None,
                  dwell=None,
                  theta=None,
+                 use_stage_rotation=False,
                  poni_file=None,
                  sclr_dict=None,
                  tth_resolution=None,
@@ -92,6 +93,7 @@ class XRDBaseScan(XRDData):
         self.facility = facility
         self.time_stamp = time_stamp
         self.scan_input = scan_input
+        self.use_stage_rotation = bool(use_stage_rotation)
         if extra_metadata is None:
             extra_metadata = {}
         self.extra_metadata = extra_metadata
@@ -156,14 +158,14 @@ class XRDBaseScan(XRDData):
             tth = None
         self.tth = tth
         if tth_resolution is None:
-            tth_resolution = 0.01
+            tth_resolution = 0.01 # in degrees...
         self.tth_resolution = tth_resolution
 
         if chi is not None and len(chi) == 0:
             chi = None
         self.chi = chi
         if chi_resolution is None:
-            chi_resolution = 0.05
+            chi_resolution = 0.05 # in degrees...
         self.chi_resolution = chi_resolution
         
         # Catch-all of extra attributes.
@@ -467,6 +469,17 @@ class XRDBaseScan(XRDData):
                 with h5py.File(self.hdf_path, 'a') as f:
                     f[self._hdf_type].attrs['theta'] = self.theta
 
+    @property
+    def use_stage_rotation(self):
+        return self._use_stage_rotation
+
+    @use_stage_rotation.setter
+    def use_stage_rotation(self, use_stage_rotation):
+        self._use_stage_rotation = use_stage_rotation
+        self._del_arr() # q_arr likely changed
+
+
+
 
     # Flags for units and scales
 
@@ -752,35 +765,35 @@ class XRDBaseScan(XRDData):
                                   hdf_filename=hdf_filename,
                                   dask_enabled=dask_enabled)
     
-    ### Helper functions for lazy loading with Dask ###
+    # ### Helper functions for lazy loading with Dask ###
 
-    # This function does NOT stop saving to hdf
-    # It only closes open hdf locations and stops lazy loading images
-    def close_hdf(self):
-        if self.hdf is not None:
-            self._dask_2_hdf()
-            self.hdf.close()
-            self.hdf = None
+    # # This function does NOT stop saving to hdf
+    # # It only closes open hdf locations and stops lazy loading images
+    # def close_hdf(self):
+    #     if self.hdf is not None:
+    #         self._dask_2_hdf()
+    #         self.hdf.close()
+    #         self.hdf = None
         
 
-    def open_hdf(self, dask_enabled=False):
-        if self.hdf is not None:
-            # Should this raise errors or just ping warnings
-            print('WARNING: hdf is already open. Proceeding without changes.')
-            return
-        else:
-            self.hdf = h5py.File(self.hdf_path, 'a')
+    # def open_hdf(self, dask_enabled=False):
+    #     if self.hdf is not None:
+    #         # Should this raise errors or just ping warnings
+    #         print('WARNING: hdf is already open. Proceeding without changes.')
+    #         return
+    #     else:
+    #         self.hdf = h5py.File(self.hdf_path, 'a')
 
-        if dask_enabled or self._dask_enabled: # This flag persists even when the dataset is closed!
-            img_grp = self.hdf[f'{self._hdf_type}/image_data']
-            if self.title == 'final':
-                if check_hdf_current_images(f'{self.title}_images',
-                                            hdf=self.hdf):
-                    dset = img_grp[f'{self.title}_images']
-            elif check_hdf_current_images('_temp_images', hdf=self.hdf):
-                dset = img_grp['_temp_images']
-            self.images = da.asarray(dset) # I had .persist(), but it broke things...
-            self._hdf_store = dset
+    #     if dask_enabled or self._dask_enabled: # This flag persists even when the dataset is closed!
+    #         img_grp = self.hdf[f'{self._hdf_type}/image_data']
+    #         if self.title == 'final':
+    #             if check_hdf_current_images(f'{self.title}_images',
+    #                                         hdf=self.hdf):
+    #                 dset = img_grp[f'{self.title}_images']
+    #         elif check_hdf_current_images('_temp_images', hdf=self.hdf):
+    #             dset = img_grp['_temp_images']
+    #         self.images = da.asarray(dset) # I had .persist(), but it broke things...
+    #         self._hdf_store = dset
             
 
     ##############################
@@ -868,36 +881,37 @@ class XRDBaseScan(XRDData):
         self.save_calibration()
     
 
+    @XRDData.protect_hdf()
     def save_calibration(self):
-        if self.hdf_path is not None:
-            # Open hdf flag
-            keep_hdf = True
-            if self.hdf is None:
-                self.hdf = h5py.File(self.hdf_path, 'a')
-                keep_hdf = False
+        # if self.hdf_path is not None:
+        #     # Open hdf flag
+        #     keep_hdf = True
+        #     if self.hdf is None:
+        #         self.hdf = h5py.File(self.hdf_path, 'a')
+        #         keep_hdf = False
 
-            # Write data to hdf
-            curr_grp = self.hdf[self._hdf_type].require_group('reciprocal_positions')
-            new_grp = curr_grp.require_group('poni_file')
-            # I don't really like saving values as attributes
-            # They are well setup for this type of thing, though
-            for key, value in self.poni.items():
-                # For detector which is a nested ordered dictionary...
-                if isinstance(value, (dict, OrderedDict)):
-                    new_new_grp = new_grp.require_group(key)
-                    for key_i, value_i in value.items():
-                        # Check for orientation value added in poni_file version 2.1
-                        if isinstance(value_i, IntEnum):
-                            value_i = value_i.value
-                        new_new_grp.attrs[key_i] = value_i
-                else:
-                    #print(value)
-                    new_grp.attrs[key] = value
+        # Write data to hdf
+        curr_grp = self.hdf[self._hdf_type].require_group('reciprocal_positions')
+        new_grp = curr_grp.require_group('poni_file')
+        # I don't really like saving values as attributes
+        # They are well setup for this type of thing, though
+        for key, value in self.poni.items():
+            # For detector which is a nested ordered dictionary...
+            if isinstance(value, (dict, OrderedDict)):
+                new_new_grp = new_grp.require_group(key)
+                for key_i, value_i in value.items():
+                    # Check for orientation value added in poni_file version 2.1
+                    if isinstance(value_i, IntEnum):
+                        value_i = value_i.value
+                    new_new_grp.attrs[key_i] = value_i
+            else:
+                #print(value)
+                new_grp.attrs[key] = value
 
-            # Close hdf and reset attribute
-            if not keep_hdf:
-                self.hdf.close()
-                self.hdf = None
+            # # Close hdf and reset attribute
+            # if not keep_hdf:
+            #     self.hdf.close()
+            #     self.hdf = None
 
 
     # One off 1D integration
@@ -991,63 +1005,64 @@ class XRDBaseScan(XRDData):
         return estimate_image_coords(coords, self.tth_arr, self.chi_arr, method=method)
 
     
+    @XRDData.protect_hdf()
     def save_reciprocal_positions(self):
         
-        if self.hdf_path is not None:
+        # if self.hdf_path is not None:
             # Check for values to save           
-            if self.tth is None:
-                tth = []
+        if self.tth is None:
+            tth = []
+        else:
+            tth = self.tth
+        if self.chi is None:
+            chi = []
+        else:
+            chi = self.chi
+
+        print('Writing reciprocal positions to disk...', end='', flush=True)
+            # # Open hdf flag
+            # keep_hdf = True
+            # if self.hdf is None:
+            #     self.hdf = h5py.File(self.hdf_path, 'a')
+            #     keep_hdf = False
+
+        # This group may already exist if poni file was already initialized
+        curr_grp = self.hdf[self._hdf_type].require_group('reciprocal_positions')
+        if hasattr(self, 'extent'):
+            curr_grp.attrs['extent'] = self.extent
+
+        labels = ['tth_pos', 'chi_pos']
+        comments = ["'tth', is the two theta scattering angle",
+                    "'chi' is the azimuthal angle"]
+        keys = ['tth', 'chi']
+        data = [tth, chi]
+        resolution = [self.tth_resolution, self.chi_resolution]
+
+        for i, key in enumerate(keys):
+            # Skip values that are None
+            if data[i] is None:
+                data[i] = np.array([])
             else:
-                tth = self.tth
-            if self.chi is None:
-                chi = []
-            else:
-                chi = self.chi
+                data[i] = np.asarray(data[i])
 
-            print('Writing reciprocal positions to disk...', end='', flush=True)
-            # Open hdf flag
-            keep_hdf = True
-            if self.hdf is None:
-                self.hdf = h5py.File(self.hdf_path, 'a')
-                keep_hdf = False
+            if key in curr_grp.keys():
+                del curr_grp[key]
+            dset = curr_grp.require_dataset(key,
+                                            data=data[i],
+                                            dtype=data[i].dtype,
+                                            shape=data[i].shape)
+            dset.attrs['labels'] = labels[i]
+            dset.attrs['comments'] = comments[i]
+            #dset.attrs['units'] = self.calib_unit #'° [deg.]'
+            dset.attrs['dtype'] = str(data[i].dtype)
+            dset.attrs['time_stamp'] = ttime.ctime()
+            dset.attrs[f'{key}_resolution'] = resolution[i]
 
-            # This group may already exist if poni file was already initialized
-            curr_grp = self.hdf[self._hdf_type].require_group('reciprocal_positions')
-            if hasattr(self, 'extent'):
-                curr_grp.attrs['extent'] = self.extent
-
-            labels = ['tth_pos', 'chi_pos']
-            comments = ["'tth', is the two theta scattering angle",
-                        "'chi' is the azimuthal angle"]
-            keys = ['tth', 'chi']
-            data = [tth, chi]
-            resolution = [self.tth_resolution, self.chi_resolution]
-
-            for i, key in enumerate(keys):
-                # Skip values that are None
-                if data[i] is None:
-                    data[i] = np.array([])
-                else:
-                    data[i] = np.asarray(data[i])
-
-                if key in curr_grp.keys():
-                    del curr_grp[key]
-                dset = curr_grp.require_dataset(key,
-                                                data=data[i],
-                                                dtype=data[i].dtype,
-                                                shape=data[i].shape)
-                dset.attrs['labels'] = labels[i]
-                dset.attrs['comments'] = comments[i]
-                #dset.attrs['units'] = self.calib_unit #'° [deg.]'
-                dset.attrs['dtype'] = str(data[i].dtype)
-                dset.attrs['time_stamp'] = ttime.ctime()
-                dset.attrs[f'{key}_resolution'] = resolution[i]
-
-            # Close hdf and reset attribute
-            if not keep_hdf:
-                self.hdf.close()
-                self.hdf = None
-            print('done!')
+            # # Close hdf and reset attribute
+            # if not keep_hdf:
+            #     self.hdf.close()
+            #     self.hdf = None
+        print('done!')
     
     ##################################
     ### Scaler and Position Arrays ###
@@ -1072,57 +1087,60 @@ class XRDBaseScan(XRDData):
 
         # Write to hdf file
         self.save_sclr_pos('scalers',
-                            self.sclr_dict,
-                            self.scaler_units)
+                           self.sclr_dict,
+                           self.scaler_units)
 
-    
-    def save_sclr_pos(self, group_name, map_dict, unit_name):
-        # Write to hdf file
-        if self.hdf_path is not None:
+    @XRDData.protect_hdf()
+    def save_sclr_pos(self,
+                      group_name,
+                      map_dict,
+                      unit_name):
+        # # Write to hdf file
+        # if self.hdf_path is not None:
 
-            # Open hdf flag
-            keep_hdf = True
-            if self.hdf is None:
-                self.hdf = h5py.File(self.hdf_path, 'a')
-                keep_hdf = False
+        #     # Open hdf flag
+        #     keep_hdf = True
+        #     if self.hdf is None:
+        #         self.hdf = h5py.File(self.hdf_path, 'a')
+        #         keep_hdf = False
 
-            # Write data to hdf
-            curr_grp = self.hdf[self._hdf_type].require_group(group_name)
-            curr_grp.attrs['time_stamp'] = ttime.ctime()
+        # Write data to hdf
+        curr_grp = self.hdf[self._hdf_type].require_group(group_name)
+        curr_grp.attrs['time_stamp'] = ttime.ctime()
 
-            for key, value in map_dict.items():
-                value = np.asarray(value)
-                
-                if key in curr_grp.keys():
-                    dset = curr_grp[key]
-                    if (value.shape == dset.shape
-                        and value.dtype == dset.dtype):
-                        dset[...] = value
-                    else:
-                        del curr_grp[key] # deletes flag, but not the data...
-                        dset = curr_grp.require_dataset(
-                                                    key,
-                                                    data=value,
-                                                    shape=value.shape,
-                                                    dtype=value.dtype
-                                                    )
+        for key, value in map_dict.items():
+            value = np.asarray(value)
+            
+            if key in curr_grp.keys():
+                dset = curr_grp[key]
+                if (value.shape == dset.shape
+                    and value.dtype == dset.dtype):
+                    dset[...] = value
                 else:
+                    del curr_grp[key] # deletes flag, but not the data...
                     dset = curr_grp.require_dataset(
-                                        key,
-                                        data=value,
-                                        shape=value.shape,
-                                        dtype=value.dtype
-                                        )
-                
-                # Update attrs everytime
-                dset.attrs['labels'] = ['map_x', 'map_y']
-                dset.attrs['units'] = unit_name
-                dset.attrs['dtype'] = str(value.dtype)
+                                                key,
+                                                data=value,
+                                                shape=value.shape,
+                                                dtype=value.dtype
+                                                )
+            else:
+                dset = curr_grp.require_dataset(
+                                    key,
+                                    data=value,
+                                    shape=value.shape,
+                                    dtype=value.dtype
+                                    )
+            
+            # Update attrs everytime
+            dset.attrs['labels'] = ['map_x', 'map_y']
+            dset.attrs['units'] = unit_name
+            dset.attrs['dtype'] = str(value.dtype)
 
-            # Close hdf and reset attribute
-            if not keep_hdf:
-                self.hdf.close()
-                self.hdf = None
+            # # Close hdf and reset attribute
+            # if not keep_hdf:
+            #     self.hdf.close()
+            #     self.hdf = None
         
     
     #########################################
@@ -1190,16 +1208,17 @@ class XRDBaseScan(XRDData):
     def clear_phases(self):
         self.phases = {}
 
-    
+    @XRDData.protect_hdf()
     def update_phases(self):
-        if (self.hdf_path is not None) and (len(self.phases) > 0):
+        # if (self.hdf_path is not None) and (len(self.phases) > 0):
 
-            # Open hdf flag
-            keep_hdf = True
-            if self.hdf is None:
-                self.hdf = h5py.File(self.hdf_path, 'a')
-                keep_hdf = False
-
+        #     # Open hdf flag
+        #     keep_hdf = True
+        #     if self.hdf is None:
+        #         self.hdf = h5py.File(self.hdf_path, 'a')
+        #         keep_hdf = False
+        
+        if len(self.phases) > 0:
             phase_grp = self.hdf[self._hdf_type].require_group('phase_list')
 
             # Delete any no longer included phases
@@ -1213,10 +1232,10 @@ class XRDBaseScan(XRDData):
 
             print('Updated phases saved in hdf.')
             
-            # Close hdf and reset attribute
-            if not keep_hdf:
-                self.hdf.close()
-                self.hdf = None
+            # # Close hdf and reset attribute
+            # if not keep_hdf:
+            #     self.hdf.close()
+            #     self.hdf = None
 
 
     def select_phases(self,

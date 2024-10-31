@@ -5,6 +5,7 @@ from skimage.restoration import rolling_ball
 from tqdm import tqdm
 import time as ttime
 import dask.array as da
+import functools
 
 # Local imports
 from xrdmaptools.io.hdf_utils import check_hdf_current_images, get_optimal_chunks
@@ -505,22 +506,73 @@ class XRDData:
         else:
             # No update
             pass
-
         # Clear old values everytime this is checked
         self.reset_projections()
 
+
+    # # Decorator to protect self.hdf during read/write functions
+    # def protect_hdf(func):
+    #     @functools.wraps(func)
+    #     def protector(self, *args, **kwargs):
+    #         # Check to see if read/write is enabled
+    #         if self.hdf_path is not None:
+                
+    #             # Log if a reference in maintined to hdf
+    #             make_temp_hdf = self.hdf is None
+    #             if make_temp_hdf:
+    #                 self.hdf = h5py.File(self.hdf_path, 'a')
+
+    #             # Call function
+    #             func(self, *args, **kwargs)
+
+    #             # Remove temporary reference
+    #             if make_temp_hdf:
+    #                 self.hdf.close()
+    #                 self.hdf = None
+
+    #     return protector
+
+
+    def protect_hdf(pandas=False):
+        def protect_hdf_inner(func):
+            @functools.wraps(func)
+            def protector(self, *args, **kwargs):
+                # Check to see if read/write is enabled
+                if self.hdf_path is not None:
+                    # Is a hdf reference currently active?
+                    active_hdf = self.hdf is not None
+
+                    if pandas: # Fully close reference
+                        self.close_hdf()
+                    elif not active_hdf: # Make temp reference
+                        self.hdf = h5py.File(self.hdf_path, 'a')
+
+                    # Call function
+                    func(self, *args, **kwargs)
+                    
+                    # Clean up hdf state
+                    if pandas and active_hdf:
+                        self.open_hdf()
+                    elif not active_hdf:
+                        self.close_hdf()
+                        # self.hdf.close()
+                        # self.hdf = None
+            return protector
+        return protect_hdf_inner
+
     
+    @protect_hdf()
     def load_images_from_hdf(self,
                              image_data_key,
                              chunks=None):
         # Deletes current image map and loads new values from hdf
         print(f'Loading {image_data_key}')
 
-        # Open hdf flag
-        close_hdf_on_finish = False
-        if self.hdf is None:
-            self.hdf = h5py.File(self.hdf_path, 'r')
-            close_hdf_on_finish = True
+        # # Open hdf flag
+        # close_hdf_on_finish = False
+        # if self.hdf is None:
+        #     self.hdf = h5py.File(self.hdf_path, 'r')
+        #     close_hdf_on_finish = True
         
         # Working with dask flag
         dask_enabled = self._dask_enabled
@@ -544,7 +596,7 @@ class XRDData:
 
             if close_hdf_on_finish:
                 self.hdf.close()
-                self.hdf =XRDData
+                self.hdf = None
             # Define/determine chunks and rechunk if necessary
             if isinstance(self.images, da.core.Array):
                 # Redo chunking along image dimensions if not already
@@ -559,10 +611,10 @@ class XRDData:
                 else:
                     self._get_optimal_chunks()
 
-        # Close hdf and reset attribute
-        if close_hdf_on_finish:
-            self.hdf.close()
-            self.hdf = None
+        # # Close hdf and reset attribute
+        # if close_hdf_on_finish:
+        #     self.hdf.close()
+        #     self.hdf = None
 
         self.update_map_title(title=image_data_key[:-7]) # Force title; truncate '_images'
         self._dask_2_hdf()
@@ -574,8 +626,30 @@ class XRDData:
         self.image_shape = self.shape[-2:]
         self.num_images = np.prod(self.map_shape)
     
+
     def dump_images(self):
         del self.images
+
+
+    # def dummy_decorator(func):
+    #     @functools.wraps(func)
+    #     def wrapper(self, *args, **kwargs):
+
+    #         print(self.title)
+    #         func(self, *args, **kwargs)
+    #         print(self.title)
+    #     return wrapper
+
+    # @dummy_decorator
+    # def dummy_func(self, *args, **kwargs):
+    #     print(f'args are:')
+    #     for arg in args:
+    #         print(arg)
+    #     print('kwargs are')
+    #     for key, value in kwargs.items():
+    #         print(key, value)
+    #     print('Internal title')
+    #     print(self.title)
 
 
     ######################
@@ -587,20 +661,23 @@ class XRDData:
     def _dask_enabled(self):
         return isinstance(self.images, da.core.Array)
 
+
     # Return standardized chunk size around images for hdf and dask
     def _get_optimal_chunks(self, approx_chunk_size=None):
         if hasattr(self, 'images') and self.images is not None:
             self._chunks =  get_optimal_chunks(
-                                    self.images,
-                                    approx_chunk_size=approx_chunk_size)
+                                self.images,
+                                approx_chunk_size=approx_chunk_size)
         else:
             self._chunks = (*self.map_shape, *self.image_shape)
         return self._chunks
     
+
     def _dask_2_numpy(self):
         # Computes dask to numpy array. Intended for final images
         if self._dask_enabled:
             self.images = self.images.compute()
+
 
     def _numpy_2_dask(self):
         # Computes numpy array into dask.
@@ -614,12 +691,14 @@ class XRDData:
                 self._dask_2_hdf()
                 self.images = da.from_array(self.images)
 
+
     def _dask_2_dask(self):
         # Computes and updates dask array to avoid too many lazy computations
         # Will have faster compute times than _dask_2_hdf()
         if self._dask_enabled:
             self.images = self.images.persist()
             
+
     def _dask_2_hdf(self):
         # Computes and stores current iteration of lazy computation to hdf file
         # Probably the most useful
@@ -628,10 +707,41 @@ class XRDData:
                 warn_str = ('WARNING: Images cannot be updated when '
                             + 'they have already been finalized.'
                             + '\nProceeding without updating images.')
-                print(warn_str) # I am not sure about this. What is the point of linking final_images for storage if not used???
+                print(warn_str) # I am not sure about this. What is the
+                                # point of linking final_images for 
+                                # storage if not used???
             else:
                 self.images = da.store(self.images, self._hdf_store,
                                        compute=True, return_stored=True)[0]
+
+
+    # This function does NOT stop saving to hdf
+    # It only closes open hdf locations and stops lazy loading images
+    def close_hdf(self):
+        if self.hdf is not None:
+            self._dask_2_hdf()
+            self.hdf.close()
+            self.hdf = None
+        
+
+    def open_hdf(self, dask_enabled=False):
+        if self.hdf is not None:
+            # Should this raise errors or just ping warnings
+            print('WARNING: hdf is already open. Proceeding without changes.')
+            return
+        else:
+            self.hdf = h5py.File(self.hdf_path, 'a')
+
+        if dask_enabled or self._dask_enabled: # This flag persists even when the dataset is closed!
+            img_grp = self.hdf[f'{self._hdf_type}/image_data']
+            if self.title == 'final':
+                if check_hdf_current_images(f'{self.title}_images',
+                                            hdf=self.hdf):
+                    dset = img_grp[f'{self.title}_images']
+            elif check_hdf_current_images('_temp_images', hdf=self.hdf):
+                dset = img_grp['_temp_images']
+            self.images = da.asarray(dset) # I had .persist(), but it broke things...
+            self._hdf_store = dset
 
 
     ########################################
@@ -727,7 +837,7 @@ class XRDData:
 
 
     # TODO: This fails if image medians are too close to zero
-    #       flat_field values near zero blow_up pixel values,
+    #       flat_field values near zero blow up pixel values,
     #       but the means/medians of the flat field and images should be similar
     #       Consider adding a way to rescale the image array along with the flat_field
     #       As of now, this should be done immediately after the dark field correction       
@@ -1654,6 +1764,7 @@ class XRDData:
         return units, labels
 
 
+    @protect_hdf()
     def save_images(self,
                     images=None,
                     title=None,
@@ -1664,8 +1775,8 @@ class XRDData:
                     mode='a',
                     extra_attrs=None):
         
-        if self.hdf_path is None:
-            return # Should disable working with hdf if no information is provided
+        # if self.hdf_path is None:
+        #     return # Should disable working with hdf if no information is provided
         
         # Save all images
         if images is None:
@@ -1724,11 +1835,11 @@ class XRDData:
         if images.ndim != 4:
             chunks = None
         
-        # Flag of state hdf
-        close_flag = False
-        if self.hdf is None:
-            close_flag = True
-            self.hdf = h5py.File(self.hdf_path, mode)
+        # # Flag of state hdf
+        # close_flag = False
+        # if self.hdf is None:
+        #     close_flag = True
+        #     self.hdf = h5py.File(self.hdf_path, mode)
 
         # Grab some metadata
         image_shape = images.shape
@@ -1795,11 +1906,12 @@ class XRDData:
             for key, value in self.corrections.items():
                 dset.attrs[f'_{key}_correction'] = value
         
-        if close_flag:
-            self.hdf.close()
-            self.hdf = None
+        # if close_flag:
+        #     self.hdf.close()
+        #     self.hdf = None
 
 
+    @protect_hdf()
     def save_integrations(self,
                           integrations=None,
                           title=None,
@@ -1807,10 +1919,10 @@ class XRDData:
                           labels=None,
                           mode='a',
                           extra_attrs=None):
-        # No dask support
+        # # No dask support
 
-        if self.hdf_path is None:
-            return # Should disable working with hdf if no information is provided
+        # if self.hdf_path is None:
+        #     return # Should disable working with hdf if no information is provided
 
         # Save all integrations
         if integrations is None:
@@ -1850,11 +1962,11 @@ class XRDData:
         if labels is None:
             labels = _labels
 
-        # Flag of state hdf
-        close_flag = False
-        if self.hdf is None:
-            close_flag = True
-            self.hdf = h5py.File(self.hdf_path, mode)
+        # # Flag of state hdf
+        # close_flag = False
+        # if self.hdf is None:
+        #     close_flag = True
+        #     self.hdf = h5py.File(self.hdf_path, mode)
 
         # Grab some metadata
         integrations_shape = integrations.shape
@@ -1904,6 +2016,6 @@ class XRDData:
             for key, value in self.corrections.items():
                 dset.attrs[f'_{key}_correction'] = value
         
-        if close_flag:
-            self.hdf.close()
-            self.hdf = None
+        # if close_flag:
+        #     self.hdf.close()
+        #     self.hdf = None

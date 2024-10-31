@@ -1,28 +1,30 @@
 import numpy as np
 from scipy.interpolate import griddata
 from scipy.interpolate import RegularGridInterpolator
+from scipy.spatial.transform import Rotation
 
 # Local imports
 from xrdmaptools.utilities.math import vector_angle
 from xrdmaptools.utilities.utilities import delta_array
 
 
-# TODO: a lot
+# TODO:
 # Should be an exact transoform between image and polar coordinates. Possibly in pyFAI for individual coordinates
 # Not sure if it is worth the effort
 
-# Create function to get wavelength, tth, and chi from q_vect
-# Create function to estimate nearest pixel from q_vect
-# Create function to estimate nearest tth and chi on detector from nearest 
 
-
-def get_q_vect(tth, chi, wavelength, return_kf=False, degrees=False):
+def get_q_vect(tth,
+               chi,
+               wavelength,
+               stage_rotation=None,
+               return_kf=False,
+               degrees=False):
     # Calculate q-vector from arrays of tth and chi polar coordinates and wavelength
     if not isinstance(tth, (list, tuple, np.ndarray)):
         tth = np.asarray([tth])
         chi = np.asarray([chi])
     if len(tth) != len(chi):
-        raise ValueError("Length of tth does not match length of chi.")
+        raise ValueError('Length of tth does not match length of chi.')
     
     if degrees:
         tth = np.radians(tth)
@@ -44,6 +46,25 @@ def get_q_vect(tth, chi, wavelength, return_kf=False, degrees=False):
 
     # Scattering vector with origin set at transmission (0, 0, 0)
     q_vect = 2 * np.pi / wavelength * delta_k
+
+    # stage rotation is rotation OUT of sample reference frame
+    if stage_rotation is not None:
+        if isinstance(stage_rotation, Rotation):
+            pass
+        elif isinstance(stage_rotation, np.ndarray):
+            if stage_rotation.shape != (3, 3):
+                err_str = ('Stage rotation as array must have shape '
+                           + f'(3, 3) not {stage_rotation.shape}.')
+                raise ValueError(err_str)
+            else:
+                stage_rotation = Rotation.from_array(stage_rotation)
+        else:
+            err_str = ('Unknown stage_rotation of type '
+                       + f'({type(stage_rotation)}). Must be given as '
+                       + '(3, 3) array or scipy Rotation class.')
+        
+        # Bring rotated q_vect back into sample reference frame
+        q_vect = Rotation.apply(q_vect, inverse=True)
 
     return q_vect
 

@@ -73,7 +73,7 @@ class XRDMap(XRDBaseScan):
 
         # Swap axes if called. Tranposes major data components
         # This flag is used to avoid changing the original saved data
-        self._swapped_axes = swapped_axes
+        self._swapped_axes = bool(swapped_axes)
         if self._swapped_axes:
             self.swap_axes(only_images=True)
 
@@ -260,10 +260,7 @@ class XRDMap(XRDBaseScan):
                 wd=new_dir,
                 filename=None, # This will force a default to scanid with iteration
                 image_data=sliced_images[i],
-                # map_shape=None,
-                # image_shape=None,
-                # title=None,
-                energy=energy, # To allow for no energy attribute
+                # map_shape=None,         no energy attribute
                 dwell=self.dwell,
                 theta=self.theta,
                 poni_file=poni, # Often None, but may be loaded...
@@ -597,9 +594,11 @@ class XRDMap(XRDBaseScan):
 
 
         # Swap map axes
-        if hasattr(self, 'images') and self.images is not None:
+        if (hasattr(self, 'images')
+            and self.images is not None):
             self.images = self.images.swapaxes(0, 1)
-        if hasattr(self, 'integrations') and self.integrations is not None:
+        if (hasattr(self, 'integrations')
+            and self.integrations is not None):
             self.integrations = self.integrations.swapaxes(0, 1)
 
         # Update shape values
@@ -657,19 +656,24 @@ class XRDMap(XRDBaseScan):
         if not only_images: 
             self._swapped_axes = not self._swapped_axes
 
-            # Save changes to hdf if available
-            if self.hdf_path is not None:
-                # Open hdf flag
-                keep_hdf = True
-                if self.hdf is None:
-                    self.hdf = h5py.File(self.hdf_path, 'a')
-                    keep_hdf = False
+            # # Save changes to hdf if available
+            # if self.hdf_path is not None:
+            #     # Open hdf flag
+            #     keep_hdf = True
+            #     if self.hdf is None:
+            #         self.hdf = h5py.File(self.hdf_path, 'a')
+            #         keep_hdf = False
 
-                self.hdf[self._hdf_type].attrs['swapped_axes'] = self._swapped_axes
+            #     self.hdf[self._hdf_type].attrs['swapped_axes'] = int(self._swapped_axes)
 
-                if not keep_hdf:
-                    self.hdf.close()
-                    self.hdf = None
+            #     if not keep_hdf:
+            #         self.hdf.close()
+            #         self.hdf = None
+
+            @XRDBaseScan.protect_hdf()
+            def save_swapped_axes(self):
+                self.hdf[self._hdf_type].attrs['swapped_axes'] = int(self._swapped_axes)
+            save_swapped_axes(self)
 
 
     def interpolate_positions(self, scan_input=None):
@@ -835,10 +839,11 @@ class XRDMap(XRDBaseScan):
             print('No reflection spots found...')
             if self.hdf_path is not None:
                 # Open hdf flag
-                keep_hdf = True
-                if self.hdf is None:
-                    self.hdf = h5py.File(self.hdf_path, 'r')
-                    keep_hdf = False
+                # keep_hdf = True
+                # if self.hdf is None:
+                #     self.hdf = h5py.File(self.hdf_path, 'r')
+                #     keep_hdf = False
+                keep_hdf = self.hdf is not None
 
                 if 'reflections' in self.hdf[self._hdf_type].keys():
                     print('Loading reflection spots from hdf...', end='', flush=True)
@@ -946,13 +951,14 @@ class XRDMap(XRDBaseScan):
             print('Saving spots to hdf...')
 
             # Open hdf flag
-            keep_hdf = True
-            if self.hdf is None:
-                self.hdf = h5py.File(self.hdf_path, 'a')
-                keep_hdf = False
+            keep_hdf = self.hdf is not None
+            # keep_hdf = True
+            # if self.hdf is None:
+            #     self.hdf = h5py.File(self.hdf_path, 'a')
+            #     keep_hdf = False
 
             # Save to hdf
-            self.close_hdf()
+            self.close_hdf() # pytables cannot have an open hdf reference
             self.spots.to_hdf(self.hdf_path,
                               key=f'{self._hdf_type}/reflections/spots', format='table')
 
@@ -1031,20 +1037,25 @@ class XRDMap(XRDBaseScan):
         # Track as attribute
         self.xrf = xrf
 
-        # Save xrf_path to hdf
-        if self.hdf_path is not None:
-            # Open hdf flag
-            keep_hdf = True
-            if self.hdf is None:
-                self.hdf = h5py.File(self.hdf_path, 'a')
-                keep_hdf = False
+        # # Save xrf_path to hdf
+        # if self.hdf_path is not None:
+        #     # Open hdf flag
+        #     keep_hdf = True
+        #     if self.hdf is None:
+        #         self.hdf = h5py.File(self.hdf_path, 'a')
+        #         keep_hdf = False
 
-            # Only save the path to connect two files
+        #     # Only save the path to connect two files
+        #     self.hdf[self._hdf_type].attrs['xrf_path'] = self.xrf_path
+
+        #     if not keep_hdf:
+        #         self.hdf.close()
+        #         self.hdf = None
+            
+        @XRDBaseScan.protect_hdf()
+        def save_xrf_path(self):
             self.hdf[self._hdf_type].attrs['xrf_path'] = self.xrf_path
-
-            if not keep_hdf:
-                self.hdf.close()
-                self.hdf = None
+        save_xrf_path(self)
         
 
     ##########################
