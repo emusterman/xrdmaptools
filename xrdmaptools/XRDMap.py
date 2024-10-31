@@ -167,6 +167,7 @@ class XRDMap(XRDBaseScan):
             
             xrdmaps.append(xrdmap)
 
+        print(f'{cls.__name__} loaded!')
         if len(xrdmaps) > 1:
             return tuple(xrdmaps)
         else:
@@ -180,12 +181,15 @@ class XRDMap(XRDBaseScan):
                            final_dtype=np.float32,
                            new_directory=True):
 
-        if not hasattr(self, 'map'):
-            raise AttributeError('XRDMap has no map attribute. No images to fracture along.')
-        elif not self._dask_enabled:
-            raise ValueError('Dask is not enabled. Please lazily load images with Dask enabled.')
+        if not self._dask_enabled:
+            err_str = ('Images must be lazily loaded with Dask. '
+                       + 'Please enable this.')
+            raise ValueError(err_str)
         elif np.any(list(self.corrections.values())):
-            raise ValueError('XRDMap images have some corrections applied. Only fracture uncorrected datasets.')
+            err_str = ('XRDMap images have some corrections already '
+                       + ' applied.\nFracturing datasets is only '
+                       + 'supported for raw datasets.')
+            raise ValueError(err_str)
         
         # Get slicing information
         slicings, _, _ = get_large_map_slices(
@@ -195,7 +199,7 @@ class XRDMap(XRDBaseScan):
                         )
         
         if len(slicings) <= 1:
-            err_str = (f'WARNING: Estimated fractured map size is equivalent '
+            err_str = ('Estimated fractured map size is equivalent '
                        + f'to full map size {self.images.shape}.'
                        + '\nEither designate a smaller new map size or '
                        + 'proceed with full map.')
@@ -227,23 +231,27 @@ class XRDMap(XRDBaseScan):
             j_st, j_end = slicing[1]
             
             # images
-            sliced_images.append(self.images[i_st:i_end, j_st:j_end])
+            sliced_images.append(self.images[i_st:i_end,
+                                             j_st:j_end])
 
             # pos_dict
             new_pos_dict = {}
             for key in self.pos_dict.keys():
-                new_pos_dict[key] = self.pos_dict[key][i_st:i_end, j_st:j_end]
+                new_pos_dict[key] = self.pos_dict[key][i_st:i_end,
+                                                       j_st:j_end]
             sliced_pos_dicts.append(new_pos_dict)
 
             # sclr_dict
             new_sclr_dict = {}
             for key in self.sclr_dict.keys():
-                new_sclr_dict[key] = self.sclr_dict[key][i_st:i_end, j_st:j_end]
+                new_sclr_dict[key] = self.sclr_dict[key][i_st:i_end,
+                                                         j_st:j_end]
             sliced_sclr_dicts.append(new_sclr_dict)
 
         print(f'Fracturing large map into {len(sliced_images)} smaller maps.')
         for i in range(len(sliced_images)):
-            print((f'Writing new XRDMap for scan' + str(self.scanid) + f'-{i + 1}\n'
+            print((f'Writing new XRDMap for scan'
+                   + str(self.scanid) + f'-{i + 1}\n'
                    + f'New shape: {sliced_images[i].shape}'))
 
             # Seems like a weird way to access the class from within...

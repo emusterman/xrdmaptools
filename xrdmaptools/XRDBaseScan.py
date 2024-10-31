@@ -345,31 +345,6 @@ class XRDBaseScan(XRDData):
                        extra_attrs=extra_attrs,
                        **kwargs)
             
-            # # Add extra attributes
-            # for key, value in image_attrs.items():
-            #     setattr(inst, key, value)
-            # for key, value in integration_attrs.items():
-            #     setattr(inst, key, value)
-            
-            # # Add vector information. Not super elegant
-            # if vect_dict is not None:
-            #     has_blob_int, has_spot_int = False, False
-            #     for key, value in vect_dict.items():
-            #         # Check for int cutoffs
-            #         # Wait to make sure intensity is processed
-            #         if key == 'blob_int_cutoff':
-            #             has_blob_int = True
-            #         elif key == 'spot_int_cutoff':
-            #             has_spot_int = True
-            #         else:
-            #             setattr(inst, key, value)
-            #     if has_blob_int:
-            #         inst.blob_int_mask = inst.get_vector_int_mask(
-            #                 intensity_cutoff=vect_dict['blob_int_cutoff'])
-            #     if has_spot_int:
-            #         inst.spot_int_mask = inst.get_vector_int_mask(
-            #                 intensity_cutoff=vect_dict['spot_int_cutoff'])
-            
             print(f'{cls.__name__} loaded!')
             return inst
         
@@ -410,9 +385,6 @@ class XRDBaseScan(XRDData):
 
     @property
     def energy(self):
-        # if (hasattr(self, '_energy')
-        #     and np.all(self._energy is not None)
-        #     and np.all(~np.isnan(self._energy))):
         return self._energy
 
     @energy.setter
@@ -445,9 +417,6 @@ class XRDBaseScan(XRDData):
 
     @property
     def wavelength(self):
-        # if (hasattr(self, '_wavelength')
-        #     and np.all(self._wavelength is not None)
-        #     and np.all(~np.isnan(self._wavelength))):
             return self._wavelength
 
     @wavelength.setter
@@ -480,9 +449,6 @@ class XRDBaseScan(XRDData):
 
     @property
     def theta(self):
-        # if (hasattr(self, '_theta')
-        #     and np.all(self._theta is not None)
-        #     and np.all(~np.isnan(self._theta))):
         return self._theta
     
     @theta.setter

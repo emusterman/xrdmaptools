@@ -573,30 +573,6 @@ def combine_nearby_spots(spots, max_dist=0.5, max_neighbors=np.inf):
     return np.asarray(new_spots)
 
 
-# Not used, but decent reference
-'''def watershed_blob_segmentation(spots, mask):
-    # Generate distance image from binary blob_img
-    distance = ndi.distance_transform_edt(mask)
-
-    # Generate markers upon which to segment blobs
-    # Number of input spots may need to be reduceds depending on blob morphology
-    coords = np.asarray(spots)
-    watershed_mask = np.zeros(distance.shape, dtype=bool)
-    watershed_mask[*coords.T] = True
-    markers, _ = ndi.label(watershed_mask)
-
-    # Futher segment blob image
-    new_blob_image = watershed(-distance, markers, mask=mask)
-
-    # I don't like this, but it fixes some labeling issues
-    new_blob_image = median_filter(new_blob_image, size=3)
-
-    # Just to make sure the background is not included
-    new_blob_image *= mask
-
-    return new_blob_image'''
-
-
 def gaussian_watershed_segmentation(blurred_image, spots, mask):
     # Generate markers upon which to segment blobs
     # Number of input spots may need to be reduceds depending on blob morphology

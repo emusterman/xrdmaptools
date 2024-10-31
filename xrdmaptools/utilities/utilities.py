@@ -261,9 +261,6 @@ def _check_dict_key(dict, key):
 #   some code...
 class timed_iter(object):
     import time
-    #def __new__(cls, *_, **__):
-    #    instance = object.__new__(cls)
-    #    return instance
 
     def __init__(self, iterable=None, iter_name=None, total=None):
         object.__init__(self)

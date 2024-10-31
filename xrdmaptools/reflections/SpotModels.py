@@ -65,14 +65,14 @@ class SpotModelBase():
 
         return fwhm_rx, fwhm_ry, fwhm_x, fwhm_y
 
-    def generate_guess():
-        raise NotImplementedError
+    # def generate_guess():
+    #     raise NotImplementedError
     
-    def generate_bounds():
-        raise NotImplementedError
+    # def generate_bounds():
+    #     raise NotImplementedError
 
-    def qualify_fit():
-        raise NotImplementedError
+    # def qualify_fit():
+    #     raise NotImplementedError
 
 
 class GaussianFunctions(SpotModelBase):

@@ -307,7 +307,6 @@ def get_scantype(scanid=-1,
 
 
 # TODO: implement way of getting units
-# for positions, theta, and energy
 def _load_scan_metadata(bs_run, keys=None):
 
     if keys is None:
@@ -524,9 +523,9 @@ def _get_resource_paths(bs_run, resource_keys):
 
 
 def _get_resource_keys(bs_run,
-                    data_keys=None,
-                    detectors=None,
-                    returns=None):
+                       data_keys=None,
+                       detectors=None,
+                       returns=None):
     
     # Find detectors if not specified
     if detectors is None:
@@ -573,7 +572,6 @@ def _get_resource_keys(bs_run,
             out.append(xrd_dets)
 
     return out
-
 
 ###########################
 ### Data Pre-processing ###
@@ -944,12 +942,11 @@ def save_full_scan(scanid=-1,
 ### Rocking Curves ###
 ######################
 
-### Energy Rocking Curve Scans ###
 
-def load_energy_rc_data(scanid=-1,
-                        data_keys=None,
-                        returns=None):
-
+def load_step_rc_data(scanid=-1,
+                      extra_data_keys=None,
+                      returns=None):
+    
     bs_run = c[int(scanid)]
 
     scan_md = {
@@ -958,53 +955,116 @@ def load_energy_rc_data(scanid=-1,
         'beamline' : bs_run.start['beamline_id'],
         'scantype' : bs_run.start['scan']['type'],
         'detectors' : bs_run.start['scan']['detectors'],
-        'energy' : bs_run.start['scan']['energy'],
+        # 'energy' : bs_run.start['scan']['energy'],
+        # 'theta' : bs_run.start['scan']['theta'],
         'dwell' : bs_run.start['scan']['dwell'],
         'start_time' : bs_run.start['time_str']
     }
+    scantype = scan_md['scantype'].lower()
 
-    docs = bs_run.documents()
+    # Special for backwards compatability
+    for key in ['theta', 'energy']:
+        if key in bs_run.start['scan'].keys():
+            scan_md[key] = bs_run.start['scan'][key]
+        else:
+            scan_md[key] = None
+
+    # Find area detectors
+    xrd_dets = [det for det in scan_md['detectors']
+                if det in ['merlin', 'dexela']]   
 
     data_keys = [
         'sclr_i0',
         'sclr_im',
         'sclr_it',
-        'energy_energy'
+        'energy_energy',
+        'nano_stage_th',
+        # 'xs_fluor' # not default, but supported
     ]
-
+    # Add extras
+    if extra_data_keys is not None:
+        for key in extra_data_keys:
+            data_keys.append(key)
+    # Grab event-based data_keys
+    event_data_keys = [key for key in data_keys if key not in ['xs_fluor']]
+    # Add XRD resources
+    xrd_data_keys = [f'{det}_image' for det in xrd_dets]
+    for key in xrd_data_keys:
+        data_keys.append(key)
+    
+    print(f'Loading data for {scantype} scan {scan_md["scan_id"]}...')
+    
     # Load data
     _empty_lists = [[] for _ in range(len(data_keys))]
     data_dict = dict(zip(data_keys, _empty_lists))
+    docs = bs_run.documents()
+    
 
-    print('Loading scalers and energies...')
+    print('Loading scalers and rocking data...')
     for doc in docs:
         if doc[0] == 'event_page':
             if 'dexela_image' in doc[1]['filled'].keys():
-                for key in data_keys:
-                    data_dict[key].append(doc[1]['data'][key][0])
+                for key in event_data_keys:
+                    if key in doc[1]['data'].keys():
+                        data_dict[key].append(doc[1]['data'][key][0])
 
-    # Fix keys
+    # Check for empty (static) values
+    for motor_key, data_key in zip(['energy_energy', 'nano_stage_th'],
+                                   ['energy', 'theta']):
+        if len(data_dict[motor_key]) == 0:
+            if scan_md[data_key] is not None:
+                value = scan_md[data_key] # nominal is good enough
+            else:
+                value = bs_run['baseline']['data'][motor_key][0]
+
+            data_dict[motor_key] = np.repeat(np.asarray(value),
+                                       len(data_dict['sclr_i0']))
+                                       # Not my favorite method
+
+    # Fix keys (motor names to data key names)
     data_dict['energy'] = np.array(data_dict['energy_energy'])
+    data_dict['theta'] = np.asarray(data_dict['nano_stage_th'])
     data_dict['i0'] = np.array(data_dict['sclr_i0'])
     data_dict['im'] = np.array(data_dict['sclr_im'])
     data_dict['it'] = np.array(data_dict['sclr_it'])
     del (data_dict['energy_energy'],
+         data_dict['nano_stage_th'],
          data_dict['sclr_i0'],
          data_dict['sclr_im'],
          data_dict['sclr_it'])
-    data_keys = list(data_dict.keys())
-    #print(data_keys)
 
-    # Dexela images saved differently with count...
-    r_paths = _get_resource_paths(bs_run, ['TPX_HDF5'])
+    # Convert from mdeg to deg
+    data_dict['theta'] /= 1000
 
-    print('Loading dexela...')
+    # Dexela images saved differently with step rc
+    # Grap all paths regardless if requested
+    # No support for merlin just yet
+    r_paths = _get_resource_paths(bs_run, ['TPX_HDF5', 'XSP3_FLY'])
+    
     key = 'dexela_image'
-    data_dict[key] = []
-    for r_path in r_paths['TPX_HDF5']:
-        with h5py.File(r_path, 'r') as f:
-            data_dict[key].append(np.array(f['entry/data/data']))
-    print('done!')
+    if key in data_keys:
+        print('Loading dexela...')
+        for r_path in r_paths['TPX_HDF5']:
+            with h5py.File(r_path, 'r') as f:
+                data_dict[key].append(np.asarray(f['entry/data/data']))
+
+    key = 'xs_fluor'
+    if 'xs_fluor' in data_keys:
+        if len(r_paths['XSP3_FLY']) > 0:
+            print('Loading xspress3...')
+            for r_path in r_paths['XSP3_FLY']:
+                with h5py.File(r_path, 'r') as f:
+                    data_dict[key].append(np.asarray(f['entry/data/data']))
+        else:
+            print('WARNING: xspress3 data requested, but none found.')
+            del data_dict['xs_fluor']
+
+    #return data_dict
+
+    # No Merlin support...
+
+    # Update data_keys
+    data_keys = list(data_dict.keys())
 
     out = [data_dict, scan_md]
 
@@ -1012,32 +1072,57 @@ def load_energy_rc_data(scanid=-1,
         if 'data_keys' in returns:
             out.append(data_keys)
         if 'xrd_dets' in returns:
-            xrd_dets = [det for det in scan_md['detectors']
-                        if det in ['merlin', 'dexela']]
             out.append(xrd_dets)
 
+    print(f'Data loaded for {scantype} scan {scan_md["scan_id"]}!')
     return out
 
 
-def save_energy_rc_data(scanid=-1,
-                        filedir=None,
-                        filenames=None):
+def save_step_rc_data(scanid=-1,
+                      extra_data_keys=None,
+                      filedir=None,
+                      filenames=None):
+
+    if scantype is None:
+        scantype = get_scantype(scanid).lower()
 
     (data_dict,
      scan_md,
      data_keys,
      xrd_dets
-     ) = load_energy_rc_data(scanid=scanid,
-                             returns=['data_keys',
-                                      'xrd_dets'])
+     ) = load_step_rc_data(
+                scanid=scanid,
+                extra_data_keys=extra_data_keys,
+                returns=['data_keys',
+                         'xrd_dets'])
     
+    scantype = scan_md['scantype'].lower()
+    
+    # Extract data
     xrd_data = [data_dict[f'{xrd_det}_image']
                 for xrd_det in xrd_dets]
+    # Update keys
+    for det in xrd_dets:
+        data_keys.remove(f'{det}_image')
+        del data_dict[f'{det}_image']
+    if 'xs_fluor' in data_keys:
+        data_keys.remove('xs_fluor')
+    # # Check and extract xrf data
+    # if 'xs_fluor' in data_keys:
+    #     xrf_data = np.asarray(data_dict['xs_fluor'])
+    #     if xrf_data.size == 0:
+    #         xrf_data = None
+    #     else:
+    #         xrf_data = xrf_data.squeeze().sum(axis=1)
+    #     data_keys.remove('xs_fluor')
+    #     del data_dict['xs_fluor']
+    # else:
+    #     xrf_data = None
 
     if filenames is None:
         filenames = []
         for detector in xrd_dets:
-            filenames.append(f'scan{scanid}_{detector}_energy_rc.tif')
+            filenames.append(f'scan{scanid}_{detector}_{scantype}.tif')
     
     _save_xrd_tifs(xrd_data,
                    xrd_dets=xrd_dets,
@@ -1045,20 +1130,136 @@ def save_energy_rc_data(scanid=-1,
                    filedir=filedir,
                    filenames=filenames)
 
-    param_filename = f'scan{scanid}_energy_rc_parameters.txt'
+    param_filename = f'scan{scanid}_{scantype}_parameters.txt'
     _save_map_parameters(data_dict, scanid, data_keys=data_keys,
                          filedir=filedir, filename=param_filename)
-    
-    md_filename = f'scan{scanid}_energy_rc_metadata.txt'                  
+
+    md_filename = f'scan{scanid}_{scantype}_metadata.txt'
     _save_scan_md(scan_md, scanid,
                   filedir=filedir, filename=md_filename)
+    
+    # Probably nicer ways to do this
+    # TODO: convert to pyXRF format
+    if 'xs_fluor' in data_dict.keys():
+        xrf_data = np.asarray(data_dict['xs_fluor'])
+        xrf_data = xrf_data.squeeze().sum(axis=1)
+        np.savetxt(f'{filedir}scan{scanid}_{scantype}_xrf.txt',
+                   xrf_data)
+        print(f'Saved XRF data for scan {scanid}!')
+
+
+### Energy Rocking Curve Scans ###
+
+# def load_energy_rc_data(scanid=-1,
+#                         data_keys=None,
+#                         returns=None):
+
+#     bs_run = c[int(scanid)]
+
+#     scan_md = {
+#         'scan_id' : bs_run.start['scan_id'],
+#         'scan_uid' : bs_run.start['uid'],
+#         'beamline' : bs_run.start['beamline_id'],
+#         'scantype' : bs_run.start['scan']['type'],
+#         'detectors' : bs_run.start['scan']['detectors'],
+#         'energy' : bs_run.start['scan']['energy'],
+#         'theta' : bs_run.start['scan']['theta']
+#         'dwell' : bs_run.start['scan']['dwell'],
+#         'start_time' : bs_run.start['time_str']
+#     }
+
+#     docs = bs_run.documents()
+
+#     data_keys = [
+#         'sclr_i0',
+#         'sclr_im',
+#         'sclr_it',    if 'xs_fluor' in data_keys:
+#         'energy_energy',
+#         'nano_stage_th'
+#     ]
+
+#     # Load data
+#     _empty_lists = [[] for _ in range(len(data_keys))]
+#     data_dict = dict(zip(data_keys, _empty_lists))
+
+#             if 'dexela_image' in doc[1]['filled'].keys():
+#                 for key in data_keys:
+#                     data_dict[key].append(doc[1]['data'][key][0])
+
+#     # Fix keys
+#     data_dict['energy'] = np.array(data_dict['energy_energy'])
+#     data_dict['theta'] = np.asarray(data_dict['nano_stage_th'])
+#     data_dict['i0'] = np.array(data_dict['sclr_i0'])
+#     data_dict['im'] = np.array(data_dict['sclr_im'])
+#     data_dict['it'] = np.array(data_dict['sclr_it'])
+#     del (data_dict['energy_energy'],
+#          data_dict['nano_stage_th']
+#          data_dict['sclr_i0'],
+#          data_dict['sclr_im'],
+#          data_dict['sclr_it'])
+#     data_keys = list(data_dict.keys())
+#     #print(data_keys)
+
+#     # Dexela images saved differently with count...
+#     r_paths = _get_resource_paths(bs_run, ['TPX_HDF5'])
+
+#     print('Loading dexela...')
+#     key = 'dexela_image'
+#     data_dict[key] = []
+#     for r_path in r_paths['TPX_HDF5']:
+#         with h5py.File(r_path, 'r') as f:
+#             data_dict[key].append(np.array(f['entry/data/
+
+#     out = [data_dict, scan_md]
+
+#     if returns is not None:
+#         if 'data_keys' in returns:
+#             out.append(data_keys)
+#         if 'xrd_dets' in returns:
+#             xrd_dets = [det for det in scan_md['detectors']
+#                         if det in ['merlin', 'dexela']]
+#             out.append(xrd_dets)
+
+#     return out
+
+
+# def save_energy_rc_data(scanid=-1,
+#                         filedir=None,
+
+#      ) = load_step_rc_data(scanid=scanid,
+#                            returns=['data_keys',
+#                                     'xrd_dets'])
+    
+#     xrd_data = [data_dict[f'{xrd_det}_image']
+#                 for xrd_det in xrd_dets]
+
+#     if filenames is None:
+#         filenames = []
+#         for detector in xrd_dets:
+#             filenames.append(f'scan{scanid}_{detector}_energy_rc.tif')
+    
+#     _save_xrd_tifs(xrd_data,
+#                    xrd_dets=xrd_dets,
+#                    scanid=scan_md['scan_id'], # Will return the correct value
+#                    filedir=filedir,
+#                    filenames=filenames)
+
+#     param_filename = f'scan{scanid}_energy_rc_parameters.txt'
+#     _save_map_parameters(data_dict, scanid, data_keys=data_keys,
+#                          filedir=filedir, filename=param_filename)
+    
+#     md_filename = f'scan{scanid}_energy_rc_metadata.txt'                  
+#     _save_scan_md(scan_md, scanid,
+#                   filedir=filedir, filename=md_filename)
     
 
 def load_extended_energy_rc_data(start_id,
                                  end_id,
+                                 extra_data_keys=None,
                                  returns=None):
 
-    all_scan_ids = list(range(start_id, end_id + 1))
+    all_scan_ids = list(range(int(start_id),
+                              int(end_id) + 1))
     energy_rc_ids = [scan_id for scan_id in all_scan_ids
                      if c[scan_id].start['scan']['type'] == 'ENERGY_RC']
 
@@ -1070,9 +1271,10 @@ def load_extended_energy_rc_data(start_id,
          scan_md,
          data_keys,
          xrd_dets
-         ) = load_energy_rc_data(scanid=scan_id,
-                                 returns=['data_keys',
-                                          'xrd_dets']
+         ) = load_step_rc_data(scanid=scan_id,
+                               extra_data_keys=extra_data_keys,
+                               returns=['data_keys',
+                                        'xrd_dets']
                                  )
         data_dicts.append(data_dict)
         scan_mds.append(scan_md)
@@ -1114,6 +1316,7 @@ def load_extended_energy_rc_data(start_id,
 
 def save_extended_energy_rc_data(start_id,
                                  end_id,
+                                 extra_data_keys=None,
                                  filedir=None,
                                  filenames=None):
     
@@ -1123,6 +1326,7 @@ def save_extended_energy_rc_data(start_id,
      xrd_dets
      ) = load_extended_energy_rc_data(start_id,
                                       end_id,
+                                      extra_data_keys=extra_data_keys,
                                       returns=['data_keys',
                                                'xrd_dets'])
 
@@ -1136,6 +1340,13 @@ def save_extended_energy_rc_data(start_id,
     for xrd_det in xrd_dets:
         del all_data_dict[f'{xrd_det}_image']
         all_data_keys.remove(f'{xrd_det}_image')
+    # Remove any xrf data
+    if 'xs_fluor' in all_data_keys:
+        xrf_data = all_data_dict['xs_fluor']
+        del all_data_dict['xs_fluor']
+        all_data_keys.remove('xs_fluor')
+    else:
+        xrf_data = None
     # Reformat other data streams into arrays
     for key in all_data_dict.keys():
         all_data_dict[key] = np.asarray(all_data_dict[key])
@@ -1164,117 +1375,140 @@ def save_extended_energy_rc_data(start_id,
     _save_scan_md(all_md_dict, scan_range_str,
                   filedir=filedir, filename=md_filename)
 
+    if xrf_data is not None:
+        xrf_data = np.asarray(data_dict['xs_fluor'])
+        xrf_data = xrf_data.squeeze().sum(axis=1)
+        np.savetxt(f'{filedir}scan{scanid}_extended_energy_rc_xrf.txt',
+                   xrf_data)
+        print(f'Saved XRF data for scans {scan_range_str}!')
+
 ### Angle Rocking Curve Scans ###
 
-def load_angle_rc_data(scanid=-1,
-                       detectors=None,
-                       data_keys=None,
-                       returns=None):
+# def load_angle_rc_data(scanid=-1,
+#                        detectors=None,
+#                        data_keys=None,
+#                        returns=None):
 
-    bs_run = c[int(scanid)]
+#     bs_run = c[int(scanid)]
 
-    scan_md = {
-        'scan_id' : bs_run.start['scan_id'],
-        'scan_uid' : bs_run.start['uid'],
-        'beamline' : bs_run.start['beamline_id'],
-        'scantype' : bs_run.start['scan']['type'],
-        'detectors' : bs_run.start['scan']['detectors'],
-        'energy' : bs_run.start['scan']['energy'],
-        'dwell' : bs_run.start['scan']['dwell'],
-        'start_time' : bs_run.start['time_str']
-    }
+#     scan_md = {
+#         'scan_id' : bs_run.start['scan_id'],
+#         'scan_uid' : bs_run.start['uid'],
+#         'beamline' : bs_run.start['beamline_id'],
+#         'scantype' : bs_run.start['scan']['type'],
+#         'detectors' : bs_run.start['scan']['detectors'],
+#         'energy' : bs_run.start['scan']['energy'],
+#         'dwell' : bs_run.start['scan']['dwell'],
+#         'start_time' : bs_run.start['time_str']
+#     }
 
-    docs = bs_run.documents()
+#     docs = bs_run.documents()
 
-    data_keys = [
-        'sclr_i0',
-        'sclr_im',
-        'sclr_it',
-        'nano_stage_th'
-    ]
+#     data_keys = [
+#         'sclr_i0',
+#         'sclr_im',
+#         'sclr_it',
+#         'nano_stage_th'
+#     ]
 
-    # Load data
-    _empty_lists = [[] for _ in range(len(data_keys))]
-    data_dict = dict(zip(data_keys, _empty_lists))
+#     # Load data
+#     _empty_lists = [[] for _ in range(len(data_keys))]
+#     data_dict = dict(zip(data_keys, _empty_lists))
 
-    print('Loading scalers and energies...', end='', flush=True)
-    for doc in docs:
-        if doc[0] == 'event_page':
-            if 'dexela_image' in doc[1]['filled'].keys():
-                for key in data_keys:
-                    data_dict[key].append(doc[1]['data'][key][0])
-    print('done!')
+#     print('Loading scalers and energies...', end='', flush=True)
+#     for doc in docs:
+#         if doc[0] == 'event_page':
+#             if 'dexela_image' in doc[1]['filled'].keys():
+#                 for key in data_keys:
+#                     data_dict[key].append(doc[1]['data'][key][0])
+#     print('done!')
 
-    # Fix keys
-    data_dict['th'] = np.array(data_dict['nano_stage_th'])
-    data_dict['i0'] = np.array(data_dict['sclr_i0'])
-    data_dict['im'] = np.array(data_dict['sclr_im'])
-    data_dict['it'] = np.array(data_dict['sclr_it'])
-    del data_dict['nano_stage_th'], data_dict['sclr_i0'], data_dict['sclr_im'], data_dict['sclr_it']
-    data_keys = list(data_dict.keys())
-    #print(data_keys)
+#     # Fix keys
+#     data_dict['theta'] = np.array(data_dict['nano_stage_th'])
+#     data_dict['i0'] = np.array(data_dict['sclr_i0'])
+#     data_dict['im'] = np.array(data_dict['sclr_im'])
+#     data_dict['it'] = np.array(data_dict['sclr_it'])
+#     del (data_dict['nano_stage_th'],
+#          data_dict['sclr_i0'],
+#          data_dict['sclr_im'],
+#          data_dict['sclr_it'])
+#     data_keys = list(data_dict.keys())
+#     #print(data_keys)
 
-    # Dexela images saved differently with count...
-    r_paths = _get_resource_paths(bs_run, ['TPX_HDF5'])
+#     # Dexela images saved differently with count...
+#     r_paths = _get_resource_paths(bs_run, ['TPX_HDF5'])
 
-    print('Loading dexela...', end='', flush='True')
-    key = 'dexela_image'
-    data_dict[key] = []
-    for r_path in r_paths['TPX_HDF5']:
-        with h5py.File(r_path, 'r') as f:
-            data_dict[key].append(np.array(f['entry/data/data']))
-    # Stack data into array
-    print('')
-    #data_dict[key] = _check_xrd_data_shape(data_dict[key])
-    print('done!')
+#     print('Loading dexela...', end='', flush='True')
+#     key = 'dexela_image'
+#     data_dict[key] = []
+#     for r_path in r_paths['TPX_HDF5']:
+#         with h5py.File(r_path, 'r') as f:
+#             data_dict[key].append(np.array(f['entry/data/data']))
+#     # Stack data into array
+#     print('')
+#     #data_dict[key] = _check_xrd_data_shape(data_dict[key])
+#     print('done!')
 
-    out = [data_dict, scan_md]
+#     out = [data_dict, scan_md]
 
-    if returns is not None:
-        if 'data_keys' in returns:
-            out.append(data_keys)
-        if 'xrd_dets' in returns:
-            xrd_dets = [det for det in scan_md['detectors']
-                        if det in ['merlin', 'dexela']]
-            out.append(xrd_dets)
+#     if returns is not None:
+#         if 'data_keys' in returns:
+#             out.append(data_keys)
+#         if 'xrd_dets' in returns:
+#             xrd_dets = [det for det in scan_md['detectors']
+#                         if det in ['merlin', 'dexela']]
+#             out.append(xrd_dets)
 
-    return out
+#     return out
 
 
-def save_angle_rc_data(scanid=-1,
-                       filedir=None,
-                       filenames=None):
+# def save_angle_rc_data(scanid=-1,
+#                        filedir=None,
+#                        filenames=None):
 
-    data_dict, scan_md, data_keys = load_angle_rc_data(scanid=scanid,
-                                                        returns=['data_keys'])
+#     (data_dict,
+#      scan_md,
+#      data_keys,
+#      xrd_dets
+#      ) = load_step_rc_data(scanid=scanid,
+#                            returns=['data_keys',
+#                                     'xrd_dets'])
     
-    xrd_dets = ['dexela']
-    xrd_data = [data_dict[f'{xrd_det}_image'] for xrd_det in xrd_dets]
+#     xrd_data = [data_dict[f'{xrd_det}_image']
+#                 for xrd_det in xrd_dets]
 
-    if filenames is None:
-        filenames = []
-        for detector in xrd_dets:
-            filenames.append(f'scan{scanid}_{detector}_angle_rc.tif')
+#     if filenames is None:
+#         filenames = []
+#         for detector in xrd_dets:
+#             filenames.append(f'scan{scanid}_{detector}_angle_rc.tif')
     
-    _save_xrd_tifs(xrd_data,
-                  xrd_dets=xrd_dets,
-                  scanid=scan_md['scan_id'], # Will return the correct value
-                  filedir=filedir,
-                  filenames=filenames)
+#     _save_xrd_tifs(xrd_data,
+#                    xrd_dets=xrd_dets,
+#                    scanid=scan_md['scan_id'], # Will return the correct value
+#                    filedir=filedir,
+#                    filenames=filenames)
 
-    param_filename = f'scan{scanid}_angle_rc_parameters.txt'
-    _save_map_parameters(data_dict, scanid, data_keys=data_keys,
-                         filedir=filedir, filename=param_filename)
+#     param_filename = f'scan{scanid}_angle_rc_parameters.txt'
+#     _save_map_parameters(data_dict, scanid, data_keys=data_keys,
+#                          filedir=filedir, filename=param_filename)
     
 
 def load_flying_angle_rc_data(scanid=-1,
                               broker='manual',
                               detectors=None,
-                              data_keys=['i0',
-                                         'im',
-                                         'it'],
+                              extra_data_keys=None,
                               returns=None,
                               repair_method='fill'):
+
+    data_keys = [
+        'i0',
+        'im',
+        'it'
+    ]
+
+    if extra_data_keys is not None:
+        for key in extra_data_keys:
+            data_keys.append(key)
 
     (data_dict,
      scan_md,
@@ -1293,6 +1527,13 @@ def load_flying_angle_rc_data(scanid=-1,
     #thetas = thetas.reshape(map_shape)
     thetas /= 1000 # mdeg to deg
     data_dict['theta'] = thetas
+    data_keys.append('theta')
+
+    # Extend energy
+    data_dict['energy'] = np.repeat(
+                            np.asarray(scan_md['energy']),
+                            len(thetas))
+    data_keys.append('energy')
 
     out = [data_dict, scan_md]
 
@@ -1308,9 +1549,7 @@ def load_flying_angle_rc_data(scanid=-1,
 def save_flying_angle_rc_data(scanid=-1,
                               broker='manual',
                               detectors=None,
-                              data_keys=['i0',
-                                         'im',
-                                         'it'],
+                              extra_data_keys=None,
                               filedir=None,
                               filenames=None,
                               repair_method='fill'):
@@ -1318,13 +1557,15 @@ def save_flying_angle_rc_data(scanid=-1,
     # Retrieve and format data
     (data_dict,
      scan_md,
+     data_keys,
      xrd_dets
      ) = load_flying_angle_rc_data(
                     scanid=scanid,
                     broker=broker,
                     detectors=detectors,
-                    data_keys=data_keys,
-                    returns=['xrd_dets'],
+                    extra_data_keys=extra_data_keys,
+                    returns=['data_keys',
+                             'xrd_dets'],
                     repair_method=repair_method)
 
     if filenames is None:
@@ -1334,23 +1575,38 @@ def save_flying_angle_rc_data(scanid=-1,
 
     # Convert from dictionary to list
     xrd_data = [data_dict[f'{xrd_det}_image'] for xrd_det in xrd_dets]
+    # And remove data_keys
+    for xrd_det in xrd_dets:
+        if f'{xrd_det}_image' in data_keys:
+            data_keys.remove(f'{xrd_det}_image')
+
+    # XRF data key will cause issue with _save_map_parameters
+    if 'xs_fluor' in data_keys:
+        data_keys.remove('xs_fluor')
        
     _save_xrd_tifs(xrd_data,
                    xrd_dets=xrd_dets,
                    scanid=scan_md['scan_id'], # Will return the correct value
                    filedir=filedir,
                    filenames=filenames)
+
+    # return data_dict, data_keys
     
     param_filename = f'scan{scanid}_flying_angle_rc_parameters.txt'
-    _save_map_parameters(data_dict, scanid, data_keys=['i0',
-                                                       'im',
-                                                       'it',
-                                                       'theta'],
+    _save_map_parameters(data_dict, scanid, data_keys=data_keys,
                          filedir=filedir, filename=param_filename)
     
     md_filename = f'scan{scanid}_flying_angle_rc_metadata.txt'                  
     _save_scan_md(scan_md, scanid,
                   filedir=filedir, filename=md_filename)
+    
+    # This one can be mapped with pyXRF...
+    if 'xs_fluor' in data_dict.keys():
+        xrf_data = np.asarray(data_dict['xs_fluor'])
+        xrf_data = xrf_data.squeeze().sum(axis=1)
+        np.savetxt(f'{filedir}scan{scanid}_flying_angle_rc_xrf.txt',
+                   xrf_data)
+        print(f'Saved XRF data for scan {scanid}!')
 
 
 #############################

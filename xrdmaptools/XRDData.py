@@ -831,7 +831,7 @@ class XRDData:
             air_scatter /= self.solidangle_correction
 
         self.air_scatter = air_scatter
-        self.images /= self.air_scatter
+        self.images -= self.air_scatter
 
         self.save_images(images='air_scatter')
         
@@ -843,7 +843,7 @@ class XRDData:
         
     def correct_outliers(self,
                          size=2,
-                         tolerance=0.5,
+                         tolerance=2,
                          override=False):
 
         if self._check_correction('outliers', override=override):

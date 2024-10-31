@@ -24,7 +24,9 @@ def check_hdf_current_images(title,
         raise ValueError('Must specify hdf_file or hdf.')
     
 
-def get_optimal_chunks(data, approx_chunk_size=None, final_dtype=np.float32):
+def get_optimal_chunks(data,
+                       approx_chunk_size=None,
+                       final_dtype=np.float32):
     
     data_shape = data.shape
 
@@ -40,25 +42,33 @@ def get_optimal_chunks(data, approx_chunk_size=None, final_dtype=np.float32):
     if approx_chunk_size is None:
         available_memory = psutil.virtual_memory()[1] / (2**20) # In MB
         cpu_count = os.cpu_count()
-        approx_chunk_size = (available_memory * 0.85) / cpu_count # 15% wiggle room
+        approx_chunk_size = ((available_memory * 0.85)
+                             / cpu_count) # 15% wiggle room
         #approx_chunk_size = np.round(approx_chunk_size)
         if approx_chunk_size > 2**10:
             approx_chunk_size = 2**10
     elif approx_chunk_size > 2**10:
-        print('WARNING: Chunk sizes above 1 GB may start to perform poorly.')
-
+        warn_str = ('WARNING: Chunk sizes above 1 GB may start to '
+                    + 'perform poorly.')
+        print(warn_str)
 
     # Split images up by data size in MB that seems reasonable
-    images_per_chunk = (approx_chunk_size * 2**20) / np.prod([*data_shape[-2:], data_nbytes], dtype=np.int32)
+    images_per_chunk = ((approx_chunk_size * 2**20)
+                         / np.prod([*data_shape[-2:],
+                                    data_nbytes],
+                         dtype=np.int32))
 
     # Try to make square chunks if possible
     square_chunks = np.sqrt(images_per_chunk)
 
-    num_chunk_x = np.round(data_shape[0] / square_chunks, 0).astype(np.float32)
+    num_chunk_x = np.round(data_shape[0]
+                           / square_chunks, 0).astype(np.float32)
     num_chunk_x = min(max(num_chunk_x, 1), data_shape[0])
     chunk_x = int(data_shape[0] // num_chunk_x)
 
-    num_chunk_y = np.round(data_shape[1] / (data_shape[0] / num_chunk_x), 0).astype(np.int32)
+    num_chunk_y = np.round(data_shape[1]
+                           / (data_shape[0]
+                              / num_chunk_x), 0).astype(np.int32)
     num_chunk_y = min(max(num_chunk_y, 1), data_shape[1])
     chunk_y = int(data_shape[1] // num_chunk_y)
 

@@ -31,9 +31,8 @@ from xrdmaptools.geometry.geometry import (
 )
 from xrdmaptools.io.db_io import (
     get_scantype,
-    load_energy_rc_data,
+    load_step_rc_data,
     load_extended_energy_rc_data,
-    load_angle_rc_data,
     load_flying_angle_rc_data
 )
 from xrdmaptools.io.hdf_io_rev import (
@@ -111,7 +110,7 @@ class XRDRockingCurveStack(XRDBaseScan):
 
         if sclr_dict is not None and isinstance(sclr_dict, dict):
             for key, value in sclr_dict.items():
-                sclr_dict[key] = value.reshape(self.map_shape)
+                sclr_dict[key] = np.asarray(value).reshape(self.map_shape)
 
         XRDBaseScan.__init__(
             self,
@@ -166,24 +165,69 @@ class XRDRockingCurveStack(XRDBaseScan):
     ### Re-Written Properties ###
     #############################
 
+    def _parse_subscriptable_value(self, value, name):
+        # Fill placeholders if value is nothing
+        if (np.any(np.array(value) is None)
+            or np.any(np.isnan(value))):
+            setattr(self, f'_{name}', np.array([np.nan,]
+                                               * self.num_images))
+        # Proceed if object is subscriptable and not str or dict
+        elif (hasattr(value, '__len__')
+              and hasattr(value, '__getitem__')
+              and not isinstance(value, (str, dict))):
+            if len(value) == self.num_images:
+                setattr(self, f'_{name}', np.asarray(value))
+            # Assume single value is constant
+            elif len(value) == 1:
+                setattr(self, f'_{name}', np.array([value[0],]
+                                                   * self.num_images))
+            else:
+                err_str = (f'{name} must have length '
+                           + 'equal to number of images.')
+                raise ValueError(err_str)
+        # Assume single value is constant
+        elif isinstance(value, (int, float)):
+            setattr(self, f'_{name}', np.array([value,]
+                                               * self.num_images))
+        else:
+            err_str = (f'Unable to handle {name} input. '
+                       + 'Provide subscriptable or value.')
+            raise TypeError(err_str)
+
+
+    # A lot of parsing inputs
     @XRDBaseScan.energy.setter
     def energy(self, energy):
-        if np.any(energy is None) or np.any(np.isnan(energy)):
-            self._energy = [np.nan,] * self.num_images
-            self._wavelength = [np.nan,] * self.num_images
-        elif isinstance(energy, (list, np.ndarray)):
-            if len(energy) != self.num_images:
-                raise ValueError('Energy must have length equal to number of images.')
-            else:
-                self._energy = list(energy)
-                self._wavelength = [energy_2_wavelength(energy_i)
-                                    for energy_i in self._energy]
-        elif not isinstance(energy, list):
-            self._energy = [energy,] * self.num_images
-            self._wavelength = [energy_2_wavelength(energy_i)
-                                for energy_i in self._energy]
-        else:
-            raise RuntimeError('Unable to handle energy input. Provide list or value.')
+        self._parse_subscriptable_value(energy, 'energy')
+        # # Fill placeholders if energy is nothing
+        # if (np.any(np.array(energy) is None)
+        #     or np.any(np.isnan(energy))):
+        #     self._energy = np.array([np.nan,]
+        #                             * self.num_images)
+        # # Proceed if object is subscriptable and not str or dict
+        # elif (hasattr(energy, '__len__')
+        #       and hasattr(energy, '__getitem__')
+        #       and not isinstance(energy, (str, dict))):
+        #     if len(energy) == self.num_images:
+        #         self._energy = np.asarray(energy)
+        #     # Assume single value is constant
+        #     elif len(energy) == 1:
+        #         self._energy = np.array([energy[0],]
+        #                                 * self.num_images)
+        #     else:
+        #         err_str = ('Energy must have length '
+        #                    + 'equal to number of images.')
+        #         raise ValueError(err_str)
+        # # Assume single value is constant
+        # elif isinstance(energy, (int, float)):
+        #     self._energy = np.array([energy,]
+        #                             * self.num_images)
+        # else:
+        #     err_str = ('Unable to handle energy input. '
+        #                + 'Provide subscriptable or value.')
+        #     raise TypeError(err_str)
+        
+        self._wavelength = energy_2_wavelength(self._energy)
 
         # Propogate changes...
         if hasattr(self, 'ai') and self.ai is not None:
@@ -202,24 +246,62 @@ class XRDRockingCurveStack(XRDBaseScan):
                     f[self._hdf_type].attrs['wavelength'] = self.wavelength
 
 
+    # A lot of parsing inputs
     @XRDBaseScan.wavelength.setter
     def wavelength(self, wavelength):
-        if np.any(wavelength is None) or np.any(np.isnan(wavelength)):
-            self._wavelength = [np.nan,] * self.num_images
-            self._energy = [np.nan,] * self.num_images
-        elif isinstance(wavelength, (list, np.ndarray)):
-            if len(wavelength) != self.num_images:
-                raise ValueError('Wavelength must have length equal to number of images.')
-            else:
-                self._wavelength = list(wavelength)
-                self._energy = [wavelength_2_energy(wavelength_i)
-                                for wavelength_i in self._wavelength]
-        elif not isinstance(wavelength, list):
-            self._wavelength = [wavelength,] * self.num_images
-            self._energy = [wavelength_2_energy(wavelength_i)
-                            for wavelength_i in self._wavelength]
-        else:
-            raise RuntimeError('Unable to handle wavelength input. Provide list or value.')
+        self._parse_subscriptable_value(wavelength, 'wavelength')
+        # # Fill placeholders if wavelength is nothing
+        # if (np.any(np.array(wavelength) is None)        # # Fill placeholders if energy is nothing
+        # if (np.any(np.array(energy) is None)
+        #     or np.any(np.isnan(energy))):
+        #     self._energy = np.array([np.nan,]
+        #                             * self.num_images)
+        # # Proceed if object is subscriptable and not str or dict
+        # elif (hasattr(energy, '__len__')
+        #       and hasattr(energy, '__getitem__')
+        #       and not isinstance(energy, (str, dict))):
+        #     if len(energy) == self.num_images:
+        #         self._energy = np.asarray(energy)
+        #     # Assume single value is constant
+        #     elif len(energy) == 1:
+        #         self._energy = np.array([energy[0],]
+        #                                 * self.num_images)
+        #     else:
+        #         err_str = ('Energy must have length '
+        #                    + 'equal to number of images.')
+        #         raise ValueError(err_str)
+        # # Assume single value is constant
+        # elif isinstance(energy, (int, float)):
+        #     self._energy = np.array([energy,]
+        #                             * self.num_images)
+        # else:
+        #     err_str = ('Unable to handle energy input. '
+        #                + 'Provide subscriptable or value.')
+        #     raise TypeError(err_str)
+        # # Proceed if object is subscriptable and not str or dict
+        # elif (hasattr(wavelength, '__len__')
+        #       and hasattr(wavelength, '__getitem__')
+        #       and not isinstance(wavelength, (str, dict))):
+        #     if len(wavelength) == self.num_images:
+        #         self._wavelength = np.asarray(wavelength)
+        #     # Assume single value is constant
+        #     elif len(wavelength) == 1:
+        #         self._wavelength = np.array([wavelength[0],]
+        #                                     * self.num_images)
+        #     else:
+        #         err_str = ('Wavelength must have length '
+        #                    + 'equal to number of images.')
+        #         raise ValueError(err_str)
+        # # Assume single value is constant
+        # elif isinstance(wavelength, (int, float)):
+        #     self._wavelength = np.array([wavelength,]
+        #                                 * self.num_images)
+        # else:
+        #     err_str = ('Unable to handle wavelength input. '
+        #                + 'Provide subscriptable or value.')
+        #     raise TypeError(err_str)
+        
+        self._energy = wavelength_2_energy(self._wavelength)
 
         # Propogate changes...
         if hasattr(self, 'ai') and self.ai is not None:
@@ -240,18 +322,14 @@ class XRDRockingCurveStack(XRDBaseScan):
     
     @XRDBaseScan.theta.setter
     def theta(self, theta):
-        if np.any(theta is None) or np.any(np.isnan(theta)):
-            print('WARNING: No theta value provided. Assuming 0 deg.')
-            self._theta = [0,] * self.num_images
-        elif isinstance(theta, (list, np.ndarray)):
-            if len(theta) != self.num_images:
-                raise ValueError('Theta must have length equal to number of images.')
-            else:
-                self._theta = list(theta)
-        elif not isinstance(theta, list):
-            self._theta = [theta,] * self.num_images
-        else:
-            raise RuntimeError('Unable to handle theta input. Provide list or value.')
+        # No theta input will be assumed as zero...
+        if (np.any(np.array(theta) is None)
+            or np.any(np.isnan(theta))):
+            warn_str = ('WARNING: No theta value provided. '
+                        + 'Assuming 0 deg.')
+            print(warn_str)
+            theta = 0
+        self._parse_subscriptable_value(theta, 'theta')
 
         # Propogate changes...
         if hasattr(self, 'ai'):
@@ -302,8 +380,8 @@ class XRDRockingCurveStack(XRDBaseScan):
     
     
     # Override of XRDData absorption correction
-    def updated_apply_absorption_correction():
-        raise NotImplementedError()
+    # def apply_absorption_correction():
+    #     raise NotImplementedError()
 
 
      
@@ -323,6 +401,14 @@ class XRDRockingCurveStack(XRDBaseScan):
         
         if isinstance(scanid, str):
             scantype = 'EXTENDED_ENERGY_RC'
+
+            (data_dict,
+             scan_md,
+             xrd_dets) = load_extended_energy_rc_data(
+                            start_id=scanid[:6],
+                            end_id=scanid[-6:],
+                            returns=['xrd_dets']
+                            )
         else:
             # Get scantype information from check...
             if broker == 'manual':
@@ -332,24 +418,20 @@ class XRDRockingCurveStack(XRDBaseScan):
             scantype = get_scantype(scanid,
                                     broker=temp_broker)
 
-        if scantype == 'ENERGY_RC':
-            load_func = load_energy_rc_data
-        elif scantype == 'EXTENDED_ENERGY_RC':
-            load_func = load_extended_energy_rc_data
-        elif scantype == 'ANGLE_RC':
-            load_func = load_angle_rc_data
-        elif scantype == 'XRF_FLY':
-            load_func = load_flying_angle_rc_data
-        else:
-            err_str = f'Unable to handle scan type of {scantype}.'
-            raise RuntimeError(err_str)
+            if scantype in ['ENERGY_RC', 'ANGLE_RC']:
+                load_func = load_step_rc_data
+            elif scantype == 'XRF_FLY':
+                load_func = load_flying_angle_rc_data    
+            else:
+                err_str = f'Unable to handle scan type of {scantype}.'
+                raise RuntimeError(err_str)
         
-        data_dict, scan_md, xrd_dets = load_func(
-                              scanid=scanid,
-                              # broker=broker,
-                              returns=['xrd_dets'],
-                              # repair_method=repair_method
-                              )
+            (data_dict,
+             scan_md,
+             xrd_dets) = load_func(
+                            scanid=scanid,
+                            returns=['xrd_dets'],
+                                )
         
         xrd_data = [data_dict[f'{xrd_det}_image'] for xrd_det in xrd_dets]
 
@@ -366,9 +448,6 @@ class XRDRockingCurveStack(XRDBaseScan):
             filenames = [f'scan{scan_md["scan_id"]}_{det}_xrd.h5' for det in xrd_dets]
         else:
             filenames = [filename]
-
-        # Hot fix !!!
-        scan_md['theta'] = 0
 
         extra_md = {}
         for key in scan_md.keys():
@@ -388,9 +467,11 @@ class XRDRockingCurveStack(XRDBaseScan):
                     wd=filedir,
                     filename=filenames[i],
                     image_data=xrd_data_i,
-                    energy=scan_md['energy'],
+                    # Not nominal values - those would be fine.
+                    energy=data_dict['energy'], 
                     dwell=scan_md['dwell'],
-                    theta=scan_md['theta'],
+                    # Not nominal values - those would be fine.
+                    theta=data_dict['theta'],
                     poni_file=poni_file,
                     sclr_dict=sclr_dict,
                     beamline='5-ID (SRX)',
@@ -403,6 +484,7 @@ class XRDRockingCurveStack(XRDBaseScan):
             
             rocking_curves.append(rc)
 
+        print(f'{cls.__name__} loaded!')
         if len(rocking_curves) > 1:
             return tuple(rocking_curves)
         else:
@@ -486,7 +568,11 @@ class XRDRockingCurveStack(XRDBaseScan):
 
         print('Vectorizing images...')
         filled_indices = 0
-        for i, wavelength in tqdm(enumerate(self.wavelength), total=self.num_images):
+        for i in tqdm(range(self.num_images)):
+        # for i, wavelength in tqdm(enumerate(self.wavelength), total=self.num_images):
+            wavelength = self.wavelength[i]
+            angle = self.theta[i]
+
             q_arr = get_q_vect(self.tth_arr,
                                self.chi_arr,
                                wavelength=wavelength,
