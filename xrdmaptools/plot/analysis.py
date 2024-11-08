@@ -73,7 +73,7 @@ def plot_3D_indexing(connections,
             ax.text(*spot.T, str(tuple(hkl)), fontsize=8, c=c)
     
     # Plot bounding edges if they are given
-    for edge in rsm.edges:
+    for edge in edges:
         ax.plot(*edge.T, c='gray', lw=1)
     
     ax.set_xlabel('qx [Å⁻¹]')

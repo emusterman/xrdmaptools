@@ -9,8 +9,24 @@ from xrdmaptools.utilities.utilities import delta_array
 
 
 # TODO:
-# Should be an exact transoform between image and polar coordinates. Possibly in pyFAI for individual coordinates
+# Should be an exact transform between image and polar coordinates.
 # Not sure if it is worth the effort
+
+def _check_rotation_input(rotation, input_name):
+    if isinstance(rotation, Rotation):
+        pass
+    elif isinstance(rotation, np.ndarray):
+        if rotation.shape != (3, 3):
+            err_str = (f'{input_name} as array must have shape '
+                        + f'(3, 3) not {rotation.shape}.')
+            raise ValueError(err_str)
+        else:
+            rotation = Rotation.from_array(rotation)
+    else:
+        err_str = (f'Unknown {input_name} of type '
+                    + f'({type(rotation)}). Must be given as '
+                    + '(3, 3) array or scipy Rotation class.')
+    return rotation
 
 
 def get_q_vect(tth,
@@ -49,24 +65,59 @@ def get_q_vect(tth,
 
     # stage rotation is rotation OUT of sample reference frame
     if stage_rotation is not None:
-        if isinstance(stage_rotation, Rotation):
-            pass
-        elif isinstance(stage_rotation, np.ndarray):
-            if stage_rotation.shape != (3, 3):
-                err_str = ('Stage rotation as array must have shape '
-                           + f'(3, 3) not {stage_rotation.shape}.')
-                raise ValueError(err_str)
-            else:
-                stage_rotation = Rotation.from_array(stage_rotation)
-        else:
-            err_str = ('Unknown stage_rotation of type '
-                       + f'({type(stage_rotation)}). Must be given as '
-                       + '(3, 3) array or scipy Rotation class.')
-        
+        stage_rotation = _check_rotation_input(stage_rotation,
+                                               'stage_rotation')
         # Bring rotated q_vect back into sample reference frame
         q_vect = Rotation.apply(q_vect, inverse=True)
 
     return q_vect
+
+
+def test_q_2_polar(q_vect,
+                   wavelength=None,
+                   stage_rotation=None,
+                   degrees=False):
+
+    if wavelength is None and stage_rotation is None:
+        warn_str = ('WARNING: Neither wavelength nor stage_rotation '
+                    + 'are indicated. Assuming stage rotation is '
+                    + '0 deg and finding wavelength.')
+        print(warn_str)
+        stage_rotation = Rotation.from_array(np.eye(3))
+    
+    # stage rotation is rotation OUT of sample reference frame
+    if stage_rotation is not None:
+        stage_rotation = _check_rotation_input(stage_rotation,
+                                               'stage_rotation')
+        # Bring rotated q_vect back into sample reference frame
+        q_vect = Rotation.apply(q_vect, inverse=True)
+    
+    # Probably a shape check that should be made on the last axis
+    q_vect = np.asarray(q_vect)
+    if q_vect.shape[-1] != 3:
+        err_str = (f'q_vect has shape {q_vect.shape}, '
+                   + 'but last axis should be 3.')
+        raise ValueError(err_str)
+    q_norm = np.linalg.norm(q_vect, axis=-1)
+
+    # Find tth and chi
+    tth = 2 * (np.pi / 2 - vector_angle(q_vect,
+                                        [0, 0, -1],
+                                        degrees=False)) # always False
+    chi = np.arctan2(q_vect[..., 1],
+                     q_vect[..., 0])
+    if degrees:
+        tth = np.degrees(tth)
+        chi = np.degrees(chi)
+    
+    if wavelength is None:
+        # Get radius of Ewald sphere and convert to wavelength
+        r = 0.5 * q_norm / np.sin(t th / 2)
+        wavelength = 2 * np.pi / r
+    else:
+        r_ewald
+
+
 
 
 def q_2_polar(q_vect, wavelength=None, degrees=False):
@@ -76,7 +127,8 @@ def q_2_polar(q_vect, wavelength=None, degrees=False):
     # Find tth and chi
     theta = np.pi / 2 - vector_angle(q_vect, [0, 0, -1], degrees=False) # always false
     tth = 2 * theta
-    chi = np.arctan2(q_vect[..., 1], q_vect[..., 0])
+    chi = np.arctan2(q_vect[..., 1],
+                     q_vect[..., 0])
 
     if degrees:
         tth = np.degrees(tth)
@@ -154,7 +206,10 @@ def nearest_pixels_on_ewald(q_vect, wavelength, tth_arr, chi_arr,
         tth = tth[~nan_mask]
         chi = chi[~nan_mask]
 
-    est_img_coords = estimate_image_coords(np.array([tth, chi]).T, tth_arr, chi_arr, method)
+    est_img_coords = estimate_image_coords(np.array([tth, chi]).T,
+                                           tth_arr,
+                                           chi_arr,
+                                           method)
 
     bound_mask = np.any([
         est_img_coords[:, 0] <= 0,
@@ -171,7 +226,9 @@ def estimate_polar_coords(coords, tth_arr, chi_arr, method='linear'):
     # TODO:
     # Check coord values to make sure they are in range
     if tth_arr.shape != chi_arr.shape:
-        raise ValueError(f"tth_arr shape {tth_arr.shape} does not match chi_arr shape {chi_arr}")
+        err_str = (f'tth_arr shape {tth_arr.shape} does not match '
+                   + f'chi_arr shape {chi_arr}')
+        raise ValueError(err_str)
 
     # Not strictly necessary
     coords = np.asarray(coords)
@@ -189,14 +246,19 @@ def estimate_polar_coords(coords, tth_arr, chi_arr, method='linear'):
 
     # Regular grid rather than griddata
     # These can probably combined, but this works fine
-    tth_interp = RegularGridInterpolator((img_x, img_y), tth_arr.T, method=method)
-    chi_interp = RegularGridInterpolator((img_x, img_y), chi_arr.T, method=method)
+    tth_interp = RegularGridInterpolator((img_x, img_y),
+                                         tth_arr.T,
+                                         method=method)
+    chi_interp = RegularGridInterpolator((img_x, img_y),
+                                         chi_arr.T,
+                                         method=method)
 
     est_tth = tth_interp((x_coords, y_coords))
     est_chi = chi_interp((x_coords, y_coords))
     est_chi = modular_azimuthal_reshift(est_chi, max_arr=max_arr)
-
-    return np.array([est_tth, est_chi]).T # Given as np.array([[tth0, chi0], [tth1, chi1], ...])
+    
+    # Given as np.array([[tth0, chi0], [tth1, chi1], ...])
+    return np.array([est_tth, est_chi]).T 
 
 
 def estimate_image_coords(coords, tth_arr, chi_arr, method='nearest'):
@@ -205,14 +267,18 @@ def estimate_image_coords(coords, tth_arr, chi_arr, method='nearest'):
     # TODO:
     # Check coord values to make sure they are in range
     if tth_arr.shape != chi_arr.shape:
-        raise ValueError(f"tth_arr shape {tth_arr.shape} does not match chi_arr shape {chi_arr}")
+        err_str = (f'tth_arr shape {tth_arr.shape} does not match '
+                   + f'chi_arr shape {chi_arr}')
+        raise ValueError(err_str)
 
     # For better indexing
     coords = np.asarray(coords)
 
     # Shift azimuthal discontinuities
     chi_arr, max_arr, shifted = modular_azimuthal_shift(chi_arr)
-    coords[:, 1], _, _ = modular_azimuthal_shift(coords[:, 1], max_arr=max_arr, force_shift=shifted)
+    coords[:, 1], _, _ = modular_azimuthal_shift(coords[:, 1],
+                                                 max_arr=max_arr,
+                                                 force_shift=shifted)
 
     # Combine into large polar vector
     polar_arr = np.array([tth_arr.ravel(), chi_arr.ravel()]).T
@@ -225,37 +291,12 @@ def estimate_image_coords(coords, tth_arr, chi_arr, method='nearest'):
     img_arr = np.array([img_xx.ravel(), img_yy.ravel()]).T
 
     # griddata for unstructured data. Fairly slow with any method but nearest
-    est_img_coords = griddata(polar_arr, img_arr, coords, method=method)
+    est_img_coords = griddata(polar_arr,
+                              img_arr,
+                              coords,
+                              method=method)
     est_img_coords = np.round(est_img_coords).astype(np.int32)
     return est_img_coords # Given as np.array([[x0, y0], [x1, y1], ...])
-
-
-# Does not yet figure wavelength
-# Intent is to find exact wavelength, tth, and chi values 
-'''def _q_2_polar_old(q_vect, wavelength, degrees=True):
-
-    q_vect = np.asarray(q_vect)
-    factor = 2 * np.pi / wavelength
-    norm_q = q_vect / factor
-
-    tth = np.asarray(np.arccos(norm_q[..., 2] + 1))
-
-    #chi0 = np.asarray(-np.arcsin(norm_q[..., 1] / -np.sin(tth)))
-    #chi0[q_vect[..., 0] < 0] = np.pi + chi0[q_vect[..., 0] < 0]
-    #chi0[q_vect[..., 1] < 0] = -np.abs(chi0[q_vect[..., 1] < 0])
-
-    #chi1 = np.asarray(-np.arccos(norm_q[..., 0] / -np.sin(tth)))
-    #chi1[q_vect[..., 1] < 0] = -np.abs(chi1[q_vect[..., 1] < 0])
-
-    # negative qx to switch to pyFAI coordinate system
-    chi = np.arctan2(norm_q[..., 1], -norm_q[..., 0])
-
-    if degrees:
-        tth = np.degrees(tth)
-        chi = np.degrees(chi)
-        #chi1 = np.degrees(chi1)
-
-    return tth, chi'''
 
 
 def modular_azimuthal_shift(arr, max_arr=None, force_shift=None):
@@ -330,32 +371,3 @@ def det_plane_from_ai(ai, skip=None):
 
     # Return plane normal n = (a, b, c) and point (d)
     return svd[0][:, -1], d.squeeze()
-
-
-
-# deprecated
-'''def estimate_img_coords(coords, image_shape, tth=None, chi=None):
-    if len(coords) == 0:
-        return coords
-    
-    # Estimate image coordinates from tth and chi values
-    tth_i = np.asarray(coords[0])
-    chi_i = np.asarray(coords[1])
-    x = (tth_i - np.min(tth)) / (np.max(tth) - np.min(tth)) * image_shape[1]
-    y = image_shape[0] - (chi_i-  np.min(chi)) / (np.max(chi) - np.min(chi)) * image_shape[0]
-    return np.array([x.astype(np.int32), y.astype(np.int32)])'''
-
-
-# deprecated
-'''def estimate_reciprocal_coords(coords, image_shape, tth=None, chi=None):
-    if len(coords) == 0:
-        return coords
-    
-    # Convert image coordinates to tth and chi values
-    x_i = np.asarray(coords[0])
-    y_i = np.asarray(coords[1])
-
-    # Convert image coordinates to tth and chi values
-    tth_lst = np.min(tth) + (np.max(tth) - np.min(tth)) * x_i / image_shape[1]
-    chi_lst = np.min(chi) + (np.max(chi) - np.min(chi)) * (image_shape[0] - y_i) / image_shape[0]
-    return np.array([tth_lst, chi_lst])'''

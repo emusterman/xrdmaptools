@@ -9,7 +9,7 @@ from scipy.ndimage import (
     uniform_filter,
     maximum_filter,
     minimum_filter
-    )
+)
 from scipy.optimize import curve_fit
 import scipy.stats as st
 from skimage.measure import label, find_contours

@@ -105,22 +105,28 @@ class XRDMap(XRDBaseScan):
         if data_keys is None:
             data_keys = pos_keys + sclr_keys
 
-        data_dict, scan_md, data_keys, xrd_dets = load_data(
-                                            scanid=scanid,
-                                            broker=broker,
-                                            detectors=None,
-                                            data_keys=data_keys,
-                                            returns=['data_keys',
-                                                     'xrd_dets'],
-                                            repair_method=repair_method)
+        (data_dict,
+         scan_md,
+         data_keys,
+         xrd_dets) = load_data(
+                            scanid=scanid,
+                            broker=broker,
+                            detectors=None,
+                            data_keys=data_keys,
+                            returns=['data_keys',
+                                        'xrd_dets'],
+                            repair_method=repair_method)
 
-        xrd_data = [data_dict[f'{xrd_det}_image'] for xrd_det in xrd_dets]
+        xrd_data = [data_dict[f'{xrd_det}_image']
+                    for xrd_det in xrd_dets]
 
         # Make position dictionary
-        pos_dict = {key:value for key, value in data_dict.items() if key in pos_keys}
+        pos_dict = {key:value for key, value in data_dict.items()
+                    if key in pos_keys}
 
         # Make scaler dictionary
-        sclr_dict = {key:value for key, value in data_dict.items() if key in sclr_keys}
+        sclr_dict = {key:value for key, value in data_dict.items()
+                     if key in sclr_keys}
 
         if 'null_map' in data_dict.keys():
             null_map = data_dict['null_map']
@@ -128,7 +134,8 @@ class XRDMap(XRDBaseScan):
             null_map = None
 
         if len(xrd_data) > 1:
-            filenames = [f'scan{scan_md["scan_id"]}_{det}_xrd.h5' for det in xrd_dets]
+            filenames = [f'scan{scan_md["scan_id"]}_{det}_xrd.h5'
+                         for det in xrd_dets]
         else:
             filenames = [filename]
 
@@ -175,7 +182,8 @@ class XRDMap(XRDBaseScan):
             return xrdmaps[0]
     
 
-    # Only accessible from a dask_enabled instance in order to spin up smaller XRDMap instances
+    # Only accessible from a dask_enabled instance 
+    # in order to spin up smaller XRDMap instances
     def fracture_large_map(self,
                            approx_new_map_sizes=10, # in GB
                            final_dtype=np.float32,
@@ -201,8 +209,8 @@ class XRDMap(XRDBaseScan):
         if len(slicings) <= 1:
             err_str = ('Estimated fractured map size is equivalent '
                        + f'to full map size {self.images.shape}.'
-                       + '\nEither designate a smaller new map size or '
-                       + 'proceed with full map.')
+                       + '\nEither designate a smaller new map size '
+                       + 'or proceed with full map.')
             raise RuntimeError(err_str)
         
         if new_directory:
@@ -248,7 +256,9 @@ class XRDMap(XRDBaseScan):
                                                          j_st:j_end]
             sliced_sclr_dicts.append(new_sclr_dict)
 
-        print(f'Fracturing large map into {len(sliced_images)} smaller maps.')
+        ostr = ('Fracturing large map into '
+                + f'{len(sliced_images)} smaller maps.')
+        print(ostr)
         for i in range(len(sliced_images)):
             print((f'Writing new XRDMap for scan'
                    + str(self.scanid) + f'-{i + 1}\n'
@@ -258,7 +268,8 @@ class XRDMap(XRDBaseScan):
             new_xrdmap = self.__class__(
                 scanid=str(self.scanid) + f'-{i + 1}',
                 wd=new_dir,
-                filename=None, # This will force a default to scanid with iteration
+                # This will force a default to scanid with iteration
+                filename=None, 
                 image_data=sliced_images[i],
                 # map_shape=None,         no energy attribute
                 dwell=self.dwell,
@@ -276,7 +287,8 @@ class XRDMap(XRDBaseScan):
                 time_stamp=self.time_stamp,
                 extra_metadata=self.extra_metadata,
                 save_hdf=True,
-                #dask_enabled=True # Keeping everything lazy causes some inconsistencies
+                # Keeping everything lazy causes some inconsistencies
+                #dask_enabled=True 
             )
         
         print('Finished fracturing maps.')
@@ -300,19 +312,12 @@ class XRDMap(XRDBaseScan):
 
         return wrapped
 
-    save_images = _check_swapped_axes(XRDBaseScan.save_images)
-    save_integrations = _check_swapped_axes(XRDBaseScan.save_integrations)
-    _dask_2_hdf = _check_swapped_axes(XRDBaseScan._dask_2_hdf)
-
-    # def start_saving_hdf(self, *args, **kwargs):
-
-    #     if self._swapped_axes:
-    #         warn_str = ('WARNING: Axes have been swapped. Changes may '
-    #                     + 'not have been propely recorded and could '
-    #                     + 'cause inconsistencies.')
-    #         print(warn_str)
-        
-    #     super().start_saving_hdf(*args, **kwargs)
+    save_images = _check_swapped_axes(
+                            XRDBaseScan.save_images)
+    save_integrations = _check_swapped_axes(
+                            XRDBaseScan.save_integrations)
+    _dask_2_hdf = _check_swapped_axes(
+                            XRDBaseScan._dask_2_hdf)
     
     
     ##################
@@ -333,7 +338,9 @@ class XRDMap(XRDBaseScan):
                         **kwargs):
         
         if not hasattr(self, 'ai'):
-            raise RuntimeError("Images cannot be calibrated without any calibration files!")
+            err_str = ('Images cannot be calibrated without '
+                       + 'any calibration files!')
+            raise RuntimeError(err_str)
         
         if tth_resolution is None:
             tth_resolution = self.tth_resolution
@@ -341,11 +348,13 @@ class XRDMap(XRDBaseScan):
         tth_min = np.min(self.tth_arr)
         tth_max = np.max(self.tth_arr)
         if tth_num is None:
-            tth_num = int(np.round((tth_max - tth_min) / tth_resolution))
+            tth_num = int(np.round((tth_max - tth_min)
+                                   / tth_resolution))
         elif tth_num is not None:
             tth_resolution = (tth_max - tth_min) / tth_num
         elif tth_num is None and tth_resolution is None:
-            raise ValueError('Must define either tth_num or tth_resolution.')
+            err_str = 'Must define either tth_num or tth_resolution.'
+            raise ValueError(err_str)
 
         # Set up empty array to fill
         integrated_map1d = np.empty((self.num_images, 
@@ -396,7 +405,9 @@ class XRDMap(XRDBaseScan):
                          **kwargs):
         
         if not hasattr(self, 'ai'):
-            raise RuntimeError("Images cannot be calibrated without any calibration files!")
+            err_str = ('Images cannot be calibrated without '
+                       + 'any calibration files!')
+            raise RuntimeError(err_str)
         
         if tth_resolution is None:
             tth_resolution = self.tth_resolution
@@ -407,21 +418,25 @@ class XRDMap(XRDBaseScan):
         tth_min = np.min(self.tth_arr)
         tth_max = np.max(self.tth_arr)
         if tth_num is None:
-            tth_num = int(np.round((tth_max - tth_min) / tth_resolution))
+            tth_num = int(np.round((tth_max - tth_min)
+                                   / tth_resolution))
         elif tth_num is not None:
             tth_resolution = (tth_max - tth_min) / tth_num
         elif tth_num is None and tth_resolution is None:
-            raise ValueError('Must define either tth_num or tth_resolution.')
+            err_str = 'Must define either tth_num or tth_resolution.'
+            raise ValueError(err_str)
         
         # Get chi numbers
         chi_min = np.min(self.chi_arr)
         chi_max = np.max(self.chi_arr)
         if chi_num is None:
-            chi_num = int(np.round((chi_max - chi_min) / chi_resolution))
+            chi_num = int(np.round((chi_max - chi_min)
+                                   / chi_resolution))
         elif chi_num is not None:
             chi_resolution = (chi_max - chi_min) / chi_num
         elif chi_num is None and chi_resolution is None:
-            raise ValueError('Must define either chi_num or chi_resolution.')
+            err_str = 'Must define either chi_num or chi_resolution.'
+            raise ValueError(err_str)
 
         # Set up empty array to fill
         integrated_map2d = np.empty((self.num_images, 
@@ -487,7 +502,8 @@ class XRDMap(XRDBaseScan):
 
         # Set position units
         if position_units is None:
-            position_units = 'μm' # default to microns, not that reliable...
+            # default to microns, not that reliable...
+            position_units = 'μm' 
         self.position_units = position_units
 
         # Write to hdf file
@@ -500,24 +516,32 @@ class XRDMap(XRDBaseScan):
 
         if ((map_x is None or map_y is None)
              and not hasattr(self, 'pos_dict')):
-            raise AttributeError(('XRDMap has no loaded pos_dict.\n'
-                                  + 'Please load positions or specify map_x and map_y.'))
+            err_str = ('XRDMap has no loaded pos_dict.'
+                       + '\nPlease load positions or specify '
+                       + 'map_x and map_y.')
+            raise AttributeError(err_str)
 
         if map_x is None and hasattr(self, 'pos_dict'):
-            if _check_dict_key(self.pos_dict, 'interp_x'): # Biased towards interpolated values. More regular
+            # Biased towards interpolated values. More regular
+            if _check_dict_key(self.pos_dict, 'interp_x'): 
                 map_x = self.pos_dict['interp_x']
             elif _check_dict_key(self.pos_dict, 'map_x'):
                 map_x = self.pos_dict['map_x']
             else:
-                raise ValueError('Cannot find known key for map_x coordinates.')
+                err_str = ('Cannot find known key '
+                           + 'for map_x coordinates.')
+                raise ValueError(err_str)
         
         if map_y is None and hasattr(self, 'pos_dict'):
-            if _check_dict_key(self.pos_dict, 'interp_y'): # Biased towards interpolated values. More regular
+            # Biased towards interpolated values. More regular
+            if _check_dict_key(self.pos_dict, 'interp_y'): 
                 map_y = self.pos_dict['interp_y']
             elif _check_dict_key(self.pos_dict, 'map_y'):
                 map_y = self.pos_dict['map_y']
             else:
-                raise ValueError('Cannot find known key for map_y coordinates.')
+                err_str = ('Cannot find known key '
+                           + 'for map_y coordinates.')
+                raise ValueError(err_str)
 
         # Determine fast scanning direction for map extent
         if (np.mean(np.diff(map_x, axis=1))
@@ -542,8 +566,12 @@ class XRDMap(XRDBaseScan):
         return map_extent
 
 
-    # Convenience function for loading scalers and positions from standard map_parameters text file
-    def load_map_parameters(self, filename, filedir=None, position_units=None):  
+    # Convenience function for loading scalers and positions
+    # from standard map_parameters text file
+    def load_map_parameters(self,
+                            filename,
+                            filedir=None,
+                            position_units=None):  
         
         if filedir is None:
             filedir = self.wd
@@ -565,7 +593,8 @@ class XRDMap(XRDBaseScan):
         self.set_scalers(sclr_dict)
 
 
-    # Method to swap axes, specifically swapping the default format of fast and slow axes
+    # Method to swap axes, specifically swapping the 
+    # default format of fast and slow axes
     def swap_axes(self,
                   only_images=False,
                   # exclude_images=False,
@@ -585,14 +614,6 @@ class XRDMap(XRDBaseScan):
                         + 'or saving images.')
             print(warn_str)
 
-
-        # if self.title == 'final' and not exclude_images:
-        #     warn_str = ('WARNING: images have been finalized.'
-        #                 + '\nSaving other attributes with swapped '
-        #                 + 'axes may create inconsistencies.')
-        #     print(warn_str)
-
-
         # Swap map axes
         if (hasattr(self, 'images')
             and self.images is not None):
@@ -602,7 +623,8 @@ class XRDMap(XRDBaseScan):
             self.integrations = self.integrations.swapaxes(0, 1)
 
         # Update shape values
-        self.shape = self.images.shape # This will force a new save in hdf
+        # This will force a new save in hdf
+        self.shape = self.images.shape 
         self.map_shape = self.shape[:2]
 
         # Delete any cached maps
@@ -622,24 +644,29 @@ class XRDMap(XRDBaseScan):
 
         # Depending on the order of when the axes are
         # swapped any of these could break...
-        if hasattr(self, 'blob_masks') and self.blob_masks is not None:
+        if (hasattr(self, 'blob_masks')
+            and self.blob_masks is not None):
             self.blob_masks = self.blob_masks.swapaxes(0, 1)
-        if hasattr(self, 'null_map') and self.null_map is not None:
+        if (hasattr(self, 'null_map')
+            and self.null_map is not None):
             self.null_map = self.null_map.swapaxes(0, 1)
-        if hasattr(self, 'scaler_map') and self.scaler_map is not None:
+        if (hasattr(self, 'scaler_map')
+            and self.scaler_map is not None):
             self.scaler_map = self.scaler_map.swapaxes(0, 1)
 
         # Modify other attributes as needed
         if not only_images:
             if hasattr(self, 'pos_dict'):
                 for key in list(self.pos_dict.keys()):
-                    self.pos_dict[key] = self.pos_dict[key].swapaxes(0, 1)
+                    self.pos_dict[key] = self.pos_dict[key].swapaxes(
+                                                            0, 1)
                 self.save_sclr_pos('positions',
                                     self.pos_dict,
                                     self.position_units)
             if hasattr(self, 'sclr_dict'):
                 for key in list(self.sclr_dict.keys()):
-                    self.sclr_dict[key] = self.sclr_dict[key].swapaxes(0, 1)
+                    self.sclr_dict[key] = self.sclr_dict[key].swapaxes(
+                                                              0, 1)
                 self.save_sclr_pos('scalers',
                                    self.sclr_dict,
                                    self.scaler_units)
@@ -656,33 +683,23 @@ class XRDMap(XRDBaseScan):
         if not only_images: 
             self._swapped_axes = not self._swapped_axes
 
-            # # Save changes to hdf if available
-            # if self.hdf_path is not None:
-            #     # Open hdf flag
-            #     keep_hdf = True
-            #     if self.hdf is None:
-            #         self.hdf = h5py.File(self.hdf_path, 'a')
-            #         keep_hdf = False
-
-            #     self.hdf[self._hdf_type].attrs['swapped_axes'] = int(self._swapped_axes)
-
-            #     if not keep_hdf:
-            #         self.hdf.close()
-            #         self.hdf = None
-
             @XRDBaseScan.protect_hdf()
             def save_swapped_axes(self):
-                self.hdf[self._hdf_type].attrs['swapped_axes'] = int(self._swapped_axes)
+                attrs = self.hdf[self._hdf_type].attrs
+                attrs['swapped_axes'] = int(self._swapped_axes)
             save_swapped_axes(self)
 
 
     def interpolate_positions(self, scan_input=None):
 
         if scan_input is None:
-            if hasattr(self, 'scan_input') and self.scan_input is not None:
+            if (hasattr(self, 'scan_input')
+                and self.scan_input is not None):
                 scan_input = self.scan_input
             else:
-                raise ValueError('Cannot interpolate positiions without scan input.')
+                err_str = ('Cannot interpolate positiions '
+                           + 'without scan input.')
+                raise ValueError(err_str)
         
         xstart, xend, xnum = scan_input[0:3]
         interp_x_val = np.linspace(xstart, xend, int(xnum))
@@ -702,7 +719,9 @@ class XRDMap(XRDBaseScan):
             self.pos_dict['interp_x'] = interp_x
             self.pos_dict['interp_y'] = interp_y
         else:
-            print('WARNING: No pos_dict found. Generating from interpolated positions.')
+            warn_str = ('WARNING: No pos_dict found. '
+                        + 'Generating from interpolated positions.')
+            print(warn_str)
             self.pos_dict = {
                 'interp_x' : interp_x,
                 'interp_y' : interp_y
@@ -741,16 +760,18 @@ class XRDMap(XRDBaseScan):
                             size=size,
                             expansion=expansion)
         
-        self.blob_masks = np.asarray(blob_mask_list).reshape(self.shape)
+        self.blob_masks = np.asarray(
+                                blob_mask_list).reshape(self.shape)
 
         # Save blob_masks to hdf
         self.save_images(images='blob_masks',
                          title='_blob_masks',
                          units='bool',
-                         extra_attrs={'threshold_method' : threshold_method,
-                                      'size' : size,
-                                      'multiplier' : multiplier,
-                                      'expansion' : expansion})
+                         extra_attrs={
+                            'threshold_method' : threshold_method,
+                            'size' : size,
+                            'multiplier' : multiplier,
+                            'expansion' : expansion})
         
 
     def find_spots(self,
@@ -764,8 +785,10 @@ class XRDMap(XRDBaseScan):
         
         if (hasattr(self, 'blob_masks')
             and self.blob_masks is not None):
-            print('WARNING: XRDMap already has blob_masks attribute. '
-                  + 'This will be overwritten with new parameters.')
+            warn_str = ('WARNING: XRDMap already has blob_masks '
+                        + 'attribute. This will be overwritten with '
+                        + 'new parameters.')
+            print(warn_str)
             
         # Cleanup images as necessary
         self._dask_2_numpy()
@@ -794,7 +817,8 @@ class XRDMap(XRDBaseScan):
         self.spots = make_stat_df(stat_list, self.map_shape)
         
         # Reformat blobs
-        self.blob_masks = np.asarray(blob_mask_list).reshape(self.shape)
+        self.blob_masks = np.asarray(
+                                blob_mask_list).reshape(self.shape)
 
         # Save spots to hdf
         self.save_spots(extra_attrs={'radius' : radius})
@@ -803,10 +827,11 @@ class XRDMap(XRDBaseScan):
         self.save_images(images='blob_masks',
                          title='_blob_masks',
                          units='bool',
-                         extra_attrs={'threshold_method' : threshold_method,
-                                      'size' : size,
-                                      'multiplier' : multiplier,
-                                      'expansion' : expansion})
+                         extra_attrs={
+                            'threshold_method' : threshold_method,
+                            'size' : size,
+                            'multiplier' : multiplier,
+                            'expansion' : expansion})
         
     
     def recharacterize_spots(self,
@@ -838,18 +863,16 @@ class XRDMap(XRDBaseScan):
         if not hasattr(self, 'spots'):
             print('No reflection spots found...')
             if self.hdf_path is not None:
-                # Open hdf flag
-                # keep_hdf = True
-                # if self.hdf is None:
-                #     self.hdf = h5py.File(self.hdf_path, 'r')
-                #     keep_hdf = False
                 keep_hdf = self.hdf is not None
 
                 if 'reflections' in self.hdf[self._hdf_type].keys():
-                    print('Loading reflection spots from hdf...', end='', flush=True)
+                    print('Loading reflection spots from hdf...',
+                          end='', flush=True)
                     self.close_hdf()
-                    spots = pd.read_hdf(self.hdf_path,
-                                        key=f'{self._hdf_type}/reflections/spots')
+                    hdf_str = 
+                    spots = pd.read_hdf(
+                            self.hdf_path,
+                            key=f'{self._hdf_type}/reflections/spots')
                     self.spots = spots
                     self.open_hdf()
 
@@ -860,16 +883,22 @@ class XRDMap(XRDBaseScan):
                     print('done!')
 
                 else:
-                    raise AttributeError('XRDMap does not have any reflection spots! Please find spots first.')
+                    err_str = ('XRDMap does not have any reflection '
+                               + 'spots! Please find spots first.')
+                    raise AttributeError(err_str)
             else:
-                raise AttributeError('XRDMap does not have any reflection spots! Please find spots first.')
+                err_str = ('XRDMap does not have any reflection '
+                           + 'spots! Please find spots first.')
+                raise AttributeError(srr_str)
 
         # Fit spots
         fit_spots(self, SpotModel, max_dist=max_dist, sigma=sigma)
         self.spot_model = SpotModel
 
         # Save spots to hdf
-        self.save_spots(extra_attrs={'spot_model' : self.spot_model.name})
+        self.save_spots(
+            extra_attrs={
+                'spot_model' : self.spot_model.name})
 
 
     def initial_spot_analysis(self, SpotModel=None):
@@ -884,22 +913,36 @@ class XRDMap(XRDBaseScan):
         self.save_spots()
 
 
-    def trim_spots(self, remove_less=0.01, metric='height', save_spots=False):
+    def trim_spots(self,
+                   remove_less=0.01,
+                   metric='height',
+                   save_spots=False):
         if not hasattr(self, 'spots') or self.spots is None:
-            raise ValueError('Cannot trim spots if XRDMap has not no spots.')
+            err_str = 'Cannot trim spots if XRDMap has not no spots.'
+            raise ValueError(err_str)
 
         metric = str(metric).lower()
         if any([x[:3] == 'fit' for x in self.spots.iloc[0].keys()]):
             if metric in ['height', 'amp']:
-                significance = self.spots['fit_amp'] - self.spots['fit_offset']
-            elif metric in ['intensity', 'int', 'breadth', 'integrated', 'volume']:
-                significance = self.spots['fit_integrated'] # this should account for offset too
+                significance = (self.spots['fit_amp']
+                                - self.spots['fit_offset'])
+            elif metric in ['intensity',
+                            'int',
+                            'breadth',
+                            'integrated',
+                            'volume']:
+                # this should account for offset too            
+                significance = self.spots['fit_integrated'] 
             else:
                 raise ValueError('Unknown metric specification.')
         else:
             if metric in ['height', 'amp']:
                 significance = self.spots['guess_height']
-            elif metric in ['intensity', 'int', 'breadth', 'integrated', 'volume']:
+            elif metric in ['intensity',
+                            'int',
+                            'breadth',
+                            'integrated',
+                            'volume']:
                 significance = self.spots['guess_int']
             else:
                 raise ValueError('Unknown metric specification.')
@@ -912,7 +955,9 @@ class XRDMap(XRDBaseScan):
 
         # Drop indices
         self.spots.drop(index=drop_indices, inplace=True)
-        print(f'Trimmed {len(drop_indices)} spots less than {remove_less} significance.')
+        ostr = (f'Trimmed {len(drop_indices)} spots less '
+                + f'than {remove_less} significance.')
+        print(ostr)
 
         if save_spots:
             self.save_spots()
@@ -935,8 +980,9 @@ class XRDMap(XRDBaseScan):
 
     def pixel_spots(self, map_indices, copied=True):
 
-        pixel_spots = self.spots[(self.spots['map_x'] == map_indices[1])
-                               & (self.spots['map_y'] == map_indices[0])]
+        pixel_spots = self.spots[
+                        (self.spots['map_x'] == map_indices[1])
+                        & (self.spots['map_y'] == map_indices[0])]
         
         # Copies to protect orginal spots from changes
         if copied:
@@ -952,20 +998,21 @@ class XRDMap(XRDBaseScan):
 
             # Open hdf flag
             keep_hdf = self.hdf is not None
-            # keep_hdf = True
-            # if self.hdf is None:
-            #     self.hdf = h5py.File(self.hdf_path, 'a')
-            #     keep_hdf = False
 
             # Save to hdf
-            self.close_hdf() # pytables cannot have an open hdf reference
-            self.spots.to_hdf(self.hdf_path,
-                              key=f'{self._hdf_type}/reflections/spots', format='table')
+            # pytables cannot have an open hdf reference
+            self.close_hdf() 
+            hdf_str = f'{self._hdf_type}/reflections/spots'
+            self.spots.to_hdf(
+                        self.hdf_path,
+                        key=hdf_str,
+                        format='table')
 
             if extra_attrs is not None:
                 self.open_hdf()
+                hdf_str = 
                 for key, value in extra_attrs.items():
-                    self.hdf[f'{self._hdf_type}/reflections/spots'].attrs[key] = value
+                    self.hdf[hdf_str].attrs[key] = value
 
             if keep_hdf:
                 self.open_hdf()
@@ -1015,42 +1062,36 @@ class XRDMap(XRDBaseScan):
             
             if full_data:
                 xrf['data'] = f['xrfmap/detsum/counts'][:]
-                xrf['energy'] = np.arange(xrf['data'].shape[-1]) / 100
+                xrf['energy'] = (np.arange(xrf['data'].shape[-1])
+                                 / 100)
             
             if 'xrf_fit_name' in f['xrfmap/detsum'].keys():
-                xrf_fit_names = [d.decode('utf-8') for d in f['xrfmap/detsum/xrf_fit_name'][:]]
+                xrf_fit_names = [d.decode('utf-8')
+                                 for d
+                                 in f['xrfmap/detsum/xrf_fit_name'][:]]
                 xrf_fit = f['xrfmap/detsum/xrf_fit'][:]
 
                 i0 = f['xrfmap/scalers/val'][..., 0]
-                xrf_fit = np.concatenate((xrf_fit, np.expand_dims(i0, axis=0)), axis=0)
-                #xrf_fit = np.transpose(xrf_fit, axes=(0, 2, 1))
+                xrf_fit = np.concatenate((xrf_fit,
+                                          np.expand_dims(i0, axis=0)),
+                                          axis=0)
                 xrf_fit_names.append('i0')
 
                 for key, value in zip(xrf_fit_names, xrf_fit):
                     xrf[key] = value
             elif not full_data:
-                print('WARNING: XRF fitting not found and full_data flag not indicated. No data loaded.')
+                warn_str = ('WARNING: XRF fitting not found and '
+                            + 'full_data flag not indicated. '
+                            + 'No data loaded.')
+                print(warn_str)
                 return
 
-            xrf['E0'] = f['xrfmap/scan_metadata'].attrs['instrument_mono_incident_energy']
+            md_key = 'xrfmap/scan_metadata'
+            E0_key = 'instrument_mono_incident_energy'
+            xrf['E0'] = f[md_key].attrs[E0_key]
         
         # Track as attribute
         self.xrf = xrf
-
-        # # Save xrf_path to hdf
-        # if self.hdf_path is not None:
-        #     # Open hdf flag
-        #     keep_hdf = True
-        #     if self.hdf is None:
-        #         self.hdf = h5py.File(self.hdf_path, 'a')
-        #         keep_hdf = False
-
-        #     # Only save the path to connect two files
-        #     self.hdf[self._hdf_type].attrs['xrf_path'] = self.xrf_path
-
-        #     if not keep_hdf:
-        #         self.hdf.close()
-        #         self.hdf = None
             
         @XRDBaseScan.protect_hdf()
         def save_xrf_path(self):
@@ -1081,7 +1122,8 @@ class XRDMap(XRDBaseScan):
             raise ValueError(err_str)
         
         elif (hasattr(self, 'pos_dict')
-              and map_values.shape != list(self.pos_dict.values())[0].shape):
+              and (map_values.shape
+                   != list(self.pos_dict.values())[0].shape)):
             err_str = (f'Map input shape {map_values.shape} does '
                        + f'not match instance shape '
                        + f'of {list(self.pos_dict.values())[0].shape}')
@@ -1123,7 +1165,9 @@ class XRDMap(XRDBaseScan):
         elif not hasattr(self, 'images'):
             raise ValueError('Could not find images to plot data!')
         elif self.images.ndim != 4:
-            raise ValueError(f'XRDData data shape is not 4D, but {self.images.ndim}')
+            err_str = ('XRDData data shape is not 4D, '
+                       + f'but {self.images.ndim}.')
+            raise ValueError(err_str)
         else:
             dyn_kw['data'] = self.images
 
@@ -1131,10 +1175,12 @@ class XRDMap(XRDBaseScan):
             and not _check_dict_key(dyn_kw, 'x_ticks')):
             if hasattr(self, 'tth') and self.tth is not None:
                 dyn_kw['x_ticks'] = self.tth
-                dyn_kw['x_label'] = f'Scattering Angle, 2θ [{self.scattering_units}]'
+                dyn_kw['x_label'] = ('Scattering Angle, 2θ '
+                                     + f'[{self.scattering_units}]')
             if hasattr(self, 'chi') and self.chi is not None:
                 dyn_kw['y_ticks'] = self.chi
-                dyn_kw['x_label'] = f'Azimuthal Angle, χ [{self.polar_units}]'
+                dyn_kw['x_label'] = ('Azimuthal Angle, χ '
+                                     + f'[{self.polar_units}]')
 
         # Add default map_kw information if not already included
         if not _check_dict_key(map_kw, 'map'):
@@ -1152,9 +1198,11 @@ class XRDMap(XRDBaseScan):
                     self.map_shape[0]), 2)
         if hasattr(self, 'positions_units'):
             if not _check_dict_key(map_kw, 'x_label'):
-                map_kw['x_label'] = f'x position [{self.position_units}]'
+                map_kw['x_label'] = ('x position '
+                                     + f'[{self.position_units}]')
             if not _check_dict_key(map_kw, 'y_label'):
-                map_kw['y_label'] = f'y position [{self.position_units}]'
+                map_kw['y_label'] = ('y position '
+                                     + f'[{self.position_units}]')
 
         fig, ax = interactive_2D_plot(dyn_kw,
                                       map_kw,
@@ -1181,16 +1229,20 @@ class XRDMap(XRDBaseScan):
         if _check_dict_key(dyn_kw, 'data'):
             dyn_kw['data'] = np.asarray(dyn_kw['data'])
         elif not hasattr(self, 'integrations'):
-            raise ValueError('Could not find integrations to plot data!')
+            err_str = 'Could not find integrations to plot data!'
+            raise ValueError(err_str)
         elif self.integrations.ndim != 3:
-            raise ValueError(f'Integration data shape is not 4D, but {self.integrations.ndim}')
+            err_str = ('Integration data shape is not 4D, '
+                       + f'but {self.integrations.ndim}.')
+            raise ValueError(err_str)
         else:
             dyn_kw['data'] = self.integrations
 
         if not _check_dict_key(dyn_kw, 'x_ticks'):
             if hasattr(self, 'tth') and self.tth is not None:
                 dyn_kw['x_ticks'] = self.tth
-                dyn_kw['x_label'] = f'Scattering Angle, 2θ [{self.scattering_units}]'
+                dyn_kw['x_label'] = ('Scattering Angle, 2θ '
+                                     + f'[{self.scattering_units}]')
     
         # Add default map_kw information if not already included
         if not _check_dict_key(map_kw, 'map'):
@@ -1208,9 +1260,11 @@ class XRDMap(XRDBaseScan):
                     self.map_shape[0]), 2)
         if hasattr(self, 'positions_units'):
             if not _check_dict_key(map_kw, 'x_label'):
-                map_kw['x_label'] = f'x position [{self.position_units}]'
+                map_kw['x_label'] = ('x position '
+                                     + f'[{self.position_units}]')
             if not _check_dict_key(map_kw, 'y_label'):
-                map_kw['y_label'] = f'y position [{self.position_units}]'
+                map_kw['y_label'] = ('y position '
+                                     + f'[{self.position_units}]')
     
         fig, ax = interactive_1D_plot(dyn_kw,
                                       map_kw,

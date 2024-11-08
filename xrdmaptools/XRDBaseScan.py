@@ -37,7 +37,10 @@ from xrdmaptools.plot.general import (
     plot_image,
     plot_integration
     )
-from xrdmaptools.plot.geometry import plot_q_space, plot_detector_geometry
+from xrdmaptools.plot.geometry import (
+    plot_q_space,
+    plot_detector_geometry
+)
 from xrdmaptools.geometry.geometry import *
 from xrdmaptools.crystal.Phase import Phase, phase_selector
 
@@ -82,7 +85,7 @@ class XRDBaseScan(XRDData):
         # Adding some metadata
         self.scanid = scanid
         if filename is None:
-            filename = f'scan{scanid}_{self._hdf_type}' # This may break some things...
+            filename = f'scan{scanid}_{self._hdf_type}'
         self.filename = filename
 
         if wd is None:
@@ -105,7 +108,9 @@ class XRDBaseScan(XRDData):
 
         if not save_hdf:
             if dask_enabled:
-                raise ValueError('Enabling dask requires an hdf file for storage.')
+                err_str = ('Enabling dask requires an '
+                           + 'hdf file for storage.')
+                raise ValueError(err_str)
             else:
                 self.hdf_path = None
                 self.hdf = None
@@ -150,9 +155,12 @@ class XRDBaseScan(XRDData):
         
         # Default units and flags
         # Not fully implemented
-        self._polar_units = 'deg' # 'rad' or 'deg'
-        self._scattering_units = 'deg' # 'rad', 'deg', 'nm^-1', 'A^-1'
-        self._image_scale = 'linear' # 'linear' or 'log'
+        # 'rad' or 'deg'
+        self._polar_units = 'deg' 
+        # 'rad', 'deg', 'nm^-1', 'A^-1'
+        self._scattering_units = 'deg'
+        # 'linear' or 'log'
+        self._image_scale = 'linear' 
 
         if tth is not None and len(tth) == 0:
             tth = None
@@ -196,12 +204,14 @@ class XRDBaseScan(XRDData):
             ostr += f'\n\tHDF Path:\t{self.hdf_path}\n'
 
         # Data info
-        ostr += '\t' + '\t'.join(XRDData.__repr__(self).splitlines(True))
+        ostr += ('\t'
+                 + '\t'.join(XRDData.__repr__(self).splitlines(True)))
 
         # Other info
         if hasattr(self, 'ai'): # pull geometry info
             ostr += '\n\tGeometry:  \n'
-            ostr += '\t\t' + '\t\t'.join(self.ai.__repr__().splitlines(True))
+            ostr += ('\t\t'
+                    + '\t\t'.join(self.ai.__repr__().splitlines(True)))
         if len(self.phases) > 0: # pull phase info
             ostr += '\n\tPhases:'
             for key in self.phases.keys():
@@ -210,12 +220,14 @@ class XRDBaseScan(XRDData):
             ostr += '\n\tSpots:'
             ostr += '\n\t\tNumber:  ' + str(len(self.spots))
             if hasattr(self, 'spot_model'):
-                ostr += '\n\t\tModel Fitting:  ' + self.spot_model.name + ' Spot Model'
+                ostr += ('\n\t\tModel Fitting:  '
+                         + self.spot_model.name
+                         + ' Spot Model')
         return ostr
 
     #####################################
     ### Loading data into XRDBaseScan ###
-    ################################
+    #####################################
 
     @classmethod
     def from_hdf(cls,
@@ -235,14 +247,15 @@ class XRDBaseScan(XRDData):
         hdf_path = pathify(wd, hdf_filename, '.h5')
         if os.path.exists(hdf_path):
             print('Loading data from hdf file...')
-            input_dict = load_xrdbase_hdf(hdf_filename,
-                                          cls._hdf_type,
-                                          wd,
-                                          image_data_key=image_data_key,
-                                          integration_data_key=integration_data_key,
-                                          map_shape=map_shape,
-                                          image_shape=image_shape,
-                                          dask_enabled=dask_enabled)
+            input_dict = load_xrdbase_hdf(
+                            hdf_filename,
+                            cls._hdf_type,
+                            wd,
+                            image_data_key=image_data_key,
+                            integration_data_key=integration_data_key,
+                            map_shape=map_shape,
+                            image_shape=image_shape,
+                            dask_enabled=dask_enabled)
 
             # Remove several pieces to allow for unpacking
             base_md = input_dict.pop('base_md')
@@ -250,8 +263,10 @@ class XRDBaseScan(XRDData):
             image_corrections = input_dict.pop('image_corrections')
             image_data_key = input_dict.pop('image_data_key')
             integration_attrs = input_dict.pop('integration_attrs')
-            integration_corrections = input_dict.pop('integration_corrections')
-            integration_data_key = input_dict.pop('integration_data_key')
+            integration_corrections = input_dict.pop(
+                                        'integration_corrections')
+            integration_data_key = input_dict.pop(
+                                        'integration_data_key')
             recip_pos = input_dict.pop('recip_pos')
             phases = input_dict.pop('phases')
             spots = input_dict.pop('spots')
@@ -261,13 +276,17 @@ class XRDBaseScan(XRDData):
 
             # Scrub data keys. For backward compatibility
             if image_data_key is not None:
-                image_title = '_'.join([x for x in image_data_key.split('_')
-                                        if x not in ['images', 'integrations']])
+                image_title = '_'.join([x for x in 
+                                        image_data_key.split('_')
+                                        if x not in ['images',
+                                                     'integrations']])
             else:
                 image_title = None
             if integration_data_key is not None:
-                integration_title = '_'.join([x for x in integration_data_key.split('_')
-                                            if x not in ['images', 'integrations']])
+                integration_title = '_'.join([x for x in
+                                        integration_data_key.split('_')
+                                        if x not in ['images',
+                                                     'integrations']])
             else:
                 integration_title = None
 
@@ -286,9 +305,11 @@ class XRDBaseScan(XRDData):
                 
                 # Check corrections if the titles match
                 elif not np.all([val1 == val2
-                               for val1, val2 in zip(image_corrections.values(),
-                                                     integration_corrections.values())]):
-                    warn_str = ('WARNING: Different corrections applied to images and integrations.'
+                            for val1, val2 in zip(
+                                image_corrections.values(),
+                                integration_corrections.values())]):
+                    warn_str = ('WARNING: Different corrections '
+                                + 'applied to images and integrations.'
                                 + ' Using image corrections.')
                     print(warn_str)
             elif (input_dict['image_data'] is None
@@ -296,7 +317,8 @@ class XRDBaseScan(XRDData):
                 title = integration_title # truncate _integrations
                 corrections = integration_corrections        
             
-            # Remove unused values (keeps pos_dict out of rocking curve...)
+            # Remove unused values
+            # (keeps pos_dict out of rocking curve...)
             for key, value in list(input_dict.items()):
                 if value is None:
                     del input_dict[key]
@@ -322,11 +344,13 @@ class XRDBaseScan(XRDData):
                     # Check for int cutoffs
                     # Wait to make sure intensity is processed
                     if key == 'blob_int_cutoff':
-                        extra_attrs['blob_int_mask'] = generate_intensity_mask(
+                        (extra_attrs['blob_int_mask']
+                        ) = generate_intensity_mask(
                             vect_dict['intensity'],
                             intensity_cutoff=vect_dict['blob_int_cutoff'])
                     elif key == 'spot_int_cutoff':
-                        extra_attrs['spot_int_mask'] = generate_intensity_mask(
+                        (extra_attrs['spot_int_mask']
+                        ) = generate_intensity_mask(
                             vect_dict['intensity'],
                             intensity_cutoff=vect_dict['spot_int_cutoff'])
                     else:
@@ -366,7 +390,9 @@ class XRDBaseScan(XRDData):
         if wd is None:
             wd = os.getcwd()
         
-        image_path = pathify(wd, filename, ['.tif', '.tiff', '.jpeg', '.png'])
+        image_path = pathify(wd,
+                             filename,
+                             ['.tif', '.tiff', '.jpeg', '.png'])
 
         print('Loading images...', end='', flush=True)
         if dask_enabled:
@@ -399,7 +425,8 @@ class XRDBaseScan(XRDData):
             self._energy = energy
         # Propogate changes...
         if hasattr(self, 'ai') and self.ai is not None:
-            self.ai.energy = self._energy # ai energy is not used by any methods called here
+            # ai energy is not used by any methods called here
+            self.ai.energy = self._energy 
             if hasattr(self, '_q_arr'):
                 delattr(self, '_q_arr')
         if hasattr(self, 'phases'):
@@ -479,8 +506,6 @@ class XRDBaseScan(XRDData):
         self._del_arr() # q_arr likely changed
 
 
-
-
     # Flags for units and scales
 
     def angle_units_factory(property_name, options):
@@ -496,16 +521,17 @@ class XRDBaseScan(XRDData):
                 err_str = 'Only '
                 for option in options:
                     err_str += f'{option}, '
-                err_str = err_str[:-2] + f' are supported for {property_name}' 
+                err_str = (err_str[:-2]
+                           + f' are supported for {property_name}')
                 raise ValueError(err_str)
         
         return property(get_angle_units, set_angle_units)
     
 
     scattering_units = angle_units_factory('scattering_units',
-                                           ['rad', 'deg', '1/nm', '1/A'])
+                                    ['rad', 'deg', '1/nm', '1/A'])
     polar_units = angle_units_factory('polar_units',
-                                      ['rad', 'deg'])
+                                    ['rad', 'deg'])
     
 
     def scale_property_factory(property_name):
@@ -532,32 +558,40 @@ class XRDBaseScan(XRDData):
         def get_angle_array(self):
             if hasattr(self, f'_{arr_name}'):
                 return getattr(self, f'_{arr_name}')
-            elif (self.corrections['polar_calibration']): # I should rename...
+            elif (self.corrections['polar_calibration']):
+                # I should rename...
                 if hasattr(self, 'tth') and hasattr(self, 'chi'):
                     # Set both tth and chi!
-                    tth_arr, chi_arr = np.meshgrid(self.tth, self.chi[::-1])
+                    tth_arr, chi_arr = np.meshgrid(self.tth,
+                                                   self.chi[::-1])
                     self._tth_arr = tth_arr
                     self._chi_arr = chi_arr
                     return getattr(self, f'_{arr_name}')
             elif hasattr(self, 'ai') and self.ai is not None:
-                ai_arr = getattr(self.ai, ai_arr_name)() # default is radians
+                # default is radians
+                ai_arr = getattr(self.ai, ai_arr_name)()
                 if arr_name == 'chi_arr':
-                    ai_arr = -ai_arr # Negative to match SRX coordinates
+                    # Negative to match SRX coordinates
+                    ai_arr = -ai_arr 
 
                 if getattr(self, units) == 'rad':
                     pass
                 elif getattr(self, units) == 'deg':
                     ai_arr = np.degrees(ai_arr)
                 elif getattr(self, units) == '1/nm':
-                    raise NotImplementedError('1/nm units not yet fully supported.')
+                    err_str = '1/nm units not yet fully supported.'
+                    raise NotImplementedError(err_str)
                 elif getattr(self, units) == '1/A':
-                    raise NotImplementedError('1/A units not yet fully supported.')
+                    err_str = '1/A units not yet fully supported.'
+                    raise NotImplementedError(err_str)
                 else:
                     raise ValueError('Unknown units specified.')
 
                 setattr(self, f'_{arr_name}', ai_arr)
                 return getattr(self, f'_{arr_name}')
-            raise AttributeError('AzimuthalIntegrator (ai) not specified.')
+            
+            err_str = 'AzimuthalIntegrator (ai) not specified.'
+            raise AttributeError(err_str)
 
         def del_angle_array(self):
             delattr(self, f'_{arr_name}')
@@ -600,7 +634,8 @@ class XRDBaseScan(XRDData):
         if hasattr(self, '_q_arr'):
             return self._q_arr
         elif not hasattr(self, 'ai'):
-            raise RuntimeError('Cannot calculate q-space without calibration.')
+            err_str = 'Cannot calculate q-space without calibration.'
+            raise RuntimeError(err_str)
         else:
             q_arr = get_q_vect(self.tth_arr,
                                self.chi_arr,
@@ -613,7 +648,7 @@ class XRDBaseScan(XRDData):
     def q_arr(self):
         self._del_arr()
     
-    
+    # Convenience function
     def _del_arr(self):
         if hasattr(self, '_tth_arr'):
             delattr(self, '_tth_arr')
@@ -637,8 +672,10 @@ class XRDBaseScan(XRDData):
                  save_current=False):
         
         # Check for previous iterations
-        if ((hasattr(self, 'hdf') and self.hdf is not None)
-            or (hasattr(self, 'hdf_path') and self.hdf_path is not None)):
+        if ((hasattr(self, 'hdf')
+             and self.hdf is not None)
+            or (hasattr(self, 'hdf_path')
+                and self.hdf_path is not None)):
             os_str = ('WARNING: Trying to save to hdf, but a '
                       'file or location has already been specified!'
                       '\nSwitching save files or locations should '
@@ -658,13 +695,15 @@ class XRDBaseScan(XRDData):
                 self.hdf_path = f'{hdf_path}{self.filename}.h5'
         else:
             if hdf_path is None:
-                self.hdf_path = f'{self.wd}{hdf_filename}' # TODO: Add check for .h5
+                # TODO: Add check for .h5
+                self.hdf_path = f'{self.wd}{hdf_filename}' 
             else:
                 self.hdf_path = f'{hdf_path}{hdf_filename}.h5'
 
         # Check for hdf and initialize if new            
         if not os.path.exists(self.hdf_path):
-            initialize_xrdbase_hdf(self, self.hdf_path) # Initialize base structure
+            # Initialize base structure
+            initialize_xrdbase_hdf(self, self.hdf_path) 
 
         # Open hdf if required
         if dask_enabled:
@@ -724,36 +763,44 @@ class XRDBaseScan(XRDData):
     def stop_saving_hdf(self):
 
         if self._dask_enabled:
-            err_str = ('WARNING: Image data is lazy loaded. '
-                       'Stopping or switching hdf is likely to cause problems.'
-                       '\nSave progress and close the hdf with "close_hdf" '
-                       'function before changing save location.')
+            err_str = ('WARNING: Image data is lazy loaded. Stopping '
+                       + 'or switching hdf is likely to cause '
+                       + 'problems.\nSave progress and close the hdf '
+                       + 'with "close_hdf" function before changing '
+                       + 'save location.')
             raise RuntimeError(err_str)
         
         self.close_hdf()
         self.hdf_path = None
     
 
-    def switch_hdf(self, hdf=None, hdf_path=None, hdf_filename=None, dask_enabled=False):
+    def switch_hdf(self,
+                   hdf=None,
+                   hdf_path=None,
+                   hdf_filename=None,
+                   dask_enabled=False):
 
         # Check to make sure the change is appropriate and correct.
         # Not sure if this should raise and error or just print a warning
         if hdf is None and hdf_path is None:
-            os_str = ('Neither hdf nor hdf_path were provided. '
-                       'Cannot switch hdf save locations without providing alternative.')
-            print(os_str)
+            ostr = ('Neither hdf nor hdf_path were provided. '
+                     + '\nCannot switch hdf save locations without '
+                     + 'providing alternative.')
+            print(ostr)
             return
         
         elif hdf == self.hdf:
-            os_str = (f'WARNING: provided hdf ({self.hdf.filename}) is already the current save location. '
-                      'Proceeding without changes')
-            print(os_str)
+            ostr = (f'WARNING: provided hdf ({self.hdf.filename}) is '
+                    + 'already the current save location. '
+                    + '\nProceeding without changes')
+            print(ostr)
             return
         
         elif hdf_path == self.hdf_path:
-            os_str = (f'WARNING: provided hdf_path ({self.hdf_path}) is already the current save location. '
-                      'Proceeding without changes')
-            print(os_str)
+            ostr = (f'WARNING: provided hdf_path ({self.hdf_path}) is '
+                    + 'already the current save location. '
+                    + '\nProceeding without changes')
+            print(ostr)
             return
         
         else:
@@ -764,36 +811,6 @@ class XRDBaseScan(XRDData):
                                   hdf_path=hdf_path,
                                   hdf_filename=hdf_filename,
                                   dask_enabled=dask_enabled)
-    
-    # ### Helper functions for lazy loading with Dask ###
-
-    # # This function does NOT stop saving to hdf
-    # # It only closes open hdf locations and stops lazy loading images
-    # def close_hdf(self):
-    #     if self.hdf is not None:
-    #         self._dask_2_hdf()
-    #         self.hdf.close()
-    #         self.hdf = None
-        
-
-    # def open_hdf(self, dask_enabled=False):
-    #     if self.hdf is not None:
-    #         # Should this raise errors or just ping warnings
-    #         print('WARNING: hdf is already open. Proceeding without changes.')
-    #         return
-    #     else:
-    #         self.hdf = h5py.File(self.hdf_path, 'a')
-
-    #     if dask_enabled or self._dask_enabled: # This flag persists even when the dataset is closed!
-    #         img_grp = self.hdf[f'{self._hdf_type}/image_data']
-    #         if self.title == 'final':
-    #             if check_hdf_current_images(f'{self.title}_images',
-    #                                         hdf=self.hdf):
-    #                 dset = img_grp[f'{self.title}_images']
-    #         elif check_hdf_current_images('_temp_images', hdf=self.hdf):
-    #             dset = img_grp['_temp_images']
-    #         self.images = da.asarray(dset) # I had .persist(), but it broke things...
-    #         self._hdf_store = dset
             
 
     ##############################
@@ -809,10 +826,11 @@ class XRDBaseScan(XRDData):
 
         if isinstance(poni_file, str):
             if not os.path.exists(f'{filedir}{poni_file}'):
-                raise FileNotFoundError(f"{filedir}{poni_file} does not exist")
+                err_str = f'{filedir}{poni_file} does not exist.'
+                raise FileNotFoundError(err_str)
 
             if poni_file[-4:] != 'poni':
-                raise RuntimeError("Please provide a .poni file.")
+                raise RuntimeError('Please provide a .poni file.')
 
             print('Setting detector calibration...')
             self.ai = pyFAI.load(f'{filedir}{poni_file}')
@@ -823,29 +841,38 @@ class XRDBaseScan(XRDData):
 
         elif isinstance(poni_file, ponifile.PoniFile):
             print('Setting detector calibration...')
-            self.ai = AzimuthalIntegrator().set_config(poni_file.as_dict())
+            self.ai = AzimuthalIntegrator().set_config(
+                                            poni_file.as_dict())
         
         else:
-            raise TypeError(f"{type(poni_file)} is unknown and not supported!")
+            err_str = (f'{type(poni_file)} is unknown '
+                       + 'and not supported!')
+            raise TypeError(err_str)
 
         # Update energy if different from poni file
         if energy is None:
             if self.energy is not None:
-                self.ai.energy = self.energy # Allows calibrations acquired at any energy
+                # Allows calibrations acquired at any energy
+                self.ai.energy = self.energy 
             else:
-                print('Energy has not been defined. Defaulting to .poni file value.')
+                ostr = ('Energy has not been defined. '
+                        + 'Defaulting to .poni file value.')
+                print()
                 self.energy = self.ai.energy
         else:
             self.ai.energy = energy # Do not update energy...
 
-        # Update detector shape and pixel size if different from poni file
+        # Update detector shape and pixel
+        # size if different from poni file
         try:
             image_shape = list(self.image_shape)
         except AttributeError:
             image_shape = list(self.images.shape[:-2])
 
         if self.ai.detector.shape != image_shape:
-            print('Calibration performed under different settings. Adjusting calibration.')
+            ostr = ('Calibration performed under different settings. '
+                    + 'Adjusting calibration.')
+            print(ostr)
 
             # Exctract old values
             poni_shape = self.ai.detector.shape
@@ -858,15 +885,17 @@ class XRDBaseScan(XRDData):
             if all([any(bin_est != np.round(bin_est, 0)),
                     any(1 / bin_est != np.round(1 / bin_est, 0))]):
                 err_str = ("Calibration file was performed with an "
-                            + "image that is not an integral multiple "
-                            + "of the current map's images."
-                            + "\n\t\tEnsure the calibration is for the "
-                            + "correct detector with the appropriate binning.")
+                            + "image that is not an integral "
+                            + "multiple of the current map's images."
+                            + "\n\t\tEnsure the calibration is for "
+                            + "the correct detector with the "
+                            + "appropriate binning.")
                 raise ValueError(err_str)
 
             # Overwrite values
             self.ai.detector.shape = image_shape
-            self.ai.detector.max_shape = image_shape # Not exactly correct, but more convenient
+            # Not exactly correct, but more convenient
+            self.ai.detector.max_shape = image_shape 
             self.ai.detector.pixel1 = poni_pixel1 / bin_est[0]
             self.ai.detector.pixel2 = poni_pixel2 / bin_est[1]
 
@@ -883,12 +912,6 @@ class XRDBaseScan(XRDData):
 
     @XRDData.protect_hdf()
     def save_calibration(self):
-        # if self.hdf_path is not None:
-        #     # Open hdf flag
-        #     keep_hdf = True
-        #     if self.hdf is None:
-        #         self.hdf = h5py.File(self.hdf_path, 'a')
-        #         keep_hdf = False
 
         # Write data to hdf
         curr_grp = self.hdf[self._hdf_type].require_group('reciprocal_positions')
@@ -905,13 +928,7 @@ class XRDBaseScan(XRDData):
                         value_i = value_i.value
                     new_new_grp.attrs[key_i] = value_i
             else:
-                #print(value)
                 new_grp.attrs[key] = value
-
-            # # Close hdf and reset attribute
-            # if not keep_hdf:
-            #     self.hdf.close()
-            #     self.hdf = None
 
 
     # One off 1D integration
@@ -921,11 +938,12 @@ class XRDBaseScan(XRDData):
                           tth_num=None,
                           unit='2th_deg',
                           **kwargs):
-        # Intended for one-off temporary results
 
         if image is None:
             if self.corrections['polar_calibration']:
-                raise RuntimeError("You are trying to calibrate already calibrated images!")
+                err_str = ('You are trying to calibrate '
+                           + 'already calibrated images!')
+                raise RuntimeError(err_str)
             else:
                 image = self.composite_image
         
@@ -935,9 +953,11 @@ class XRDBaseScan(XRDData):
         tth_min = np.min(self.tth_arr)
         tth_max = np.max(self.tth_arr)
         if tth_num is None:
-            tth_num = int(np.round((tth_max - tth_min) / tth_resolution))
+            tth_num = int(np.round((tth_max - tth_min)
+                                   / tth_resolution))
         elif tth_num is None and tth_resolution is None:
-            raise ValueError('Must define either tth_num or tth_resolution.')
+            err_str = 'Must define either tth_num or tth_resolution.'
+            raise ValueError(err_str)
         
         return self.ai.integrate1d_ng(image,
                                       tth_num,
@@ -946,6 +966,7 @@ class XRDBaseScan(XRDData):
                                       polarization_factor=None,
                                       **kwargs)
     
+
     # One off 2D integration
     def integrate2d_image(self,
                           image,
@@ -955,11 +976,12 @@ class XRDBaseScan(XRDData):
                           chi_resolution=None,
                           unit='2th_deg',
                           **kwargs):
-        # Intended for one-off temporary results
 
         if image is None:
             if self.corrections['polar_calibration']:
-                raise RuntimeError("You are trying to clibrate already calibrated images!")
+                err_str = ('You are trying to clibrate '
+                           + 'already calibrated images!')
+                raise RuntimeError(err_str)
             else:
                 image = self.composite_image
 
@@ -972,21 +994,25 @@ class XRDBaseScan(XRDData):
         tth_min = np.min(self.tth_arr)
         tth_max = np.max(self.tth_arr)
         if tth_num is None:
-            tth_num = int(np.round((tth_max - tth_min) / tth_resolution))
+            tth_num = int(np.round((tth_max - tth_min)
+                                   / tth_resolution))
         elif tth_num is not None:
             tth_resolution = (tth_max - tth_min) / tth_num
         elif tth_num is None and tth_resolution is None:
-            raise ValueError('Must define either tth_num or tth_resolution.')
+            err_str = 'Must define either tth_num or tth_resolution.'
+            raise ValueError(err_str)
         
         # Get chi numbers
         chi_min = np.min(self.chi_arr)
         chi_max = np.max(self.chi_arr)
         if chi_num is None:
-            chi_num = int(np.round((chi_max - chi_min) / chi_resolution))
+            chi_num = int(np.round((chi_max - chi_min)
+                                   / chi_resolution))
         elif chi_num is not None:
             chi_resolution = (chi_max - chi_min) / chi_num
         elif chi_num is None and chi_resolution is None:
-            raise ValueError('Must define either chi_num or chi_resolution.')
+            err_str = 'Must define either chi_num or chi_resolution.'
+            raise ValueError(err_str)
        
         return self.ai.integrate2d_ng(image, tth_num, chi_num,
                                       unit=unit,
@@ -996,20 +1022,28 @@ class XRDBaseScan(XRDData):
 
 
     # Convenience function for image to polar coordinate transformation (estimate!)
-    def estimate_polar_coords(self, coords, method='linear'):
-        return estimate_polar_coords(coords, self.tth_arr, self.chi_arr, method=method)
+    def estimate_polar_coords(self,
+                              coords,
+                              method='linear'):
+        return estimate_polar_coords(coords,
+                                     self.tth_arr,
+                                     self.chi_arr,
+                                     method=method)
     
 
     # Convenience function for polar to image coordinate transformation (estimate!)
-    def estimate_image_coords(self, coords, method='nearest'):
-        return estimate_image_coords(coords, self.tth_arr, self.chi_arr, method=method)
+    def estimate_image_coords(self,
+                              coords,
+                              method='nearest'):
+        return estimate_image_coords(coords,
+                                     self.tth_arr,
+                                     self.chi_arr,
+                                     method=method)
 
     
     @XRDData.protect_hdf()
     def save_reciprocal_positions(self):
-        
-        # if self.hdf_path is not None:
-            # Check for values to save           
+                 
         if self.tth is None:
             tth = []
         else:
@@ -1020,12 +1054,6 @@ class XRDBaseScan(XRDData):
             chi = self.chi
 
         print('Writing reciprocal positions to disk...', end='', flush=True)
-            # # Open hdf flag
-            # keep_hdf = True
-            # if self.hdf is None:
-            #     self.hdf = h5py.File(self.hdf_path, 'a')
-            #     keep_hdf = False
-
         # This group may already exist if poni file was already initialized
         curr_grp = self.hdf[self._hdf_type].require_group('reciprocal_positions')
         if hasattr(self, 'extent'):
@@ -1058,10 +1086,6 @@ class XRDBaseScan(XRDData):
             dset.attrs['time_stamp'] = ttime.ctime()
             dset.attrs[f'{key}_resolution'] = resolution[i]
 
-            # # Close hdf and reset attribute
-            # if not keep_hdf:
-            #     self.hdf.close()
-            #     self.hdf = None
         print('done!')
     
     ##################################
@@ -1095,14 +1119,6 @@ class XRDBaseScan(XRDData):
                       group_name,
                       map_dict,
                       unit_name):
-        # # Write to hdf file
-        # if self.hdf_path is not None:
-
-        #     # Open hdf flag
-        #     keep_hdf = True
-        #     if self.hdf is None:
-        #         self.hdf = h5py.File(self.hdf_path, 'a')
-        #         keep_hdf = False
 
         # Write data to hdf
         curr_grp = self.hdf[self._hdf_type].require_group(group_name)
@@ -1136,11 +1152,6 @@ class XRDBaseScan(XRDData):
             dset.attrs['labels'] = ['map_x', 'map_y']
             dset.attrs['units'] = unit_name
             dset.attrs['dtype'] = str(value.dtype)
-
-            # # Close hdf and reset attribute
-            # if not keep_hdf:
-            #     self.hdf.close()
-            #     self.hdf = None
         
     
     #########################################
@@ -1154,12 +1165,14 @@ class XRDBaseScan(XRDData):
         elif isinstance(phase, str):
             phase_name = phase
         else:
-            raise TypeError(f"Unsure how to handle {phase} type.")
+            raise TypeError(f'Unsure how to handle {phase} type.')
 
         if phase_name not in self.phases.keys():
             self.phases[phase_name] = phase
         else:
-            print(f"Did not add {phase_name} since it is already a possible phase.")
+            ostr = (f'Did not add {phase_name} since it is '
+                    + 'already a possible phase.')
+            print()
 
 
     def remove_phase(self, phase):
@@ -1169,12 +1182,14 @@ class XRDBaseScan(XRDData):
         elif isinstance(phase, str):
             phase_name = phase
         else:
-            raise TypeError(f"Unsure how to handle {phase} type.")
+            raise TypeError(f'Unsure how to handle {phase} type.')
 
         if phase_name in self.phases.keys():
             del self.phases[phase_name]
         else:
-            print(f"Cannot remove {phase_name} since it is not in possible phases.")
+            ostr = (f'Cannot remove {phase_name} since it is '
+                    + 'not in possible phases.')
+            print(ostr)
         
 
     def load_phase(self, filename, filedir=None, phase_name=None):
@@ -1185,7 +1200,8 @@ class XRDBaseScan(XRDData):
                              ['.cif', '.txt', '.D', '.h5'])
 
         if not os.path.exists(f'{phase_path}'):
-            raise FileNotFoundError(f"Specified path does not exist:\n{phase_path}")
+            err_str = f'Specified path does not exist:\n{phase_path}'
+            raise FileNotFoundError(err_str)
         
         if filename[-4:] == '.cif':
             phase = Phase.fromCIF(f'{phase_path}')
@@ -1196,8 +1212,10 @@ class XRDBaseScan(XRDData):
         elif filename[-2:] == '.h5':
             raise NotImplementedError()
         else:
-            raise TypeError(f'''Unsure how to read {filename}. 
-                            Either specifiy file type or this file type is not supported.''')
+            err_str = (f'Unsure how to read {filename}. Either '
+                       + 'specifiy file type or this file type '
+                       + 'is not supported.')
+            raise TypeError(err_str)
         
         if phase_name is not None:
             phase.name = phase_name
@@ -1210,16 +1228,10 @@ class XRDBaseScan(XRDData):
 
     @XRDData.protect_hdf()
     def update_phases(self):
-        # if (self.hdf_path is not None) and (len(self.phases) > 0):
-
-        #     # Open hdf flag
-        #     keep_hdf = True
-        #     if self.hdf is None:
-        #         self.hdf = h5py.File(self.hdf_path, 'a')
-        #         keep_hdf = False
         
         if len(self.phases) > 0:
-            phase_grp = self.hdf[self._hdf_type].require_group('phase_list')
+            phase_grp = self.hdf[self._hdf_type].require_group(
+                                                    'phase_list')
 
             # Delete any no longer included phases
             for phase in phase_grp.keys():
@@ -1231,11 +1243,6 @@ class XRDBaseScan(XRDData):
                 phase.save_to_hdf(phase_grp)
 
             print('Updated phases saved in hdf.')
-            
-            # # Close hdf and reset attribute
-            # if not keep_hdf:
-            #     self.hdf.close()
-            #     self.hdf = None
 
 
     def select_phases(self,
@@ -1248,7 +1255,9 @@ class XRDBaseScan(XRDData):
                       save_to_hdf=True):
         
         if not hasattr(self, 'ai') or self.ai is None:
-            raise AttributeError('Must first set calibration before selecting phases.')
+            err_str = ('Must first set calibration '
+                       + 'before selecting phases.')
+            raise AttributeError(err_str)
         
         if image is None:
             if self.corrections['polar_calibration']:
@@ -1264,10 +1273,15 @@ class XRDBaseScan(XRDData):
             else:
                 energy = self.energy
         
-        tth, xrd = self.integrate1d_image(image=image, tth_num=tth_num, unit=unit)
+        tth, xrd = self.integrate1d_image(image=image,
+                                          tth_num=tth_num,
+                                          unit=unit)
 
         # Plot phase_selector
-        phase_vals = phase_selector(xrd, list(self.phases.values()), tth, ignore_less=ignore_less)
+        phase_vals = phase_selector(xrd,
+                                    list(self.phases.values()),
+                                    tth,
+                                    ignore_less=ignore_less)
 
         old_phases = list(self.phases.keys())
         for phase in old_phases:
@@ -1282,10 +1296,11 @@ class XRDBaseScan(XRDData):
     # This might be replaced with generate reciprocal lattice
     def _get_all_reflections(self, ignore_less=1):
         for phase in self.phases:
-            self.phases[phase].get_hkl_reflections(tth_range=(0, # Limited to zero for large d-spacing
-                                                                 # Used for indexing later
-                                                              np.max(self.tth)),
-                                                   ignore_less=ignore_less)
+            self.phases[phase].get_hkl_reflections(
+                tth_range=(0, # Limited to zero for large d-spacing
+                              # Used for indexing later
+                           np.max(self.tth)),
+                ignore_less=ignore_less)
          
 
     ##########################

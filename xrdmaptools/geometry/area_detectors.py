@@ -16,8 +16,13 @@ class Dexela2315(Detector):
     #MAX_SHAPE = (3072, 1944)
     MAX_SHAPE = (1944, 3072)
 
-    def __init__(self, pixel1=74.8e-6, pixel2=74.8e-6, max_shape=None):
-        super(Dexela2315, self).__init__(pixel1=pixel1, pixel2=pixel2, max_shape=max_shape)
+    def __init__(self,
+                 pixel1=74.8e-6,
+                 pixel2=74.8e-6,
+                 max_shape=None):
+        super(Dexela2315, self).__init__(pixel1=pixel1,
+                                         pixel2=pixel2,
+                                         max_shape=max_shape)
 
     def __repr__(self):
         return "Detector %s\t PixelSize= %.3e, %.3e m" % \
@@ -40,8 +45,13 @@ class MerlinX(Detector):
     aliases = ["MerlinX"]
     MAX_SHAPE = (512, 512)
 
-    def __init__(self, pixel1=55e-6, pixel2=55e-6, max_shape=None):
-        super(MerlinX, self).__init__(pixel1=pixel1, pixel2=pixel2, max_shape=max_shape)
+    def __init__(self,
+                 pixel1=55e-6,
+                 pixel2=55e-6,
+                 max_shape=None):
+        super(MerlinX, self).__init__(pixel1=pixel1,
+                                      pixel2=pixel2,
+                                      max_shape=max_shape)
 
     def __repr__(self):
         return "Detector %s\t PixelSize= %.3e, %.3e m" % \

@@ -16,19 +16,6 @@ from xrdmaptools.geometry.geometry import (
 )
 
 
-# def mutli_vector_angles(v1s, v2s, degrees=False):
-#     v1_units = v1s / np.linalg.norm(v1s, axis=1).reshape(-1, 1)
-#     v1_units = v2s / np.linalg.norm(v2s, axis=1).reshape(-1, 1)
-
-#     # Not happy about the round. This is not perfect...
-#     angles = np.arccos(np.inner(v1_units, v2_units).round(6))
-
-#     if degrees:
-#         angles = np.degrees(angles)
-    
-#     return angles
-
-
 def pair_casting_index_pattern(all_spot_qs,
                                phase,
                                near_q,

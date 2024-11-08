@@ -79,14 +79,14 @@ class XRDMapStack(list):
                     err_str = (f'XRDMap [{i}] does not have '
                                + f'attribute {property_name}.')
                     raise AttributeError(err_str)
-            # return [getattr(xrdmap, property_name) for xrdmap in self]
             return prop_list
         
         set_property, del_property = None, None
 
         if include_set:
             def set_property(self, values):
-                [setattr(xrdmap, property_name, val) for xrdmap, val in zip(self, values)]
+                [setattr(xrdmap, property_name, val)
+                 for xrdmap, val in zip(self, values)]
 
         if include_del:
             def del_property(self):
@@ -114,7 +114,8 @@ class XRDMapStack(list):
         
         if include_set:
             def set_property(self, value): # This may break some of them...
-                [setattr(xrdmap, property_name, value) for xrdmap in self]
+                [setattr(xrdmap, property_name, value)
+                 for xrdmap in self]
 
         if include_del:
             def del_property(self):
@@ -125,28 +126,38 @@ class XRDMapStack(list):
                         del_property)
 
 
-    energy = _list_property_constructor('energy',
-                                        include_set=True)
-    wavelength = _list_property_constructor('wavelength',
-                                            include_set=True)
-    q_arr = _list_property_constructor('q_arr',
-                                       include_del=True)
+    energy = _list_property_constructor(
+                                'energy',
+                                include_set=True)
+    wavelength = _list_property_constructor(
+                                'wavelength',
+                                include_set=True)
+    q_arr = _list_property_constructor(
+                                'q_arr',
+                                include_del=True)
 
-    tth_arr = _universal_property_constructor('tth_arr',
-                                              include_del=True)
-    chi_arr = _universal_property_constructor('chi_arr',
-                                              include_del=True)
+    tth_arr = _universal_property_constructor(
+                                'tth_arr',
+                                include_del=True)
+    chi_arr = _universal_property_constructor(
+                                'chi_arr',
+                                include_del=True)
 
-    scattering_units = _universal_property_constructor('scattering_units',
-                                                       include_set=True)
-    polar_units = _universal_property_constructor('polar_units',
-                                                  include_set=True)
-    image_scale = _universal_property_constructor('image_scale',
-                                                  include_set=True)
-    integration_scale = _universal_property_constructor('integration_scale',
-                                                        include_set=True)
-    dtype = _universal_property_constructor('dtype',
-                                            include_set=True)
+    scattering_units = _universal_property_constructor(
+                                'scattering_units',
+                                include_set=True)
+    polar_units = _universal_property_constructor(
+                                'polar_units',
+                                include_set=True)
+    image_scale = _universal_property_constructor(
+                                'image_scale',
+                                include_set=True)
+    integration_scale = _universal_property_constructor(
+                                'integration_scale',
+                                include_set=True)
+    dtype = _universal_property_constructor(
+                                'dtype',
+                                include_set=True)
     
     ### Turn other individual attributes in properties ###
 
@@ -197,8 +208,9 @@ class XRDMapStack(list):
             if len(list(self._xrf.values())[0]) == len(self):
                 return self._xrf
             else:
-                warn_str = (f'Length of XRDMapStack ({len(self)}) does not '
-                            + f'match previous XRF data ({len(self._xrf.values()[0])})'
+                warn_str = (f'Length of XRDMapStack ({len(self)}) '
+                            + 'does not match previous XRF data '
+                            + f'({len(self._xrf.values()[0])})'
                             + '\nDetermining new xrf length.')
                 print(warn_str)
                 del self._xrf
@@ -206,7 +218,8 @@ class XRDMapStack(list):
         else:
             for i, xrdmap in enumerate(self):
                 if not hasattr(xrdmap, 'xrf') or xrdmap is None:
-                    err_str = f'XRDMap {i} does not have xrf attribute.'
+                    err_str = (f'XRDMap {i} does not '
+                               + 'have xrf attribute.')
                     raise AttributeError(err_str)
             
             # Find which data to add
@@ -224,7 +237,8 @@ class XRDMapStack(list):
                     if key in xrdmap.xrf.keys():
                         _xrf[key].append(xrdmap.xrf[key])
                     else:
-                        _xrf[key].append(None) # This is to handle variable element fitting
+                        # This is to handle variable element fitting
+                        _xrf[key].append(None) 
 
             # Clean up None inputs to zero arrays.
             # Not as straightfoward with previous loop
@@ -236,7 +250,8 @@ class XRDMapStack(list):
                     else:
                         clean_index = i
                 for idx in none_indices:
-                    _xrf[key][idx] = np.zeros_like(_xrf[key][clean_index])
+                    _xrf[key][idx] = np.zeros_like(
+                                        _xrf[key][clean_index])
             
             self._xrf = _xrf
             return self._xrf
@@ -345,7 +360,8 @@ class XRDMapStack(list):
         # Check that method exists in all xrdmaps
         for i, xrdmap in enumerate(self):
             if not hasattr(xrdmap, method):
-                err_str = f'XRDMap [{i}] does not have {method} method.'
+                err_str = (f'XRDMap [{i}] does not '
+                           + f'have {method} method.')
                 raise AttributeError(err_str)
 
         # Select iterator
@@ -360,20 +376,28 @@ class XRDMapStack(list):
 
                 # Check and fix arglists
                 for i, arg in enumerate(arglists):
-                    if isinstance(arg, list) and len(arg) == len(self):
+                    if (isinstance(arg, list)
+                        and len(arg) == len(self)):
                         args.append(arg)
-                    elif isinstance(arg, list) and len(arg) != len(self):
-                        raise ValueError(f'Length of arguments do not match length of XRDMapStack.')
+                    elif (isinstance(arg, list)
+                          and len(arg) != len(self)):
+                        err_str = ('Length of arguments do not match '
+                                   + 'length of XRDMapStack.')
+                        raise ValueError(err_str)
                     else:
                         # Redefine arg as repeated list
                         arglists[i] = [arg,] * len(self)
 
                 # Check and fix karglists
                 for key, kwarg in kwarglists.items():
-                    if isinstance(kwarg, list) and len(kwarg) == len(self):
+                    if (isinstance(kwarg, list)
+                        and len(kwarg) == len(self)):
                         pass # All is well
-                    elif isinstance(kwarg, list) and len(kwarg) != len(self):
-                        raise ValueError(f'Length of arguments do not match length of XRDMapStack.')
+                    elif (isinstance(kwarg, list)
+                          and len(kwarg) != len(self)):
+                        err_str = ('Length of arguments do not match '
+                                   + 'length of XRDMapStack.')
+                        raise ValueError(err_str)
                     else:
                         # Redefine kwarg as repeated list
                         kwarglists[key] = [kwarg,] * len(self)
@@ -383,8 +407,10 @@ class XRDMapStack(list):
                                           total=len(self),
                                           iter_name='XRDMap'):
                     args = [arg[i] for arg in arglists]
-                    kwargs = dict(zip(kwarglists.keys(),
-                                      [val[i] for val in kwarglists.values()]))
+                    kwargs = dict(
+                                zip(kwarglists.keys(),
+                                    [val[i]
+                                     for val in kwarglists.values()]))
                     
                     getattr(xrdmap, method)(*args, **kwargs)
 
@@ -419,17 +445,20 @@ class XRDMapStack(list):
         ('load_images_from_hdf', True, True),
         ('dump_images', False, False),
         # Working with calibration
-        ('set_calibration', False, False), # Do not accept variable calibrations
+        # Do not accept variable calibrations
+        ('set_calibration', False, False), 
         ('save_calibration', False, True),
         ('integrate1d_map', False, True),
         ('integrate2d_map', False, True),
         ('save_reciprocal_positions', False, True),
         # Working with positions only
-        ('set_positions', True, False), # Unlikely, but should support interferometers in future
+        # Unlikely, but should support interferometers in future
+        ('set_positions', True, False), 
         ('save_sclr_pos', False, False),
         ('swap_axes', False, False),
         # Working with phases
-        ('update_phases', False, False), # This one saves to individual hdfs
+        # This one saves to individual hdfs
+        ('update_phases', False, False), 
         # Working with spots
         ('find_blobs', False, True),
         ('find_spots', False, True),
@@ -441,7 +470,8 @@ class XRDMapStack(list):
         ('remove_spot_fits', False, False),
         ('save_spots', False, True),
         # Working with xrfmap
-        ('load_xrfmap', True, False) # Multiple inputs may be crucial here
+        # Multiple inputs may be crucial here
+        ('load_xrfmap', True, False) 
     )
         
     
@@ -480,7 +510,8 @@ class XRDMapStack(list):
         'load_phase',
         'clear_phases',
         # Positional
-        # No swap_axes or interpolate_positions. Should be called during processing.
+        # No swap_axes or interpolate_positions.
+        # Should be called during processing.
         'map_extent',
         # Plotting functions
         'plot_detector_geometry',
@@ -505,7 +536,8 @@ class XRDMapStack(list):
         # Check for attr
         for i, xrdmap in enumerate(self):
             if not hasattr(xrdmap, attr):
-                err_str = f'XRDMap [{i}] does not have attributre {attr}.'
+                err_str = (f'XRDMap [{i}] does not have '
+                           + f'attributre {attr}.')
                 raise AttributeError(err_str)
         
         # Actually sort
@@ -519,7 +551,8 @@ class XRDMapStack(list):
     
     # Convenience wrapper for batch processing scans
     def batched_processing(self,
-                           batched_functions, # Input must be xrdmap and kwarglists
+                           # Input must be xrdmap and kwarglists
+                           batched_functions, 
                            **kwarglists):
 
         # Check and fix karglists
@@ -527,7 +560,9 @@ class XRDMapStack(list):
             if isinstance(kwarg, list) and len(kwarg) == len(self):
                 pass # All is well
             elif isinstance(kwarg, list) and len(kwarg) != len(self):
-                raise ValueError(f'Length of arguments do not match length of XRDMapStack.')
+                err_str = ('Length of arguments do not match '
+                           + 'length of XRDMapStack.')
+                raise ValueError(err_str)
             else:
                 # Redefine kwarg as repeated list
                 kwarglists[key] = [kwarg,] * len(self)
@@ -576,8 +611,9 @@ class XRDMapStack(list):
 
     
     def pixel_spots(self, map_indices):
-        pixel_spots = self.spots[(self.spots['map_x'] == map_indices[1])
-                               & (self.spots['map_y'] == map_indices[0])].copy()
+        pixel_spots = self.spots[
+                    (self.spots['map_x'] == map_indices[1])
+                     & (self.spots['map_y'] == map_indices[0])].copy()
         return pixel_spots
 
 
@@ -625,7 +661,8 @@ class XRDMapStack(list):
 
         print('Vectorizing images...')
         filled_indices = 0
-        for i, wavelength in tqdm(enumerate(self.wavelength), total=self.num_images):
+        for i, wavelength in tqdm(enumerate(self.wavelength),
+                                  total=self.num_images):
             q_arr = get_q_vect(self.tth_arr,
                                self.chi_arr,
                                wavelength=wavelength,
@@ -710,9 +747,17 @@ class XRDMapStack(list):
                        ):
 
         if slider_vals is None:
-            slider_vals = self.energy
-        if slider_label is None:
-            slider_label = 'Energy [keV]'
+            if self.rocking_axis == 'energy':
+                slider_vals = self.energy
+            if self.rocking_axis == 'angle':
+                slider_vals = self.theta
+        
+        if slider_labels is None:
+            if self.rocking_axis == 'energy':
+                slider_label = 'Energy [keV]'
+            if self.rocking_axis == 'angle':
+                slider_label = 'Angle [deg.]'
+
         if (shifts is None
             and hasattr(self.shifts)):
             shifts = self.shifts
@@ -728,9 +773,11 @@ class XRDMapStack(list):
                                 )
         
         if return_plot:
-            return fig, ax, slider
+            self.__slider = slider
+            return fig, ax
         else:
-            fig.show() # I may need to save the slider somewhere...
+            self.__slider = slider
+            fig.show()
 
 
     

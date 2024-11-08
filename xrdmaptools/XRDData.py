@@ -8,7 +8,10 @@ import dask.array as da
 import functools
 
 # Local imports
-from xrdmaptools.io.hdf_utils import check_hdf_current_images, get_optimal_chunks
+from xrdmaptools.io.hdf_utils import (
+    check_hdf_current_images,
+    get_optimal_chunks
+)
 from xrdmaptools.utilities.math import check_precision
 from xrdmaptools.utilities.utilities import rescale_array
 from xrdmaptools.utilities.image_corrections import (
@@ -49,7 +52,9 @@ class XRDData:
             and integration_data is None
             and (map_shape is None
                  or image_shape is None)):
-            raise ValueError('Must specify image_data, integration_data, or image and map shapes.')
+            err_str = ('Must specify image_data, integration_data, '
+                       + 'or image and map shapes.')
+            raise ValueError(err_str)
         
         if hdf_path is None and hdf_type is None:
             raise ValueError('Must specify hdf_type to use hdf.')
@@ -64,7 +69,9 @@ class XRDData:
                 da.core.Array,
                 h5py._hl.dataset.Dataset)
                 ):
-                raise TypeError(f'Incorrect image_data type ({type(image_data)}).')
+                err_str = ('Incorrect image_data type '
+                           + f'({type(image_data)}).')
+                raise TypeError(err_str)
 
             # Parallized image processing
             if dask_enabled:
@@ -88,9 +95,11 @@ class XRDData:
 
             # Working wtih image_data shape
             # Check inputs first. If these are given, assumed they will be used.
-            for shape, name in zip([map_shape, image_shape], ['map_shape', 'image_shape']):
+            for shape, name in zip([map_shape, image_shape],
+                                   ['map_shape', 'image_shape']):
                 if shape is not None and len(shape) != 2:
-                    raise ValueError(f'Given {name} ({shape}) is not 2D!')
+                    err_str = f'Given {name} ({shape}) is not 2D!'
+                    raise ValueError(err_str)
             # Fully defined inputs
             if map_shape is not None and image_shape is not None:
                 dataset_shape = (*map_shape, *image_shape)
@@ -100,22 +109,38 @@ class XRDData:
                 input_shape = image_data.shape
                 print('WARNING: image_data given as 3D object.')
                 if map_shape is not None:
-                    self.images = image_data.reshape((*map_shape, *input_shape[-2:]))
+                    self.images = image_data.reshape((*map_shape,
+                                                      *input_shape[-2:]))
                     image_shape = self.images.shape[-2:]
-                    print(f'Reshaping image_data into given map_shape as {self.images.shape}.')
+                    ostr = ('Reshaping image_data into given '
+                            + f'map_shape as {self.images.shape}.')
+                    print(ostr)
                 elif image_shape is not None:  # This may break wtih a theta or energy channel
-                    self.images = image_data.reshape((*input_shape[:-2], *image_shape))
+                    self.images = image_data.reshape((*input_shape[:-2],
+                                                      *image_shape))
                     map_shape = self.images.shape[:-2]
-                    print(f'Reshaping data into given image_shape as {self.images.shape}.')
-                    print('WARNING: This is not a recommended way to store or load image data.')
+                    warn_str = ('Reshaping data into given image_shape'
+                                + f' as {self.images.shape}.\nWARNING:'
+                                + ' This is not a recommended way to '
+                                + 'store or load image data.')
+                    print(warn_str)
                 else:
-                    print('Not map_shape or image_shape given. Assuming square map as list of images...')
+                    ostr = ('Not map_shape or image_shape given. '
+                            + 'Assuming square map as '
+                            + 'list of images...')
+                    print(ostr)
                     input_shape = image_data.shape
                     map_side = np.sqrt(input_shape[0])
                     if map_side % 1 != 0:
-                        raise RuntimeError('Assummed square map could not be constructed...')
-                    new_shape = (int(map_side), int(map_side), *input_shape[1:])
-                    print(f'Assumed map shape is {new_shape[:2]} with images of {new_shape[-2:]}')
+                        err_str = ('Assummed square map could not '
+                                   + 'be constructed...')
+                        raise RuntimeError(err_str)
+                    new_shape = (int(map_side),
+                                 int(map_side),
+                                 *input_shape[1:])
+                    ostr = (f'Assumed map shape is {new_shape[:2]} '
+                            + f'with images of {new_shape[-2:]}')
+                    print(ostr)
                     self.images = image_data.reshape(new_shape)
                     map_shape = self.images.shape[:-2]
                     image_shape = self.images.shape[-2:]
@@ -125,7 +150,8 @@ class XRDData:
                 image_shape = self.images.shape[-2:]
             else:
                 err_str = (f'Insufficient data provided to resolve '
-                           + f'image_data of shape ({image_data.shape}).'
+                           + 'image_data of shape '
+                           + f'({image_data.shape}).'
                            + ' 4D array is preferred input.')
                 raise ValueError(err_str)
 
@@ -134,34 +160,50 @@ class XRDData:
             self.image_shape = image_shape
         else:
             if dask_enabled:
-                print('WARNING: Cannot enable dask without image_data. Proceeding without dask.')
+                warn_str = ('WARNING: Cannot enable dask without '
+                            + 'image_data. Proceeding without dask.')
+                print(warn_str)
                 dask_enabled = False
             self.images = None
 
             if image_shape is None:
-                raise ValueError('image_shape must be provided if image_data is not.')     
+                err_str = ('image_shape must be provided if '
+                           + 'image_data is not.')
+                raise ValueError(err_str)     
         
         # Working with integration_data shape
         if integration_data is not None:
-            # No lazy loading of integration_data. Might be worth it, but requires a lot of support
+            # No lazy loading of integration_data.
+            # Might be worth it, but requires a lot of support
             integration_data = np.asarray(integration_data)
 
             # Explicit map_shape provided
             if map_shape is not None:
                 if len(map_shape) != 2:
-                    raise ValueError(f'Given map_shape ({map_shape}) is not 2D!')
-                self.integrations = integration_data.reshape((*self.map_shape, -1))
+                    err_str = (f'Given map_shape ({map_shape}) '
+                               + 'is not 2D!')
+                    raise ValueError(err_str)
+                self.integrations = integration_data.reshape(
+                                        (*self.map_shape, -1))
             
             # 2D integration_data
             elif integration_data.ndim == 2:
-                print('WARNING: integration_data given as 2D object without providing map_shape.')
-                print('Assuming 2D map shape...')
+                warn_str = ('WARNING: integration_data given as 2D '
+                            + 'object without providing map_shape.'
+                            + '\nAssuming 2D map shape...')
+                print(warn_str)
                 input_shape = integration_data.shape
                 map_side = np.sqrt(input_shape[0])
                 if map_side % 1 != 0:
-                    raise RuntimeError('Assummed square map could not be constructed...')
-                new_shape = (int(map_side), int(map_side), input_shape[-1])
-                print(f'Assumed map_shape is {new_shape[:2]} with integrations of {new_shape[-1]}')
+                    err_str = ('Assummed square map could not '
+                               + 'be constructed...')
+                    raise RuntimeError(err_str)
+                new_shape = (int(map_side),
+                             int(map_side),
+                             input_shape[-1])
+                ostr = (f'Assumed map_shape is {new_shape[:2]} '
+                        + f'with integrations of {new_shape[-1]}')
+                print(ostr)
                 self.integrations = integration_data.reshape(new_shape)
                 map_shape = self.integrations.shape[:2]
 
@@ -172,7 +214,8 @@ class XRDData:
             
             else:
                 err_str = (f'Insufficient data provided to resolve '
-                           + f'integration_data of shape ({integration_data.shape}).'
+                           + 'integration_data of shape '
+                           + f'({integration_data.shape}).'
                            + ' 3D array is preferred input.')
                 raise ValueError(err_str)
         else:
@@ -180,9 +223,11 @@ class XRDData:
             self.integrations_corrections = None
         
         # Some useful parameters
-        if not hasattr(self, 'map_shape') or self.map_shape is not None:
+        if (not hasattr(self, 'map_shape')
+            or self.map_shape is not None):
             self.map_shape = map_shape
-        if not hasattr(self, 'image_shape') or self.image_shape is not None:
+        if (not hasattr(self, 'image_shape')
+            or self.image_shape is not None):
             self.image_shape = image_shape
         
         if self.map_shape is not None:
@@ -190,7 +235,8 @@ class XRDData:
         else:
             self.num_images = 0
 
-        if self.map_shape is not None and self.image_shape is not None:
+        if (self.map_shape is not None
+            and self.image_shape is not None):
             self.shape = (*self.map_shape, *self.image_shape)
         
         # Define/determine chunks and rechunk if necessary
@@ -212,14 +258,18 @@ class XRDData:
             try:
                 hdf_path = hdf.filename
             except ValueError:
-                raise ValueError('XRDData cannot be instantiated with closed hdf file!')
+                err_str = ('XRDData cannot be instantiated with '
+                           + 'closed hdf file!')
+                raise ValueError(err_str)
         self.hdf = hdf
         self.hdf_path = hdf_path
 
         if dtype is None:
-            if hasattr(self, 'images') and self.images is not None:
+            if (hasattr(self, 'images')
+                and self.images is not None):
                 dtype = self.images.dtype
-            elif hasattr(self, 'integrations') and self.integrations is not None:
+            elif (hasattr(self, 'integrations')
+                  and self.integrations is not None):
                 dtype = self.integrations.dtype
             else:
                 dtype = None
@@ -230,9 +280,10 @@ class XRDData:
         else:
             self.corrections = {
                 'dark_field' : False,
-                'flat_field' : False, # Poorly measured
-                'air_scatter' : False, # Can be approximated with background
-                'outliers' : False, # Slow
+                'flat_field' : False, 
+                # Can be approximated with background
+                'air_scatter' : False, 
+                'outliers' : False,
                 'pixel_defects' : False, # Just a mask
                 'pixel_distortions' : False, # Uncommon
                 'polar_calibration' : False, # Bulky
@@ -275,35 +326,47 @@ class XRDData:
         
         if dask_enabled:
             if self.hdf_path is None and self.hdf is None:
-                raise RuntimeError('Cannot have dask enabled processing without specifying hdf file!')
+                err_str = ('Cannot have dask enabled processing '
+                           + 'without specifying hdf file!')
+                raise RuntimeError(err_str)
             elif self.hdf is None:
                 # Open and leave open hdf file object
                 self.hdf = h5py.File(self.hdf_path, 'a')
 
             # Check for finalized images
             if self.title == 'final':
-                self._hdf_store = self.hdf[f'{self._hdf_type}/image_data/final_images']
+                hdf_str = f'{self._hdf_type}/image_data/final_images'
+                self._hdf_store = self.hdf[hdf_str]
 
             # Otherwise set a temporary storage location in the hdf file
             else:
                 # Check for previously worked on data
-                if check_hdf_current_images('_temp_images', self.hdf_path, self.hdf):
-                    self._hdf_store = self.hdf[f'{self._hdf_type}/image_data/_temp_images']
+                if check_hdf_current_images('_temp_images',
+                                            self.hdf_path,
+                                            self.hdf):
+                    hdf_str = (f'{self._hdf_type}/image_data'
+                               + '/_temp_images')
+                    self._hdf_store = self.hdf[hdf_str]
                     # Change datatype and chunking to match previous _temp_images
                     if self.images.dtype != self._hdf_store.dtype:
-                        self.images = self.images.astype(self._hdf_store.dtype)
+                        self.images = self.images.astype(
+                                            self._hdf_store.dtype)
                     if self.images.chunksize != self._hdf_store.chunks:
-                        self.images = self.images.rechunk(self._hdf_store.chunks)
+                        self.images = self.images.rechunk(
+                                            self._hdf_store.chunks)
                         self._chunks = self._hdf_store.chunks
 
                     # Might be best NOT to call this to preserve previous data
-                    self.images = da.store(self.images, self._hdf_store,
-                                        compute=True, return_stored=True)[0]
+                    self.images = da.store(self.images,
+                                           self._hdf_store,
+                                           compute=True,
+                                           return_stored=True)[0]
                 else:
                     self._hdf_store = None
                     print(('WARNING: Dask Enabled \n'
-                          + 'A temporary hdf storage dataset will be generated '
-                          + 'when applying the first correction: dark_field.'))
+                          + 'A temporary hdf storage dataset will be '
+                          + 'generated when applying the first '
+                          + 'correction: dark_field.'))
     
         self.ai = ai
         self.sclr_dict = sclr_dict
@@ -366,7 +429,8 @@ class XRDData:
                     setattr(self, property_name, val)
                 else:
                     # dtype may cause overflow errors
-                    val = function(self.images, axis=axes).astype(self.dtype)
+                    val = function(self.images,
+                                   axis=axes).astype(self.dtype)
                     if self._dask_enabled:
                         val = val.compute()
                     setattr(self, property_name, val)
@@ -408,7 +472,8 @@ class XRDData:
                     self.max_image - self.min_image)
             
             # Set the generic value to this as well
-            self._composite_image = getattr(self, f'_{self.title}_composite_image')
+            self._composite_image = getattr(self,
+                                        f'_{self.title}_composite_image')
 
             # Save image to hdf. Should update if changed
             self.save_images(images='_composite_image',
@@ -434,20 +499,26 @@ class XRDData:
             if self.calibration_mask.shape == mask.shape:
                 mask *= self.calibration_mask
             else:
-                print('WARNING: Calibration mask found, but shape does not match images.')
+                warn_str = ('WARNING: Calibration mask found, but '
+                            + 'shape does not match images.')
+                print(warn_str)
 
         # Remove image defects
         if hasattr(self, 'defect_mask'):
             if self.defect_mask.shape == mask.shape:
                 mask *= self.defect_mask
             else:
-                print('WARNING: Defect mask found, but shape does not match images.')
+                warn_str = ('WARNING: Defect mask found, but shape '
+                            + 'does not match images.')
+                print(warn_str)
 
         if hasattr(self, 'custom_mask'):
             if self.custom_mask.shape == mask.shape:
                 mask *= self.custom_mask
             else:
-                print('WARNING: Custom mask found, but shape does not match images.')
+                warn_str = ('WARNING: Custom mask found, but shape '
+                            + 'does not match images.')
+                print(warn_str)
 
         return mask
 
@@ -533,6 +604,7 @@ class XRDData:
     #     return protector
 
 
+    # Opens and closes hdf to esnure self.hdf can be used safely
     def protect_hdf(pandas=False):
         def protect_hdf_inner(func):
             @functools.wraps(func)
@@ -555,8 +627,6 @@ class XRDData:
                         self.open_hdf()
                     elif not active_hdf:
                         self.close_hdf()
-                        # self.hdf.close()
-                        # self.hdf = None
             return protector
         return protect_hdf_inner
 
@@ -567,12 +637,6 @@ class XRDData:
                              chunks=None):
         # Deletes current image map and loads new values from hdf
         print(f'Loading {image_data_key}')
-
-        # # Open hdf flag
-        # close_hdf_on_finish = False
-        # if self.hdf is None:
-        #     self.hdf = h5py.File(self.hdf_path, 'r')
-        #     close_hdf_on_finish = True
         
         # Working with dask flag
         dask_enabled = self._dask_enabled
@@ -580,7 +644,8 @@ class XRDData:
         # Actually load the data
         image_grp = self.hdf[f'{self._hdf_type}/image_data']
         if check_hdf_current_images(image_data_key, hdf=self.hdf):
-            del(self.images) # Delete previous images from XRDData to save memory
+            # Delete previous images from XRDData to save memory
+            del(self.images) 
             img_dset = image_grp[image_data_key]
             
             if dask_enabled:
@@ -591,7 +656,8 @@ class XRDData:
             # Rebuild correction dictionary
             corrections = {}
             for key in image_grp[image_data_key].attrs.keys():
-                corrections[key[1:-11]] = image_grp[image_data_key].attrs[key]
+                corrections[key[1:-11]] = image_grp[
+                                            image_data_key].attrs[key]
             self.corrections = corrections
 
             if close_hdf_on_finish:
@@ -600,9 +666,11 @@ class XRDData:
             # Define/determine chunks and rechunk if necessary
             if isinstance(self.images, da.core.Array):
                 # Redo chunking along image dimensions if not already
-                if self.images.chunksize[-2:] != self.images.shape[-2:]:
+                if (self.images.chunksize[-2:]
+                    != self.images.shape[-2:]):
                     self._get_optimal_chunks()
-                    self.images = self.images.rechunk(chunks=self._chunks)
+                    self.images = self.images.rechunk(
+                                        chunks=self._chunks)
                 else:
                     self._chunks = self.images.chunksize
             else:
@@ -611,12 +679,8 @@ class XRDData:
                 else:
                     self._get_optimal_chunks()
 
-        # # Close hdf and reset attribute
-        # if close_hdf_on_finish:
-        #     self.hdf.close()
-        #     self.hdf = None
-
-        self.update_map_title(title=image_data_key[:-7]) # Force title; truncate '_images'
+        # Force title; truncate '_images'
+        self.update_map_title(title=image_data_key[:-7]) 
         self._dask_2_hdf()
 
         # Update useful data
@@ -629,27 +693,6 @@ class XRDData:
 
     def dump_images(self):
         del self.images
-
-
-    # def dummy_decorator(func):
-    #     @functools.wraps(func)
-    #     def wrapper(self, *args, **kwargs):
-
-    #         print(self.title)
-    #         func(self, *args, **kwargs)
-    #         print(self.title)
-    #     return wrapper
-
-    # @dummy_decorator
-    # def dummy_func(self, *args, **kwargs):
-    #     print(f'args are:')
-    #     for arg in args:
-    #         print(arg)
-    #     print('kwargs are')
-    #     for key, value in kwargs.items():
-    #         print(key, value)
-    #     print('Internal title')
-    #     print(self.title)
 
 
     ######################
@@ -684,23 +727,30 @@ class XRDData:
         if not self._dask_enabled:
             if self.hdf is None:
                 if self.hdf_path is None:
-                    raise RuntimeError('Cannot convert images from numpy to dask without specifying hdf file!')
+                    err_str = ('Cannot convert images from numpy to '
+                               + 'dask without specifying hdf file!')
+                    raise RuntimeError(err_str)
                 else:
-                    raise RuntimeError('Trying to convert images to dask, but hdf file has not been opened with hdf_path.')
+                    err_str = ('Trying to convert images to dask, '
+                               + 'but hdf file has not been '
+                               + 'opened with hdf_path.')
+                    raise RuntimeError(err_str)
             else:
                 self._dask_2_hdf()
                 self.images = da.from_array(self.images)
 
 
     def _dask_2_dask(self):
-        # Computes and updates dask array to avoid too many lazy computations
+        # Computes and updates dask array to
+        # avoid too many lazy computations
         # Will have faster compute times than _dask_2_hdf()
         if self._dask_enabled:
             self.images = self.images.persist()
             
 
     def _dask_2_hdf(self):
-        # Computes and stores current iteration of lazy computation to hdf file
+        # Computes and stores current iteration of 
+        # lazy computation to hdf file
         # Probably the most useful
         if self.hdf is not None and self._dask_enabled:
             if self.title == 'final':
@@ -711,8 +761,10 @@ class XRDData:
                                 # point of linking final_images for 
                                 # storage if not used???
             else:
-                self.images = da.store(self.images, self._hdf_store,
-                                       compute=True, return_stored=True)[0]
+                self.images = da.store(self.images,
+                                       self._hdf_store,
+                                       compute=True,
+                                       return_stored=True)[0]
 
 
     # This function does NOT stop saving to hdf
@@ -727,18 +779,22 @@ class XRDData:
     def open_hdf(self, dask_enabled=False):
         if self.hdf is not None:
             # Should this raise errors or just ping warnings
-            print('WARNING: hdf is already open. Proceeding without changes.')
+            warn_str = ('WARNING: hdf is already open. '
+                        + 'Proceeding without changes.')
+            print(warn_str)
             return
         else:
             self.hdf = h5py.File(self.hdf_path, 'a')
 
-        if dask_enabled or self._dask_enabled: # This flag persists even when the dataset is closed!
+        # This flag persists even when the dataset is closed!
+        if dask_enabled or self._dask_enabled: 
             img_grp = self.hdf[f'{self._hdf_type}/image_data']
             if self.title == 'final':
                 if check_hdf_current_images(f'{self.title}_images',
                                             hdf=self.hdf):
                     dset = img_grp[f'{self.title}_images']
-            elif check_hdf_current_images('_temp_images', hdf=self.hdf):
+            elif check_hdf_current_images('_temp_images',
+                                          hdf=self.hdf):
                 dset = img_grp['_temp_images']
             self.images = da.asarray(dset) # I had .persist(), but it broke things...
             self._hdf_store = dset
@@ -754,13 +810,15 @@ class XRDData:
             warn_str = f'WARNING: XRDData has been finalized!'
             apply_correction = False
         elif self.corrections[correction]:
-            warn_str = f'WARNING: {correction} correction already applied!'
+            warn_str = (f'WARNING: {correction} correction '
+                        + 'already applied!')
             apply_correction = False
         
         if apply_correction:
             return False
         elif override:
-            warn_str += f'\nOverriding warning and correcting {correction} anyway.'
+            warn_str += ('\nOverriding warning and correcting '
+                         + f'{correction} anyway.')
             print(warn_str)
             return False
         else:
@@ -781,12 +839,14 @@ class XRDData:
             print('No dark-field given for correction.')
         elif dark_field.shape != self.image_shape:
             err_str = (f'Dark-field shape of {dark_field.shape} does '
-                      + f'not match image shape of {self.image_shape}.')
+                       + 'not match image shape of 
+                       + f'{self.image_shape}.')
             raise ValueError(err_str)
         
         self.dark_field = dark_field
 
-        # Check for the start of corrections with dask. Otherwise keep lazily loaded...
+        # Check for the start of corrections with dask.
+        # Otherwise keep lazily loaded...
         if self._dask_enabled and self._hdf_store is None:
             print(('Dask enabled. Upcasting data and generating a '
                    + 'temporary dataset for performing corrections.\n'
@@ -794,16 +854,19 @@ class XRDData:
 
             # Upcast before writing to hdf
             self.images = self.images.astype(np.float32)
-            self._hdf_store = self.hdf.require_dataset(f'{self._hdf_type}/image_data/_temp_images',
-                                        shape=self.images.shape,
-                                        dtype=np.float32,
-                                        chunks=self._chunks,
-                                        compression_opts=4,
-                                        compression='gzip') # This may slow it down
+            self._hdf_store = self.hdf.require_dataset(
+                        f'{self._hdf_type}/image_data/_temp_images',
+                        shape=self.images.shape,
+                        dtype=np.float32,
+                        chunks=self._chunks,
+                        compression_opts=4,
+                        compression='gzip') # This may slow it down
 
             # Might be best NOT to call this to preserve previous data
-            self.images = da.store(self.images, self._hdf_store,
-                                   compute=True, return_stored=True)[0]
+            self.images = da.store(self.images,
+                                   self._hdf_store,
+                                   compute=True,
+                                   return_stored=True)[0]
         
         else:
             # Check for upcasting. Will probably upcast data
@@ -836,11 +899,7 @@ class XRDData:
         print('done!')
 
 
-    # TODO: This fails if image medians are too close to zero
-    #       flat_field values near zero blow up pixel values,
-    #       but the means/medians of the flat field and images should be similar
-    #       Consider adding a way to rescale the image array along with the flat_field
-    #       As of now, this should be done immediately after the dark field correction       
+    # TODO: This fails if image medians are too close to zero 
     def correct_flat_field(self,
                            flat_field=None,
                            override=False):
@@ -851,7 +910,8 @@ class XRDData:
             print('No flat-field correction.')
         elif flat_field.shape != self.image_shape:
             err_str = (f'Flat-field shape of {flat_field.shape} does '
-                      + f'not match image shape of {self.image_shape}.')
+                       + 'not match image shape of '
+                       + f'{self.image_shape}.')
             raise ValueError(err_str)
         else:
             self.dtype = np.float32
@@ -859,9 +919,11 @@ class XRDData:
             
             # Shift flat_field correction to center image map center
             if self._dask_enabled:
-                correction = np.mean(self.images) - np.mean(flat_field)
+                correction = (np.mean(self.images)
+                              - np.mean(flat_field))
             else:  # Dask does not handle medians very well...
-                correction = np.median(self.images) - np.mean(flat_field)
+                correction = (np.median(self.images)
+                              - np.mean(flat_field))
             
             self.flat_field = flat_field + correction
             self.images /= self.flat_field
@@ -884,19 +946,23 @@ class XRDData:
         elif air_scatter is None:
             print('No air_scatter given for correction.')
         elif air_scatter.shape != self.image_shape:
-            err_str = (f'air_scatter shape of {air_scatter.shape} does '
-                       + f'not match image shape of {self.image_shape}.')
+            err_str = (f'air_scatter shape of {air_scatter.shape} does'
+                       + ' not match image shape of '
+                       + f'{self.image_shape}.')
             raise ValueError(err_str)
         
         if applied_corrections is None:
-            applied_corrections = {key:False for key in self.corrections.keys()}
+            applied_corrections = {key:False
+                                   for key in self.corrections.keys()}
         else:
             for key in applied_corrections.keys():
                 if key not in self.corrections.keys():
-                    err_str = f'Unknown correction in applied_corrections: {key}'
+                    err_str = ('Unknown correction in '
+                               + f'applied_corrections: {key}')
                     raise RuntimeError(err_str)
 
-        # Check for applied corrections which cannot be applied to air_scatter
+        # Check for applied corrections 
+        # which cannot be applied to air_scatter
         disallowed_corrections = [
             'background',
             'absorption'
@@ -976,7 +1042,8 @@ class XRDData:
         print(ostr)
 
 
-    # No correction for defect mask, since it is used whenever mask is called
+    # No correction for defect mask,
+    # since it is used whenever mask is called
     def apply_defect_mask(self,
                           min_bounds=(-np.inf, 0),
                           max_bounds=(0, np.inf),
@@ -990,8 +1057,10 @@ class XRDData:
             self.defect_mask = np.asarray(mask).astype(np.bool_)
         else:
             mask = np.ones_like(self.min_image, dtype=np.bool_)
-            mask *= (self.min_image >= min_bounds[0]) & (self.min_image <= min_bounds[1])
-            mask *= (self.max_image >= max_bounds[0]) & (self.max_image <= max_bounds[1])
+            mask *= ((self.min_image >= min_bounds[0])
+                     & (self.min_image <= min_bounds[1]))
+            mask *= ((self.max_image >= max_bounds[0])
+                     & (self.max_image <= max_bounds[1]))
             self.defect_mask = mask
 
         # Write mask to disk
@@ -1002,7 +1071,8 @@ class XRDData:
         self._dask_2_hdf()
 
 
-    # No correction for custom mask, since is used whenever mask is called
+    # No correction for custom mask,
+    # since it is used whenever mask is called
     def apply_custom_mask(self, mask=None):
         if mask is not None:
             self.custom_mask = np.asarray(mask).astype(np.bool_)
@@ -1013,7 +1083,8 @@ class XRDData:
 
 
     ### Geometric corrections ###
-    # TODO: Add conditionals to allow corrections to be applied to calibrated images
+    # TODO: Add conditionals to allow corrections
+    # to be applied to calibrated images
     def apply_lorentz_correction(self,
                                  powder=False,
                                  apply=True,
@@ -1070,12 +1141,14 @@ class XRDData:
         #                polarization * np.cos(2.0 * (chi_arr)) * (1.0 - cos2_tth))
 
         # From pyFAI
-        polar = self.ai.polarization(factor=polarization).astype(self.dtype)
+        polar = self.ai.polarization(
+                    factor=polarization).astype(self.dtype)
         self.polarization_correction = polar
         self.save_images(images='polarization_correction')
         
         if apply:
-            print('Applying X-ray polarization correction...', end='', flush=True)
+            print('Applying X-ray polarization correction...',
+                  end='', flush=True)
             self.images /= self.polarization_correction
             self.corrections['polarization'] = True
             self.update_map_title()
@@ -1098,12 +1171,14 @@ class XRDData:
         # 'SA = pixel1 * pixel2 / dist^2 * cos(incidence)^3'
 
         # From pyFAI
-        solidangle_correction = self.ai.solidAngleArray().astype(self.dtype)
+        solidangle_correction = self.ai.solidAngleArray().astype(
+                                                    self.dtype)
         self.solidangle_correction = solidangle_correction
         self.save_images(images='solidangle_correction')
         
         if apply:
-            print('Applying solid angle correction...', end='', flush=True)
+            print('Applying solid angle correction...',
+                   end='', flush=True)
             self.images /= self.solidangle_correction
             self.corrections['solid_angle'] = True
             self.update_map_title()
@@ -1111,6 +1186,7 @@ class XRDData:
             print('done!')
 
 
+    # WIP
     def apply_absorption_correction(self,
                                     exp_dict,
                                     apply=True,
@@ -1137,8 +1213,10 @@ class XRDData:
             'theta'
             ]):
             
-            raise ValueError("""Experimental dictionary does not have all the necessary keys: 
-                             'attenuation_length', 'mode', and 'thickness'.""")
+            err_str = ("Experimental dictionary does not have all the "
+                       + "necessary keys: 'attenuation_length', 'mode'"
+                       + ", and 'thickness'.")
+            raise ValueError(err_str)
 
         # Semi-infinite plate
         if exp_dict['mode'] == 'transmission':
@@ -1149,8 +1227,11 @@ class XRDData:
                 x = t / np.cos(tth_arr) # path length
             else:
                 # OPTIMIZE ME!
-                # Intersection coordinates of lines. One for the far surface and another for the diffracted beam
-                # Origin at intersection of initial surface and transmitted beam
+                # Intersection coordinates of lines. 
+                # One for the far surface and another 
+                # for the diffracted beam
+                # Origin at intersection of initial surface 
+                # and transmitted beam
                 # y1 = x1 / np.tan(tth) # diffracted beam
                 # y2 = np.cos(chi) * np.tan(theta) + t / np.cos(theta) # far surface
                 xi = (t / (np.cos(theta))) / ((1 / np.tan(tth_arr)) - (np.cos(chi_arr) * np.tan(theta)))
@@ -1169,7 +1250,8 @@ class XRDData:
             raise ValueError(f"{exp_dict['mode']} is unknown.")
         
         if apply:
-            print('Applying absorption correction...', end='', flush=True)
+            print('Applying absorption correction...',
+                  end='', flush=True)
             self.images /= self.absorption_correction
             self.corrections['absorption'] = True
             self.update_map_title()
@@ -1196,16 +1278,20 @@ class XRDData:
                 else:
                     first_key = list(self.sclr_dict.keys())[0]
                     scaler_arr = self.sclr_dict[first_key]
-                    print(f'WARNING: Unrecognized scaler keys. Using "{first_key}" instead.')
+                    warn_str = ("WARNING: Unrecognized scaler keys. "
+                                + f"Using '{first_key}' instead.")
+                    print(err_str)
                     sclr_key = first_key
             else:
-                print('No scaler array given or found. Approximating with image medians.')
+                ostr = ('No scaler array given or found. '
+                        + 'Approximating with image medians.')
+                print(ostr)
                 scaler_arr = self.med_map
                 sclr_key = 'med'
 
         elif scaler_arr.shape != self.map_shape:
-            err_str = (f'Scaler array shape of {scaler_arr.shape} does '
-                      + f'not match map shape of {self.map_shape}.')
+            err_str = (f'Scaler array shape of {scaler_arr.shape} does'
+                      + f' not match map shape of {self.map_shape}.')
             raise ValueError(err_str)
         else:
             sclr_key = 'input'
@@ -1219,10 +1305,12 @@ class XRDData:
                            + f'{self.map_shape}.')
                 raise ValueError(err_str)
    
-        print(f'Normalizing images by {sclr_key} scaler...', end='', flush=True)
+        print(f'Normalizing images by {sclr_key} scaler...',
+              end='', flush=True)
         self.images /= scaler_arr.reshape(*self.map_shape, 1, 1)
         self.scaler_map = scaler_arr
-        if not hasattr(self, 'sclr_dict'): # Trying to catch non-saved values
+        # Trying to catch non-saved values
+        if not hasattr(self, 'sclr_dict'): 
             self.save_images(images='scaler_map',
                              units='counts',
                              labels=self.map_labels) 
@@ -1233,7 +1321,10 @@ class XRDData:
 
 
     # TODO: Not all of these have been enabled with dask arrays
-    def estimate_background(self, method=None, background=None, **kwargs):
+    def estimate_background(self,
+                            method=None,
+                            background=None,
+                            **kwargs):
         method = str(method).lower()
 
         if background is None:
@@ -1249,8 +1340,12 @@ class XRDData:
                 self.background_method = 'minimum'
                 
             elif method in ['ball', 'rolling ball', 'rolling_ball']:
-                raise NotImplementedError('Cannot yet exclude contribution from masked regions.')
-                print('Estimating background with rolling ball method.')
+                err_str = ('Cannot yet exclude contribution from '
+                           + 'masked regions.')
+                raise NotImplementedError(err_str)
+                ostr = ('Estimating background with '
+                        + 'rolling ball method.')
+                print(ostr)
                 self.background = rolling_ball(self.images, **kwargs)
                 self.background_method = 'rolling ball'
 
@@ -1261,19 +1356,25 @@ class XRDData:
 
             elif method in ['poly', 'poly fit', 'poly_fit']:
                 print('Estimating background with polynomial fit.')
-                print('WARNING: This method is slow and not very accurate.')
+                warn_str = ('WARNING: This method is slow and '
+                            + 'not very accurate.')
+                print(warn_str)
                 self.background = fit_poly_bkg(self, **kwargs)
                 self.background_method = 'polynomial'
 
             elif method in ['Gaussian', 'gaussian', 'gauss']:
-                print('Estimating background with gaussian convolution.')
-                print('Note: Progress bar is unavailable for this method.')
-                self.background = masked_gaussian_background(self, **kwargs)
+                ostr = ('Estimating background with gaussian '
+                        + 'convolution.\nNote: Progress bar is '
+                        + 'unavailable for this method.')
+                print(ostr)
+                self.background = masked_gaussian_background(self,
+                                                             **kwargs)
                 self.background_method = 'gaussian'
 
             elif method in ['Bruckner', 'bruckner']:
                 print('Estimating background with Bruckner algorithm.')
-                self.background = masked_bruckner_background(self, **kwargs)
+                self.background = masked_bruckner_background(self,
+                                                             **kwargs)
                 self.background_method = 'bruckner'
 
             elif method in ['none']:
@@ -1282,7 +1383,8 @@ class XRDData:
                 self.background_method = 'none'
             
             else:
-                raise NotImplementedError(f'Method "{method}" not implemented!')
+                err_str = f"Method '{method}' not implemented!"
+                raise NotImplementedError(err_str)
     
         else:
             print('User-specified background.')
@@ -1297,9 +1399,10 @@ class XRDData:
 
         if self._check_correction('background', override=override):
             if background is None and hasattr(self, 'background'):
-                warn_str = ('WARNING: background attribute still saved in memory.'
-                            + '\nOverride background removal or delete '
-                            + 'attribute to release memory.')
+                warn_str = ('WARNING: background attribute still '
+                            + 'saved in memory.\nOverride background '
+                            + 'remove or delete attribute to '
+                            + 'release memory.')
             print(warn_str)
             return
         
@@ -1331,7 +1434,9 @@ class XRDData:
         print('done!')
 
         if save_images:
-            print('''Compressing and writing images to disk.\nThis may take a while...''')
+            ostr = ('Compressing and writing images to disk.'
+                    + '\nThis may take a while...')
+            print(ostr)
             self.save_images(extra_attrs={'background_method'
                                           : self.background_method})
             print('done!')
@@ -1349,7 +1454,10 @@ class XRDData:
 
         dummy_image = 100 * np.ones(self.image_shape)
 
-        image, _, _ = self.ai.integrate2d_ng(dummy_image, tth_num, chi_num, unit=units)
+        image, _, _ = self.ai.integrate2d_ng(dummy_image,
+                                             tth_num,
+                                             chi_num,
+                                             unit=units)
 
         calibration_mask = (image != 0)
 
@@ -1380,14 +1488,19 @@ class XRDData:
         self.reset_projections()
 
 
-    # For estimating maximum saturated pixel for comparison with other datasets
+    # For estimating maximum saturated pixel
+    # for comparison with other datasets
     def estimate_saturated_pixel(self,
-                                 raw_max_val=(2**14 - 1), # Saturated value from detector 
+                                 # Saturated value from detector 
+                                 raw_max_val=(2**14 - 1), 
                                  method='median'):
 
-        if method.lower() in ['median', 'med']: # Usually better statistics 
+        # Usually better statistics 
+        if method.lower() in ['median', 'med']: 
             var_func = np.median
-        if method.lower() in ['minimum', 'min']: # Better guesses true possible maximum, even if unlikely in dataset
+        # Better guesses true possible maximum,
+        # even if unlikely in dataset
+        if method.lower() in ['minimum', 'min']: 
             var_func = np.min
         
         if self.corrections['dark_field']:
@@ -1406,9 +1519,12 @@ class XRDData:
                         scaler_map = self.sclr_dict[key]
                         break
                     else:
-                        scaler_map = list(self.sclr_dict.values())[0] # Hope for the best
+                        # Hope for the best
+                        scaler_map = list(self.sclr_dict.values())[0] 
             else:
-                raise ValueError('Not enough information to estimate scaler contribution!')
+                err_str = ('Not enough information to estimate '
+                           + 'scaler contribution!')
+                raise ValueError(err_str)
             raw_max_val /= np.median(scaler_map)
 
         if self.corrections['lorentz']:
@@ -1421,7 +1537,8 @@ class XRDData:
             raw_max_val /- var_func(self.absorption_correction)
         # Assuming the minimum background will be very close to zero
         if self.corrections['background']:
-            if hasattr(self, 'background') and self.background is not None:
+            (if hasattr(self, 'background')
+             and self.background is not None):
                 raw_max_val -= var_func(self.background)
         # All other corrections are isolated within the image
 
@@ -1432,28 +1549,34 @@ class XRDData:
         if (not override
             and hasattr(self, 'null_map')
             and self.null_map is not None):
-            msg_str = 'Null map already exists. Proceeding without changes.'
-            print(msg_str)
+            ostr = ('Null map already exists. '
+                    + 'Proceeding without changes.')
+            print(ostr)
             return
         else:
             if self.title == 'raw':
                 if not self._dask_enabled or override:
                     raw_images = self.images # Should not be a copy
                 else:
-                    warn_str = ('WARNING: Dask is enabled. Set override to '
-                                + 'True in order to determine null_map.'
+                    warn_str = ('WARNING: Dask is enabled. Set '
+                                + 'override to True in order to '
+                                + 'determine null_map.'
                                 + '\nProceeding without changes.')
                     print(warn_str)
                     return
 
             else:
+                hdf_str = f'{self._hdf_type}/image_data/raw_images'
                 if self.hdf is not None:
-                    raw_images = self.hdf[f'{self._hdf_type}/image_data/raw_images']
+                    raw_images = self.hdf[hdf_str]
                 elif self.hdf_path is not None:
                     f = h5py.File(self.hdf_path, 'r')
-                    raw_images = f[f'{self._hdf_type}/image_data/raw_images']
+                    hdf_str = 
+                    raw_images = f[hdf_str]
                 else:
-                    raise RuntimeError('Cannot determine null_map without raw_images or access to hdf.')
+                    err_str = ('Cannot determine null_map without '
+                               + 'raw_images or access to hdf.')
+                    raise RuntimeError(err_str)
             
             # Try to do this efficiently
             null_map = np.ones(self.map_shape, dtype=np.bool_)
@@ -1470,7 +1593,8 @@ class XRDData:
     
     def nullify_images(self):
         if not hasattr(self, 'null_map'):
-            raise AttributeError('XRDData does not have null_map attribute.')
+            err_str = 'XRDData does not have null_map attribute.'
+            raise AttributeError(err_str)
         elif not np.any(self.null_map):
             note_str = ('Null map is empty, there are no missing '
                         + 'pixels. Proceeding without changes')
@@ -1502,25 +1626,36 @@ class XRDData:
 
         if save_images:
             if self.hdf_path is None and self.hdf is None:
-                print('No hdf file specified. Images will not be saved.')
+                ostr = ('No hdf file specified. '
+                        + 'Images will not be saved.')
+                print(ostr)
             else:
-                print('Compressing and writing images to disk.\nThis may take a while...')
+                ostr = ('Compressing and writing images to disk.'
+                        + '\nThis may take a while...')
+                print(ostr)
 
-                if check_hdf_current_images('_temp_images', self.hdf_path, self.hdf):
-                    # Save images to current store location. Should be _temp_images
+                if check_hdf_current_images('_temp_images',
+                                            self.hdf_path,
+                                            self.hdf):
+                    # Save images to current store location. 
+                    # Should be _temp_images
                     self.save_images(title='_temp_images')
-                    temp_dset = self.hdf[f'{self._hdf_type}/image_data/_temp_images']
+                    hdf_str = (f'{self._hdf_type}/image_data'
+                               + '/_temp_images')
+                    temp_dset = self.hdf[hdf_str]
                     
                     # Must be done explicitly outside of self.save_images()
                     for key, value in self.corrections.items():
                         temp_dset.attrs[f'_{key}_correction'] = value
 
                     # Relabel to final images and del temp dataset
-                    self.hdf[f'{self._hdf_type}/image_data/final_images'] = temp_dset
+                    hdf_str = (f'{self._hdf_type}/image_data'
+                               + '/final_images')
+                    self.hdf[hdf_str] = temp_dset
                     del temp_dset
 
                     # Remap store location. Should only reference data from now on
-                    self._hdf_store = self.hdf[f'{self._hdf_type}/image_data/final_images']
+                    self._hdf_store = self.hdf[hdf_str]
 
                 else:
                     self.save_images()
@@ -1534,15 +1669,21 @@ class XRDData:
 
     ### 1D integration projections ###
 
-    # Simpler from image_projection_factor because no mask is considered
-    def integration_projection_factory(property_abbreviation, function, axes):
-        property_name = f'_{property_abbreviation}' # This line is crucial! 
+    # Simpler from image_projection_factor
+    # because no mask is considered
+    def integration_projection_factory(property_abbreviation,
+                                       function, axes):
+        # This line is crucial!
+        property_name = f'_{property_abbreviation}'  
         def get_projection(self):
             if hasattr(self, property_name):
                 return getattr(self, property_name)
             else:
-                if not hasattr(self, 'integrations') or self.integrations is None:
-                    raise AttributeError('Cannot determine integration projection without integrations.')
+                if (not hasattr(self, 'integrations')
+                    or self.integrations is None):
+                    err_str = ('Cannot determine integration '
+                               + 'projection without integrations.')
+                    raise AttributeError(err_str)
                 projection = function(self.integrations, axis=axes)
                 setattr(self, property_name, projection)
                 return getattr(self, property_name)
@@ -1552,20 +1693,30 @@ class XRDData:
         
         return property(get_projection, None, del_projection)
     
-    min_integration = integration_projection_factory('min_integration', np.min, (0, 1))
-    min_integration_map = integration_projection_factory('min_integration_map', np.min, (2))
+    min_integration = integration_projection_factory(
+                            'min_integration', np.min, (0, 1))
+    min_integration_map = integration_projection_factory(
+                            'min_integration_map', np.min, (2))
 
-    max_integration = integration_projection_factory('max_integration', np.max, (0, 1))
-    max_integration_map = integration_projection_factory('max_integration_map', np.max, (2))
+    max_integration = integration_projection_factory(
+                            'max_integration', np.max, (0, 1))
+    max_integration_map = integration_projection_factory(
+                            'max_integration_map', np.max, (2))
 
-    sum_integration = integration_projection_factory('sum_integration', np.sum, (0, 1))
-    sum_integration_map = integration_projection_factory('sum_integration_map', np.sum, (2))
+    sum_integration = integration_projection_factory(
+                            'sum_integration', np.sum, (0, 1))
+    sum_integration_map = integration_projection_factory(
+                            'sum_integration_map', np.sum, (2))
 
-    med_integration = integration_projection_factory('med_integration', np.median, (0, 1))
-    med_integration_map = integration_projection_factory('med_integration_map', np.median, (2))
+    med_integration = integration_projection_factory(
+                            'med_integration', np.median, (0, 1))
+    med_integration_map = integration_projection_factory(
+                            'med_integration_map', np.median, (2))
 
-    mean_integration = integration_projection_factory('mean_integration', np.mean, (0, 1))
-    mean_integration_map = integration_projection_factory('mean_integration_map', np.mean, (2))
+    mean_integration = integration_projection_factory(
+                            'mean_integration', np.mean, (0, 1))
+    mean_integration_map = integration_projection_factory(
+                            'mean_integration_map', np.mean, (2))
 
 
     @property
@@ -1577,7 +1728,8 @@ class XRDData:
                     self.max_integration - self.min_integration)
             
             # Set the generic value to this as well
-            self._composite_integration = getattr(self, f'_{self.title}_composite_integration')
+            self._composite_integration = getattr(self,
+                                f'_{self.title}_composite_integration')
 
             # Save image to hdf. Should update if changed
             self.save_integrations(
@@ -1593,7 +1745,10 @@ class XRDData:
 
     ### 1D integration corrections
     
-    def estimate_integration_background(self, method=None, background=None, **kwargs):
+    def estimate_integration_background(self,
+                                        method=None,
+                                        background=None,
+                                        **kwargs):
         method = str(method).lower()
 
         if background is None:
@@ -1610,34 +1765,54 @@ class XRDData:
                 
             elif method in ['ball', 'rolling ball', 'rolling_ball']:
                 raise NotImplementedError('Shape issues...')
-                print('Estimating background with rolling ball method.')
-                self.integration_background = rolling_ball(self.integrations, **kwargs)
+                ostr = ('Estimating background with '
+                        + 'rolling ball method.')
+                print(ostr)
+                self.integration_background = rolling_ball(
+                                                self.integrations,
+                                                **kwargs)
                 self.integration_background_method = 'rolling ball'
 
             elif method in ['spline', 'spline fit', 'spline_fit']:
-                raise NotImplementedError('Still need to write function for integrations.')
+                err_str = ('Still need to write function '
+                           + 'for integrations.')
+                raise NotImplementedError(err_str)
                 print('Estimating background with spline fit.')
-                self.integration_background = fit_spline_bkg(self, **kwargs)
+                self.integration_background = fit_spline_bkg(self,
+                                                             **kwargs)
                 self.integration_background_method = 'spline'
 
             elif method in ['poly', 'poly fit', 'poly_fit']:
-                raise NotImplementedError('Still need to write function for integrations.')
-                print('Estimating background with polynomial fit.')
-                print('WARNING: This method is slow and not very accurate.')
-                self.integration_background = fit_poly_bkg(self, **kwargs)
-                self.integration_background_method = 'polynomplt.show()ial'
+                err_str = ('Still need to write '
+                           + 'function for integrations.')
+                raise NotImplementedError(err_str)
+                warn_str = ('Estimating background with polynomial '
+                            + 'fit.\nWARNING: This method is slow and '
+                            + 'not very accurate.')
+                print(warn_str)
+                self.integration_background = fit_poly_bkg(self,
+                                                           **kwargs)
+                self.integration_background_method = 'polynomial'
 
             elif method in ['Gaussian', 'gaussian', 'gauss']:
-                raise NotImplementedError('Still need to write function for integrations.')
-                print('Estimating background with gaussian convolution.')
-                print('Note: Progress bar is unavailable for this method.')
-                self.integration_background = masked_gaussian_background(self, **kwargs)
+                err_str = ('Still need to write '
+                           + 'function for integrations.')
+                raise NotImplementedError(err_str)
+                ostr = ('Estimating background with gaussian '
+                        + 'convolution.\nNote: Progress bar is '
+                        + 'unavailable for this method.')
+                print(ostr)
+                (self.integration_background
+                ) = masked_gaussian_background(self, **kwargs)
                 self.integration_background_method = 'gaussian'
 
             elif method in ['Bruckner', 'bruckner']:
-                raise NotImplementedError('Still need to write function for integrations.')
+                err_str = ('Still need to write '
+                           + 'function for integrations.')
+                raise NotImplementedError(err_str)
                 print('Estimating background with Bruckner algorithm.')
-                self.integration_background = masked_bruckner_background(self, **kwargs)
+                (self.integration_background
+                ) = masked_bruckner_background(self, **kwargs)
                 self.integration_background_method = 'bruckner'
 
             elif method in ['none']:
@@ -1646,7 +1821,8 @@ class XRDData:
                 self.integration_background_method = 'none'
             
             else:
-                raise NotImplementedError(f'Method "{method}" not implemented!')
+                err_str = f"Method '{method}' not implemented!"
+                raise NotImplementedError(err_str)
     
         else:
             print('User-specified background.')
@@ -1697,7 +1873,8 @@ class XRDData:
     ####################
 
     def disk_size(self, return_val=False, dtype=None):
-        # Return current map size which should be most of the memory usage
+        # Return current map size which
+        # should be most of the memory usage
         # Helps to estimate file size too
         if dtype is None:
             byte_size = self.images.itemsize
@@ -1705,7 +1882,9 @@ class XRDData:
             try:
                 byte_size = dtype().itemsize
             except TypeError as e:
-                raise e(f'dtype input of {dtype} is not a numpy datatype.')
+                err_str = (f'dtype input of {dtype} is not a '
+                           + 'numpy datatype.')
+                raise e(err_str)
 
         disk_size = self.images.size * byte_size
         units = 'B'
@@ -1731,7 +1910,9 @@ class XRDData:
         raise NotImplementedError()
 
         if not isinstance(size, (tuple, list, np.ndarray)):
-            raise TypeError('Size argument must be iterable of map dimensions.')
+            err_str = ('Size argument must be iterable of '
+                       + 'map dimensions.')
+            raise TypeError(err_str)
 
         disk_size = np.prod([*size, 2])
 
@@ -1775,35 +1956,37 @@ class XRDData:
                     mode='a',
                     extra_attrs=None):
         
-        # if self.hdf_path is None:
-        #     return # Should disable working with hdf if no information is provided
-        
         # Save all images
         if images is None:
             if not hasattr(self, 'images') or self.images is None:
-                raise RuntimeError('Must provide images to write to hdf.')
+                err_str = 'Must provide images to write to hdf.'
+                raise RuntimeError(err_str)
             images = self.images
             if title is None:
                 title = f'{self.title}_images'
         
         # Save particular attribute of XRDData
         elif isinstance(images, str):
-            # Can directly grap attributes. This is for overwriting this function
+            # Can directly grap attributes.
+            # This is for overwriting this function
             if (hasattr(self, images)
                 and getattr(self, images) is not None):
                 if title is None:
                     title = images
                 images = getattr(self, images)
             else:
-                err_str = f"{self.__class__.__name__} does not have attribute '{images}'."
+                err_str = (f"{self.__class__.__name__} does not "
+                           + f"have attribute '{images}'.")
                 raise AttributeError(err_str)
 
         # Save custom images
         else:
-            # This conditional is for single images mostly (e.g., dark-field)
+            # This conditional is for single images mostly
+            # (e.g., dark-field)
             images = np.asarray(images)
             if title is None:
-                raise ValueError('Must define title to save custom images.')
+                err_str = 'Must define title to save custom images.'
+                raise ValueError(err_str)
 
         # Get labels
         _units, _labels = self._get_save_labels(images.shape)
@@ -1817,7 +2000,9 @@ class XRDData:
             if title[0] != '_':
                 title = f'_{title}'
         elif images.ndim != 4:
-            raise ValueError(f'Images input has {images.ndim} dimensions instead of 2 (image) or 4 (XRDData).')
+            err_str = (f'Images input has {images.ndim} dimensions '
+                       + 'instead of 2 (image) or 4 (XRDData).')
+            raise ValueError()
         elif images.ndim == 4 and compression is None:
             compression = 'gzip'
             compression_opts = 4 # changed default from 8 to h5py default
@@ -1834,12 +2019,6 @@ class XRDData:
         # Maps and images will not be chunked
         if images.ndim != 4:
             chunks = None
-        
-        # # Flag of state hdf
-        # close_flag = False
-        # if self.hdf is None:
-        #     close_flag = True
-        #     self.hdf = h5py.File(self.hdf_path, mode)
 
         # Grab some metadata
         image_shape = images.shape
@@ -1871,11 +2050,13 @@ class XRDData:
                 and dset.dtype == image_dtype
                 and dset.chunks == chunks):
                 if not dask_flag:
-                    dset[...] = images # Replace data if the size, shape, and chunks match
+                    # Replace data if the size, shape, and chunks match
+                    dset[...] = images 
                 else:
                     pass # Leave the dataset for now
             else:
-                # This is not the best, because this only deletes the flag. The data stays
+                # This is not the best, because this only
+                # deletes the flag. The data stays
                 del img_grp[title]
                 dset = img_grp.create_dataset(
                             title,
@@ -1905,10 +2086,6 @@ class XRDData:
         if title[0] != '_':
             for key, value in self.corrections.items():
                 dset.attrs[f'_{key}_correction'] = value
-        
-        # if close_flag:
-        #     self.hdf.close()
-        #     self.hdf = None
 
 
     @protect_hdf()
@@ -1921,27 +2098,28 @@ class XRDData:
                           extra_attrs=None):
         # # No dask support
 
-        # if self.hdf_path is None:
-        #     return # Should disable working with hdf if no information is provided
-
         # Save all integrations
         if integrations is None:
-            if not hasattr(self, 'integrations') or self.integrations is None:
-                raise RuntimeError('Must provide integrations to write to hdf.')
+            if (not hasattr(self, 'integrations')
+                or self.integrations is None):
+                err_str = 'Must provide integrations to write to hdf.'
+                raise RuntimeError(err_str)
             integrations = self.integrations
             if title is None:
                 title = f'{self.title}_integrations'
         
         # Save particular attribute of XRDData
         elif isinstance(integrations, str):
-            # Can directly grap attributes. This is for overwriting this function
+            # Can directly grap attributes.
+            # This is for overwriting this function
             if (hasattr(self, integrations)
                 and getattr(self, integrations) is not None):
                 if title is None:
                     title = integrations
                 integrations = getattr(self, integrations)
             else:
-                err_str = f"{self.__class__.__name__} does not have attribute '{integrations}'."
+                err_str = (f"{self.__class__.__name__} does not have "
+                           + f"attribute '{integrations}'.")
                 raise AttributeError(err_str)
 
         # Save custom images
@@ -1949,11 +2127,14 @@ class XRDData:
             # This conditional is for single images mostly (e.g., dark-field)
             integrations = np.asarray(integrations)
             if title is None:
-                raise ValueError('Must define title to save custom images.')
+                err_str = 'Must define title to save custom images.'
+                raise ValueError(err_str)
         
         # Check shape and set title
         if integrations.ndim != 3:
-            raise ValueError(f'Integrations must have 3 dimensions, not {len(integrations.shape)}.')
+            err_str = ('Integrations must have 3 dimensions, '
+                       + f'not {len(integrations.shape)}.')
+            raise ValueError()
         
         # Get labels
         _units, _labels = self._get_save_labels(integrations.shape)
@@ -1962,17 +2143,12 @@ class XRDData:
         if labels is None:
             labels = _labels
 
-        # # Flag of state hdf
-        # close_flag = False
-        # if self.hdf is None:
-        #     close_flag = True
-        #     self.hdf = h5py.File(self.hdf_path, mode)
-
         # Grab some metadata
         integrations_shape = integrations.shape
         integrations_dtype = integrations.dtype
 
-        int_grp = self.hdf[self._hdf_type].require_group('integration_data')
+        int_grp = self.hdf[self._hdf_type].require_group(
+                                            'integration_data')
         
         if title not in int_grp.keys():
             dset = int_grp.require_dataset(
@@ -1990,7 +2166,8 @@ class XRDData:
                 and dset.dtype == integrations_dtype):
                 dset[...] = integrations
             else:
-                # This is not the best, because this only deletes the flag. The data stays
+                # This is not the best, because this only
+                # deletes the flag. The data stays
                 del int_grp[title]
                 dset = int_grp.create_dataset(
                             title,
@@ -2015,7 +2192,4 @@ class XRDData:
         if title[0] != '_':
             for key, value in self.corrections.items():
                 dset.attrs[f'_{key}_correction'] = value
-        
-        # if close_flag:
-        #     self.hdf.close()
-        #     self.hdf = None
+    

@@ -155,6 +155,8 @@ class Phase(xu.materials.Crystal):
         sort_refl = [tuple(x) for _, x in sorted(zip(all_q, all_refl))]
         all_q.sort()
         F_hkl = np.abs(self.StructureFactor(sort_refl))**2
+        if F_hkl == 1:
+            F_hkl = np.ones((len(sort_refl)))
         #F_hkl = rescale_array(F_hkl, lower=0, upper=100)
 
         hkl_list = []
@@ -344,15 +346,13 @@ def approximate_powder_xrd(xrd_map, poni, energy=None, background=None):
     raise NotImplementedError()
 
 
-def phase_selector(xrd, phases, energy, tth, ignore_less=1):
+def phase_selector(xrd, phases, energy, tth, ignore_less=1, save_reflections=False):
     # TODO:
     # Add 2d plot for better understanding of peak character and significance
     # Add background subtraction?
         # I shouldn't have to do that if the 2d background is working correctly yes???
-
-    fig, ax = plt.subplots(1, 1, figsize=(8, 5), dpi=200)
+    
     colors = matplotlib.color_sequences['tab10']
-
     norm_xrd_int = rescale_array(xrd, upper=100, arr_min=0)
 
     for phase in phases:
@@ -361,12 +361,16 @@ def phase_selector(xrd, phases, energy, tth, ignore_less=1):
                                   np.max(tth)),
                                   ignore_less=ignore_less)
 
+    # Waiting is odd..
+    if save_reflections:
+        plt.close('all') 
+
+    fig, ax = plt.subplots(1, 1, figsize=(8, 5), dpi=200)
     xrd_plot = ax.plot(tth, norm_xrd_int, label='Composite XRD', c='k', zorder=(len(phases) + 1))
     fig.subplots_adjust(right=0.75)
 
     def update_max(LineCollection, phase, slider):
         seg = np.asarray(LineCollection.get_segments())
-        #seg[:, 1, 1] = slider.val * phase.reflections['int'] / np.min(phase.reflections['int'])
         seg[:, 1, 1] = slider.val * phase.reflections['int'] / np.max([5, np.min(phase.reflections['int'])])
         return seg
 
@@ -377,23 +381,13 @@ def phase_selector(xrd, phases, energy, tth, ignore_less=1):
 
     def update_factory(index):
         def update(val):
-            lines[index + 1].set_segments(update_max(lines[index + 1], phases[index], slider_lst[index]))
-            
-            # Testing extracting values from plot
-            #if slider_lst[index].val < 0.1:
-            #    if phases[index].name not in zero_phases:
-            #        zero_phases.append(phases[index].name)
-            #elif slider_lst[index].val >= 0.1:
-            #    if phases[index].name in zero_phases:
-            #        zero_phases.remove(phases[index].name)
-                
+            lines[index + 1].set_segments(update_max(lines[index + 1], phases[index], slider_lst[index]))                
             fig.canvas.draw_idle()
         return update
 
     slider_vpos = np.linspace(0.8, 0.1, len(phases))
     for i, phase in enumerate(phases):
         phase_intensities = phase.reflections['int']
-        #phase_scale = np.max(norm_xrd_int) / np.max(phase_intensities)
         phase_plot = ax.vlines(phase.reflections['tth'], ymin=0, ymax=0, color=colors[i], lw=2)
         lines.append(phase_plot)
 
@@ -422,15 +416,21 @@ def phase_selector(xrd, phases, energy, tth, ignore_less=1):
     phase_vals = {}
     def on_close(event):
         for phase, slider in zip(phases, slider_lst):
-            #print(f'{phase.name} has {slider.val} value.')
             phase_vals[phase.name] = slider.val
         #print(zero_phases)
         return phase_vals
     
-    fig.canvas.mpl_connect('close_event', on_close)
-    plt.show(block=True)
-    plt.pause(0.01)
-    return phase_vals
+    if save_reflections:
+        print('Saving reflections...')
+        fig.canvas.mpl_connect('close_event', on_close)
+        plt.show(block=True)
+        plt.pause(0.01)
+        return phase_vals
+    else:
+        print('Not saving reflections...')
+        fig.show()
+        #return phase_vals
+
 
 
  # Unused
