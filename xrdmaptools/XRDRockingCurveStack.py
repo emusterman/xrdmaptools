@@ -382,7 +382,7 @@ class XRDRockingCurveStack(XRDBaseScan):
     def from_db(cls,
                 scan_id=-1,
                 broker='manual',
-                filedir=None,
+                wd=None,
                 filename=None,
                 poni_file=None,
                 save_hdf=True,
@@ -498,7 +498,7 @@ class XRDRockingCurveStack(XRDBaseScan):
         for i, xrd_data_i in enumerate(xrd_data):
             rc = cls(
                     scan_id=scan_md['scan_id'],
-                    wd=filedir,
+                    wd=wd,
                     filename=filenames[i],
                     image_data=xrd_data_i,
                     # Not nominal values - those would be fine.
@@ -532,18 +532,18 @@ class XRDRockingCurveStack(XRDBaseScan):
 
     def load_parameters_from_txt(self,
                                  filename=None,
-                                 filedir=None):
+                                 wd=None):
         
-        if filedir is None:
-            filedir = self.wd
+        if wd is None:
+            wd = self.wd
 
         if filename is None:
             mask = [(str(self.scan_id) in file
                     and 'parameters' in file)
-                    for file in os.listdir(filedir)]
-            filename = np.asarray(os.listdir(filedir))[mask][0]
+                    for file in os.listdir(wd)]
+            filename = np.asarray(os.listdir(wd))[mask][0]
 
-        out = np.genfromtxt(f'{filedir}{filename}')
+        out = np.genfromtxt(f'{wd}{filename}')
         energy = out[0]
         sclrs = out[1:]
 
@@ -562,17 +562,17 @@ class XRDRockingCurveStack(XRDBaseScan):
 
     def load_metadata_from_txt(self,
                                filename=None,
-                               filedir=None):
-        if filedir is None:
-            filedir = self.wd
+                               wd=None):
+        if wd is None:
+            wd = self.wd
 
         if filename is None:
             mask = [(str(self.scan_id) in file
                     and 'metadata' in file)
-                    for file in os.listdir(filedir)]
-            filename = np.asarray(os.listdir(filedir))[mask][0]
+                    for file in os.listdir(wd)]
+            filename = np.asarray(os.listdir(wd))[mask][0]
 
-        with open(f'{filedir}{filename}', 'r') as f:
+        with open(f'{wd}{filename}', 'r') as f:
             json_str = f.read()
             md = json.loads(json_str)
         

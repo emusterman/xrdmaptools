@@ -90,7 +90,7 @@ class XRDMap(XRDBaseScan):
     def from_db(cls,
                 scan_id=-1,
                 broker='manual',
-                filedir=None,
+                wd=None,
                 filename=None,
                 poni_file=None,
                 data_keys=None,
@@ -153,7 +153,7 @@ class XRDMap(XRDBaseScan):
         xrdmaps = []
         for i, xrd_data_i in enumerate(xrd_data):
             xrdmap = cls(scan_id=scan_md['scan_id'],
-                         wd=filedir,
+                         wd=wd,
                          filename=filenames[i],
                          image_data=xrd_data_i,
                          null_map=null_map,
@@ -570,13 +570,13 @@ class XRDMap(XRDBaseScan):
     # from standard map_parameters text file
     def load_map_parameters(self,
                             filename,
-                            filedir=None,
+                            wd=None,
                             position_units=None):  
         
-        if filedir is None:
-            filedir = self.wd
+        if wd is None:
+            wd = self.wd
 
-        path = pathify(filedir, filename, '.txt')
+        path = pathify(wd, filename, '.txt')
         arr = np.genfromtxt(path)
 
         pos_dict, sclr_dict = {}, {}

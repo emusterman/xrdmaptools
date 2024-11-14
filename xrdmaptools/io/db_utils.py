@@ -8,7 +8,7 @@ from ..XRDMap import XRDMap
 # A very convenient wrapper without returning the class
 def make_xrdmap_hdf(scan_id=-1,
                     broker='manual',
-                    filedir=None,
+                    wd=None,
                     filename=None,
                     poni_file=None,
                     repair_method='fill'):
@@ -17,7 +17,7 @@ def make_xrdmap_hdf(scan_id=-1,
     xrdmap = XRDMap.from_db(
                 scan_id=scan_id,
                 broker=broker,
-                filedir=filedir,
+                wd=wd,
                 filename=filename,
                 poni_file=poni_file,
                 save_hdf=True,

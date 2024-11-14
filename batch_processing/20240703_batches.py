@@ -74,7 +74,7 @@ def xmt_batch1():
         
         # Load map and set calibration
         xrdmap = XRDMap.from_hdf(f'scan{scan}_xrd.h5', wd=f'{base_wd}processed_xrdmaps/', save_hdf=True)
-        xrdmap.set_calibration(poni_file, filedir=base_wd)
+        xrdmap.set_calibration(poni_file, wd=base_wd)
         
         # Basic correction. No outliers
         xrdmap.map.correct_dark_field(dark_field=dark_field)
@@ -154,11 +154,11 @@ def xmt_batch2():
 
         if not os.path.exists(f'{base_wd}processed_xrdmaps/scan{scan}_xrd.h5'):
             print('No raw file found. Generating new file!')
-            make_xrdmap_hdf(scan, filedir=base_wd + 'processed_xrdmaps/')
+            make_xrdmap_hdf(scan, wd=base_wd + 'processed_xrdmaps/')
         
         # Load map and set calibration
         xrdmap = XRDMap.from_hdf(f'scan{scan}_xrd.h5', wd=f'{base_wd}processed_xrdmaps/', save_hdf=True)
-        xrdmap.set_calibration(poni_file, filedir=base_wd)
+        xrdmap.set_calibration(poni_file, wd=base_wd)
         
         # Basic correction. No outliers
         xrdmap.map.correct_dark_field(dark_field=dark_field)
@@ -230,11 +230,11 @@ def xmt_batch3():
 
         if not os.path.exists(f'{base_wd}processed_xrdmaps/scan{scan}_xrd.h5'):
             print('No raw file found. Generating new file!')
-            make_xrdmap_hdf(scan, filedir=base_wd + 'processed_xrdmaps/')
+            make_xrdmap_hdf(scan, wd=base_wd + 'processed_xrdmaps/')
         
         # Load map and set calibration
         xrdmap = XRDMap.from_hdf(f'scan{scan}_xrd.h5', wd=f'{base_wd}processed_xrdmaps/', save_hdf=True)
-        xrdmap.set_calibration(poni_file, filedir=base_wd)
+        xrdmap.set_calibration(poni_file, wd=base_wd)
         
         # Basic correction. No outliers
         xrdmap.map.correct_dark_field(dark_field=dark_field)
@@ -293,11 +293,11 @@ def xmt_batch4():
 
         if not os.path.exists(f'{base_wd}processed_xrdmaps/scan{scan}_xrd.h5'):
             print('No raw file found. Generating new file!')
-            make_xrdmap_hdf(scan, filedir=base_wd + 'processed_xrdmaps/')
+            make_xrdmap_hdf(scan, wd=base_wd + 'processed_xrdmaps/')
         
         # Load map and set calibration
         xrdmap = XRDMap.from_hdf(f'scan{scan}_xrd.h5', wd=f'{base_wd}processed_xrdmaps/', save_hdf=True)
-        xrdmap.set_calibration(poni_file, filedir=base_wd)
+        xrdmap.set_calibration(poni_file, wd=base_wd)
         
         # Basic correction. No outliers
         xrdmap.map.correct_dark_field(dark_field=dark_field)
@@ -367,11 +367,11 @@ def xmt_batch5():
 
         if not os.path.exists(f'{base_wd}processed_xrdmaps/scan{scan}_xrd.h5'):
             print('No raw file found. Generating new file!')
-            make_xrdmap_hdf(scan, filedir=base_wd + 'processed_xrdmaps/')
+            make_xrdmap_hdf(scan, wd=base_wd + 'processed_xrdmaps/')
         
         # Load map and set calibration
         xrdmap = XRDMap.from_hdf(f'scan{scan}_xrd.h5', wd=f'{base_wd}processed_xrdmaps/', save_hdf=True)
-        xrdmap.set_calibration(poni_file, filedir=base_wd)
+        xrdmap.set_calibration(poni_file, wd=base_wd)
         
         # Basic correction. No outliers
         xrdmap.map.correct_dark_field(dark_field=dark_field)
@@ -454,7 +454,7 @@ def xmt_batch6():
 
         if not os.path.exists(f'{base_wd}processed_xrdmaps/scan{scan}_xrd.h5'):
             print('No raw file found. Generating new file!')
-            make_xrdmap_hdf(scan, filedir=base_wd + 'processed_xrdmaps/')
+            make_xrdmap_hdf(scan, wd=base_wd + 'processed_xrdmaps/')
 
         dark_field = io.imread(f'{base_wd}scan{dark}_dexela_median_composite.tif')
         #flat_field = io.imread()
@@ -462,7 +462,7 @@ def xmt_batch6():
         
         # Load map and set calibration
         xrdmap = XRDMap.from_hdf(f'scan{scan}_xrd.h5', wd=f'{base_wd}processed_xrdmaps/', save_hdf=True)
-        xrdmap.set_calibration(poni_file, filedir=base_wd)
+        xrdmap.set_calibration(poni_file, wd=base_wd)
         
         # Basic correction. No outliers
         xrdmap.map.correct_dark_field(dark_field=dark_field)
@@ -527,11 +527,11 @@ def xmt_batch7():
 
             # if not os.path.exists(f'{base_wd}processed_xrdmaps/scan{scan}_xrd.h5'):
             #     print('No raw file found. Generating new file!')
-            #     make_xrdmap_hdf(scan, filedir=base_wd + 'processed_xrdmaps/')
+            #     make_xrdmap_hdf(scan, wd=base_wd + 'processed_xrdmaps/')
             
             # Load map and set calibration
             xrdmap = XRDMap.from_hdf(f'scan{scan}_xrd.h5', wd=new_base, save_hdf=True)
-            xrdmap.set_calibration(poni_file, filedir=base_wd + 'calibrations/')
+            xrdmap.set_calibration(poni_file, wd=base_wd + 'calibrations/')
             
             # Basic correction. No outliers
             xrdmap.map.correct_dark_field(dark_field=dark_field)
@@ -615,13 +615,13 @@ def xmt_batch8():
         
         if not os.path.exists(f'{base_wd}processed_xrdmaps/scan{scan}_xrd.h5'):
             print('No raw file found. Generating new file!')
-            make_xrdmap_hdf(scan, filedir=base_wd + 'processed_xrdmaps/')
+            make_xrdmap_hdf(scan, wd=base_wd + 'processed_xrdmaps/')
         
         # Load map and set calibration
         xrdmap = XRDMap.from_hdf(f'scan{scan}_xrd.h5', wd=base_wd + 'processed_xrdmaps/', save_hdf=True)
         xrdmap.interpolate_positions()
-        #xrdmap.load_phase('Stibnite_0008636.cif', filedir='/nsls2/users/emusterma/Documents/cif/', phase_name="stibnite")
-        xrdmap.set_calibration(poni_file, filedir=base_wd + 'calibrations/')
+        #xrdmap.load_phase('Stibnite_0008636.cif', wd='/nsls2/users/emusterma/Documents/cif/', phase_name="stibnite")
+        xrdmap.set_calibration(poni_file, wd=base_wd + 'calibrations/')
         
         # Basic correction. No outliers
         xrdmap.map.correct_dark_field(dark_field=dark_field)
@@ -721,13 +721,13 @@ def xmt_batch9():
         
         if not os.path.exists(f'{base_wd}processed_xrdmaps/scan{scan}_xrd.h5'):
             print('No raw file found. Generating new file!')
-            make_xrdmap_hdf(scan, filedir=base_wd + 'processed_xrdmaps/')
+            make_xrdmap_hdf(scan, wd=base_wd + 'processed_xrdmaps/')
         
         # Load map and set calibration
         xrdmap = XRDMap.from_hdf(f'scan{scan}_xrd.h5', wd=base_wd + 'processed_xrdmaps/', save_hdf=True)
         xrdmap.interpolate_positions()
-        #xrdmap.load_phase('Stibnite_0008636.cif', filedir='/nsls2/users/emusterma/Documents/cif/', phase_name="stibnite")
-        xrdmap.set_calibration(poni_file, filedir=base_wd + 'calibrations/')
+        #xrdmap.load_phase('Stibnite_0008636.cif', wd='/nsls2/users/emusterma/Documents/cif/', phase_name="stibnite")
+        xrdmap.set_calibration(poni_file, wd=base_wd + 'calibrations/')
         
         # Basic correction. No outliers
         xrdmap.map.correct_dark_field(dark_field=dark_field)
@@ -820,13 +820,13 @@ def xmt_batch10():
         
         if not os.path.exists(f'{base_wd}processed_xrdmaps/scan{scan}_xrd.h5'):
             print('No raw file found. Generating new file!')
-            make_xrdmap_hdf(scan, filedir=base_wd + 'processed_xrdmaps/')
+            make_xrdmap_hdf(scan, wd=base_wd + 'processed_xrdmaps/')
         
         # Load map and set calibration
         xrdmap = XRDMap.from_hdf(f'scan{scan}_xrd.h5', wd=base_wd + 'processed_xrdmaps/', save_hdf=True)
         xrdmap.interpolate_positions()
-        #xrdmap.load_phase('Stibnite_0008636.cif', filedir='/nsls2/users/emusterma/Documents/cif/', phase_name="stibnite")
-        xrdmap.set_calibration(poni_file, filedir=base_wd + 'calibrations/')
+        #xrdmap.load_phase('Stibnite_0008636.cif', wd='/nsls2/users/emusterma/Documents/cif/', phase_name="stibnite")
+        xrdmap.set_calibration(poni_file, wd=base_wd + 'calibrations/')
         
         # Basic correction. No outliers
         xrdmap.map.correct_dark_field(dark_field=dark_field)
@@ -918,7 +918,7 @@ def batch_scan_nullification():
         
         if not os.path.exists(f'{base_wd}processed_xrdmaps/scan{scan}_xrd.h5'):
             print('No raw file found. Generating new file!')
-            make_xrdmap_hdf(scan, filedir=base_wd + 'processed_xrdmaps/')
+            make_xrdmap_hdf(scan, wd=base_wd + 'processed_xrdmaps/')
         
         f = h5py.File(f'{base_wd}processed_xrdmaps/scan{scan}_xrd.h5')
         dataset_shape = f['xrdmap/image_data/raw_images'].shape

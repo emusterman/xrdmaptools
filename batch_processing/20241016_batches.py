@@ -66,7 +66,7 @@ def rsm_batch1():
             rsm.correct_dark_field(dark_field=dark_field)
             rsm.normalize_scaler()
             rsm.correct_outliers()
-            rsm.set_calibration('scan156160_dexela_calibration.poni', filedir=f'{base_wd}calibrations/')
+            rsm.set_calibration('scan156160_dexela_calibration.poni', wd=f'{base_wd}calibrations/')
             rsm.apply_polarization_correction()
             rsm.apply_solidangle_correction()
             rsm.estimate_background(method='bruckner', binning=8, min_prominence=0.1)
@@ -77,7 +77,7 @@ def rsm_batch1():
             print('HDF already exists. Loading that!')
             rsm = XRDRockingCurveStack.from_hdf(f'scan{scan}_rsm.h5', wd=f'{base_wd}energy_rc/')
 
-        rsm.load_phase('Stibnite_0008636.cif', filedir='/nsls2/users/emusterma/Documents/cif/', phase_name='stibnite')
+        rsm.load_phase('Stibnite_0008636.cif', wd='/nsls2/users/emusterma/Documents/cif/', phase_name='stibnite')
         rsm.update_phases()
 
         rsm.find_2D_blobs(threshold_method='minimum', multiplier=5, size=3, expansion=10, override_rescale=True)

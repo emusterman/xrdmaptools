@@ -820,20 +820,20 @@ class XRDBaseScan(XRDData):
     def set_calibration(self,
                         poni_file,
                         energy=None,
-                        filedir=None):
-        if filedir is None:
-            filedir = self.wd
+                        wd=None):
+        if wd is None:
+            wd = self.wd
 
         if isinstance(poni_file, str):
-            if not os.path.exists(f'{filedir}{poni_file}'):
-                err_str = f'{filedir}{poni_file} does not exist.'
+            if not os.path.exists(f'{wd}{poni_file}'):
+                err_str = f'{wd}{poni_file} does not exist.'
                 raise FileNotFoundError(err_str)
 
             if poni_file[-4:] != 'poni':
                 raise RuntimeError('Please provide a .poni file.')
 
             print('Setting detector calibration...')
-            self.ai = pyFAI.load(f'{filedir}{poni_file}')
+            self.ai = pyFAI.load(f'{wd}{poni_file}')
         
         elif isinstance(poni_file, OrderedDict):
             print('Setting detector calibration...')
@@ -1192,11 +1192,11 @@ class XRDBaseScan(XRDData):
             print(ostr)
         
 
-    def load_phase(self, filename, filedir=None, phase_name=None):
-        if filedir is None:
-            filedir = self.wd
+    def load_phase(self, filename, wd=None, phase_name=None):
+        if wd is None:
+            wd = self.wd
         
-        phase_path = pathify(filedir, filename,
+        phase_path = pathify(wd, filename,
                              ['.cif', '.txt', '.D', '.h5'])
 
         if not os.path.exists(f'{phase_path}'):

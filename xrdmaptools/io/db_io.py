@@ -642,7 +642,7 @@ def make_calibration_pattern(xrd_data):
 def _save_xrd_tifs(xrd_data,
                    xrd_dets=None,
                    scan_id=None,
-                   filedir=None,
+                   wd=None,
                    filenames=None):
 
     if (scan_id is None and filenames is None):
@@ -653,8 +653,8 @@ def _save_xrd_tifs(xrd_data,
     if not isinstance(xrd_data, list):
         xrd_data = [xrd_data]
 
-    if filedir is None:
-        filedir = os.getcwd()   
+    if wd is None:
+        wd = os.getcwd()   
     if filenames is None:
         filenames = []
         for detector in xrd_dets:
@@ -664,11 +664,11 @@ def _save_xrd_tifs(xrd_data,
         raise ValueError('Length of filenames does not match length of xrd_data')
     
     for i, xrd in enumerate(xrd_data):
-        io.imsave(f'{filedir}{filenames[i]}',
+        io.imsave(f'{wd}{filenames[i]}',
                   np.asarray(xrd).astype(np.uint16),
                   check_contrast=False)
         # I think the data should already be an unsigned integer
-        #io.imsave(f'{filedir}{filenames[i]}', xrd, check_contrast=False)
+        #io.imsave(f'{wd}{filenames[i]}', xrd, check_contrast=False)
     print(f'Saved pattern(s) for scan {scan_id}!')
 
 
@@ -678,7 +678,7 @@ def _save_composite_pattern(comps,
                             subtract,
                             xrd_dets=None,
                             scan_id=None,
-                            filedir=None,
+                            wd=None,
                             filenames=None):
 
     if subtract is None:
@@ -697,20 +697,20 @@ def _save_composite_pattern(comps,
     _save_xrd_tifs(comps,
                    xrd_dets=xrd_dets,
                    scan_id=scan_id,
-                   filedir=filedir,
+                   wd=wd,
                    filenames=filenames)
 
 
 def _save_calibration_pattern(xrd_data,
                               xrd_dets,
                               scan_id=None,
-                              filedir=None):
+                              wd=None):
 
     if not isinstance(xrd_data, list):
         xrd_data = [xrd_data]
     
-    if filedir is None:
-        filedir = os.getcwd()
+    if wd is None:
+        wd = os.getcwd()
 
     filenames = []
     for detector in xrd_dets:
@@ -720,7 +720,7 @@ def _save_calibration_pattern(xrd_data,
     _save_xrd_tifs(xrd_data,
                    xrd_dets=xrd_dets,
                    scan_id=scan_id,
-                   filedir=filedir,
+                   wd=wd,
                    filenames=filenames)
 
 
@@ -728,11 +728,11 @@ def _save_calibration_pattern(xrd_data,
 def _save_map_parameters(data_dict,
                          scan_id,
                          data_keys=[],
-                         filedir=None,
+                         wd=None,
                          filename=None):
 
-    if filedir is None:
-        filedir = os.getcwd()
+    if wd is None:
+        wd = os.getcwd()
     if filename is None:
         filename = f'scan{scan_id}_map_parameters.txt'
     if data_keys == []:
@@ -743,25 +743,25 @@ def _save_map_parameters(data_dict,
                 print(f'WARNING: data_key ({key}) requested but not in data_dict.')
 
     map_data = np.stack([data_dict[key].ravel() for key in data_keys])
-    np.savetxt(f'{filedir}{filename}', map_data)
+    np.savetxt(f'{wd}{filename}', map_data)
     print(f'Saved map parameters for scan {scan_id}!')
 
 
 def _save_scan_md(scan_md,
                   scan_id,
-                  filedir=None,
+                  wd=None,
                   filename=None):
     import json
 
     if not isinstance(scan_md, dict):
         raise TypeError('Scan metadata not provided as a dictionary.')
     
-    if filedir is None:
-        filedir = os.getcwd()
+    if wd is None:
+        wd = os.getcwd()
     if filename is None:
         filename = f'scan{scan_id}_scan_md.txt'
 
-    with open(f'{filedir}{filename}', 'w') as f:
+    with open(f'{wd}{filename}', 'w') as f:
         f.write(json.dumps(scan_md))
     print(f'Saved metadata for scan {scan_id}!')
 
@@ -776,7 +776,7 @@ def save_xrd_tifs(scan_id=-1,
                   broker='tiled',
                   detectors=None,
                   data_keys=[],
-                  filedir=None,
+                  wd=None,
                   filenames=None,
                   repair_method='replace'):
 
@@ -793,7 +793,7 @@ def save_xrd_tifs(scan_id=-1,
     _save_xrd_tifs(xrd_data,
                    xrd_dets=xrd_dets,
                    scan_id=scan_md['scan_id'], # Will return the correct value
-                   filedir=filedir,
+                   wd=wd,
                    filenames=filenames)
 
 
@@ -804,7 +804,7 @@ def save_composite_pattern(scan_id=-1,
                            subtract=None,
                            detectors=None,
                            data_keys=[], 
-                           filedir=None,
+                           wd=None,
                            filenames=None):
 
     data_dict, scan_md, data_keys, xrd_dets = load_data(scan_id=scan_id,
@@ -824,7 +824,7 @@ def save_composite_pattern(scan_id=-1,
                             subtract,
                             xrd_dets=xrd_dets,
                             scan_id=scan_md['scan_id'],
-                            filedir=filedir,
+                            wd=wd,
                             filenames=filenames)
 
 
@@ -833,7 +833,7 @@ def save_calibration_pattern(scan_id=-1,
                              broker='tiled',
                              detectors=None,
                              data_keys=[], 
-                             filedir=None):
+                             wd=None):
 
     data_dict, scan_md, data_keys, xrd_dets = load_data(scan_id=scan_id,
                                                         broker=broker,
@@ -850,7 +850,7 @@ def save_calibration_pattern(scan_id=-1,
     _save_calibration_pattern(comps,
                              xrd_dets=xrd_dets,
                              scan_id=scan_md['scan_id'],
-                             filedir=filedir)
+                             wd=wd)
 
 
 # Function load and save map parameters 
@@ -863,7 +863,7 @@ def save_map_parameters(scan_id=-1,
                                    'i0_time',
                                    'im',
                                    'it'], 
-                        filedir=None,
+                        wd=None,
                         filename=None):
 
     data_dict, scan_md, data_keys = load_data(scan_id=scan_id,
@@ -875,7 +875,7 @@ def save_map_parameters(scan_id=-1,
     _save_map_parameters(data_dict,
                         scan_md['scan_id'],
                         data_keys=[],
-                        filedir=filedir,
+                        wd=wd,
                         filename=filename)
 
 
@@ -884,7 +884,7 @@ def save_scan_md(scan_id=-1,
                  broker='tiled',
                  detectors=[],
                  data_keys=[], 
-                 filedir=None,
+                 wd=None,
                  filename=None):
 
     data_dict, scan_md, data_keys = load_data(scan_id=scan_id,
@@ -895,7 +895,7 @@ def save_scan_md(scan_id=-1,
 
     _save_scan_md(scan_md,
                   scan_md['scan_id'],
-                  filedir=filedir,
+                  wd=wd,
                   filename=filename)
 
 # Function to load and save all scan data sans xrf for now
@@ -908,7 +908,7 @@ def save_full_scan(scan_id=-1,
                               'i0_time',
                               'im',
                               'it'], 
-                   filedir=None,
+                   wd=None,
                    repair_method='replace'):
     
     data_dict, scan_md, data_keys, xrd_dets = load_data(scan_id=scan_id,
@@ -925,18 +925,18 @@ def save_full_scan(scan_id=-1,
     _save_xrd_tifs(xrd_data,
                    xrd_dets=xrd_dets,
                    scan_id=scan_md['scan_id'], # Will return the correct value
-                   filedir=filedir)
+                   wd=wd)
     
     # Save map parameters (x, y, i0, etc...)
     _save_map_parameters(data_dict,
                          scan_md['scan_id'],
                          data_keys=[],
-                         filedir=filedir)
+                         wd=wd)
     
     # Save metadata (scaid, uid, energy, etc...)
     _save_scan_md(scan_md,
                   scan_md['scan_id'],
-                  filedir=filedir)
+                  wd=wd)
 
 ######################
 ### Rocking Curves ###
@@ -1077,7 +1077,7 @@ def load_step_rc_data(scan_id=-1,
 
 def save_step_rc_data(scan_id=-1,
                       extra_data_keys=None,
-                      filedir=None,
+                      wd=None,
                       filenames=None):
 
     if scantype is None:
@@ -1124,23 +1124,23 @@ def save_step_rc_data(scan_id=-1,
     _save_xrd_tifs(xrd_data,
                    xrd_dets=xrd_dets,
                    scan_id=scan_md['scan_id'], # Will return the correct value
-                   filedir=filedir,
+                   wd=wd,
                    filenames=filenames)
 
     param_filename = f'scan{scan_id}_{scantype}_parameters.txt'
     _save_map_parameters(data_dict, scan_id, data_keys=data_keys,
-                         filedir=filedir, filename=param_filename)
+                         wd=wd, filename=param_filename)
 
     md_filename = f'scan{scan_id}_{scantype}_metadata.txt'
     _save_scan_md(scan_md, scan_id,
-                  filedir=filedir, filename=md_filename)
+                  wd=wd, filename=md_filename)
     
     # Probably nicer ways to do this
     # TODO: convert to pyXRF format
     if 'xs_fluor' in data_dict.keys():
         xrf_data = np.asarray(data_dict['xs_fluor'])
         xrf_data = xrf_data.squeeze().sum(axis=1)
-        np.savetxt(f'{filedir}scan{scan_id}_{scantype}_xrf.txt',
+        np.savetxt(f'{wd}scan{scan_id}_{scantype}_xrf.txt',
                    xrf_data)
         print(f'Saved XRF data for scan {scan_id}!')
 
@@ -1221,7 +1221,7 @@ def save_step_rc_data(scan_id=-1,
 
 
 # def save_energy_rc_data(scan_id=-1,
-#                         filedir=None,
+#                         wd=None,
 
 #      ) = load_step_rc_data(scan_id=scan_id,
 #                            returns=['data_keys',
@@ -1238,16 +1238,16 @@ def save_step_rc_data(scan_id=-1,
 #     _save_xrd_tifs(xrd_data,
 #                    xrd_dets=xrd_dets,
 #                    scan_id=scan_md['scan_id'], # Will return the correct value
-#                    filedir=filedir,
+#                    wd=wd,
 #                    filenames=filenames)
 
 #     param_filename = f'scan{scan_id}_energy_rc_parameters.txt'
 #     _save_map_parameters(data_dict, scan_id, data_keys=data_keys,
-#                          filedir=filedir, filename=param_filename)
+#                          wd=wd, filename=param_filename)
     
 #     md_filename = f'scan{scan_id}_energy_rc_metadata.txt'                  
 #     _save_scan_md(scan_md, scan_id,
-#                   filedir=filedir, filename=md_filename)
+#                   wd=wd, filename=md_filename)
     
 
 def load_extended_energy_rc_data(start_id,
@@ -1318,7 +1318,7 @@ def load_extended_energy_rc_data(start_id,
 def save_extended_energy_rc_data(start_id,
                                  end_id,
                                  extra_data_keys=None,
-                                 filedir=None,
+                                 wd=None,
                                  filenames=None):
     
     (all_data_dict,
@@ -1362,24 +1362,24 @@ def save_extended_energy_rc_data(start_id,
     _save_xrd_tifs(xrd_data,
                    xrd_dets=xrd_dets,
                    scan_id=scan_range_str,
-                   filedir=filedir,
+                   wd=wd,
                    filenames=filenames)
 
     param_filename = f'scan{scan_range_str}_energy_rc_parameters.txt'
     _save_map_parameters(all_data_dict,
                          scan_range_str,
                          data_keys=all_data_keys, # This might fail
-                         filedir=filedir,
+                         wd=wd,
                          filename=param_filename)
 
     md_filename = f'scan{scan_range_str}_energy_rc_metadata.txt'                  
     _save_scan_md(all_md_dict, scan_range_str,
-                  filedir=filedir, filename=md_filename)
+                  wd=wd, filename=md_filename)
 
     if xrf_data is not None:
         xrf_data = np.asarray(data_dict['xs_fluor'])
         xrf_data = xrf_data.squeeze().sum(axis=1)
-        np.savetxt(f'{filedir}scan{scan_id}_extended_energy_rc_xrf.txt',
+        np.savetxt(f'{wd}scan{scan_id}_extended_energy_rc_xrf.txt',
                    xrf_data)
         print(f'Saved XRF data for scans {scan_range_str}!')
 
@@ -1464,7 +1464,7 @@ def save_extended_energy_rc_data(start_id,
 
 
 # def save_angle_rc_data(scan_id=-1,
-#                        filedir=None,
+#                        wd=None,
 #                        filenames=None):
 
 #     (data_dict,
@@ -1486,12 +1486,12 @@ def save_extended_energy_rc_data(start_id,
 #     _save_xrd_tifs(xrd_data,
 #                    xrd_dets=xrd_dets,
 #                    scan_id=scan_md['scan_id'], # Will return the correct value
-#                    filedir=filedir,
+#                    wd=wd,
 #                    filenames=filenames)
 
 #     param_filename = f'scan{scan_id}_angle_rc_parameters.txt'
 #     _save_map_parameters(data_dict, scan_id, data_keys=data_keys,
-#                          filedir=filedir, filename=param_filename)
+#                          wd=wd, filename=param_filename)
     
 
 def load_flying_angle_rc_data(scan_id=-1,
@@ -1551,7 +1551,7 @@ def save_flying_angle_rc_data(scan_id=-1,
                               broker='manual',
                               detectors=None,
                               extra_data_keys=None,
-                              filedir=None,
+                              wd=None,
                               filenames=None,
                               repair_method='fill'):
 
@@ -1588,24 +1588,24 @@ def save_flying_angle_rc_data(scan_id=-1,
     _save_xrd_tifs(xrd_data,
                    xrd_dets=xrd_dets,
                    scan_id=scan_md['scan_id'], # Will return the correct value
-                   filedir=filedir,
+                   wd=wd,
                    filenames=filenames)
 
     # return data_dict, data_keys
     
     param_filename = f'scan{scan_id}_flying_angle_rc_parameters.txt'
     _save_map_parameters(data_dict, scan_id, data_keys=data_keys,
-                         filedir=filedir, filename=param_filename)
+                         wd=wd, filename=param_filename)
     
     md_filename = f'scan{scan_id}_flying_angle_rc_metadata.txt'                  
     _save_scan_md(scan_md, scan_id,
-                  filedir=filedir, filename=md_filename)
+                  wd=wd, filename=md_filename)
     
     # This one can be mapped with pyXRF...
     if 'xs_fluor' in data_dict.keys():
         xrf_data = np.asarray(data_dict['xs_fluor'])
         xrf_data = xrf_data.squeeze().sum(axis=1)
-        np.savetxt(f'{filedir}scan{scan_id}_flying_angle_rc_xrf.txt',
+        np.savetxt(f'{wd}scan{scan_id}_flying_angle_rc_xrf.txt',
                    xrf_data)
         print(f'Saved XRF data for scan {scan_id}!')
 
@@ -1618,11 +1618,11 @@ def save_flying_angle_rc_data(scan_id=-1,
 def generate_scan_logfile(start_id,
                           end_id=-1,
                           filename=None,
-                          filedir=None,
+                          wd=None,
                           include_peakups=False):
 
-    if filedir is None:
-        raise ValueError('No defualt filedir and none specified. Please define filedir.')
+    if wd is None:
+        raise ValueError('No defualt wd and none specified. Please define wd.')
 
     if end_id == -1:
         bs_run = c[-1]
@@ -1683,7 +1683,7 @@ def generate_scan_logfile(start_id,
         except KeyError:
             print(f'scan_id={scan_id} not found!')
 
-    logfile = f'{filedir}{filename}.txt'
+    logfile = f'{wd}{filename}.txt'
 
     with open(logfile, 'w') as log:
         for (scan_id,

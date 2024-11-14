@@ -269,12 +269,12 @@ class Phase(xu.materials.Crystal):
 #######################
 
 
-# filedir and filename need conditionals
+# wd and filename need conditionals
 # Should probably wrap this into the phase class as well...
 # Need to better identify and consolidate peaks with convolution as well
 # Overall this is very old and needs to be rewritten
 def write_calibration_file(mat, name=None, tt_cutoff=90, ignore_less=1,
-                           filedir=None, filename=None,
+                           wd=None, filename=None,
                            simulate_convolution=False):
     '''
                 and self.intensity is not None):
@@ -338,7 +338,7 @@ def write_calibration_file(mat, name=None, tt_cutoff=90, ignore_less=1,
     for i in range(len(refl_lst)):
         data.append(str(np.round(d_lst[i], 3)) + '\t#|\t' + str(np.round(int_lst[i], 1)) + '\t|\t' + str(tuple(refl_lst[i])))
 
-    file = open(filedir + filename, 'w')
+    file = open(wd + filename, 'w')
     file.writelines(s + '\n' for s in header + data)
     file.close()
 
