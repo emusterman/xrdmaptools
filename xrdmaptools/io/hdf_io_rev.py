@@ -117,6 +117,11 @@ def load_xrdbase_hdf(filename,
     # Load base metadata
     base_md = dict(base_grp.attrs.items())
 
+    # # Backwards compatability
+    # if 'scanid' in base_md:
+    #     base_md['scan_id'] = base_md['scanid']
+    #     del base_md['scanid']
+
     # Load extra metadata
     extra_md = {}
     if 'extra_metadata' in base_grp.keys(): # Check for backwards compatibility

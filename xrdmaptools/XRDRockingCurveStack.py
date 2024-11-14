@@ -143,16 +143,18 @@ class XRDRockingCurveStack(XRDBaseScan):
                 raise ValueError(err_str)
 
         # Find rocking axis
-        if rocking_axis.lower() in ['energy', 'wavelength']:
-            self.rocking_axis = 'energy'
-        elif rocking_axis.lower() in ['angle', 'theta']:
-            self.rocking_axis = 'angle'
-        else:
-            warn_str = (f'Rocking axis ({rocking_axis}) is not '
-                        + 'supported. Attempting to find '
-                        + 'automatically.')
-            print(warn_str)
-            rocking_axis = None
+        if rocking_axis is not None:
+            if rocking_axis.lower() in ['energy', 'wavelength']:
+                self.rocking_axis = 'energy'
+            elif rocking_axis.lower() in ['angle', 'theta']:
+                self.rocking_axis = 'angle'
+            else:
+                warn_str = (f'Rocking axis ({rocking_axis}) is not '
+                            + 'supported. Attempting to find '
+                            + 'automatically.')
+                print(warn_str)
+                # kick it back out and find automatically
+                rocking_axis = None 
             
         if rocking_axis is None:
             min_en = np.min(self.energy)
@@ -182,6 +184,7 @@ class XRDRockingCurveStack(XRDBaseScan):
                             + 'Energy varies by less than 5 eV and '
                             + 'theta varies by less than 50 mdeg.')
                 raise RuntimeError(err_str)
+
 
         @XRDBaseScan.protect_hdf()
         def save_extra_attrs(self): # Not sure if this needs self...
@@ -399,6 +402,20 @@ class XRDRockingCurveStack(XRDBaseScan):
                             end_id=scanid[-6:],
                             returns=['xrd_dets']
                             )
+
+            filename_id = (f"{scan_md['scan_id'][0]}"
+                           + f"-{scan_md['scan_id'][-1]}")
+
+            for key in data_dict.keys():
+                if key in [f'{xrd_det}_image'
+                           for xrd_det in xrd_dets]:
+                    data_dict[key] = np.vstack(data_dict[key])
+                    data_shape = data_dict[key].shape
+                    data_dict[key] = data_dict[key].reshape(
+                                                    data_shape[0],
+                                                    1,
+                                                    *data_shape[-2:])
+            
         else:
             # Get scantype information from check...
             if broker == 'manual':
@@ -427,6 +444,8 @@ class XRDRockingCurveStack(XRDBaseScan):
                             scanid=scanid,
                             returns=['xrd_dets'],
                                 )
+            
+            filename_id = scan_md['scan_id']
         
         xrd_data = [data_dict[f'{xrd_det}_image']
                     for xrd_det in xrd_dets]
@@ -441,11 +460,31 @@ class XRDRockingCurveStack(XRDBaseScan):
         else:
             null_map = None
 
-        if len(xrd_data) > 1:
-            filenames = [f'scan{scan_md["scan_id"]}_{det}_xrd.h5'
-                         for det in xrd_dets]
+        # filenames = [f'scan{filename_id}_{det}_rsm'
+        #                 for det in xrd_dets]
+        
+        if filename is None:
+            if len(xrd_data) < 1:
+                # Iterate through detectors
+                filenames = [f'scan{filename_id}_{det}_rsm'
+                            for det in xrd_dets]
+            else:
+                filenames = [f'scan{filename_id}_rsm']
         else:
-            filenames = [filename]
+            if isinstance(filename, list):
+                if len(filename) != len(xrd_data):
+                    warn_str = ('WARNING: length of specified '
+                                + 'filenames does not match the '
+                                + 'number of detectors. Naming may '
+                                + 'be unexpected.')
+                    print(warn_str)
+                    # Iterate through detectors
+                    filenames = [f'{filename[0]}_{det}_rsm' ]
+                else:
+                    filenames = [filename]
+            else:
+                filenames = [f'{filename}_{det}_rsm'
+                             for det in xrd_dets]
 
         extra_md = {}
         for key in scan_md.keys():

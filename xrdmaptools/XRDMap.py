@@ -869,7 +869,6 @@ class XRDMap(XRDBaseScan):
                     print('Loading reflection spots from hdf...',
                           end='', flush=True)
                     self.close_hdf()
-                    hdf_str = 
                     spots = pd.read_hdf(
                             self.hdf_path,
                             key=f'{self._hdf_type}/reflections/spots')
@@ -1010,7 +1009,6 @@ class XRDMap(XRDBaseScan):
 
             if extra_attrs is not None:
                 self.open_hdf()
-                hdf_str = 
                 for key, value in extra_attrs.items():
                     self.hdf[hdf_str].attrs[key] = value
 
@@ -1114,15 +1112,9 @@ class XRDMap(XRDBaseScan):
                  **kwargs):
         
         map_values = np.asarray(map_values)
-        if (hasattr(self, 'map')
-            and map_values.shape != self.map_shape):
-            err_str = (f'Map input shape {map_values.shape} does '
-                       + f'not match instance shape '
-                       + f'of {self.map_shape}')
-            raise ValueError(err_str)
         
-        elif (hasattr(self, 'pos_dict')
-              and (map_values.shape
+        if (hasattr(self, 'pos_dict')
+            and (map_values.shape
                    != list(self.pos_dict.values())[0].shape)):
             err_str = (f'Map input shape {map_values.shape} does '
                        + f'not match instance shape '

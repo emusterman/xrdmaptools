@@ -73,6 +73,9 @@ def get_q_vect(tth,
     return q_vect
 
 
+# Will give polar coordinates and wavelength or stage rotation 
+# (about the vertical (y, 1)-axis) where those coordinates are 
+# incident with the Ewald sphere
 def test_q_2_polar(q_vect,
                    wavelength=None,
                    stage_rotation=None,
@@ -101,9 +104,10 @@ def test_q_2_polar(q_vect,
     q_norm = np.linalg.norm(q_vect, axis=-1)
 
     # Find tth and chi
-    tth = 2 * (np.pi / 2 - vector_angle(q_vect,
-                                        [0, 0, -1],
-                                        degrees=False)) # always False
+    tth = 2 * np.arcsin(q_norm * wavelength / (4 * np.pi))
+    # tth = 2 * (np.pi / 2 - vector_angle(q_vect,
+    #                                     [0, 0, -1],
+    #                                     degrees=False)) # always False
     chi = np.arctan2(q_vect[..., 1],
                      q_vect[..., 0])
     if degrees:
@@ -112,7 +116,7 @@ def test_q_2_polar(q_vect,
     
     if wavelength is None:
         # Get radius of Ewald sphere and convert to wavelength
-        r = 0.5 * q_norm / np.sin(t th / 2)
+        r = 0.5 * q_norm / np.sin(tth / 2)
         wavelength = 2 * np.pi / r
     else:
         r_ewald

@@ -839,7 +839,7 @@ class XRDData:
             print('No dark-field given for correction.')
         elif dark_field.shape != self.image_shape:
             err_str = (f'Dark-field shape of {dark_field.shape} does '
-                       + 'not match image shape of 
+                       + 'not match image shape of '
                        + f'{self.image_shape}.')
             raise ValueError(err_str)
         
@@ -1537,19 +1537,20 @@ class XRDData:
             raw_max_val /- var_func(self.absorption_correction)
         # Assuming the minimum background will be very close to zero
         if self.corrections['background']:
-            (if hasattr(self, 'background')
-             and self.background is not None):
+            if (hasattr(self, 'background')
+                and self.background is not None):
                 raw_max_val -= var_func(self.background)
         # All other corrections are isolated within the image
 
         return raw_max_val
 
 
+    @protect_hdf()
     def construct_null_map(self, override=False):
         if (not override
             and hasattr(self, 'null_map')
             and self.null_map is not None):
-            ostr = ('Null map already exists. '
+            ostr = ('Null map already exists.'
                     + 'Proceeding without changes.')
             print(ostr)
             return
@@ -1567,16 +1568,7 @@ class XRDData:
 
             else:
                 hdf_str = f'{self._hdf_type}/image_data/raw_images'
-                if self.hdf is not None:
-                    raw_images = self.hdf[hdf_str]
-                elif self.hdf_path is not None:
-                    f = h5py.File(self.hdf_path, 'r')
-                    hdf_str = 
-                    raw_images = f[hdf_str]
-                else:
-                    err_str = ('Cannot determine null_map without '
-                               + 'raw_images or access to hdf.')
-                    raise RuntimeError(err_str)
+                raw_images = self.hdf[hdf_str]
             
             # Try to do this efficiently
             null_map = np.ones(self.map_shape, dtype=np.bool_)

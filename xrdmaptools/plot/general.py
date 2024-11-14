@@ -277,6 +277,10 @@ def plot_map(value,
         fig, ax = plt.subplots(1, 1, figsize=(5, 5), dpi=200)
     elif fig is None and ax is not None or fig is not None and ax is None:
         raise ValueError('Figure and axes must both provided or both None')
+    
+    if 'title' in kwargs:
+        title = kwargs.pop('title')
+        ax.set_title(title)
 
     im = ax.imshow(value, extent=map_extent, **kwargs)
     fig.colorbar(im, ax=ax)

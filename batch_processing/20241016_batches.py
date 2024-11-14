@@ -59,7 +59,7 @@ def rsm_batch1():
         if not os.path.exists(f'{base_wd}energy_rc/scan{scan}_rsm.h5'):
             rsm = XRDRockingCurveStack.from_image_stack(f'scan{scan}_dexela_energy_rc.tif',
                                                         wd=f'{base_wd}energy_rc/',
-                                                        scanid=scan)
+                                                        scan_id=scan)
             rsm.load_parameters_from_txt()
             rsm.load_metadata_from_txt()
 

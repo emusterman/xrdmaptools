@@ -43,14 +43,11 @@ def energy_rocking_curve(e_low,
                          dwell,
                          xrd_dets,
                          shutter=True,
-                         peakup=True,
+                         peakup_flag=True,
                          plotme=False,
                          return_to_start=True):
 
     start_energy = energy.energy.position
-    static_theta = nano_stage.th.user_readback.get()
-    # Convert from mdeg to deg
-    static_theta /= 1000
 
     # Define some useful variables
     e_cen = (e_high + e_low) / 2
@@ -67,8 +64,7 @@ def energy_rocking_curve(e_low,
     scan_md['scan']['scan_input'] = [e_low, e_high, e_num, dwell]
     scan_md['scan']['dwell'] = dwell
     scan_md['scan']['detectors'] = [d.name for d in dets]
-    scan_md['scan']['energy'] = e_range
-    scan_md['scan']['theta'] = static_theta                                   
+    scan_md['scan']['energy'] = e_range                                   
     scan_md['scan']['start_time'] = ttime.ctime(ttime.time())
 
     # Live Callbacks
@@ -78,7 +74,7 @@ def energy_rocking_curve(e_low,
         livecallbacks.append(LivePlot('dexela_stats2_total', x='energy_energy'))
 
     # Move to center energy and perform peakup
-    if peakup:  # Find optimal c2_fine position
+    if peakup_flag:  # Find optimal c2_fine position
         print('Performing center energy peakup.')
         yield from mov(energy, e_cen)
         yield from peakup(shutter=shutter)
@@ -97,7 +93,7 @@ def relative_energy_rocking_curve(e_range,
                                   e_num,
                                   dwell,
                                   xrd_dets,
-                                  peakup=False, # rewrite default
+                                  peakup_flag=False, # rewrite default
                                   **kwargs):
     
     en_current = energy.energy.position
@@ -109,7 +105,7 @@ def relative_energy_rocking_curve(e_range,
                                     e_num,
                                     dwell,
                                     xrd_dets,
-                                    peakup=peakup
+                                    peakup_flag=peakup_flag
                                     **kwargs)
 
 
@@ -136,7 +132,7 @@ def extended_energy_rocking_curve(e_low,
 
     e_vals = np.linspace(e_low, e_high, e_num)
 
-    e_rcs = [e_vals[i:i + e_chunks] for i in range(0, len(e_vals), e_chunks)]
+    e_rcs = [list(e_vals[i:i + e_chunks]) for i in range(0, len(e_vals), e_chunks)]
     e_rcs[-2].extend(e_rcs[-1])
     e_rcs.pop(-1)
 
@@ -147,9 +143,9 @@ def extended_energy_rocking_curve(e_low,
                                         dwell,
                                         xrd_dets,
                                         shutter=shutter,
-                                        peakup=True,
+                                        peakup_flag=True,
                                         plotme=False,
-                                        return_to_energy=False)
+                                        return_to_start=False)
 
 
 def angle_rocking_curve(th_low,
@@ -160,10 +156,9 @@ def angle_rocking_curve(th_low,
                         shutter=True,
                         plotme=False,
                         return_to_start=True):
-    
     # th in mdeg!!!
+
     start_th = nano_stage.th.user_readback.get()
-    static_energy = energy.energy.position
 
     # Define some useful variables
     th_range = np.linspace(th_low, th_high, th_num)
@@ -175,8 +170,7 @@ def angle_rocking_curve(th_low,
     scan_md['scan']['scan_input'] = [th_low, th_high, th_num, dwell]
     scan_md['scan']['dwell'] = dwell
     scan_md['scan']['detectors'] = [sclr1.name] + [d.name for d in xrd_dets]
-    scan_md['scan']['energy'] = static_energy
-    scan_md['scan']['theta'] = th_range                                   
+    scan_md['scan']['angles'] = th_range                                   
     scan_md['scan']['start_time'] = ttime.ctime(ttime.time())
 
     # Live Callbacks
@@ -217,11 +211,11 @@ def relative_angle_rocking_curve(th_range,
                                    **kwargs)
 
 
-def flying_angle_rocking_curve(xrd_dets,
-                               th_low,
+def flying_angle_rocking_curve(th_low,
                                th_high,
                                th_num,
                                dwell,
+                               xrd_dets,
                                return_to_start=True,
                                **kwargs):
     # More direct convenience wrapper for scan_and_fly
@@ -236,8 +230,8 @@ def flying_angle_rocking_curve(xrd_dets,
     yield from abs_set(kwargs['flying_zebra'].slow_axis, 'NANOVER')
 
     _xs = kwargs.pop('xs', xs)
-    if extra_dets is None:
-        extra_dets = []
+    if xrd_dets is None:
+        xrd_dets = []
     #dets = [_xs] + extra_dets
     dets = [_xs] + xrd_dets
 

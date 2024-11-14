@@ -999,7 +999,6 @@ def load_step_rc_data(scanid=-1,
     data_dict = dict(zip(data_keys, _empty_lists))
     docs = bs_run.documents()
     
-
     print('Loading scalers and rocking data...')
     for doc in docs:
         if doc[0] == 'event_page':
@@ -1058,8 +1057,6 @@ def load_step_rc_data(scanid=-1,
         else:
             print('WARNING: xspress3 data requested, but none found.')
             del data_dict['xs_fluor']
-
-    #return data_dict
 
     # No Merlin support...
 
@@ -1302,6 +1299,10 @@ def load_extended_energy_rc_data(start_id,
                     all_md_dict[key].extend(scan_md[key])
                 else:
                     all_md_dict[key].append(scan_md[key])
+    
+    # Convert md to arrays for consistency with hdf format
+    for key in all_md_dict.keys():
+        all_md_dict[key] = np.asarray(all_md_dict[key])
     
     out = [all_data_dict, all_md_dict]
 

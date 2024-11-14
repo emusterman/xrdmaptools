@@ -148,14 +148,17 @@ class Phase(xu.materials.Crystal):
 
         wavelength = energy_2_wavelength(energy)
 
-        all_refl = self.lattice.get_allowed_hkl(qmax=tth_2_q(tth_range[1], wavelength=wavelength))
+        all_refl = self.lattice.get_allowed_hkl(qmax=tth_2_q(tth_range[1],
+                                                             wavelength=wavelength,
+                                                             radians=False))
         all_q = np.linalg.norm(self.Q(*all_refl), axis=1)
         # TODO: Add conditional to remove below a qmin
         all_q = np.round(all_q, 10) # Clean up some errors
         sort_refl = [tuple(x) for _, x in sorted(zip(all_q, all_refl))]
         all_q.sort()
+        # Only real values...
         F_hkl = np.abs(self.StructureFactor(sort_refl))**2
-        if F_hkl == 1:
+        if not isinstance(F_hkl, np.ndarray):
             F_hkl = np.ones((len(sort_refl)))
         #F_hkl = rescale_array(F_hkl, lower=0, upper=100)
 
@@ -352,7 +355,7 @@ def phase_selector(xrd, phases, energy, tth, ignore_less=1, save_reflections=Fal
     # Add background subtraction?
         # I shouldn't have to do that if the 2d background is working correctly yes???
     
-    colors = matplotlib.color_sequences['tab10']
+    colors = matplotlib.color_sequences['tab20']
     norm_xrd_int = rescale_array(xrd, upper=100, arr_min=0)
 
     for phase in phases:
