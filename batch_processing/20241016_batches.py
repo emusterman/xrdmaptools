@@ -123,7 +123,7 @@ def rsm_batch1():
 
         spot_inds, ref_inds = _get_connection_indices(best_connections[0])
         eij, orientation, strained = get_strain_orientation(all_spot_qs[spot_inds], all_ref_hkls[ref_inds], unstrained)
-        np.savetxt(f'{rsm.wd}scan{rsm.scanid}_coarse_eij.txt', eij)
+        np.savetxt(f'{rsm.wd}scan{rsm.scan_id}_coarse_eij.txt', eij)
         
 
 

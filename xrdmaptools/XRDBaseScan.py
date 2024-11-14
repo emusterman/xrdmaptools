@@ -23,7 +23,7 @@ from xrdmaptools.utilities.utilities import (
     _check_dict_key,
     generate_intensity_mask
 )
-from xrdmaptools.io.hdf_io_rev import (
+from xrdmaptools.io.hdf_io import (
     initialize_xrdbase_hdf,
     load_xrdbase_hdf
     )
@@ -55,7 +55,7 @@ class XRDBaseScan(XRDData):
     _hdf_type = 'xrdbase'
 
     def __init__(self,
-                 scanid=None,
+                 scan_id=None,
                  wd=None,
                  filename=None,
                  hdf_filename=None,
@@ -83,9 +83,9 @@ class XRDBaseScan(XRDData):
                  ):
         
         # Adding some metadata
-        self.scanid = scanid
+        self.scan_id = scan_id
         if filename is None:
-            filename = f'scan{scanid}_{self._hdf_type}'
+            filename = f'scan{scan_id}_{self._hdf_type}'
         self.filename = filename
 
         if wd is None:
@@ -185,7 +185,7 @@ class XRDBaseScan(XRDData):
     
     # Overwrite parent functions
     def __str__(self):
-        ostr = (f'{self._hdf_type}:  scanid={self.scanid}, '
+        ostr = (f'{self._hdf_type}:  scan_id={self.scan_id}, '
                 + f'energy={self.energy}, '
                 + f'shape={self.images.shape}')
         return ostr
@@ -197,8 +197,8 @@ class XRDBaseScan(XRDData):
         ostr = f'{self._hdf_type}:'
         ostr += f'\n\tFacility:\t{self.facility}'
         ostr += f'\n\tBeamline:\t{self.beamline}'
-        if self.scanid is not None:
-            ostr += f'\n\tScanid:\t\t{self.scanid}'
+        if self.scan_id is not None:
+            ostr += f'\n\tscan_id:\t\t{self.scan_id}'
         ostr += f'\n\tEnergy:\t\t{self.energy} keV'
         if self.hdf_path is not None:
             ostr += f'\n\tHDF Path:\t{self.hdf_path}\n'

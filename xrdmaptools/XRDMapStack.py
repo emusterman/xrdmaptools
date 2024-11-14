@@ -162,7 +162,7 @@ class XRDMapStack(list):
     ### Turn other individual attributes in properties ###
 
     # List attributes
-    scanid = _list_property_constructor('scanid')
+    scan_id = _list_property_constructor('scan_id')
     filename = _list_property_constructor('filename')
     wd = _list_property_constructor('wd') # this one may change
     time_stamp = _list_property_constructor('time_stamp')
@@ -585,15 +585,15 @@ class XRDMapStack(list):
             # protect the individual dataframes to some extent
             spots = xrdmap.spots.copy() 
 
-            scanid_list = [xrdmap.scanid for _ in range(len(spots))]
+            scan_id_list = [xrdmap.scan_id for _ in range(len(spots))]
             energy_list = [xrdmap.energy for _ in range(len(spots))]
             wavelength_list = [xrdmap.wavelength
                                for _ in range(len(spots))]
 
             spots.insert(
                 loc=0,
-                column='scanid',
-                value=scanid_list
+                column='scan_id',
+                value=scan_id_list
             )
             spots.insert(
                 loc=1,

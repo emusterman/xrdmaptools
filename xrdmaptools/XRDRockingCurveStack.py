@@ -35,9 +35,6 @@ from xrdmaptools.io.db_io import (
     load_extended_energy_rc_data,
     load_flying_angle_rc_data
 )
-from xrdmaptools.io.hdf_io_rev import (
-    load_xrdbase_hdf
-)
 from xrdmaptools.reflections.spot_blob_search import (
     find_blobs
 )
@@ -197,7 +194,7 @@ class XRDRockingCurveStack(XRDBaseScan):
 
     # Overwrite parent function
     def __str__(self):
-        ostr = (f'{self._hdf_type}:  scanid={self.scanid}, '
+        ostr = (f'{self._hdf_type}:  scan_id={self.scan_id}, '
                 + f'energy_range={min(self.energy):.3f}'
                 + f'-{max(self.energy):.3f}, '
                 + f'shape={self.images.shape}')
@@ -383,7 +380,7 @@ class XRDRockingCurveStack(XRDBaseScan):
 
     @classmethod
     def from_db(cls,
-                scanid=-1,
+                scan_id=-1,
                 broker='manual',
                 filedir=None,
                 filename=None,
@@ -391,15 +388,15 @@ class XRDRockingCurveStack(XRDBaseScan):
                 save_hdf=True,
                 repair_method='fill'):
         
-        if isinstance(scanid, str):
+        if isinstance(scan_id, str):
             scantype = 'EXTENDED_ENERGY_RC'
             rocking_axis = 'energy'
 
             (data_dict,
              scan_md,
              xrd_dets) = load_extended_energy_rc_data(
-                            start_id=scanid[:6],
-                            end_id=scanid[-6:],
+                            start_id=scan_id[:6],
+                            end_id=scan_id[-6:],
                             returns=['xrd_dets']
                             )
 
@@ -422,7 +419,7 @@ class XRDRockingCurveStack(XRDBaseScan):
                 temp_broker = 'tiled'
             else:
                 temp_broker = broker
-            scantype = get_scantype(scanid,
+            scantype = get_scantype(scan_id,
                                     broker=temp_broker)
 
             if scantype == 'ENERGY_RC':
@@ -441,7 +438,7 @@ class XRDRockingCurveStack(XRDBaseScan):
             (data_dict,
              scan_md,
              xrd_dets) = load_func(
-                            scanid=scanid,
+                            scan_id=scan_id,
                             returns=['xrd_dets'],
                                 )
             
@@ -500,7 +497,7 @@ class XRDRockingCurveStack(XRDBaseScan):
         rocking_curves = []
         for i, xrd_data_i in enumerate(xrd_data):
             rc = cls(
-                    scanid=scan_md['scan_id'],
+                    scan_id=scan_md['scan_id'],
                     wd=filedir,
                     filename=filenames[i],
                     image_data=xrd_data_i,
@@ -541,7 +538,7 @@ class XRDRockingCurveStack(XRDBaseScan):
             filedir = self.wd
 
         if filename is None:
-            mask = [(str(self.scanid) in file
+            mask = [(str(self.scan_id) in file
                     and 'parameters' in file)
                     for file in os.listdir(filedir)]
             filename = np.asarray(os.listdir(filedir))[mask][0]
@@ -570,7 +567,7 @@ class XRDRockingCurveStack(XRDBaseScan):
             filedir = self.wd
 
         if filename is None:
-            mask = [(str(self.scanid) in file
+            mask = [(str(self.scan_id) in file
                     and 'metadata' in file)
                     for file in os.listdir(filedir)]
             filename = np.asarray(os.listdir(filedir))[mask][0]
@@ -584,11 +581,11 @@ class XRDRockingCurveStack(XRDBaseScan):
         extra_md = {key:value for key, value in md.items()
                     if key not in base_md.keys()}
         if 'scan_id' in base_md.keys():
-            base_md['scanid'] = base_md['scan_id']
+            base_md['scan_id'] = base_md['scan_id']
             del base_md['scan_id']
         
-        base_md['scanid'] = (f"{np.min(base_md['scanid'])}"
-                             + f"-{np.max(base_md['scanid'])}")
+        base_md['scan_id'] = (f"{np.min(base_md['scan_id'])}"
+                             + f"-{np.max(base_md['scan_id'])}")
         
         for key, value in base_md.items():
             setattr(self, key, value)

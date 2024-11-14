@@ -88,7 +88,7 @@ class XRDMap(XRDBaseScan):
 
     @ classmethod
     def from_db(cls,
-                scanid=-1,
+                scan_id=-1,
                 broker='manual',
                 filedir=None,
                 filename=None,
@@ -109,7 +109,7 @@ class XRDMap(XRDBaseScan):
          scan_md,
          data_keys,
          xrd_dets) = load_data(
-                            scanid=scanid,
+                            scan_id=scan_id,
                             broker=broker,
                             detectors=None,
                             data_keys=data_keys,
@@ -152,7 +152,7 @@ class XRDMap(XRDBaseScan):
         
         xrdmaps = []
         for i, xrd_data_i in enumerate(xrd_data):
-            xrdmap = cls(scanid=scan_md['scan_id'],
+            xrdmap = cls(scan_id=scan_md['scan_id'],
                          wd=filedir,
                          filename=filenames[i],
                          image_data=xrd_data_i,
@@ -214,7 +214,7 @@ class XRDMap(XRDBaseScan):
             raise RuntimeError(err_str)
         
         if new_directory:
-            new_dir = f'{self.wd}scan{self.scanid}_fractured_maps/'
+            new_dir = f'{self.wd}scan{self.scan_id}_fractured_maps/'
             os.makedirs(new_dir, exist_ok=True)
         else:
             new_dir = self.wd
@@ -261,14 +261,14 @@ class XRDMap(XRDBaseScan):
         print(ostr)
         for i in range(len(sliced_images)):
             print((f'Writing new XRDMap for scan'
-                   + str(self.scanid) + f'-{i + 1}\n'
+                   + str(self.scan_id) + f'-{i + 1}\n'
                    + f'New shape: {sliced_images[i].shape}'))
 
             # Seems like a weird way to access the class from within...
             new_xrdmap = self.__class__(
-                scanid=str(self.scanid) + f'-{i + 1}',
+                scan_id=str(self.scan_id) + f'-{i + 1}',
                 wd=new_dir,
-                # This will force a default to scanid with iteration
+                # This will force a default to scan_id with iteration
                 filename=None, 
                 image_data=sliced_images[i],
                 # map_shape=None,         no energy attribute
@@ -1045,7 +1045,7 @@ class XRDMap(XRDBaseScan):
 
             # Try default name for SRX
             if xrf_name is None:
-                xrf_name =  f'scan2D_{self.scanid}_xs_sum8ch'
+                xrf_name =  f'scan2D_{self.scan_id}_xs_sum8ch'
             
             xrf_path = pathify(xrf_dir, xrf_name, '.h5')        
 

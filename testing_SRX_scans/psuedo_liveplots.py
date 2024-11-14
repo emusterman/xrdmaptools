@@ -39,7 +39,7 @@ from xrdmaptools.utilities.db_io import (
 ) 
 
 
-def pseudolive_orientation_plots(scanid, phase):
+def pseudolive_orientation_plots(scan_id, phase):
     raise NotImplementedError()
 
 
@@ -135,10 +135,10 @@ def phase_corr_func(images, ai=None, dark=None, flat=None, scalers=None):
 
 
 
-def base_pseudo_live_plot(scanid, plot_keys, process_function, process_kwargs={}):
+def base_pseudo_live_plot(scan_id, plot_keys, process_function, process_kwargs={}):
 
     # Initial processing
-    bs_run = c[int(scanid)]
+    bs_run = c[int(scan_id)]
     map_params, temp_dict = build_map_from_start(bs_run, plot_keys)
 
     # Initial blank images
@@ -213,7 +213,7 @@ def base_pseudo_live_plot(scanid, plot_keys, process_function, process_kwargs={}
             #print('No new rows found. Sleeping before checking again...')
             ttime.sleep(1)
     
-    print(f'Finished pseudo livePlot for scan {map_params["scanid"]}!')
+    print(f'Finished pseudo livePlot for scan {map_params["scan_id"]}!')
             
         
 
@@ -308,7 +308,7 @@ def plot_map(map_params, map_data, map_title, map_dict=None, **kwargs):
     # Generate new figure if this is the first update...
     if map_dict is None:
         fig, ax = plt.subplots()
-        ax.set_title(f"scan{map_params['scanid']} {map_title} map")
+        ax.set_title(f"scan{map_params['scan_id']} {map_title} map")
         im = ax.imshow(map_data, extent=map_params['map_extent'], **kwargs)
         cbar = fig.colorbar(im, ax=ax)
 
@@ -343,7 +343,7 @@ def build_map_from_start(bs_run, plot_keys):
 
     # Build map_params
     map_params = {}
-    map_params['scanid'] = start_doc['scan_id']
+    map_params['scan_id'] = start_doc['scan_id']
     map_params['energy'] = start_doc['scan']['energy']
     map_params['map_extent'] = [bs_run.start['scan']['scan_input'][i] for i in [0, 1, 3, 4]]
     map_params['map_shape'] = start_doc['scan']['shape']
