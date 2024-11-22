@@ -375,6 +375,7 @@ class XRDBaseScan(XRDData):
             return inst
         
         else:
+            # Should be redundant...
             raise FileNotFoundError(f'No hdf file at {hdf_path}.')
         
 
@@ -690,15 +691,30 @@ class XRDBaseScan(XRDData):
             self.hdf_path = hdf.filename
         elif hdf_filename is None:
             if hdf_path is None:
-                self.hdf_path = f'{self.wd}{self.filename}.h5'
+                #self.hdf_path = f'{self.wd}{self.filename}.h5'
+                self.hdf_path = pathify(self.wd,
+                                        self.filename,
+                                        '.h5',
+                                        check_exists=False)
             else:
-                self.hdf_path = f'{hdf_path}{self.filename}.h5'
+                #self.hdf_path = f'{hdf_path}{self.filename}.h5'
+                self.hdf_path = pathify(hdf_path,
+                                        self.filename,
+                                        '.h5',
+                                        check_exists=False)
         else:
             if hdf_path is None:
-                # TODO: Add check for .h5
-                self.hdf_path = f'{self.wd}{hdf_filename}' 
+                #self.hdf_path = f'{self.wd}{hdf_filename}'
+                self.hdf_path = pathify(self.wd,
+                                        hdf_filename,
+                                        '.h5',
+                                        check_exists=False)
             else:
-                self.hdf_path = f'{hdf_path}{hdf_filename}.h5'
+                #self.hdf_path = f'{hdf_path}{hdf_filename}.h5'
+                self.hdf_path = pathify(hdf_path,
+                                        hdf_filename,
+                                        '.h5',
+                                        check_exists=False)
 
         # Check for hdf and initialize if new            
         if not os.path.exists(self.hdf_path):
@@ -1203,16 +1219,16 @@ class XRDBaseScan(XRDData):
             err_str = f'Specified path does not exist:\n{phase_path}'
             raise FileNotFoundError(err_str)
         
-        if filename[-4:] == '.cif':
+        if phase_path[-4:] == '.cif':
             phase = Phase.fromCIF(f'{phase_path}')
-        elif filename[-4:] == '.txt':
+        elif phase_path[-4:] == '.txt':
             raise NotImplementedError()
-        elif filename[-2:] in ['.D']:
+        elif phase_path[-2:] in ['.D']:
             raise NotImplementedError()
-        elif filename[-2:] == '.h5':
+        elif phase_path[-2:] == '.h5':
             raise NotImplementedError()
         else:
-            err_str = (f'Unsure how to read {filename}. Either '
+            err_str = (f'Unsure how to read {phase_path}. Either '
                        + 'specifiy file type or this file type '
                        + 'is not supported.')
             raise TypeError(err_str)

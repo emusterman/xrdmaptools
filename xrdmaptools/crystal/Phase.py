@@ -349,13 +349,22 @@ def approximate_powder_xrd(xrd_map, poni, energy=None, background=None):
     raise NotImplementedError()
 
 
-def phase_selector(xrd, phases, energy, tth, ignore_less=1, save_reflections=False):
+def phase_selector(xrd,
+                   phases,
+                   energy,
+                   tth,
+                   ignore_less=1,
+                   save_reflections=False,
+                   return_plot=False):
     # TODO:
     # Add 2d plot for better understanding of peak character and significance
     # Add background subtraction?
         # I shouldn't have to do that if the 2d background is working correctly yes???
     
-    colors = matplotlib.color_sequences['tab20']
+    if len(phases) <= 10:
+        colors = matplotlib.color_sequences['tab10']
+    else:
+        colors = matplotlib.color_sequences['tab20']
     norm_xrd_int = rescale_array(xrd, upper=100, arr_min=0)
 
     for phase in phases:
@@ -431,7 +440,10 @@ def phase_selector(xrd, phases, energy, tth, ignore_less=1, save_reflections=Fal
         return phase_vals
     else:
         print('Not saving reflections...')
-        fig.show()
+        if return_plot:
+            return fig, ax, slider_lst
+        else:
+            fig.show()
         #return phase_vals
 
 

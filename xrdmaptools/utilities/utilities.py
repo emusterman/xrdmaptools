@@ -30,7 +30,9 @@ def toc(string='', output=False):
 
 # Methods to scrub directory and file inputs
 
-def check_ext(path, ext):
+def check_ext(path,
+              ext,
+              check_exists=True):
     root, found_ext = os.path.splitext(path)
 
     if isinstance(ext, str):
@@ -38,25 +40,60 @@ def check_ext(path, ext):
     elif not isinstance(ext, list):
         ext = list(ext)
 
-    if found_ext in ext:
-        # Maybe check if path exists?
-        return path
-    elif found_ext == '':
-        for ext_i in ext:
-            if os.path.exists(path + ext_i):
-                return path + ext_i
-            else:
-                raise FileNotFoundError(f'File extension not specified and cannot find file with default extension: {ext}')
-    elif found_ext not in ext:
-        raise ValueError(f'{path} input extension does not match required extension: {ext}')
-    else:
-        raise RuntimeError(f'Unknown issue with file extentsion for {path}')
-    
+    # Add periods for redundancy
+    ext = [e if e[0] == '.' else f'.{e}' for e in ext]
 
-def pathify(directory, filename, ext):
+    if not check_exists:
+        if found_ext == '':
+            if len(ext) > 1:
+                warn_str = ('WARNING: More than one extension '
+                            + 'accepted. Defaulting to: '
+                            + f'{ext[0]}')
+                print(warn_str)
+            return path + ext[0]
+        elif found_ext in ext:
+            return path
+        else:
+            err_str = (f'{path} input extension does not match '
+                       + f'required extension: {ext}')
+            raise ValueError(err_str)
+    
+    else:
+        err_str = ''
+        if found_ext in ext:
+            if os.path.exists(path):
+                return path
+            err_str = (f'Specified file does not exist: {path}')
+        elif found_ext != '':
+            err_str = (f'Specified file extension {found_ext} is '
+                       + 'not accepted.')
+
+        for e in ext:
+            if os.path.exists(root + e):
+                if err_str != '':
+                    err_str = (f'WARNING: {err_str}'
+                               + '\nAnother acceptable file found '
+                               + f'instead. Using: {root + e}')
+                    print(err_str)
+                return root + e
+        if err_str != '':
+            err_str += '\n'
+        err_str += ('No file exists with default extensions '
+                    + f'in: {ext}')
+        raise FileNotFoundError(err_str)
+        
+
+def pathify(directory,
+            filename,
+            ext,
+            check_exists=True):
+    
     directory = os.path.normpath(directory)
     path = os.path.join(directory, filename)
-    path = check_ext(path, ext)
+    path = check_ext(path,
+                     ext,
+                     check_exists=check_exists)
+    
     return path
 
 
@@ -194,8 +231,17 @@ def delta_array(arr):
     return magnitude
 
 
-def rescale_array(arr, lower=0, upper=1, arr_min=None, arr_max=None, mask=None):
+def rescale_array(arr,
+                  lower=0,
+                  upper=1,
+                  arr_min=None,
+                  arr_max=None,
+                  mask=None,
+                  copy=False):
     # Works for arrays of any size including images!
+
+    if copy:
+        arr = arr.copy()
 
     if mask is not None:
         arr[~mask] = np.nan
@@ -252,6 +298,23 @@ def deprecated(func):
 
 def _check_dict_key(dict, key):
     return key in dict.keys() and key is not None
+
+
+# Helper class for iterating though XRDMaps
+class Iterable2D:
+
+    def __init__(self, shape):
+        self.len = np.prod(shape)
+        self.shape = shape
+
+
+    def __iter__(self):
+        for index in range(self.len):
+            yield np.unravel_index(index, self.shape)
+        
+    
+    def __len__(self):
+        return self.len
 
 
 # Class for timing large for loops with lots of print statements that do not play nicely with tqdm

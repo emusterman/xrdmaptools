@@ -13,7 +13,10 @@ from xrdmaptools.io.hdf_utils import (
     get_optimal_chunks
 )
 from xrdmaptools.utilities.math import check_precision
-from xrdmaptools.utilities.utilities import rescale_array
+from xrdmaptools.utilities.utilities import (
+    rescale_array,
+    Iterable2D
+)
 from xrdmaptools.utilities.image_corrections import (
     find_outlier_pixels,
     iterative_outlier_correction,
@@ -28,7 +31,7 @@ from xrdmaptools.utilities.background_estimators import (
 
 class XRDData:
     # This class is intended to hold and process raw data with I/O
-    # Analysis and interpretations will be reserved for child classes
+    # Analysis and interpretations are reserved for child classes
 
     def __init__(self,
                  image_data=None,
@@ -371,6 +374,19 @@ class XRDData:
         self.ai = ai
         self.sclr_dict = sclr_dict
 
+    
+    # Just for convenience
+    def __len__(self):
+        return self.num_images
+
+
+    # REPLACED in favor of .indices property
+    # # Allows easier iterating though all images and only images
+    # def __iter__(self):
+    #     for index in range(self.num_images):
+    #         indices = np.unravel_index(index, self.map_shape)
+    #         yield self.images[indices]
+
 
     def __str__(self):
         ostr = f'XRDData: ({self.shape}), dtype={self.dtype}'
@@ -405,6 +421,11 @@ class XRDData:
                 and self.integrations is not None):
                 self.integrations = self.integrations.astype(dtype)
                 self._dtype = dtype
+
+    
+    @property
+    def indices(self):
+        return Iterable2D(self.map_shape)
 
     
     def projection_factory(property_name, function, axes):
@@ -779,9 +800,9 @@ class XRDData:
     def open_hdf(self, dask_enabled=False):
         if self.hdf is not None:
             # Should this raise errors or just ping warnings
-            warn_str = ('WARNING: hdf is already open. '
+            note_str = ('NOTE: hdf is already open. '
                         + 'Proceeding without changes.')
-            print(warn_str)
+            print(note_str)
             return
         else:
             self.hdf = h5py.File(self.hdf_path, 'a')
@@ -796,7 +817,7 @@ class XRDData:
             elif check_hdf_current_images('_temp_images',
                                           hdf=self.hdf):
                 dset = img_grp['_temp_images']
-            self.images = da.asarray(dset) # I had .persist(), but it broke things...
+            self.images = da.asarray(dset) # persist(), breaks things...
             self._hdf_store = dset
 
 

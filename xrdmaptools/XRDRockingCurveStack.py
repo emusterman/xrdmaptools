@@ -1123,7 +1123,8 @@ class XRDRockingCurveStack(XRDBaseScan):
                         intensity=intensity,
                         edges=None,
                         skip=None,
-                        return_plot=False,
+                        return_plot=True,
+                        alpha=1,
                         **kwargs
                         )
 

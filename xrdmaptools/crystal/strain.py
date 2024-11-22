@@ -6,6 +6,97 @@ from scipy import linalg
 from xrdmaptools.crystal.crystal import LatticeParameters
 
 
+def _get_strain_orientation(q_vectors,
+                           hkls,
+                           unstrained):
+
+    q_vectors = np.asarray(q_vectors)
+    hkls = np.asarray(hkls)
+
+    if len(q_vectors) != len(hkls):
+        err_str = ('Number of spots and assigned hkl '
+                   + 'indices must be equal.')
+        raise ValueError(err_str)
+
+    # Fit deformation (displacement?) tensor
+    # x carries orientation and lattice parameter information
+    x, res, rnk, s = linalg.lstsq(hkls, q_vectors / (2 * np.pi))
+
+    # Convert to Busing and Levy UB matrix. Remove 2pi factor
+    UBmat = x.T 
+
+    # Build strained lattice parameters from UBmat
+    strained = LatticeParameters.from_UBmat(UBmat)
+
+    # Get rotation from UBmat
+    # U is active rotation
+    U = np.dot(UBmat, linalg.inv(strained.Bmat))
+
+    # Get transformation matrix between strained and unstrained lattices
+    Tij = np.dot(strained.Amat, linalg.inv(unstrained.Amat))
+    # This can be acquired in reciprocal space too, but switched positions
+    # to account for the changed sign
+    # Tij = np.dot(unstrained.Bmat, np.linalg.inv(strained.Bmat))
+
+    # Decompose transformation matrix into strain components
+    # This is in the crystal reference frame!
+    # Is this Eulerian, Lagrangian, or infinitesimal strain???
+    eij_full = 0.5 * (Tij + Tij.T) - np.eye(3)
+
+    return (eij_full,
+            U.T, # Convert from active to passive rotation
+            strained)
+
+
+def get_strain(q_vectors,
+               hkls,
+               unstrained):
+
+    q_vectors = np.asarray(q_vectors)
+    hkls = np.asarray(hkls)
+
+    if len(q_vectors) != len(hkls):
+        err_str = ('Number of spots and assigned hkl '
+                   + 'indices must be equal.')
+        raise ValueError(err_str)
+
+    # Fit deformation (displacement?) tensor
+    # x carries orientation and lattice parameter information
+    x, res, rnk, s = linalg.lstsq(hkls, q_vectors / (2 * np.pi))
+
+    # Convert to Busing and Levy UB matrix. Remove 2pi factor
+    # UBmat = x.T / (2 * np.pi)
+
+    # UB_star = np.dot(UBmat, unstrained.Bmat)
+    # strained = LatticeParameters.from_reciprocal_stretch_tensor(UB_star)
+    strained = LatticeParameters.from_Bmat(x.T)
+
+    # # Polar decomposition to remove rotation components
+    # # U is the active rotation and the inverse (transpose)
+    # # is required for passive rotation
+    # # B is the right-stretch tensor and is related to the B
+    # # matrix defined by Busing and Levy
+    # U, B = linalg.polar(UBmat, side='right')
+
+    # # Build strained lattice paremeters from right-stretch tensor
+    # strained = LatticeParameters.from_reciprocal_stretch_tensor(B)
+
+    # Get transformation matrix between strained and unstrained lattices
+    Tij = np.dot(strained.Amat, linalg.inv(unstrained.Amat))
+    # This can be acquired in reciprocal space too, but switched positions
+    # to account for the changed sign
+    # Tij = np.dot(unstrained.Bmat, np.linalg.inv(strained.Bmat))
+
+    # Decompose transformation matrix into strain components
+    # This is in the crystal reference frame!
+    # Is this Eulerian, Lagrangian, or infinitesimal strain???
+    eij_full = 0.5 * (Tij + Tij.T) - np.eye(3)
+
+    return (eij_full,
+            # U.T, # Convert from active to passive rotation
+            strained)
+
+
 def get_strain_orientation(q_vectors,
                            hkls,
                            unstrained):

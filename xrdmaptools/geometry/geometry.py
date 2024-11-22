@@ -12,7 +12,9 @@ from xrdmaptools.utilities.utilities import delta_array
 # Should be an exact transform between image and polar coordinates.
 # Not sure if it is worth the effort
 
-def _check_rotation_input(rotation, input_name):
+def _check_rotation_input(rotation,
+                          input_name='rotation',
+                          default_axis='y'):
     if isinstance(rotation, Rotation):
         pass
     elif isinstance(rotation, np.ndarray):
@@ -21,7 +23,7 @@ def _check_rotation_input(rotation, input_name):
                         + f'(3, 3) not {rotation.shape}.')
             raise ValueError(err_str)
         else:
-            rotation = Rotation.from_array(rotation)
+            rotation = Rotation.from_matrix(rotation)
     else:
         err_str = (f'Unknown {input_name} of type '
                     + f'({type(rotation)}). Must be given as '
@@ -33,6 +35,7 @@ def get_q_vect(tth,
                chi,
                wavelength,
                stage_rotation=None,
+               default_axis='y',
                return_kf=False,
                degrees=False):
     # Calculate q-vector from arrays of tth and chi polar coordinates and wavelength
@@ -47,8 +50,10 @@ def get_q_vect(tth,
         chi = np.radians(chi)
 
     # Incident wavevector
-    ki_unit = np.broadcast_to(np.array([0, 0, 1]).reshape(3, *([1,] * len(tth.shape))),
-                              (3, *tth.shape))
+    ki_unit = np.broadcast_to(np.array([0, 0, 1]).reshape(
+                                        3,
+                                        *([1,] * len(tth.shape))),
+                                        (3, *tth.shape))
 
     # Diffracted wavevector
     kf_unit = np.array([np.sin(tth) * np.cos(chi),
@@ -65,8 +70,10 @@ def get_q_vect(tth,
 
     # stage rotation is rotation OUT of sample reference frame
     if stage_rotation is not None:
-        stage_rotation = _check_rotation_input(stage_rotation,
-                                               'stage_rotation')
+        stage_rotation = _check_rotation_input(
+                                stage_rotation,
+                                'stage_rotation',
+                                default_axis=default_axis)
         # Bring rotated q_vect back into sample reference frame
         q_vect = Rotation.apply(q_vect, inverse=True)
 
@@ -74,12 +81,13 @@ def get_q_vect(tth,
 
 
 # Will give polar coordinates and wavelength or stage rotation 
-# (about the vertical (y, 1)-axis) where those coordinates are 
-# incident with the Ewald sphere
+# to bring a q_vector incident with the Ewald sphere
+# Could probably be better generalized...
 def test_q_2_polar(q_vect,
                    wavelength=None,
                    stage_rotation=None,
-                   degrees=False):
+                   degrees=False,
+                   rotation_axis='y'):
 
     if wavelength is None and stage_rotation is None:
         warn_str = ('WARNING: Neither wavelength nor stage_rotation '
@@ -90,10 +98,25 @@ def test_q_2_polar(q_vect,
     
     # stage rotation is rotation OUT of sample reference frame
     if stage_rotation is not None:
-        stage_rotation = _check_rotation_input(stage_rotation,
-                                               'stage_rotation')
+        stage_rotation = _check_rotation_input(
+                                stage_rotation,
+                                'stage_rotation',
+                                default_axis=rotation_axis)
+
+        if rotation_axis.lower() not in ['x', 'y']:
+            if rotation_axis.lower() == 'z':
+                err_str = ("Rotation about the z-axis (beam direction)"
+                           + " only changes the azimuthal angle. "
+                           + "Rotate about the 'x'- or 'y' to change "
+                           + "the Bragg condition.")
+            else:
+                err_str = ("Axis rotation only supported for 'x'- or "
+                           + "'y'-axes; not "
+                           + f"({rotation_axis.lower()}).")
+            raise ValueError(err_str)
+
         # Bring rotated q_vect back into sample reference frame
-        q_vect = Rotation.apply(q_vect, inverse=True)
+        q_vect = stage_rotation.apply(q_vect)
     
     # Probably a shape check that should be made on the last axis
     q_vect = np.asarray(q_vect)
@@ -103,23 +126,64 @@ def test_q_2_polar(q_vect,
         raise ValueError(err_str)
     q_norm = np.linalg.norm(q_vect, axis=-1)
 
-    # Find tth and chi
-    tth = 2 * np.arcsin(q_norm * wavelength / (4 * np.pi))
-    # tth = 2 * (np.pi / 2 - vector_angle(q_vect,
-    #                                     [0, 0, -1],
-    #                                     degrees=False)) # always False
+    # Find transformed q_vect if stage is rotated
+    if stage_rotation is None:
+        # Find tth
+        tth = 2 * np.arcsin(q_norm * wavelength / (4 * np.pi))
+        new_qz = (2 * np.pi / wavelength) * (np.cos(tth) - 1)
+
+        # TODO: Determine sign of rotation
+        if rotation_axis == 'y':
+            new_qy = q_vect[..., 1] # Constant qy
+            new_qx = np.sqrt(q_norm**2 - new_qz**2 - new_qy**2)
+
+            output = np.arccos((q_vect[..., 2] * new_qz 
+                                + q_vect[..., 0] * new_qx)
+                            / (q_vect[..., 2]**2 + q_vect[..., 0]**2))
+            q_vect = np.array([new_qx, new_qy, new_qz]).T
+
+        elif rotation_axis == 'x':
+            new_qx = q_vect[..., 0] # Constant qx
+            new_qy = np.sqrt(q_norm**2 - new_qz**2 - new_qx**2)
+
+            output = np.arccos((q_vect[..., 2] * new_qz
+                                + q_vect[..., 1] * new_qy)
+                            / (q_vect[..., 2]**2 + q_vect[..., 1]**2))
+            q_vect[..., :] = (new_qx, new_qy, new_qz)
+    
+    # Find tth between transmitted and diffracted beam
+    else:
+        # tth = 2 * ((np.pi / 2) - vector_angle(
+        #                             q_vect,
+        #                             [0, 0, -1],
+        #                             degrees=False)) # always false
+
+        # Determine tth
+        tth = 2 * ((np.pi / 2) - np.arccos(-q_vect[..., 2] / q_norm))
+
+        # Negative tth values are nonsensical
+        if isinstance(tth, np.ndarray):
+            tth[tth <= 0] = np.nan
+        elif tth <= 0: # Single q_vect evaluation
+            tth = np.nan
+
+        # Determine wavelength from Ewald sphere radius
+        output = (4 * np.pi / q_norm) * np.sin(tth / 2)
+        
+        # # Get radius of Ewald sphere and convert to wavelength
+        # r = 0.5 * q_norm / np.sin(tth / 2)
+        # output = 2 * np.pi / r
+
+    # Find chi
     chi = np.arctan2(q_vect[..., 1],
-                     q_vect[..., 0])
+                     q_vect[..., 0], dtype=np.float64)
     if degrees:
         tth = np.degrees(tth)
         chi = np.degrees(chi)
-    
-    if wavelength is None:
-        # Get radius of Ewald sphere and convert to wavelength
-        r = 0.5 * q_norm / np.sin(tth / 2)
-        wavelength = 2 * np.pi / r
-    else:
-        r_ewald
+        if stage_rotation is None:
+            output = np.degrees(output)
+
+    return tth, chi, output
 
 
 
@@ -129,7 +193,9 @@ def q_2_polar(q_vect, wavelength=None, degrees=False):
     q_norm = np.linalg.norm(q_vect, axis=-1)
 
     # Find tth and chi
-    theta = np.pi / 2 - vector_angle(q_vect, [0, 0, -1], degrees=False) # always false
+    theta = np.pi / 2 - vector_angle(q_vect,
+                                     [0, 0, -1],
+                                     degrees=False) # always false
     tth = 2 * theta
     chi = np.arctan2(q_vect[..., 1],
                      q_vect[..., 0])

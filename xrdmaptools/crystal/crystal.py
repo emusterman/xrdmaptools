@@ -35,7 +35,6 @@ class LatticeParameters():
         # Check for complete sets of information, starting with direct lattice
         # Use this information to construct everything else
         if all([d is not None for d in d_params]):
-            all([d is not None for d in d_params])
             volume = self.const_2_cell_volume(*d_params)
             r_params = self.convert_lat_const(*d_params)
             rec_volume = self.const_2_cell_volume(*r_params)
@@ -199,8 +198,8 @@ class LatticeParameters():
     
 
     @classmethod
-    def from_reciprocal_stretch_tensor(cls, B):
-        Ur_vec = cls.mat_2_vec(B)
+    def from_UBmat(cls, UBmat):
+        Ur_vec = cls.mat_2_vec(UBmat)
         r_params = cls.vec_2_const(*Ur_vec)
         return cls.from_rec_const(*r_params)
     
