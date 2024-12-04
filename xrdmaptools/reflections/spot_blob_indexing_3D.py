@@ -1,4 +1,3 @@
-
 import numpy as np
 from tqdm import tqdm
 from scipy.spatial.transform import Rotation
@@ -15,17 +14,21 @@ from xrdmaptools.geometry.geometry import (
     modular_azimuthal_shift
 )
 
+##########################
+### Combined Functions ###
+##########################
 
-def pair_casting_index_pattern(all_spot_qs,
-                               phase,
-                               near_q,
-                               near_angle,
-                               q_mask,
-                               degrees=False,
-                               max_ori_refine_iter=50,
-                               max_ori_decomp_count=20,
-                               keep_initial_pair=False):
-
+def pair_casting_index_best_grain(
+                    all_spot_qs,
+                    phase,
+                    near_q,
+                    near_angle,
+                    qmask,
+                    degrees=False,
+                    max_ori_refine_iter=50,
+                    max_ori_decomp_count=20,
+                    keep_initial_pair=False):
+    
     # Find q vector magnitudes and max for spots
     spot_q_mags = np.linalg.norm(all_spot_qs, axis=1)
     max_q = np.max(spot_q_mags)
@@ -41,32 +44,95 @@ def pair_casting_index_pattern(all_spot_qs,
                                            [0, 1, 0],
                                            [0, 0, 1]]),
                                            axis=0))
-    
+
     # Find all valid pairs within near_q and near_angle
-    connection_pairs = find_all_valid_pairs(
+    pairs = find_all_valid_pairs(
             all_spot_qs,
-            all_ref_qs,
+            phase.all_qs,
             near_q,
             near_angle,
+            min_q,
             degrees=degrees)
 
     # Symmetrically reduce pairs
-    connection_pairs = reduce_symmetric_equivalents(
-            connection_pairs,
+    red_pairs = reduce_symmetric_equivalents(
+            pairs,
             all_spot_qs,
-            all_ref_qs,
-            all_ref_hkls,
+            phase.all_qs,
+            phase.all_hkls,
             near_angle,
             min_q)
-
-    # Iteratively decompose patterns
-    best_connections, best_qofs = iterative_pattern_decomposition(
-            connection_pairs,
+    
+    # Index spots
+    connections, qofs, _ = pair_casting_indexing(
+            red_pairs,
             all_spot_qs,
-            all_ref_qs,
-            all_ref_fs,
-            q_mask,
+            phase.all_qs,
+            phase.all_fs,
+            qmask,
             near_q,
+            iter_max=max_ori_refine_iter,
+            keep_initial_pair=keep_initial_pair,
+            exclude_found_pairs=False,
+            verbose_iterator=True)
+
+    return connections[np.argmax(qofs)], qofs[np.argmax(qofs)]
+
+
+def pair_casting_index_full_pattern(
+                    all_spot_qs,
+                    phase,
+                    near_q,
+                    near_angle,
+                    qmask,
+                    degrees=False,
+                    qof_minimum=0.2,
+                    max_ori_refine_iter=50,
+                    keep_initial_pair=False):
+    
+    # Find q vector magnitudes and max for spots
+    spot_q_mags = np.linalg.norm(all_spot_qs, axis=1)
+    max_q = np.max(spot_q_mags)
+
+    # Find phase reciprocal lattice
+    phase.generate_reciprocal_lattice(1.15 * max_q)
+    all_ref_qs = phase.all_qs
+    all_ref_fs = phase.all_fs
+    all_ref_hkls = phase.all_hkls
+
+    # Find minimum q vector step size from reference phase
+    min_q = np.min(np.linalg.norm(phase.Q([[1, 0, 0],
+                                           [0, 1, 0],
+                                           [0, 0, 1]]),
+                                           axis=0))
+
+    # Find all valid pairs within near_q and near_angle
+    pairs = find_all_valid_pairs(
+            all_spot_qs,
+            phase.all_qs,
+            near_q,
+            near_angle,
+            min_q,
+            degrees=degrees)
+
+    # Symmetrically reduce pairs
+    red_pairs = reduce_symmetric_equivalents(
+            pairs,
+            all_spot_qs,
+            phase.all_qs,
+            phase.all_hkls,
+            near_angle,
+            min_q)
+    
+    # Iteratively decompose patterns
+    best_connection, best_qof = decaying_pattern_decomposition(
+            red_pairs,
+            all_spot_qs,
+            phase.all_qs,
+            phase.all_fs,
+            qmask,
+            near_q,
+            qof_minimum=qof_minimum,
             keep_initial_pair=keep_initial_pair,
             max_ori_refine_iter=max_ori_refine_iter,
             max_ori_decomp_count=max_ori_decomp_count)
@@ -220,7 +286,7 @@ def pair_casting_indexing(connection_pairs,
                           all_spot_qs,
                           all_ref_qs,
                           all_ref_fs,
-                          q_mask,
+                          qmask,
                           near_q,
                           iter_max=50,
                           keep_initial_pair=False,
@@ -234,12 +300,6 @@ def pair_casting_indexing(connection_pairs,
     all_ref_qs = np.asarray(all_ref_qs)
     all_ref_fs = np.asarray(all_ref_fs)
 
-    # all_spot_inds = []
-    # all_ref_inds = []
-    # for pair in connection_pairs:
-    #     spot_inds, ref_inds = _get_connection_indices(pair)
-    #     all_spot_inds.append(spot_inds)
-    #     all_ref_inds.append(ref_inds)
     first_best = True
     bad_indices = []
 
@@ -285,17 +345,17 @@ def pair_casting_indexing(connection_pairs,
             orientation, _ = Rotation.align_vectors(conn_spots,
                                                     conn_refs)
             all_rot_qs = orientation.apply(all_ref_qs, inverse=False)
-            temp_q_mask = q_mask.generate(all_rot_qs)
+            temp_qmask = qmask.generate(all_rot_qs)
 
             # Query kdtree for find closest reference lattice points
-            pot_conn = kdtree.query_ball_point(all_rot_qs[temp_q_mask],
+            pot_conn = kdtree.query_ball_point(all_rot_qs[temp_qmask],
                                                r=near_q)
             
             if keep_initial_pair:
                 # Remove original pair reflections from pot_conn
                 for ind in pair_ref_inds:
-                    if ind in np.nonzero(temp_q_mask)[0]:
-                        pot_conn[np.nonzero(np.nonzero(temp_q_mask)[0] == ind)[0][0]] = []
+                    if ind in np.nonzero(temp_qmask)[0]:
+                        pot_conn[np.nonzero(np.nonzero(temp_qmask)[0] == ind)[0][0]] = []
             
             # Cast and fill into blank connection
             multi = []
@@ -310,11 +370,11 @@ def pair_casting_indexing(connection_pairs,
                         continue
                     elif len(conn) == 1:
                         # Add candidate reflection
-                        connection[conn[0]] = np.nonzero(temp_q_mask)[0][conn_i]
+                        connection[conn[0]] = np.nonzero(temp_qmask)[0][conn_i]
                     else:
                         # Add closest of multiple candidate reflections
-                        _, spot_idx = kdtree.query(all_rot_qs[temp_q_mask][conn_i])
-                        connection[spot_idx] = np.nonzero(temp_q_mask)[0][conn_i]
+                        _, spot_idx = kdtree.query(all_rot_qs[temp_qmask][conn_i])
+                        connection[spot_idx] = np.nonzero(temp_qmask)[0][conn_i]
                         #multi.append(spot_idx)
                         multi += conn # concatenate lists
                         #recalc_flag = True
@@ -350,14 +410,14 @@ def pair_casting_indexing(connection_pairs,
         
         # Find qof
         all_rot_qs = orientation.apply(all_ref_qs, inverse=False)
-        temp_q_mask = q_mask.generate(all_rot_qs)
+        temp_qmask = qmask.generate(all_rot_qs)
         qof = get_quality_of_fit(
                     all_spot_qs[curr_spot_inds],
                     all_rot_qs[curr_ref_inds],
                     all_ref_fs[curr_ref_inds],
-                    all_spot_qs, # Already within q_mask
-                    all_rot_qs[temp_q_mask],
-                    all_ref_fs[temp_q_mask],
+                    all_spot_qs, # Already within qmask
+                    all_rot_qs[temp_qmask],
+                    all_ref_fs[temp_qmask],
                     sigma=near_q)
 
         connections.append(connection)
@@ -380,8 +440,7 @@ def pair_casting_indexing(connection_pairs,
                 first_best = False
                 bad_indices = np.nonzero(found_pair_mask)[0]
             
-
-    print(evaluated_pairs)
+    # print(evaluated_pairs)
     return connections, qofs, multi_reflections
 
 
@@ -390,7 +449,7 @@ def iterative_pattern_decomposition(connection_pairs,
                                     all_spot_qs,
                                     all_ref_qs,
                                     all_ref_fs,
-                                    q_mask,
+                                    qmask,
                                     near_q,
                                     keep_initial_pair=False,
                                     max_ori_refine_iter=50,
@@ -413,7 +472,7 @@ def iterative_pattern_decomposition(connection_pairs,
                                     all_spot_qs[included_spot_mask],
                                     all_ref_qs,
                                     all_ref_fs,
-                                    q_mask,
+                                    qmask,
                                     near_q,
                                     iter_max=max_ori_refine_iter,
                                     keep_initial_pair=keep_initial_pair)
@@ -461,7 +520,7 @@ def decaying_pattern_decomposition(connection_pairs,
                                    all_spot_qs,
                                    all_ref_qs,
                                    all_ref_fs,
-                                   q_mask,
+                                   qmask,
                                    near_q,
                                    qof_minimum=0,
                                    keep_initial_pair=False,
@@ -482,7 +541,7 @@ def decaying_pattern_decomposition(connection_pairs,
                     spots,
                     all_ref_qs,
                     all_ref_fs,
-                    q_mask,
+                    qmask,
                     near_q,
                     iter_max=max_ori_refine_iter,
                     keep_initial_pair=keep_initial_pair,
@@ -502,9 +561,6 @@ def decaying_pattern_decomposition(connection_pairs,
     iter_count = 0
     ITERATE = True
     while ITERATE:
-
-        # print(np.array([np.sum(~np.isnan(conn))
-        #                 for conn in connections[included_conn_mask]]).max())
         
         # Find best connection
         best_ind = np.nanargmax(qofs[included_conn_mask]) # Should not be nan???
@@ -535,15 +591,6 @@ def decaying_pattern_decomposition(connection_pairs,
         valid_pair_mask = ~np.any([~np.isnan(connection_pairs[:, idx])
                                    for idx in excluded_spot_indices],
                                    axis=0)
-
-        # Find all pairs which may have changed from previous connection
-        # Could change full_spot_inds to excluded_spot_indices to be more
-        # comprehensive. This would repeat calculations though
-        # multi_mask = [np.any([ind in multi for ind in full_spot_inds])
-        #               for multi in multi_reflections]
-
-        # # Combine masks and recalculate
-        # recalc_mask = included_conn_mask & multi_mask
 
         exclude_ambig_num = np.array([np.sum([ind in multi
                                         for ind in full_spot_inds])
@@ -597,8 +644,6 @@ def decaying_pattern_decomposition(connection_pairs,
                                         new_pairs,
                                         all_spot_qs[included_spot_mask],
                                         verbose_iterator=False)
-
-            # return new_connections, new_qofs
             
             # Expand new connections
             full_new_connections = []
@@ -606,7 +651,6 @@ def decaying_pattern_decomposition(connection_pairs,
                 full_new_connection = blank_full_connection.copy()
                 full_new_connection[included_spot_mask] = conn
                 full_new_connections.append(full_new_connection)
-
             
             if np.any(np.array([np.sum(~np.isnan(conn))
                                 for conn in full_new_connections]) < 2):
@@ -624,6 +668,19 @@ def decaying_pattern_decomposition(connection_pairs,
             # multi_reflections cannot be converted to array
             for i, idx in enumerate(np.nonzero(recalc_mask)[0]):
                 multi_reflections[idx] = new_multi_reflections[i]
+    
+    # Trim bad connections. May be worth keeping since they have 
+    # already been calculated.
+    if len(best_connections) > 1:
+        best_connections = best_connections[best_qofs >= qof_minimum]
+        best_qofs = best_connections[best_qofs >= qof_minimum]
+    else:
+        if best_qofs.squeeze() < qof_minimum:
+            warn_str = ('WARNING: Indexing quality '
+                        + f'({best_qofs.squeeze():.4f}) below '
+                        + f'designated minimum ({qof_minimum:.4f}). '
+                        + 'Stopping indexing.')
+            print(warn_str)
         
     return best_connections, best_qofs
 
@@ -709,28 +766,6 @@ def get_rmse(fit_spot_qs,
     return rmse
 
 
-# def fit_orientation_index(connection,
-#                           spot_qs,
-#                           ref_qs,
-#                           **qof_kwargs):
-
-#     fit_spot_qs, fit_ref_qs = _decompose_connection(
-#                                 connection,
-#                                 spot_qs,
-#                                 ref_qs)
-
-#     # Find rotation
-#     # reference then spots give passive rotation...I think
-#     fit_orientation, _ = Rotation.align_vectors(fit_ref_qs,
-#                                                 fit_ref_spots) 
-
-#     qof = get_quality_of_fit(spot_qs,
-#                              ref_qs,
-#                              **qof_kwargs)
-                            
-#     return fit_orienation, qof
-
-
 # Class for bounding reciprocal space volumes mapped by energy rocking curves
 # Angle rocking curves are not currently supported, although they should be simpler
 class QMask():
@@ -739,9 +774,10 @@ class QMask():
                  tth_arr,
                  chi_arr,
                  wavelength_vals,
-                 # theta_vals,
+                 theta_vals=0,
                  poly_order=6,
-                 degrees=False):
+                 degrees=False,
+                 use_stage_rotation=False):
         
         # Check for azimuthal discontintuites
         chi_arr, max_arr, shifted = modular_azimuthal_shift(chi_arr)
@@ -755,9 +791,28 @@ class QMask():
         self.chi_max = np.max(chi_arr)
         self.wavelength_min = np.min(wavelength_vals)
         self.wavelength_max = np.max(wavelength_vals)
-        # self.theta_min = np.min(theta_vals)
-        # self.theta_max = np.max(theta_vals)
+        self.theta_min = np.min(theta_vals)
+        self.theta_max = np.max(theta_vals)
         self.degrees = degrees
+        self.use_stage_rotation = use_stage_rotation
+
+        # Get rocking axis
+        energy_rc = self.wavelength_min != self.wavelength_max
+        angle_rc = self.theta_min != self.theta_max
+
+        if energy_rc and angle_rc:
+            err_str = ('Both energy and angle are changing. '
+                      + '\nOne must be static to generate Qmask.')
+            raise RuntimeError(err_str)
+        elif not energy_rc and not angle_rc:
+            err_str = ('Neither energy or angle are changing. '
+                      + '\nOne must be rock to generate Qmask.')
+            raise RuntimeError(err_str)
+        elif energy_rc:
+            self.rocking_axis = 'energy'
+        else:
+            self.rocking_axis = 'angle'
+
 
         # Determine edges
         # Inelegant method of throwing higher
@@ -790,29 +845,19 @@ class QMask():
                                 p0=p0)
             
             setattr(self, poly, popt)
-        
-        # upper_poly, _ = curve_fit(general_polynomial, tth_arr[0],
-        #                           chi_arr[0], p0=p0)
-        # lower_poly, _ = curve_fit(general_polynomial, tth_arr[-1],
-        #                           chi_arr[-1], p0=p0)
-        # left_poly, _ = curve_fit(general_polynomial, chi_arr[:, 0],
-        #                          tth_arr[:, 0], p0=p0)
-        # right_poly, _ = curve_fit(general_polynomial, chi_arr[:, -1],
-        #                           tth_arr[:, -1], p0=p0)
 
     
     @classmethod
-    def from_XRDRockingCurveStack(cls,
-                                  rsm,
-                                  **kwargs):
-
-        degrees = rsm.polar_units == 'deg'
+    def from_XRDRockingCurve(cls,
+                             rsm,
+                             **kwargs):
         
         inst = cls(rsm.tth_arr,
                    rsm.chi_arr,
                    rsm.wavelength,
-                   # rsm.theta,
-                   degrees=degrees,
+                   rsm.theta,
+                   degrees=rsm.polar_units == 'deg',
+                   use_stage_rotation=rsm.use_stage_rotation,
                    **kwargs)
         
         return inst
@@ -823,8 +868,30 @@ class QMask():
                  ext=0):
 
         # Convert vectors to polar
-        tth, chi, wavelength = q_2_polar(q_vectors,
-                                         degrees=self.degrees)
+        if self.rocking_axis == 'energy':
+            if self.use_stage_rotation:
+                theta = self.theta_min
+            else:
+                theta = 0
+
+            tth, chi, wavelength = q_2_polar(q_vectors,
+                                             stage_rotation=theta,
+                                             degrees=self.degrees)
+
+            rocking_mask = np.all([
+                            wavelength >= self.wavelength_min * (1 - ext),
+                            wavelength <= self.wavelength_max * (1 + ext)],
+                            axis=0)
+        
+        else:
+            tth, chi, rotation = q_2_polar(q_vectors,
+                                           wavelength=self.wavelength_min,
+                                           degrees=self.degrees)
+
+            rocking_mask = np.all([
+                            rotation >= self.theta_min * (1 - ext),
+                            rotation <= self.theta_max * (1 + ext)],
+                            axis=0)
 
         # Shift chi values if discontinuiteies
         chi, _, _ = modular_azimuthal_shift(
@@ -863,19 +930,16 @@ class QMask():
         chi_mask = np.all([chi >= self.chi_min * (1 - ext),
                            chi <= self.chi_max * (1 + ext)],
                            axis=0)
-        wavelength_mask = np.all([wavelength >= self.wavelength_min * (1 - ext),
-                                  wavelength <= self.wavelength_max * (1 + ext)],
-                                  axis=0)
         
-        q_mask = np.all([
+        qmask = np.all([
             vertical_mask,
             horizontal_mask,
             tth_mask,
             chi_mask,
-            wavelength_mask
+            rocking_mask
         ], axis=0)
 
-        return q_mask
+        return qmask
 
 
 def _get_connection_indices(connection):

@@ -35,11 +35,11 @@ class Phase(xu.materials.Crystal):
     
 
     def __repr__(self):
-        ostr = f'{self.name} crystal phase'
-        # Gettin the lattice information is just a bit to much
-        # TODO: Parse down lattice information to sleeker format
-        #if hasattr(self, 'lattice'):
-        #    ostr += '\t'.join(self.lattice.__str__().splitlines(True))
+        ostr = self.__str__() + '\n'
+        ostr += f'\t|a = {self.a:.4f}\t|b = {self.b:.4f}\t|c = {self.c:.4f}'
+        ostr += (f'\n\t|alpha = {self.alpha:.2f}'
+                 + f'\t|beta = {self.beta:.2f}'
+                 + f'\t|gamma = {self.gamma:.2f}')
         return ostr
 
     ### Class methods, Static methods, and Properties
@@ -198,7 +198,7 @@ class Phase(xu.materials.Crystal):
             return data
 
     # Returns full recirpocal lattice
-    # TODO: all qmin trimming
+    # TODO: allow qmin trimming
     def generate_reciprocal_lattice(self,
                                     qmax,
                                     return_values=False):
@@ -264,6 +264,11 @@ class Phase(xu.materials.Crystal):
         phi = np.diag(phi).reshape(len(hkl1), len(hkl2)).T
         return phi
 
+    
+    # Wrapper to relax lattice to P1 version of itself
+    def convert_to_P1(self):
+        self.lattice = self.lattice.convert_to_P1()
+
 #######################
 ### Other Functions ###
 #######################
@@ -277,7 +282,6 @@ def write_calibration_file(mat, name=None, tt_cutoff=90, ignore_less=1,
                            wd=None, filename=None,
                            simulate_convolution=False):
     '''
-                and self.intensity is not None):
     
     '''
     if name == None:

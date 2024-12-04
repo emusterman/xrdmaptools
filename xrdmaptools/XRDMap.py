@@ -988,36 +988,53 @@ class XRDMap(XRDBaseScan):
             pixel_spots = pixel_spots.copy()
         
         return pixel_spots
+
     
-
+    @XRDBaseScan.protect_hdf(pandas=True)
     def save_spots(self, extra_attrs=None):
-        # Save spots to hdf
-        if self.hdf_path is not None:
-            print('Saving spots to hdf...')
-
-            # Open hdf flag
-            keep_hdf = self.hdf is not None
-
-            # Save to hdf
-            # pytables cannot have an open hdf reference
-            self.close_hdf() 
-            hdf_str = f'{self._hdf_type}/reflections/spots'
-            self.spots.to_hdf(
+        print('Saving spots to hdf...', end='', flush=True)
+        hdf_str = f'{self._hdf_type}/reflections/spots'
+        self.spots.to_hdf(
                         self.hdf_path,
                         key=hdf_str,
                         format='table')
 
-            if extra_attrs is not None:
-                self.open_hdf()
-                for key, value in extra_attrs.items():
-                    self.hdf[hdf_str].attrs[key] = value
+        if extra_attrs is not None:
+            self.open_hdf()
+            for key, value in extra_attrs.items():
+                self.hdf[hdf_str].attrs[key] = value        
+        print('done!')
 
-            if keep_hdf:
-                self.open_hdf()
-            else:
-                self.close_hdf()
+    
+
+    # def save_spots(self, extra_attrs=None):
+    #     # Save spots to hdf
+    #     if self.hdf_path is not None:
+    #         print('Saving spots to hdf...')
+
+    #         # Open hdf flag
+    #         keep_hdf = self.hdf is not None
+
+    #         # Save to hdf
+    #         # pytables cannot have an open hdf reference
+    #         self.close_hdf() 
+    #         hdf_str = f'{self._hdf_type}/reflections/spots'
+    #         self.spots.to_hdf(
+    #                     self.hdf_path,
+    #                     key=hdf_str,
+    #                     format='table')
+
+    #         if extra_attrs is not None:
+    #             self.open_hdf()
+    #             for key, value in extra_attrs.items():
+    #                 self.hdf[hdf_str].attrs[key] = value
+
+    #         if keep_hdf:
+    #             self.open_hdf()
+    #         else:
+    #             self.close_hdf()
             
-            print('done!')
+    #         print('done!')
 
     #################################
     ### Analysis of Selected Data ###
@@ -1138,8 +1155,8 @@ class XRDMap(XRDBaseScan):
         else:
             fig.show()
 
-    # Interactive plots do not currently accept fig, ax inputs
 
+    # Interactive plots do not currently accept fig, ax inputs
     def plot_interactive_map(self,
                              dyn_kw=None,
                              map_kw=None,

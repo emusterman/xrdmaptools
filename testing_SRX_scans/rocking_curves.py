@@ -49,6 +49,12 @@ def energy_rocking_curve(e_low,
 
     start_energy = energy.energy.position
 
+    # Convert to keV
+    if e_low > 1000:
+        e_low /= 1000
+    if e_high > 1000:
+        e_high /= 1000
+
     # Define some useful variables
     e_cen = (e_high + e_low) / 2
     e_range = np.linspace(e_low, e_high, e_num)
@@ -97,6 +103,18 @@ def relative_energy_rocking_curve(e_range,
                                   **kwargs):
     
     en_current = energy.energy.position
+
+    # Convert to keV. Not as straightforward as endpoint inputs
+    if en_range > 5:
+        warn_str = (f'WARNING: Assuming energy range of {en_range} '
+                    + 'was given in eV.')
+        print(warn_str)
+        en_range /= 1000
+    
+    # Ensure energy.energy.positiion is reading correctly
+    if en_current > 1000:
+        en_current /= 1000
+
     e_low = en_current - (e_range / 2)
     e_high = en_current + (e_range / 2)
     
@@ -119,13 +137,14 @@ def extended_energy_rocking_curve(e_low,
     # Breaking an extended energy rocking curve up into smaller pieces
     # The goal is to allow for multiple intermittent peakups
 
+    # Convert to ev
+    if e_low > 1000:
+        e_low /= 1000
+    if e_high > 1000:
+        e_high /= 1000
+
     # Loose chunking at about 1000 eV
     e_range = e_high - e_low
-    
-    if e_range > 1000:
-        e_range /= 1000
-        e_low /= 1000
-        e_high /= 1000
 
     e_step = e_range / e_num
     e_chunks = int(np.round(e_num / e_range))

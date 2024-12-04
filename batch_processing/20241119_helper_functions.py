@@ -204,7 +204,8 @@ def get_correlation_pattern(images, el_map):
 
     for index in tqdm(range(corr_img.size)):
         indices = np.unravel_index(index, corr_img.shape)
-        corr = np.corrcoef(el_map.ravel(), images[:, :, *indices].ravel())
+        corr = np.corrcoef(el_map.ravel(),
+                           images[:, :, *indices].ravel())
 
         corr_img[indices] = corr[0, 1]
     
@@ -333,7 +334,6 @@ def interactive_rotation_plot(data,
     fig.show()
 
     return fig, ax, slider_lst, button
-
 
 
 def get_spot_num(xdm):

@@ -672,20 +672,20 @@ class XRDMapStack(list):
 
             # Find edges
             if i == 0:
-                edges[4] = q_arr[:, 0].T
-                edges[5] = q_arr[:, -1].T
-                edges[6] = q_arr[:, :, 0].T
-                edges[7] = q_arr[:, :, -1].T
+                edges[4] = q_arr[0].T
+                edges[5] = q_arr[-1].T
+                edges[6] = q_arr[:, 0].T
+                edges[7] = q_arr[:, -1].T
             elif i == len(self.wavelength) - 1:
-                edges[8] = q_arr[:, 0].T
-                edges[9] = q_arr[:, -1].T
-                edges[10] = q_arr[:, :, 0].T
-                edges[11] = q_arr[:, :, -1].T
+                edges[8] = q_arr[0].T
+                edges[9] = q_arr[-1].T
+                edges[10] = q_arr[:, 0].T
+                edges[11] = q_arr[:, -1].T
             else: # Corners
-                edges[0].append(q_arr[:, 0, 0])
-                edges[1].append(q_arr[:, 0, -1])
-                edges[2].append(q_arr[:, -1, 0])
-                edges[3].append(q_arr[:, -1, -1])
+                edges[0].append(q_arr[0, 0])
+                edges[1].append(q_arr[0, -1])
+                edges[2].append(q_arr[-1, 0])
+                edges[3].append(q_arr[-1, -1])
         
         for i in range(4):
             edges[i] = np.asarray(edges[i])

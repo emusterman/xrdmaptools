@@ -22,10 +22,10 @@ def plot_q_space(xrdmap,
 
     # Plot sampled Ewald sphere
     if detector:
-        q_mask = xrdmap.q_arr[:, xrdmap.mask]
-        ax.plot_trisurf(q_mask[0].ravel()[::skip],
-                        q_mask[1].ravel()[::skip],
-                        q_mask[2].ravel()[::skip],
+        q_mask = xrdmap.q_arr[xrdmap.mask]
+        ax.plot_trisurf(q_mask[..., 0].ravel()[::skip],
+                        q_mask[..., 1].ravel()[::skip],
+                        q_mask[..., 2].ravel()[::skip],
                         alpha=0.5, label='detector')
 
     # Plot full Ewald sphere
@@ -33,7 +33,7 @@ def plot_q_space(xrdmap,
     v = np.linspace(0, np.pi, 100)
     radius = 2 * np.pi / xrdmap.wavelength
     if Ewald_sphere:
-        x =  radius * np.outer(np.cos(u), np.sin(v))
+        x = radius * np.outer(np.cos(u), np.sin(v))
         y = radius * np.outer(np.sin(u), np.sin(v))
         z = radius * np.outer(np.ones(np.size(u)), np.cos(v))
         ax.plot_surface(x, y, z - radius, alpha=0.2, color='k', label='Ewald sphere')

@@ -42,6 +42,11 @@ from xrdmaptools.reflections.spot_blob_search_3D import (
     rsm_blob_search,
     rsm_spot_search
 )
+from xrdmaptools.reflections.spot_blob_indexing_3D import (
+    pair_casting_index_best_grain,
+    pair_casting_index_full_pattern,
+    QMask
+)
 from xrdmaptools.plot.image_stack import base_slider_plot
 from xrdmaptools.plot.volume import (
     plot_3D_scatter,
@@ -49,7 +54,7 @@ from xrdmaptools.plot.volume import (
 )
 
 
-class XRDRockingCurveStack(XRDBaseScan):
+class XRDRockingCurve(XRDBaseScan):
 
     # Class variables
     _hdf_type = 'rsm'
@@ -181,7 +186,11 @@ class XRDRockingCurveStack(XRDBaseScan):
                             + 'Energy varies by less than 5 eV and '
                             + 'theta varies by less than 50 mdeg.')
                 raise RuntimeError(err_str)
-
+        
+        # Enable features
+        if (not self.use_stage_rotation
+            and self.rocking_axis == 'angle'):
+            self.use_stage_rotation = True
 
         @XRDBaseScan.protect_hdf()
         def save_extra_attrs(self): # Not sure if this needs self...
@@ -254,16 +263,6 @@ class XRDRockingCurveStack(XRDBaseScan):
             self.ai.energy = self._energy[0]
             if hasattr(self, '_q_arr'):
                 delattr(self, '_q_arr')
-        
-        # # Re-write hdf values
-        # if hasattr(self, 'hdf_path') and self.hdf_path is not None:
-        #     if self._dask_enabled:
-        #         self.hdf[self._hdf_type].attrs['energy'] = self.energy
-        #         self.hdf[self._hdf_type].attrs['wavelength'] = self.wavelength
-        #     else:
-        #         with h5py.File(self.hdf_path, 'a') as f:
-        #             f[self._hdf_type].attrs['energy'] = self.energy
-        #             f[self._hdf_type].attrs['wavelength'] = self.wavelength
 
         @XRDBaseScan.protect_hdf()
         def save_attrs(self): # Not sure if this needs self...
@@ -284,16 +283,6 @@ class XRDRockingCurveStack(XRDBaseScan):
             self.ai.energy = self._energy[0]
             if hasattr(self, '_q_arr'):
                 delattr(self, '_q_arr')
-
-        # # Re-write hdf values
-        # if hasattr(self, 'hdf_path') and self.hdf_path is not None:
-        #     if self._dask_enabled:
-        #         self.hdf[self._hdf_type].attrs['energy'] = self.energy
-        #         self.hdf[self._hdf_type].attrs['wavelength'] = self.wavelength
-        #     else:
-        #         with h5py.File(self.hdf_path, 'a') as f:
-        #             f[self._hdf_type].attrs['energy'] = self.energy
-        #             f[self._hdf_type].attrs['wavelength'] = self.wavelength
 
         @XRDBaseScan.protect_hdf()
         def save_attrs(self): # Not sure if this needs self...
@@ -318,14 +307,6 @@ class XRDRockingCurveStack(XRDBaseScan):
         if hasattr(self, 'ai'):
             if hasattr(self, '_q_arr'):
                 delattr(self, '_q_arr')
-
-        # # Re-write hdf values
-        # if hasattr(self, 'hdf_path') and self.hdf_path is not None:
-        #     if self._dask_enabled:
-        #         self.hdf[self._hdf_type].attrs['theta'] = self.theta
-        #     else:
-        #         with h5py.File(self.hdf_path, 'a') as f:
-        #             f[self._hdf_type].attrs['theta'] = self.theta
             
         @XRDBaseScan.protect_hdf()
         def save_attrs(self): # Not sure if this needs self...
@@ -342,14 +323,30 @@ class XRDRockingCurveStack(XRDBaseScan):
         elif not hasattr(self, 'ai'):
             raise RuntimeError('Cannot calculate q-space without calibration.')
         else:
-            self._q_arr = np.empty((self.num_images, 3, *self.image_shape),
+            self._q_arr = np.empty((self.num_images,
+                                    *self.image_shape,
+                                    3),
                                     dtype=self.dtype)
-            for i, wavelength in tqdm(enumerate(self.wavelength),
-                                    total=self.num_images):
+            for i in tqdm(range(self.num_images)):
+                wavelength = self.wavelength[i]
+                if self.use_stage_rotation:
+                    theta = self.theta[i]
+                else:
+                    theta = None # no rotation!
+                
                 q_arr = get_q_vect(self.tth_arr,
                                    self.chi_arr,
                                    wavelength=wavelength,
-                                   degrees=self.polar_units == 'deg')
+                                   stage_rotation=theta,
+                                   degrees=self.polar_units == 'deg',
+                                   rotation_axis='y') # hard-coded for srx
+
+            # for i, wavelength in tqdm(enumerate(self.wavelength),
+            #                           total=self.num_images):
+            #     q_arr = get_q_vect(self.tth_arr,
+            #                        self.chi_arr,
+            #                        wavelength=wavelength,
+            #                        degrees=self.polar_units == 'deg')
                 self._q_arr[i] = q_arr
             return self._q_arr
 
@@ -598,7 +595,7 @@ class XRDRockingCurveStack(XRDBaseScan):
 
     def vectorize_images(self,
                          override_blob_search=False,
-                         rewrite_shape=False):
+                         rewrite_data=False):
 
         if (not override_blob_search
             and not hasattr(self, 'blob_masks')):
@@ -615,43 +612,31 @@ class XRDRockingCurveStack(XRDBaseScan):
         print('Vectorizing images...')
         filled_indices = 0
         for i in tqdm(range(self.num_images)):
-        # for i, wavelength in tqdm(enumerate(self.wavelength),
-                                # total=self.num_images):
-            # wavelength = self.wavelength[i]
-            # angle = self.theta[i]
             q_arr = self.q_arr[i].astype(self.dtype)
-
-            # q_arr = get_q_vect(self.tth_arr,
-            #                    self.chi_arr,
-            #                    wavelength=wavelength,
-            #                    degrees=self.polar_units == 'deg'
-            #                    ).astype(self.dtype)
-            
             next_indices = np.sum(self.blob_masks[i])
             # Fill q_vectors from q_arr
             for idx in range(3):
                 (q_vectors[filled_indices : (filled_indices
-                                            + next_indices),
-                           idx]
-                ) = q_arr[idx][self.blob_masks[i].squeeze()]
+                                            + next_indices)]
+                ) = q_arr[self.blob_masks[i].squeeze()]
             filled_indices += next_indices
 
             # Find edges
             if i == 0:
-                edges[4] = q_arr[:, 0].T
-                edges[5] = q_arr[:, -1].T
-                edges[6] = q_arr[:, :, 0].T
-                edges[7] = q_arr[:, :, -1].T
+                edges[4] = q_arr[0]
+                edges[5] = q_arr[-1]
+                edges[6] = q_arr[:, 0]
+                edges[7] = q_arr[:, -1]
             elif i == len(self.wavelength) - 1:
-                edges[8] = q_arr[:, 0].T
-                edges[9] = q_arr[:, -1].T
-                edges[10] = q_arr[:, :, 0].T
-                edges[11] = q_arr[:, :, -1].T
+                edges[8] = q_arr[0]
+                edges[9] = q_arr[-1]
+                edges[10] = q_arr[:, 0]
+                edges[11] = q_arr[:, -1]
             else: # Corners
-                edges[0].append(q_arr[:, 0, 0])
-                edges[1].append(q_arr[:, 0, -1])
-                edges[2].append(q_arr[:, -1, 0])
-                edges[3].append(q_arr[:, -1, -1])
+                edges[0].append(q_arr[0, 0])
+                edges[1].append(q_arr[0, -1])
+                edges[2].append(q_arr[-1, 0])
+                edges[3].append(q_arr[-1, -1])
         
         for i in range(4):
             edges[i] = np.asarray(edges[i])
@@ -665,14 +650,14 @@ class XRDRockingCurveStack(XRDBaseScan):
         self.save_vectorization(q_vectors=self.q_vectors,
                                 intensity=self.intensity,
                                 edges=self.edges,
-                                rewrite_shape=rewrite_shape)
+                                rewrite_data=rewrite_data)
 
     @XRDBaseScan.protect_hdf()
     def save_vectorization(self,
                            q_vectors=None,
                            intensity=None,
                            edges=None,
-                           rewrite_shape=False):
+                           rewrite_data=False):
 
         print('Saving vectorized image data...')
 
@@ -712,19 +697,35 @@ class XRDRockingCurveStack(XRDBaseScan):
                 if (dset.shape == attr.shape
                     and dset.dtype == attr.dtype):
                     dset[...] = attr
+
+                else:
+                    warn_str = 'WARNING:'
+                    if dset.shape != attr.shape:
+                        warn_str += (f'{attr_name} shape of'
+                                    + f' {attr.shape} does not '
+                                    + 'match dataset shape '
+                                    + f'{dset.shape}. ')
+                    if dset.dtype != attr.dtype:
+                        warn_str += (f'{attr_name} dtype of'
+                                    + f' {attr.dtype} does not '
+                                    + 'match dataset dtype '
+                                    + f'{dset.dtype}. ')
+                    if rewrite_data:
+                        warn_str += (f'\nOvewriting {attr_name}. This '
+                                    + 'may bloat the total file size.')
+                        # Shape changes should not happen
+                        # except from q_arr changes
+                        print(warn_str)
+                        del vect_grp[attr_name]
+                        dset = vect_grp.require_dataset(
+                            attr_name,
+                            data=attr,
+                            shape=attr.shape,
+                            dtype=attr.dtype)
+                    else:
+                        warn_str += '\nProceeding without changes.'
+                        print(warn_str)
                 
-                # Avoid creating new data, unless specified explicitly
-                elif rewrite_shape:
-                    warn_str = (f'WARNING: Rewriting {attr_name} '
-                                + 'dataset shape. This could bloat '
-                                + 'overall file size.')
-                    print(warn_str)
-                    del vect_grp['attr_name']
-                    dset = vect_grp.require_dataset(
-                        attr_name,
-                        data=attr,
-                        shape=attr.shape,
-                        dtype=attr.dtype)
         
         # Check for edge information
         if edges is None:
@@ -756,21 +757,34 @@ class XRDRockingCurveStack(XRDBaseScan):
                     if (dset.shape == edge.shape
                         and dset.dtype == edge.dtype):
                         dset[...] = edge
-                    elif (dset.shape != edge.shape
-                            and dset.dtype == edge.dtype):
-                            dset[...] = edge.astype(dset.dtype)
                     else:
-                        self.hdf.close()
-                        self.hdf = None
-                        err_str = (f'Edge shape for {edge_title} '
-                                    + f'({edge.shape}) does not '
-                                    + 'match datset shape '
-                                    + f'({dset.shape}). '
-                                    + 'This should not '
-                                    + 'have happened.')
-                        # Shape changes should not happen. Throw error
-                        raise RuntimeError(err_str)
-
+                        warn_str = 'WARNING:'
+                        if dset.shape != edge.shape:
+                            warn_str += (f'Edge shape for {edge_title}'
+                                        + f' {edge.shape} does not '
+                                        + 'match dataset shape '
+                                        + f'{dset.shape}. ')
+                        if dset.dtype != edge.dtype:
+                            warn_str += (f'Edge dtype for {edge_title}'
+                                        + f' {edge.dtype} does not '
+                                        + 'match dataset dtype '
+                                        + f'{dset.dtype}. ')
+                        if rewrite_data:
+                            warn_str += ('\nOvewriting data. This may '
+                                        + 'bloat the total file size.')
+                            # Shape changes should not happen
+                            # except from q_arr changes
+                            print(warn_str)
+                            del edge_grp[edge_title]
+                            edge_grp.require_dataset(
+                                    edge_title,
+                                    data=edge,
+                                    shape=edge.shape,
+                                    dtype=edge.dtype)
+                        else:
+                            warn_str += '\nProceeding without changes.'
+                            print(warn_str)
+                            
 
     #######################
     ### Blobs and Spots ###
@@ -867,7 +881,7 @@ class XRDRockingCurveStack(XRDBaseScan):
                       subsample=1,
                       intensity_cutoff=0,
                       label_int_method='mean',
-                      save_to_hdf=False):
+                      save_2_hdf=True):
 
         if (not hasattr(self, 'q_vectors')
             or not hasattr(self, 'intensity')):
@@ -887,6 +901,7 @@ class XRDRockingCurveStack(XRDBaseScan):
                                        subsample=subsample)
 
         tth, chi, wavelength = q_2_polar(spots,
+                                         stage_rotation=0,
                                          degrees=(
                                             self.polar_units == 'deg'))
 
@@ -911,44 +926,60 @@ class XRDRockingCurveStack(XRDBaseScan):
         self.spot_int_mask = int_mask
 
         # Write to hdf
-        if save_to_hdf:
+        if save_2_hdf:
             self.save_3D_spots()
             self.save_vector_information(
                 self.spot_labels,
                 'spot_labels',
                 extra_attrs={'spot_int_cutoff' : intensity_cutoff})
-
-
+        
+    
     # Analog of 2D spots from xrdmap
+    @XRDBaseScan.protect_hdf(pandas=True)
     def save_3D_spots(self, extra_attrs=None):
-        # Save spots to hdf
-        if self.hdf_path is not None:
-            print('Saving 3D spots to hdf...')
+        print('Saving 3D spots to hdf...', end='', flush=True)
+        hdf_str = f'{self._hdf_type}/reflections/spots_3D'
+        self.spots_3D.to_hdf(self.hdf_path,
+                             key=hdf_str,
+                             format='table')
 
-            # Open hdf flag
-            keep_hdf = True
-            if self.hdf is None:
-                self.hdf = h5py.File(self.hdf_path, 'a')
-                keep_hdf = False
+        if extra_attrs is not None:
+            self.open_hdf()
+            for key, value in extra_attrs.items():
+                self.hdf[hdf_str].attrs[key] = value        
+        print('done!')
 
-            # Save to hdf
-            self.close_hdf()
-            hdf_str = f'{self._hdf_type}/reflections/spots_3D'
-            self.spots_3D.to_hdf(self.hdf_path,
-                            key=hdf_str,
-                            format='table')
 
-            if extra_attrs is not None:
-                self.open_hdf()
-                for key, value in extra_attrs.items():
-                    self.hdf[hdf_str].attrs[key] = value
+    # # Analog of 2D spots from xrdmap
+    # def save_3D_spots(self, extra_attrs=None):
+    #     # Save spots to hdf
+    #     if self.hdf_path is not None:
+    #         print('Saving 3D spots to hdf...')
 
-            if keep_hdf:
-                self.open_hdf()
-            else:
-                self.close_hdf()
+    #         # Open hdf flag
+    #         keep_hdf = True
+    #         if self.hdf is None:
+    #             self.hdf = h5py.File(self.hdf_path, 'a')
+    #             keep_hdf = False
+
+    #         # Save to hdf
+    #         self.close_hdf()
+    #         hdf_str = f'{self._hdf_type}/reflections/spots_3D'
+    #         self.spots_3D.to_hdf(self.hdf_path,
+    #                         key=hdf_str,
+    #                         format='table')
+
+    #         if extra_attrs is not None:
+    #             self.open_hdf()
+    #             for key, value in extra_attrs.items():
+    #                 self.hdf[hdf_str].attrs[key] = value
+
+    #         if keep_hdf:
+    #             self.open_hdf()
+    #         else:
+    #             self.close_hdf()
             
-            print('done!')
+    #         print('done!')
 
 
     @XRDBaseScan.protect_hdf()
@@ -999,13 +1030,131 @@ class XRDRockingCurveStack(XRDBaseScan):
     ### Indexing, Corrections, and Analysis ###
     ###########################################
 
-    def index_spots(self,
-                    spots=None,
-                    spot_intensity_cut_off=0,
-                    method='pair_casting',
-                    **kwargs
-                    ):
-        raise NotImplementedError()
+    def _parse_indexing_inputs(self,
+                               spots=None,
+                               spot_intensity=None,
+                               spot_intensity_cutoff=0,
+                               ):
+        
+        if spots is None and hasattr(self, 'spots_3D'):
+            spots = self.spots_3D[['qx', 'qy', 'qz']].values
+        else:
+            err_str = ('Must specify 3D spots or rocking curve must '
+                       + 'already have spots.')
+            raise ValueError(err_str)
+        
+        if spot_intensity is None and hasattr(self, 'spots_3D'):
+            spot_intensity = self.spots_3D['intensity'].values
+        else:
+            err_str = ('Must specify 3D spot intensities or rocking '
+                       + 'curve must already have spot intensities.')
+            raise ValueError(err_str)
+        
+        if len(spots) != len(spot_intensity):
+            err_str = (f'Length of spots ({len(spot_intensity)}) does '
+                       + 'not match lenght of spot_intensity '
+                       + f'({len(spot_intensity)}).')
+            raise RuntimeError(err_str)
+        
+        int_mask = self.get_vector_int_mask(
+                    intensity=spot_intensity,
+                    intensity_cutoff=spot_intensity_cutoff)
+        
+        return spots[int_mask], spot_intensity[int_mask]
+
+
+    def index_best_grain(self,
+                         near_q,
+                         near_angle,
+                         spots=None,
+                         spot_intensity=None,
+                         spot_intensity_cutoff=0,
+                         phase=None,
+                         method='pair_casting',
+                         **kwargs
+                         ):
+        
+        spots, spot_intensity = self._parse_indexing_inputs(
+                                    spots,
+                                    spot_intensity)
+
+        qmask = QMask.from_XRDRockingCurve(self)
+
+        if phase is None and len(self.phases) == 1:
+            phase = list(self.phases.values())[0]
+        else:
+            if len(self.phases) == 0:
+                err_str = 'No phase specified and no phases loaded.'
+            else:
+                err_str = ('No phase specified and ambiguous choice '
+                           + 'from loaded phases.')
+            raise ValueError(err_str)
+
+        # Only pair casting indexing is currently supported
+        if method.lower() in ['pair_casting']:
+            (best_connection,
+             best_qof) = pair_casting_index_best_grain(
+                    spots,
+                    phase,
+                    near_q,
+                    near_angle,
+                    qmask,
+                    degrees=self.polar_units == 'deg',
+                    **kwargs)
+        else:
+            err_str = (f"Unknown method ({method}) specified. Only "
+                       + "'pair_casting' is currently supported.")
+            raise ValueError(err_str)
+        
+        # TODO: Update spots_3D dataframe to get hkl and grain number...
+        return best_connection, best_qof
+
+
+    def index_all_spots(self,
+                        near_q,
+                        near_angle,
+                        spots=None,
+                        spot_intensity=None,
+                        spot_intensity_cutoff=0,
+                        phase=None,
+                        method='pair_casting',
+                        **kwargs
+                        ):
+        
+        spots, spot_intensity = self._parse_indexing_inputs(
+                                    spots,
+                                    spot_intensity)
+
+        qmask = QMask.from_XRDRockingCurve(self)
+
+        if phase is None and len(self.phases) == 1:
+            phase = list(self.phases.values())[0]
+        else:
+            if len(self.phases) == 0:
+                err_str = 'No phase specified and no phases loaded.'
+            else:
+                err_str = ('No phase specified and ambiguous choice '
+                           + 'from loaded phases.')
+            raise ValueError(err_str)
+
+        # Only pair casting indexing is currently supported
+        if method.lower() in ['pair_casting']:
+            (best_connections,
+             best_qofs) = pair_casting_index_full_pattern(
+                    spots,
+                    phase,
+                    near_q,
+                    near_angle,
+                    qmask,
+                    degrees=self.polar_units == 'deg',
+                    **kwargs)
+        else:
+            err_str = (f"Unknown method ({method}) specified. Only "
+                       + "'pair_casting' is currently supported.")
+            raise ValueError(err_str)
+        
+        # TODO: Update spots_3D dataframe to get hkl and grain number...
+        return best_connections, best_qofs
 
 
     # Strain math
@@ -1056,7 +1205,6 @@ class XRDRockingCurveStack(XRDBaseScan):
             self.__slider = slider
             fig.show()
             
-
 
     def plot_3D_scatter(self,
                         q_vectors=None,
@@ -1134,6 +1282,7 @@ class XRDRockingCurveStack(XRDBaseScan):
             fig.show()      
 
 
+    # Broken for angle rocking curves
     def plot_3D_isosurfaces(self,
                             q_vectors=None,
                             intensity=None,
@@ -1172,6 +1321,7 @@ class XRDRockingCurveStack(XRDBaseScan):
 
         tth, chi, wavelength = q_2_polar(
                             plot_qs,
+                            stage_rotation=0,
                             degrees=self.polar_units == 'deg')
         energy = wavelength_2_energy(wavelength)
 
@@ -1191,7 +1341,7 @@ class XRDRockingCurveStack(XRDBaseScan):
                         wavelength=energy_2_wavelength(min_energy
                                                     - energy_step),
                         degrees=self.polar_units == 'deg'
-                        ).astype(self.dtype).T
+                        ).astype(self.dtype)
             
             high_qs = get_q_vect(
                         tth[high_mask],
@@ -1199,7 +1349,7 @@ class XRDRockingCurveStack(XRDBaseScan):
                         wavelength=energy_2_wavelength(max_energy
                                                     + energy_step),
                         degrees=self.polar_units == 'deg'
-                        ).astype(self.dtype).T
+                        ).astype(self.dtype)
 
             # Extend plot qs and ints
             plot_qs = np.vstack([plot_qs, low_qs, high_qs])
@@ -1222,7 +1372,7 @@ class XRDRockingCurveStack(XRDBaseScan):
             if hasattr(self, 'edges'):
                 edges = self.edges
             else:
-                err_st= ('Cannot plot sampled volume '
+                err_str= ('Cannot plot sampled volume '
                         + 'without given or known edges!')
                 raise ValueError(err_str)
         

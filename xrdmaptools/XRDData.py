@@ -380,14 +380,6 @@ class XRDData:
         return self.num_images
 
 
-    # REPLACED in favor of .indices property
-    # # Allows easier iterating though all images and only images
-    # def __iter__(self):
-    #     for index in range(self.num_images):
-    #         indices = np.unravel_index(index, self.map_shape)
-    #         yield self.images[indices]
-
-
     def __str__(self):
         ostr = f'XRDData: ({self.shape}), dtype={self.dtype}'
         return ostr
@@ -600,29 +592,6 @@ class XRDData:
             pass
         # Clear old values everytime this is checked
         self.reset_projections()
-
-
-    # # Decorator to protect self.hdf during read/write functions
-    # def protect_hdf(func):
-    #     @functools.wraps(func)
-    #     def protector(self, *args, **kwargs):
-    #         # Check to see if read/write is enabled
-    #         if self.hdf_path is not None:
-                
-    #             # Log if a reference in maintined to hdf
-    #             make_temp_hdf = self.hdf is None
-    #             if make_temp_hdf:
-    #                 self.hdf = h5py.File(self.hdf_path, 'a')
-
-    #             # Call function
-    #             func(self, *args, **kwargs)
-
-    #             # Remove temporary reference
-    #             if make_temp_hdf:
-    #                 self.hdf.close()
-    #                 self.hdf = None
-
-    #     return protector
 
 
     # Opens and closes hdf to esnure self.hdf can be used safely

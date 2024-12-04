@@ -96,7 +96,6 @@ class XRDBaseScan(XRDData):
         self.facility = facility
         self.time_stamp = time_stamp
         self.scan_input = scan_input
-        self.use_stage_rotation = bool(use_stage_rotation)
         if extra_metadata is None:
             extra_metadata = {}
         self.extra_metadata = extra_metadata
@@ -105,6 +104,7 @@ class XRDBaseScan(XRDData):
         self._energy = np.nan
         self._wavelength = np.nan
         self._theta = np.nan
+        self._use_stage_rotation = False # overwrite later
 
         if not save_hdf:
             if dask_enabled:
@@ -142,6 +142,7 @@ class XRDBaseScan(XRDData):
             print('WARNING: No theta provided. Assuming 0 degrees.')
             theta = 0
         self.theta = theta
+        self.use_stage_rotation = bool(use_stage_rotation)
         
         self.phases = {} # Place holder for potential phases
         if poni_file is not None:
@@ -327,7 +328,6 @@ class XRDBaseScan(XRDData):
             extra_attrs = {}
             extra_attrs.update(image_attrs)
             extra_attrs.update(integration_attrs)
-            extra_attrs['phases'] = phases
             # Add phases
             extra_attrs['phases'] = phases
             # Add spots
@@ -435,14 +435,21 @@ class XRDBaseScan(XRDData):
                 self.phases[key].energy = self._energy
         
         # Re-write hdf values
-        if hasattr(self, 'hdf_path') and self.hdf_path is not None:
-            if self._dask_enabled:
-                self.hdf[self._hdf_type].attrs['energy'] = self.energy
-                self.hdf[self._hdf_type].attrs['wavelength'] = self.wavelength
-            else:
-                with h5py.File(self.hdf_path, 'a') as f:
-                    f[self._hdf_type].attrs['energy'] = self.energy
-                    f[self._hdf_type].attrs['wavelength'] = self.wavelength
+        @XRDBaseScan.protect_hdf()
+        def save_attrs(self): # Not sure if this needs self...
+            attrs = self.hdf[self._hdf_type].attrs
+            attrs['energy'] = self.energy
+            attrs['wavelength'] = self.wavelength
+        save_attrs(self)
+
+        # if hasattr(self, 'hdf_path') and self.hdf_path is not None:
+        #     if self._dask_enabled:
+        #         self.hdf[self._hdf_type].attrs['energy'] = self.energy
+        #         self.hdf[self._hdf_type].attrs['wavelength'] = self.wavelength
+        #     else:
+        #         with h5py.File(self.hdf_path, 'a') as f:
+        #             f[self._hdf_type].attrs['energy'] = self.energy
+        #             f[self._hdf_type].attrs['wavelength'] = self.wavelength
 
 
     @property
@@ -467,16 +474,24 @@ class XRDBaseScan(XRDData):
                 self.phases[key].energy = self._energy
 
         # Re-write hdf values
-        if hasattr(self, 'hdf_path') and self.hdf_path is not None:
-            if self._dask_enabled:
-                self.hdf[self._hdf_type].attrs['energy'] = self.energy
-                self.hdf[self._hdf_type].attrs['wavelength'] = self.wavelength
-            else:
-                with h5py.File(self.hdf_path, 'a') as f:
-                    f[self._hdf_type].attrs['energy'] = self.energy
-                    f[self._hdf_type].attrs['wavelength'] = self.wavelength
-    
+        @XRDData.protect_hdf()
+        def save_attrs(self): # Not sure if this needs self...
+            attrs = self.hdf[self._hdf_type].attrs
+            attrs['energy'] = self.energy
+            attrs['wavelength'] = self.wavelength
+        save_attrs(self)
 
+        # if hasattr(self, 'hdf_path') and self.hdf_path is not None:
+        #     if self._dask_enabled:
+        #         self.hdf[self._hdf_type].attrs['energy'] = self.energy
+        #         self.hdf[self._hdf_type].attrs['wavelength'] = self.wavelength
+        #     else:
+        #         with h5py.File(self.hdf_path, 'a') as f:
+        #             f[self._hdf_type].attrs['energy'] = self.energy
+        #             f[self._hdf_type].attrs['wavelength'] = self.wavelength
+        
+    
+    # y-axis stage rotation
     @property
     def theta(self):
         return self._theta
@@ -490,12 +505,18 @@ class XRDBaseScan(XRDData):
                 delattr(self, '_q_arr')
 
         # Re-write hdf values
-        if hasattr(self, 'hdf_path') and self.hdf_path is not None:
-            if self._dask_enabled:
-                self.hdf[self._hdf_type].attrs['theta'] = self.theta
-            else:
-                with h5py.File(self.hdf_path, 'a') as f:
-                    f[self._hdf_type].attrs['theta'] = self.theta
+        @XRDBaseScan.protect_hdf()
+        def save_attrs(self): # Not sure if this needs self...
+            attrs = self.hdf[self._hdf_type].attrs
+            attrs['theta'] = self.theta
+        save_attrs(self)
+
+        # if hasattr(self, 'hdf_path') and self.hdf_path is not None:
+        #     if self._dask_enabled:
+        #         self.hdf[self._hdf_type].attrs['theta'] = self.theta
+        #     else:
+        #         with h5py.File(self.hdf_path, 'a') as f:
+        #             f[self._hdf_type].attrs['theta'] = self.theta
 
     @property
     def use_stage_rotation(self):
@@ -504,7 +525,17 @@ class XRDBaseScan(XRDData):
     @use_stage_rotation.setter
     def use_stage_rotation(self, use_stage_rotation):
         self._use_stage_rotation = use_stage_rotation
-        self._del_arr() # q_arr likely changed
+        # Propagate changes
+        if hasattr(self, 'ai') and self.ai is not None:
+            if hasattr(self, '_q_arr'):
+                delattr(self, '_q_arr')
+
+        # Re-write hdf values
+        @XRDBaseScan.protect_hdf()
+        def save_attrs(self): # Not sure if this needs self...
+            attrs = self.hdf[self._hdf_type].attrs
+            attrs['use_stage_rotation'] = int(self.use_stage_rotation)
+        save_attrs(self)
 
 
     # Flags for units and scales
@@ -638,9 +669,15 @@ class XRDBaseScan(XRDData):
             err_str = 'Cannot calculate q-space without calibration.'
             raise RuntimeError(err_str)
         else:
+            if self.use_stage_rotation:
+                theta = self.theta
+            else:
+                theta = None
+
             q_arr = get_q_vect(self.tth_arr,
                                self.chi_arr,
                                wavelength=self.wavelength,
+                               stage_rotation=theta,
                                degrees=self.polar_units == 'deg')
             self._q_arr = q_arr
             return self._q_arr
@@ -732,6 +769,7 @@ class XRDBaseScan(XRDData):
 
 
     # Saves current major features
+    # Calls several other save functions
     def save_current_hdf(self):
         
         if self.hdf_path is None:
@@ -1116,11 +1154,6 @@ class XRDBaseScan(XRDData):
         for key, value in list(sclr_dict.items()):
             if value.ndim  != 2: # Only intended for rocking curves
                 sclr_dict[key] = value.reshape(self.map_shape)
-            # if value.shape != self.map_shape:
-            #     # Swapped axes are transposed later...
-            #     if value.shape != self.map_shape.T:
-            #         # This step is intended to convert 1D to 2D
-            #         sclr_dict[key] = value.reshape(self.map_shape)
 
         self.sclr_dict = sclr_dict
         self.scaler_units = scaler_units
