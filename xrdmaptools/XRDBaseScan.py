@@ -360,8 +360,8 @@ class XRDBaseScan(XRDData):
             inst = cls(**input_dict,
                        **base_md,
                        **recip_pos,
-                       map_shape=map_shape,
-                       image_shape=image_shape,
+                    #    map_shape=map_shape, # Now in input_dict
+                    #    image_shape=image_shape, # Now in input_dict
                        title=title,
                        corrections=corrections,
                        wd=wd,
@@ -442,15 +442,6 @@ class XRDBaseScan(XRDData):
             attrs['wavelength'] = self.wavelength
         save_attrs(self)
 
-        # if hasattr(self, 'hdf_path') and self.hdf_path is not None:
-        #     if self._dask_enabled:
-        #         self.hdf[self._hdf_type].attrs['energy'] = self.energy
-        #         self.hdf[self._hdf_type].attrs['wavelength'] = self.wavelength
-        #     else:
-        #         with h5py.File(self.hdf_path, 'a') as f:
-        #             f[self._hdf_type].attrs['energy'] = self.energy
-        #             f[self._hdf_type].attrs['wavelength'] = self.wavelength
-
 
     @property
     def wavelength(self):
@@ -480,15 +471,6 @@ class XRDBaseScan(XRDData):
             attrs['energy'] = self.energy
             attrs['wavelength'] = self.wavelength
         save_attrs(self)
-
-        # if hasattr(self, 'hdf_path') and self.hdf_path is not None:
-        #     if self._dask_enabled:
-        #         self.hdf[self._hdf_type].attrs['energy'] = self.energy
-        #         self.hdf[self._hdf_type].attrs['wavelength'] = self.wavelength
-        #     else:
-        #         with h5py.File(self.hdf_path, 'a') as f:
-        #             f[self._hdf_type].attrs['energy'] = self.energy
-        #             f[self._hdf_type].attrs['wavelength'] = self.wavelength
         
     
     # y-axis stage rotation
@@ -511,12 +493,6 @@ class XRDBaseScan(XRDData):
             attrs['theta'] = self.theta
         save_attrs(self)
 
-        # if hasattr(self, 'hdf_path') and self.hdf_path is not None:
-        #     if self._dask_enabled:
-        #         self.hdf[self._hdf_type].attrs['theta'] = self.theta
-        #     else:
-        #         with h5py.File(self.hdf_path, 'a') as f:
-        #             f[self._hdf_type].attrs['theta'] = self.theta
 
     @property
     def use_stage_rotation(self):

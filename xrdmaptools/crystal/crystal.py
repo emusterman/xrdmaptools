@@ -179,16 +179,16 @@ class LatticeParameters():
     
 
     @classmethod
-    def from_Phase(cls, Phase):
+    def from_Phase(cls, phase):
         # Just noting the two matrices are already stored...
-        Amat = Phase.lattice._ai.T
-        Bmat = Phase.lattice._bi.T # with 2 * pi factor
-        a = Phase.a
-        b = Phase.b
-        c = Phase.c
-        alpha = np.radians(Phase.alpha)
-        beta = np.radians(Phase.beta)
-        gamma = np.radians(Phase.gamma)
+        # Amat = phase.lattice._ai.T
+        # Bmat = phase.lattice._bi.T # with 2 * pi factor
+        a = phase.a
+        b = phase.b
+        c = phase.c
+        alpha = np.radians(phase.alpha)
+        beta = np.radians(phase.beta)
+        gamma = np.radians(phase.gamma)
         return cls(a=a,
                    b=b,
                    c=c,
@@ -252,11 +252,6 @@ class LatticeParameters():
     def convert_lat_vec(a1, a2, a3):
 
         volume = LatticeParameters.vec_2_cell_volume(a1, a2, a3)
-
-        # It seems the 2 * pi is dropped in these methods. I do not know why
-        #b1 = (2 * np.pi * np.cross(a2, a3)) / volume
-        #b2 = (2 * np.pi * np.cross(a3, a1)) / volume
-        #b3 = (2 * np.pi * np.cross(a1, a2)) / volume
 
         b1 = np.cross(a2, a3) / volume
         b2 = np.cross(a3, a1) / volume

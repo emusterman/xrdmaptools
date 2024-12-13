@@ -373,9 +373,9 @@ def find_blobs_spots(images,
     return spot_list, blob_mask_list
 
 
-# Old parallelized function for finding blobs and spots in imagemap
+# Old parallelized function for finding blobs and spots in xrddata
 # Deprecated
-def old_find_spots(imagemap,
+def old_find_spots(xrddata,
                mask=None,
                threshold_method='gaussian',
                multiplier=5,
@@ -383,7 +383,7 @@ def old_find_spots(imagemap,
                expansion=None):
 
     # Converient way to iterate through image map
-    iter_image = imagemap.images.reshape(imagemap.num_images, *imagemap.images.shape[-2:])
+    iter_image = xrddata.images.reshape(xrddata.num_images, *xrddata.images.shape[-2:])
 
     # Dask wrapper to work wtih spot search function
     @dask.delayed
@@ -469,9 +469,9 @@ def spot_stats(spot, image, tth_arr, chi_arr, radius=5):
             fwhm_tth, fwhm_chi, intensity]
 
 
-def find_spot_stats(imagemap, spot_list, tth_arr, chi_arr, radius=5):
+def find_spot_stats(xrddata, spot_list, tth_arr, chi_arr, radius=5):
     # Convenient way to iterate through image map
-    iter_image = imagemap.images.reshape(imagemap.num_images, *imagemap.images.shape[-2:])
+    iter_image = xrddata.images.reshape(xrddata.num_images, *xrddata.images.shape[-2:])
 
     # Dask wrapper to work wtih spot search function
     @dask.delayed

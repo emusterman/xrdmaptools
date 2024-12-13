@@ -278,12 +278,6 @@ def generate_intensity_mask(intensity, intensity_cutoff=0):
         return int_mask
 
 
-def vprint(message, **kwargs):
-    global _verbose
-    if _verbose:
-        print(message, **kwargs)
-
-
 def deprecated(func):
     @functools.wraps(func)
     def new_func(*args, **kwargs):

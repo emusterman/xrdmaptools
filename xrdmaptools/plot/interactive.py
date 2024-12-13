@@ -89,18 +89,6 @@ def _update_axes(dyn_kw,
          'y_max',
          'y_label']
     )
-
-    # # Check if the pixel is in data
-    # if ((col >= map_kw['map'].shape[1])
-    #     and (row >= map_kw['map'].shape[0])):
-    #     return
-
-    # if ((event.name == 'motion_notify_event')
-    #     and (old_row == row and old_col == col)):
-    #     return
-    
-    #print(f'Row = {row}, Col = {col}')
-    #print(f'map_x = {map_x}, map_y = {map_y}')
     
     dyn_kw['axes'][1].clear()
     if len(dyn_kw['data'].shape) == 3:
@@ -159,13 +147,9 @@ def _update_image(dyn_kw,
     '''
     
     '''
-    #global row, col, cbar
+
     plot_img = dyn_kw['data'][row, col]
     extent = _find_image_extent(dyn_kw['x_ticks'], dyn_kw['y_ticks'])
-    #extent = [dyn_kw['x_ticks'][0],
-    #          dyn_kw['x_ticks'][-1],
-    #          dyn_kw['y_ticks'][0],
-    #          dyn_kw['y_ticks'][-1]]
     
     if dyn_kw['vmin'] is None:
         dyn_kw['vmin'] = np.min(plot_img)
@@ -193,13 +177,6 @@ def _update_image(dyn_kw,
     
     dyn_kw['axes'][1].set_xlabel(dyn_kw['x_label'])
     dyn_kw['axes'][1].set_ylabel(dyn_kw['y_label'])
-    #if cbar is not None and cbar.ax._axes is not None:
-    #    cax = cbar.ax
-    #    print('cbar removed!')
-    #    cbar.remove()
-    #    cbar = fig.colorbar(img, cax=cax)
-    #elif cbar is None:
-    #    cbar = fig.colorbar(img, ax=axi)
 
 
 def _update_marker(axi=None,
@@ -210,7 +187,6 @@ def _update_marker(axi=None,
 
     global marker
     marker.remove()
-    #marker = axi.scatter(col, row, marker='+', s=25, linewidth=1, color=marker_color)
     marker = axi.scatter(map_x, map_y, marker='+', s=25, linewidth=1, color=marker_color)
     if dynamic_toggle:
         marker.set_visible(False)
@@ -269,12 +245,7 @@ def _display_map(data=None,
     elif map_kw['scale'] in ['log', 'logrithmic']:
         map_kw['scale'] = LogNorm
 
-    # if update:
-    #     axes[0].set_data(map_kw['map'])
-    #     axes[0].set_clim(map_kw['vmin'],
-    #                      map_kw['vmax'])
     
-    # else:
     # Plot Image! Add colorbar???
     axes[0].imshow(map_kw['map'],
                 cmap=cmap,
@@ -623,11 +594,6 @@ def _find_image_extent(x_ticks, y_ticks):
 
     x_step = np.mean(np.diff(x_ticks))
     y_step = np.mean(np.diff(y_ticks))
-
-    #x_min = np.min(x_ticks) - x_step / 2
-    #x_max = np.max(x_ticks) + x_step / 2
-    #y_min = np.min(y_ticks) - y_step / 2
-    #y_max = np.max(y_ticks) + y_step / 2
 
     x_start = x_ticks[0] - x_step / 2
     x_end = x_ticks[-1] + x_step / 2

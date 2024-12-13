@@ -300,6 +300,7 @@ class XRDMapStack(list):
                     integration_data_key=integration_data_key,
                     map_shape=map_shape,
                     image_shape=image_shape,
+                    save_hdf=save_hdf,
                     **kwargs
                 )
             )

@@ -25,14 +25,19 @@ __version__ = '0.1.0'
 submodules = [
     'crystal',
     'geometry',
+    'io',
     'reflections',
-    'utitlities'
+    'utitlities',
+    'plot'
 ]
 
 # This is required for wildcard (*) imports
 __all__ = submodules + [
-    'ImageMap',
-    'XRDMap'
+    'XRDData',
+    'XRDBaseScan',
+    'XRDMap',
+    'XRDRockingCurve',
+    'XRDMapStack'
 ]
 
 

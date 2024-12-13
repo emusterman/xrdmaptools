@@ -8,6 +8,7 @@ import matplotlib.pyplot as plt
 from scipy.signal import find_peaks
 from matplotlib.widgets import Slider
 from collections import OrderedDict
+from copy import deepcopy
 
 # Local imports
 from xrdmaptools.utilities.math import (
@@ -26,7 +27,10 @@ class Phase(xu.materials.Crystal):
     # Add flag to limit functionality depending on if from cif or XRD card
 
     def __init__(self, name, lat):
-        super().__init__(name, lat, cij=None, thetaDebye=None)
+        super().__init__(name,
+                         lat,
+                         cij=None,
+                         thetaDebye=None)
         self.reflections = None # Place holder to check later
 
 
@@ -36,7 +40,8 @@ class Phase(xu.materials.Crystal):
 
     def __repr__(self):
         ostr = self.__str__() + '\n'
-        ostr += f'\t|a = {self.a:.4f}\t|b = {self.b:.4f}\t|c = {self.c:.4f}'
+        ostr += f'\t|{self.chemical_composition()}\t|{self.lattice.name}'
+        ostr += f'\n\t|a = {self.a:.4f}\t|b = {self.b:.4f}\t|c = {self.c:.4f}'
         ostr += (f'\n\t|alpha = {self.alpha:.2f}'
                  + f'\t|beta = {self.beta:.2f}'
                  + f'\t|gamma = {self.gamma:.2f}')
@@ -104,6 +109,11 @@ class Phase(xu.materials.Crystal):
                                          dtype=data.dtype)
             dset.attrs['number'] = atom[0].num
             dset.attrs['position'] = atom[1][0]
+
+    
+    # Simple and to the point
+    def copy(self):
+        return deepcopy(self)
 
 
     @staticmethod

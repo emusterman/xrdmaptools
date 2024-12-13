@@ -1314,8 +1314,22 @@ class XRDData:
     def estimate_background(self,
                             method=None,
                             background=None,
+                            inplace=True,
+                            override=False,
                             **kwargs):
         method = str(method).lower()
+
+        # Check to see if background correction has already been applied.
+        if inplace and self._check_correction('background',
+                                              override=override):
+            if (hasattr(self, 'background')
+                and self.background is not None):
+                warn_str = ('WARNING: background attribute still '
+                            + 'saved in memory.\nOverride background '
+                            + 'remove or delete attribute to '
+                            + 'release memory.')
+            print(warn_str)
+            return
 
         if background is None:
             # Many different background methods have been implemented
@@ -1323,11 +1337,15 @@ class XRDData:
                 print('Estimating background from median values.')
                 self.background = self.med_image
                 self.background_method = 'median'
+                if inplace:
+                    self.images -= self.background
 
             elif method in ['min', 'minimum']:
                 print('Estimating background with minimum method.')
                 self.background = self.min_image
                 self.background_method = 'minimum'
+                if inplace:
+                    self.images -= self.background
                 
             elif method in ['ball', 'rolling ball', 'rolling_ball']:
                 err_str = ('Cannot yet exclude contribution from '
@@ -1340,11 +1358,13 @@ class XRDData:
                 self.background_method = 'rolling ball'
 
             elif method in ['spline', 'spline fit', 'spline_fit']:
+                raise NotImplementedError(f'{method} not full supported.')
                 print('Estimating background with spline fit.')
                 self.background = fit_spline_bkg(self, **kwargs)
                 self.background_method = 'spline'
 
             elif method in ['poly', 'poly fit', 'poly_fit']:
+                raise NotImplementedError(f'{method} not full supported.')
                 print('Estimating background with polynomial fit.')
                 warn_str = ('WARNING: This method is slow and '
                             + 'not very accurate.')
@@ -1357,13 +1377,14 @@ class XRDData:
                         + 'convolution.\nNote: Progress bar is '
                         + 'unavailable for this method.')
                 print(ostr)
-                self.background = masked_gaussian_background(self,
+                self.background = masked_gaussian_background(self.images,
                                                              **kwargs)
                 self.background_method = 'gaussian'
 
             elif method in ['Bruckner', 'bruckner']:
                 print('Estimating background with Bruckner algorithm.')
-                self.background = masked_bruckner_background(self,
+                self.background = masked_bruckner_background(self.images,
+                                                             mask=self.mask,
                                                              **kwargs)
                 self.background_method = 'bruckner'
 
@@ -1371,6 +1392,7 @@ class XRDData:
                 print('No background correction will be used.')
                 self.background = None
                 self.background_method = 'none'
+                return # No inplace checks
             
             else:
                 err_str = f"Method '{method}' not implemented!"
@@ -1380,6 +1402,23 @@ class XRDData:
             print('User-specified background.')
             self.background = background
             self.background_method = 'custom'
+
+        # Check to see if background was removed
+        # This will fail for backgrounds without inplace subtraction.
+        if inplace:
+            self.corrections['background'] = True
+            self.update_map_title()
+            self._dask_2_hdf()
+            print('Background removed!')
+
+            if (self.background is not None
+                and np.squeeze(self.background).shape
+                    == self.images.shape[-2:]):
+                self.save_images(images='background',
+                                 title='static_background')
+            else:
+                del self.background
+
     
 
     def remove_background(self,
@@ -1400,7 +1439,7 @@ class XRDData:
             if hasattr(self, 'background'):
                 background = getattr(self, 'background')
             else:
-                print('No background removal.')
+                print('No background to remove.')
                 return
         else:
             self.background = background

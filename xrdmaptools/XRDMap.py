@@ -70,6 +70,8 @@ class XRDMap(XRDBaseScan):
         self.pos_dict = None
         if pos_dict is not None:
             self.set_positions(pos_dict)
+        if self.scan_input is not None:
+            self.interpolate_positions()
 
         # Swap axes if called. Tranposes major data components
         # This flag is used to avoid changing the original saved data
@@ -715,7 +717,7 @@ class XRDMap(XRDBaseScan):
             interp_x = interp_x.swapaxes(0, 1)
             interp_y = interp_y.swapaxes(0, 1)
 
-        if hasattr(self, 'pos_dict'):
+        if hasattr(self, 'pos_dict') and self.pos_dict is not None:
             self.pos_dict['interp_x'] = interp_x
             self.pos_dict['interp_y'] = interp_y
         else:
@@ -1005,36 +1007,6 @@ class XRDMap(XRDBaseScan):
                 self.hdf[hdf_str].attrs[key] = value        
         print('done!')
 
-    
-
-    # def save_spots(self, extra_attrs=None):
-    #     # Save spots to hdf
-    #     if self.hdf_path is not None:
-    #         print('Saving spots to hdf...')
-
-    #         # Open hdf flag
-    #         keep_hdf = self.hdf is not None
-
-    #         # Save to hdf
-    #         # pytables cannot have an open hdf reference
-    #         self.close_hdf() 
-    #         hdf_str = f'{self._hdf_type}/reflections/spots'
-    #         self.spots.to_hdf(
-    #                     self.hdf_path,
-    #                     key=hdf_str,
-    #                     format='table')
-
-    #         if extra_attrs is not None:
-    #             self.open_hdf()
-    #             for key, value in extra_attrs.items():
-    #                 self.hdf[hdf_str].attrs[key] = value
-
-    #         if keep_hdf:
-    #             self.open_hdf()
-    #         else:
-    #             self.close_hdf()
-            
-    #         print('done!')
 
     #################################
     ### Analysis of Selected Data ###

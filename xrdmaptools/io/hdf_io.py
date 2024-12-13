@@ -145,7 +145,9 @@ def load_xrdbase_hdf(filename,
     (image_data,
      image_attrs,
      image_corrections,
-     image_data_key) = _load_xrd_hdf_image_data(
+     image_data_key,
+     map_shape,
+     image_shape) = _load_xrd_hdf_image_data(
                                 base_grp,
                                 image_data_key=image_data_key,
                                 map_shape=map_shape,
@@ -156,10 +158,11 @@ def load_xrdbase_hdf(filename,
     (integration_data,
      integration_attrs,
      integration_corrections,
-     integration_data_key) = _load_xrd_hdf_integration_data(
-                                    base_grp,
-                                    integration_data_key=integration_data_key,
-                                    map_shape=map_shape)
+     integration_data_key,
+     map_shape) = _load_xrd_hdf_integration_data(
+                                base_grp,
+                                integration_data_key=integration_data_key,
+                                map_shape=map_shape)
 
     # Load recipricol positions
     recip_pos, poni_od = _load_xrd_hdf_reciprocal_positions(base_grp)
@@ -183,6 +186,8 @@ def load_xrdbase_hdf(filename,
     # Return dictionary of useful values
     ouput_dict = {'base_md' : base_md,
                   'extra_metadata' : extra_md,
+                  'map_shape' : map_shape,
+                  'image_shape' : image_shape,
                   'image_data' : image_data,
                   'image_attrs' : image_attrs,
                   'image_corrections' : image_corrections,
@@ -221,7 +226,7 @@ def _load_xrd_hdf_image_data(base_grp,
                             + 'not found in hdf. Looking for most recent image_data instead...')
                 image_data_key = 'recent'
             
-            # Determine image_data key in 
+            # Set recent image data key
             if str(image_data_key).lower() == 'recent':
                 time_stamps, img_keys = [], []
                 for key in img_grp.keys():
@@ -267,14 +272,19 @@ def _load_xrd_hdf_image_data(base_grp,
             if '_static_background' in img_grp.keys():
                 image_attrs['background'] = img_grp['_static_background'][:]
             
-            if map_shape is not None and image_data.shape[:2] != map_shape:
+            if map_shape is None:
+                map_shape = image_data.shape[:2]
+            elif image_data.shape[:2] != map_shape:
                 warn_str = (f'WARNING: Input map_shape {map_shape} does '
                             + f'not match loaded image data map shape of '
                             + f'{image_data.shape[:2]}.'
                             + '\nDefaulting to loaded data map shape.')
                 print(warn_str)
                 map_shape = image_data.shape[:2]
-            if image_shape is not None and image_data.shape[2:] != image_shape:
+            
+            if image_shape is None:
+                image_shape = image_data.shape[2:]
+            elif image_data.shape[2:] != image_shape:
                 warn_str = (f'WARNING: Input image_shape {image_shape} does '
                             + f'not match loaded image data image shape of '
                             + f'{image_data.shape[2:]}.'
@@ -290,6 +300,28 @@ def _load_xrd_hdf_image_data(base_grp,
             image_attrs = {}
             image_corrections = None
             image_data_key = None
+
+            # Get map_shape and image_shape from most recent dataset
+            if map_shape is None or image_shape is None:
+                # Find most recent data key
+                time_stamps, img_keys = [], []
+                for key in img_grp.keys():
+                    if key[0] != '_':
+                        time_stamps.append(img_grp[key].attrs['time_stamp'])
+                        img_keys.append(key)
+                if len(img_keys) < 1:
+                    err_str = ('Map_shape or image_shape not provided '
+                            + 'and could not find recent image data'
+                            + ' from hdf to determine values.')
+                    raise RuntimeError(err_str)
+                time_stamps = [ttime.mktime(ttime.strptime(x))
+                            for x in time_stamps]
+                recent_data_key = img_keys[np.argmax(time_stamps)]
+
+                if map_shape is None:
+                    map_shape = img_grp[recent_data_key].shape[:2]
+                if image_shape is None:
+                    image_shape = img_grp[recent_data_key].shape[2:]
 
         # Mapped attributes can be useful with our without images; load them
         # Not given to XRDData.__init__
@@ -313,7 +345,12 @@ def _load_xrd_hdf_image_data(base_grp,
         image_corrections = None
         image_data_key = None
     
-    return image_data, image_attrs, image_corrections, image_data_key
+    return (image_data,
+            image_attrs,
+            image_corrections,
+            image_data_key,
+            map_shape,
+            image_shape)
 
 
 def _load_xrd_hdf_integration_data(base_grp,
@@ -337,20 +374,24 @@ def _load_xrd_hdf_integration_data(base_grp,
                         time_stamps.append(int_grp[key].attrs['time_stamp'])
                         int_keys.append(key)
                 if len(int_keys) < 1:
-                    raise RuntimeError('Could not find recent image data to construct ImageMap from hdf.')
+                    raise RuntimeError('Could not find recent integration data from hdf.')
                 time_stamps = [ttime.mktime(ttime.strptime(x)) for x in time_stamps]
                 integration_data_key = int_keys[np.argmax(time_stamps)]
 
             print(f'Loading integrations from ({integration_data_key})...', end='', flush=True)
             integration_data = int_grp[integration_data_key][:]
-
-            if map_shape is not None and integration_data.shape[:2] != map_shape:
+            
+            # Get map_shape is None
+            if map_shape is None:
+                map_shape = integration_data.shape[:2]
+            elif integration_data.shape[:2] != map_shape:
                 warn_str = (f'WARNING: Input map_shape {map_shape} does '
                             + f'not match loaded integration data map shape of '
                             + f'{integration_data.shape[:2]}.'
-                            + '\nDefaulting to loaded data map shape.')
+                            + '\nAssuming original map shape is from '
+                            + 'image_data and proceding without changes.')
                 print(warn_str)
-                map_shape = integration_data.shape[:2]
+                # map_shape = integration_data.shape[:2]
 
             integration_corrections = {}
             for key, value in int_grp[integration_data_key].attrs.items():
@@ -369,6 +410,24 @@ def _load_xrd_hdf_integration_data(base_grp,
             integration_attrs = {}
             integration_corrections = {}
             integration_data_key = None
+
+            # Get map_shape and image_shape from most recent dataset
+            if map_shape is None:
+             # Find most recent data key
+                time_stamps, img_keys = [], []
+                for key in img_grp.keys():
+                    if key[0] != '_':
+                        time_stamps.append(img_grp[key].attrs['time_stamp'])
+                        img_keys.append(key)
+                if len(img_keys) < 1:
+                    err_str = ('Map_shape or image_shape not provided '
+                            + 'and could not find recent image data'
+                            + ' from hdf to determine values.')
+                    raise RuntimeError(err_str)
+                time_stamps = [ttime.mktime(ttime.strptime(x))
+                            for x in time_stamps]
+                integration_data_key = int_keys[np.argmax(time_stamps)]
+                map_shape = int_grp[integration_data_key].shape[:2]
     
     else:
         # No data requested or none available
@@ -378,7 +437,11 @@ def _load_xrd_hdf_integration_data(base_grp,
         integration_corrections = {}
         integration_data_key = None
     
-    return integration_data, integration_attrs, integration_corrections, integration_data_key
+    return (integration_data,
+            integration_attrs,
+            integration_corrections,
+            integration_data_key,
+            map_shape)
 
 
 def _load_xrd_hdf_reciprocal_positions(base_grp):

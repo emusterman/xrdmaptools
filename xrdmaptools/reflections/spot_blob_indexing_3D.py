@@ -88,6 +88,7 @@ def pair_casting_index_full_pattern(
                     degrees=False,
                     qof_minimum=0.2,
                     max_ori_refine_iter=50,
+                    max_ori_decomp_count=20,
                     keep_initial_pair=False):
     
     # Find q vector magnitudes and max for spots
@@ -125,7 +126,7 @@ def pair_casting_index_full_pattern(
             min_q)
     
     # Iteratively decompose patterns
-    best_connection, best_qof = decaying_pattern_decomposition(
+    best_connections, best_qofs = decaying_pattern_decomposition(
             red_pairs,
             all_spot_qs,
             phase.all_qs,
@@ -441,7 +442,7 @@ def pair_casting_indexing(connection_pairs,
                 bad_indices = np.nonzero(found_pair_mask)[0]
             
     # print(evaluated_pairs)
-    return connections, qofs, multi_reflections
+    return connections, np.asarray(qofs), multi_reflections
 
 
 # Deprecated. Slow
@@ -513,7 +514,7 @@ def iterative_pattern_decomposition(connection_pairs,
             ITERATE = False
             break
     
-    return best_connections, best_qofs
+    return best_connections, np.asarray(best_qofs)
 
 
 def decaying_pattern_decomposition(connection_pairs,
@@ -572,8 +573,8 @@ def decaying_pattern_decomposition(connection_pairs,
             print('ERROR: All indexing failed!')
             print('Returning previously successful indexing.')
             print('override: returning connections, qofs, included_conn_mask, best_connections, best_qofs')
-            return connections, qofs, included_conn_mask, best_connections, best_qofs
-            return best_connections, best_qofs
+            return connections, qofs, included_conn_mask, best_connections, np.asarray(best_qofs)
+            return best_connections, np.asarray(best_qofs)
         
         # Record best parameters
         best_connections.append(best_connection)
@@ -595,9 +596,6 @@ def decaying_pattern_decomposition(connection_pairs,
         exclude_ambig_num = np.array([np.sum([ind in multi
                                         for ind in full_spot_inds])
                                       for multi in multi_reflections])
-        # exclude_ambig_num = np.array([np.sum([ind in multi
-        #                                 for ind in excluded_spot_indices])
-        #                               for multi in multi_reflections])
         all_ambig_num = np.array([len(multi)
                                   for multi in multi_reflections])
 
@@ -671,9 +669,12 @@ def decaying_pattern_decomposition(connection_pairs,
     
     # Trim bad connections. May be worth keeping since they have 
     # already been calculated.
+    best_qofs = np.asarray(best_qofs)
     if len(best_connections) > 1:
-        best_connections = best_connections[best_qofs >= qof_minimum]
-        best_qofs = best_connections[best_qofs >= qof_minimum]
+        # I don't like this, but I want to keep it as a list
+        best_connections = list(np.asarray(best_connections)[best_qofs >= qof_minimum])
+        # best_connections = [best_connections[idx] if best_qofs[idx] >= qof_minimum for idx in range(len(best_connections))]
+        best_qofs = best_qofs[best_qofs >= qof_minimum]
     else:
         if best_qofs.squeeze() < qof_minimum:
             warn_str = ('WARNING: Indexing quality '

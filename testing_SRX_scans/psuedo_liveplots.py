@@ -370,7 +370,7 @@ def build_map_from_start(bs_run, plot_keys):
 
     # map_params are plotting inputs
     # temp_dict are empty dicts with appropriate shapes for raw data
-    return map_params, temp_dict # Loading ImageMaps may be better...
+    return map_params, temp_dict # Loading xrddatas may be better...
 
 
 
