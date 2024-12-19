@@ -186,6 +186,7 @@ class XRDData:
                     err_str = (f'Given map_shape ({map_shape}) '
                                + 'is not 2D!')
                     raise ValueError(err_str)
+                self.map_shape = map_shape
                 self.integrations = integration_data.reshape(
                                         (*self.map_shape, -1))
             
@@ -225,7 +226,7 @@ class XRDData:
             self.integrations = None
             self.integrations_corrections = None
         
-        # Some useful parameters
+        # Collect other useful parameters
         if (not hasattr(self, 'map_shape')
             or self.map_shape is not None):
             self.map_shape = map_shape

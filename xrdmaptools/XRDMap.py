@@ -337,6 +337,8 @@ class XRDMap(XRDBaseScan):
                         tth_num=None,
                         tth_resolution=None,
                         unit='2th_deg',
+                        mask=None,
+                        return_values=False,
                         **kwargs):
         
         if not hasattr(self, 'ai'):
@@ -358,30 +360,61 @@ class XRDMap(XRDBaseScan):
             err_str = 'Must define either tth_num or tth_resolution.'
             raise ValueError(err_str)
 
+        if return_values:
+            note_str = ('Values will be returned and not saved nor '
+                        + 'stored in XRDMap.')
+            print(note_str)
+
         # Set up empty array to fill
-        integrated_map1d = np.empty((self.num_images, 
+        integrated_map1d = np.empty((*self.map_shape, 
                                      tth_num), 
                                      dtype=(self.dtype))
+
+        if mask is not None:
+            mask = np.asarray(mask)
+            if (mask.shape == self.images.shape
+                or mask.shape == self.image_shape):
+                pass
+            else:
+                err_str = (f'mask shape {mask.shape} does not match '
+                           + f'images {self.image.shape}')
+                raise ValueError(err_str)
         
         # Fill array!
         print('Integrating images to 1D...')
         # TODO: Parallelize this
-        for i, pixel in tqdm(enumerate(self.images.reshape(
-                                       self.num_images,
-                                       *self.image_shape)),
-                                       total=self.num_images):
+        # for i, pixel in tqdm(enumerate(self.images.reshape(
+        #                                self.num_images,
+        #                                *self.image_shape)),
+        #                                total=self.num_images):
         
-            tth, I, = self.integrate1d_image(image=pixel,
-                                             tth_num=tth_num,
-                                             unit=unit,
-                                             **kwargs)            
+        for indices in tqdm(self.indices):
+            
+            image = self.images[indices].copy()
 
-            integrated_map1d[i] = I
+            if mask is not None:
+                if mask.shape == self.image_shape:
+                    image *= mask
+                else:
+                    image *= mask[indices]
+        
+            tth, I = self.integrate1d_image(image=image,
+                                            tth_num=tth_num,
+                                            unit=unit,
+                                            **kwargs)            
+
+            integrated_map1d[indices] = I
+
+        if return_values:
+            return (integrated_map1d,
+                    tth,
+                    [np.min(self.tth), np.max(self.tth)],
+                    tth_resolution)
 
         # Reshape into (map_x, map_y, tth)
         # Does not explicitly match the same shape as 2d integration
-        integrated_map1d = integrated_map1d.reshape(
-                                *self.map_shape, tth_num)
+        # integrated_map1d = integrated_map1d.reshape(
+        #                         *self.map_shape, tth_num)
         self.integrations = integrated_map1d
         
         # Save a few potentially useful parameters
@@ -399,12 +432,12 @@ class XRDMap(XRDBaseScan):
 
     # Briefly doubles memory. No Dask support
     def integrate2d_map(self,
-                         tth_num=None,
-                         tth_resolution=None,
-                         chi_num=None,
-                         chi_resolution=None,
-                         unit='2th_deg',
-                         **kwargs):
+                        tth_num=None,
+                        tth_resolution=None,
+                        chi_num=None,
+                        chi_resolution=None,
+                        unit='2th_deg',
+                        **kwargs):
         
         if not hasattr(self, 'ai'):
             err_str = ('Images cannot be calibrated without '
@@ -1058,13 +1091,19 @@ class XRDMap(XRDBaseScan):
                                  in f['xrfmap/detsum/xrf_fit_name'][:]]
                 xrf_fit = f['xrfmap/detsum/xrf_fit'][:]
 
-                i0 = f['xrfmap/scalers/val'][..., 0]
-                xrf_fit = np.concatenate((xrf_fit,
-                                          np.expand_dims(i0, axis=0)),
-                                          axis=0)
-                xrf_fit_names.append('i0')
+                scaler_names = [d.decode('utf-8')
+                                for d
+                                in f['xrfmap/scalers/name'][:]]
+                scalers = np.moveaxis(f['xrfmap/scalers/val'][:], -1, 0)
 
-                for key, value in zip(xrf_fit_names, xrf_fit):
+                # i0 = f['xrfmap/scalers/val'][..., 0]
+                # xrf_fit = np.concatenate((xrf_fit,
+                #                           np.expand_dims(i0, axis=0)),
+                #                           axis=0)
+                # xrf_fit_names.append('i0')
+
+                for key, value in zip(xrf_fit_names + scaler_names,
+                                      np.vstack([xrf_fit, scalers])):
                     xrf[key] = value
             elif not full_data:
                 warn_str = ('WARNING: XRF fitting not found and '

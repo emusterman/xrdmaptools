@@ -41,8 +41,8 @@ def _parse_rotation_input(rotation,
         rotation = Rotation.from_rotvec(rotvec, degrees=degrees)
     else:
         err_str = (f'Unknown {input_name} of type '
-                    + f'({type(rotation)}). Must be given as '
-                    + '(3, 3) array or scipy Rotation class.')
+                   + f'({type(rotation)}). Must be given as '
+                   + '(3, 3) array or scipy Rotation class.')
     return rotation
 
 

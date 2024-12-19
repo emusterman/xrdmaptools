@@ -25,7 +25,7 @@ class SpotModelBase():
     # Relies on standard argument input order
 
     # Useful parameters
-    par_1d = ['amp', 'x0', 'fwhm']
+    par_1d = ['amp', 'x0', 'fwhm_x']
     par_2d = ['amp', 'x0', 'y0', 'fwhm_x', 'fwhm_y', 'theta']
 
 
@@ -86,13 +86,13 @@ class GaussianFunctions(SpotModelBase):
               'theta', 'phi']
 
     @staticmethod
-    @njit
-    def func_1d(x, amp, x0, fwhm):
-        sigma = fwhm / (2 * np.sqrt(2 * np.log(2)))
+    # @njit
+    def func_1d(x, amp, x0, fwhm_x):
+        sigma = fwhm_x / (2 * np.sqrt(2 * np.log(2)))
         return amp * np.exp(-(x - x0)**2 / (2 * sigma**2))
     
     @staticmethod
-    @njit
+    # @njit
     def func_2d(xy, amp, x0, y0, fwhm_x, fwhm_y, theta, radians=False):
         if len(xy) != 2:
             raise IOError("xy input must be length 2.")
@@ -120,7 +120,7 @@ class GaussianFunctions(SpotModelBase):
                             + (yp**2 / (2 * sigma_y**2))))
     
     @staticmethod
-    @njit
+    # @njit
     def func_3d(xyz, amp,
                 x0, y0, z0,
                 fwhm_x, fwhm_y, fwhm_z,
@@ -155,14 +155,14 @@ class GaussianFunctions(SpotModelBase):
                             + (zp**2 / (2 * sigma_z**2))))
     
     @staticmethod
-    @njit
-    def get_area(amp, x0, fwhm):
+    # @njit
+    def get_area(amp, x0, fwhm_x):
         # Returns area under 1d gaussian function
         sigma = fwhm / (2 * np.sqrt(2 * np.log(2)))
         return amp * np.sqrt(2 * np.pi) * sigma
     
     @staticmethod
-    @njit
+    # @njit
     def get_volume(amp, x0, y0, fwhm_x, fwhm_y, theta, radians=False):
         # Returns volume under 2d gaussian function
         sigma_x = fwhm_x / (2 * np.sqrt(2 * np.log(2)))
@@ -170,7 +170,7 @@ class GaussianFunctions(SpotModelBase):
         return amp * 2 * np.pi * sigma_x * sigma_y
     
     @staticmethod
-    @njit
+    # @njit
     def get_hyper_volume(amp, x0, y0, z0, fwhm_x, fwhm_y, fwhm_z, theta, phi, radians=False):
         raise NotImplementedError()
         sigma_x = fwhm_x / (2 * np.sqrt(2 * np.log(2)))
@@ -190,14 +190,14 @@ class LorentzianFunctions(SpotModelBase):
     #par_2d = ['amp', 'x0', 'y0', 'fwhm_x', 'fwhm_y', 'theta']
 
     @staticmethod
-    @njit
-    def func_1d(x, amp, x0, fwhm):
-        gamma = 0.5 * fwhm
+    # @njit
+    def func_1d(x, amp, x0, fwhm_x):
+        gamma = 0.5 * fwhm_x
         return amp * (gamma**2 / ((x - x0)**2 + gamma**2))
     
     # Not sure about this one...
     @staticmethod
-    @njit
+    # @njit
     def func_2d(xy, amp, x0, y0, fwhm_x, fwhm_y, theta, radians=False):
         if len(xy) != 2:
             raise IOError("xy input must be length 2.")
@@ -219,13 +219,13 @@ class LorentzianFunctions(SpotModelBase):
         return amp / (1 + (xp / gamma_x)**2 + (yp/ gamma_y)**2)
     
     @staticmethod
-    @njit
-    def get_area(amp, x0, fwhm):
+    # @njit
+    def get_area(amp, x0, fwhm_x):
         gamma = 0.5 * fwhm
         return amp * np.pi * gamma
     
     @staticmethod
-    @njit
+    # @njit
     def get_volume(amp, x0, y0, fwhm_x, fwhm_y, theta):
         # Current 2D Lorentzian function does not have a finite volume
 
@@ -245,7 +245,7 @@ class PseudoVoigtFunctions(SpotModelBase):
     # Useful parameters
     name = 'PseudoVoigt'
     abbr = 'p_voigt'
-    par_1d = ['amp', 'x0', 'G_fwhm', 'L_fwhm']
+    par_1d = ['amp', 'x0', 'G_fwhm_x', 'L_fwhm_x']
     par_2d = ['amp', 'x0', 'y0',
               'G_fwhm_x', 'G_fwhm_y',
               'L_fwhm_x', 'L_fwhm_y',
@@ -255,34 +255,34 @@ class PseudoVoigtFunctions(SpotModelBase):
     L = LorentzianFunctions
 
     @staticmethod
-    @njit
-    def _get_eta_fwhm(G_fwhm, L_fwhm):
+    # @njit
+    def _get_eta_fwhm(G_fwhm_x, L_fwhm_x):
         # Convolved fwhm
-        fwhm = ((G_fwhm**5
-                 + 2.69269 * G_fwhm**4 * L_fwhm**1
-                 + 2.42843 * G_fwhm**3 * L_fwhm**2
-                 + 4.47163 * G_fwhm**2 * L_fwhm**3
-                 + 0.07842 * G_fwhm**1 * L_fwhm**4
-                 + L_fwhm**5
+        fwhm_x = ((G_fwhm_x**5
+                 + 2.69269 * G_fwhm_x**4 * L_fwhm_x**1
+                 + 2.42843 * G_fwhm_x**3 * L_fwhm_x**2
+                 + 4.47163 * G_fwhm_x**2 * L_fwhm_x**3
+                 + 0.07842 * G_fwhm_x**1 * L_fwhm_x**4
+                 + L_fwhm_x**5
                  )**(1 / 5))
         # Fraction
-        eta = (1.36603 * (L_fwhm / fwhm)
-               -0.47719 * (L_fwhm / fwhm)**2
-               +0.11116 * (L_fwhm / fwhm)**3)
+        eta = (1.36603 * (L_fwhm_x / fwhm_x)
+               -0.47719 * (L_fwhm_x / fwhm_x)**2
+               +0.11116 * (L_fwhm_x / fwhm_x)**3)
         
-        return eta, fwhm
+        return eta, fwhm_x
     
     @staticmethod
-    @njit
-    def func_1d(x, amp, x0, G_fwhm, L_fwhm):
+    # @njit
+    def func_1d(x, amp, x0, G_fwhm_x, L_fwhm_x):
         V = PseudoVoigtFunctions
-        eta, fwhm = V._get_eta_fwhm(G_fwhm, L_fwhm) # This feels wrong
-        return (eta * V.G.func_1d(x, amp, x0, fwhm)
-                + (1 - eta) * V.L.func_1d(x, amp, x0, fwhm))
+        eta, fwhm_x = V._get_eta_fwhm(G_fwhm_x, L_fwhm_x) # This feels wrong
+        return (eta * V.G.func_1d(x, amp, x0, fwhm_x)
+                + (1 - eta) * V.L.func_1d(x, amp, x0, fwhm_x))
     
     # Not sure about this one...
     @staticmethod
-    @njit
+    # @njit
     def func_2d(xy, amp, x0, y0, G_fwhm_x, G_fwhm_y,
                 L_fwhm_x, L_fwhm_y, theta, radians=False):
         V = PseudoVoigtFunctions
@@ -297,15 +297,15 @@ class PseudoVoigtFunctions(SpotModelBase):
                                           theta, radians=radians))
     
     @staticmethod
-    @njit
-    def get_area(amp, x0, G_fwhm, L_fwhm):
+    # @njit
+    def get_area(amp, x0, G_fwhm_x, L_fwhm_x):
         V = PseudoVoigtFunctions
-        eta, fwhm = V._get_eta_fwhm(G_fwhm, L_fwhm)
-        return (eta * V.G.get_area(amp, x0, fwhm)
-                + (1 - eta) * V.L.get_area(amp, x0, fwhm))
+        eta, fwhm_x = V._get_eta_fwhm(G_fwhm_x, L_fwhm_x)
+        return (eta * V.G.get_area(amp, x0, fwhm_x)
+                + (1 - eta) * V.L.get_area(amp, x0, fwhm_x))
     
     @staticmethod
-    @njit
+    # @njit
     def get_volume(amp, x0, y0, G_fwhm_x, G_fwhm_y,
                    L_fwhm_x, L_fwhm_y, theta):
         V = PseudoVoigtFunctions
@@ -316,11 +316,11 @@ class PseudoVoigtFunctions(SpotModelBase):
                + (1 - eta) * V.L.get_volume(amp, x0, y0, fwhm_x, fwhm_y, theta))
 
     @staticmethod
-    def get_1d_fwhm(amp, x0, G_fwhm, L_fwhm):
+    def get_1d_fwhm(amp, x0, G_fwhm_x, L_fwhm_x):
         # TODO: Go back and find the original references...
         V = PseudoVoigtFunctions
-        eta, fwhm = V._get_eta_fwhm(G_fwhm, L_fwhm)
-        return fwhm
+        eta, fwhm_x = V._get_eta_fwhm(G_fwhm_x, L_fwhm_x)
+        return fwhm_x
     
     @staticmethod
     def get_2d_fwhm(amp, x0, y0, G_fwhm_x, G_fwhm_y, L_fwhm_x, L_fwhm_y, theta, radians=False):
@@ -332,119 +332,119 @@ class PseudoVoigtFunctions(SpotModelBase):
         return SpotModelBase.get_2d_fwhm(amp, x0, y0, fwhm_x, fwhm_y, theta, radians=radians)
     
 
-class old_PseudoVoigtFunctions(SpotModelBase):
-    # Note: This is the pseudo-voigt profile!
-    # Useful parameters
-    name = 'PseudoVoigt'
-    abbr = 'p_voigt'
-    par_1d = ['amp', 'x0', 'G_fwhm', 'L_fwhm', 'eta']
-    par_2d = ['amp', 'x0', 'y0',
-              'G_fwhm_x', 'G_fwhm_y',
-              'L_fwhm_x', 'L_fwhm_y',
-              'theta', 'eta']
+# class old_PseudoVoigtFunctions(SpotModelBase):
+#     # Note: This is the pseudo-voigt profile!
+#     # Useful parameters
+#     name = 'PseudoVoigt'
+#     abbr = 'p_voigt'
+#     par_1d = ['amp', 'x0', 'G_fwhm', 'L_fwhm', 'eta']
+#     par_2d = ['amp', 'x0', 'y0',
+#               'G_fwhm_x', 'G_fwhm_y',
+#               'L_fwhm_x', 'L_fwhm_y',
+#               'theta', 'eta']
     
-    G = GaussianFunctions()
-    L = LorentzianFunctions()
+#     G = GaussianFunctions()
+#     L = LorentzianFunctions()
     
-    @staticmethod
-    def func_1d(x, amp, x0, G_fwhm, L_fwhm, eta):
-        V = PseudoVoigtFunctions
-        return (eta * V.G.func_1d(x, amp, x0, G_fwhm)
-                + (1 - eta) * V.L.func_1d(x, amp, x0, L_fwhm))
+#     @staticmethod
+#     def func_1d(x, amp, x0, G_fwhm, L_fwhm, eta):
+#         V = PseudoVoigtFunctions
+#         return (eta * V.G.func_1d(x, amp, x0, G_fwhm)
+#                 + (1 - eta) * V.L.func_1d(x, amp, x0, L_fwhm))
     
-    # Not sure about this one...
-    @staticmethod
-    def func_2d(xy, amp, x0, y0, G_fwhm_x, G_fwhm_y,
-                L_fwhm_x, L_fwhm_y, theta, eta, radians=False):
-        V = PseudoVoigtFunctions        
-        return (eta * V.G.func_2d(xy, amp, x0, y0,
-                                  G_fwhm_x, G_fwhm_y,
-                                  theta, radians=radians)
-                + (1 - eta) * V.L.func_2d(xy, amp, x0, y0,
-                                          L_fwhm_x, L_fwhm_y,
-                                          theta, radians=radians))
+#     # Not sure about this one...
+#     @staticmethod
+#     def func_2d(xy, amp, x0, y0, G_fwhm_x, G_fwhm_y,
+#                 L_fwhm_x, L_fwhm_y, theta, eta, radians=False):
+#         V = PseudoVoigtFunctions        
+#         return (eta * V.G.func_2d(xy, amp, x0, y0,
+#                                   G_fwhm_x, G_fwhm_y,
+#                                   theta, radians=radians)
+#                 + (1 - eta) * V.L.func_2d(xy, amp, x0, y0,
+#                                           L_fwhm_x, L_fwhm_y,
+#                                           theta, radians=radians))
     
-    @staticmethod
-    def get_area(amp, x0, G_fwhm, L_fwhm, eta):
-        V = PseudoVoigtFunctions
-        return (eta * V.G.get_area(amp, x0, G_fwhm)
-                + (1 - eta) * V.L.get_area(amp, x0, L_fwhm))
+#     @staticmethod
+#     def get_area(amp, x0, G_fwhm, L_fwhm, eta):
+#         V = PseudoVoigtFunctions
+#         return (eta * V.G.get_area(amp, x0, G_fwhm)
+#                 + (1 - eta) * V.L.get_area(amp, x0, L_fwhm))
     
-    @staticmethod
-    def get_volume(amp, x0, y0, G_fwhm_x, G_fwhm_y,
-                   L_fwhm_x, L_fwhm_y, theta, eta):
-        V = PseudoVoigtFunctions
-        return (eta * V.G.get_volume(amp, x0, y0, G_fwhm_x, G_fwhm_y, theta)
-               + (1 - eta) * V.L.get_volume(amp, x0, y0, L_fwhm_x, L_fwhm_y, theta))
+#     @staticmethod
+#     def get_volume(amp, x0, y0, G_fwhm_x, G_fwhm_y,
+#                    L_fwhm_x, L_fwhm_y, theta, eta):
+#         V = PseudoVoigtFunctions
+#         return (eta * V.G.get_volume(amp, x0, y0, G_fwhm_x, G_fwhm_y, theta)
+#                + (1 - eta) * V.L.get_volume(amp, x0, y0, L_fwhm_x, L_fwhm_y, theta))
 
-    @staticmethod
-    def get_1d_fwhm(amp, x0, G_fwhm, L_fwhm, eta):
-        # All from the wikipedia article.
-        # TODO: Go back and find the original references...
+#     @staticmethod
+#     def get_1d_fwhm(amp, x0, G_fwhm, L_fwhm, eta):
+#         # All from the wikipedia article.
+#         # TODO: Go back and find the original references...
 
-        '''fwhm = ((G_fwhm**5
-                 + 2.69269 * G_fwhm**4 * L_fwhm**1
-                 + 2.42843 * G_fwhm**3 * L_fwhm**2
-                 + 4.47163 * G_fwhm**2 * L_fwhm**3
-                 + 0.07842 * G_fwhm**1 * L_fwhm**4
-                 + L_fwhm**5
-                 )**(1 / 5))
+#         '''fwhm = ((G_fwhm**5
+#                  + 2.69269 * G_fwhm**4 * L_fwhm**1
+#                  + 2.42843 * G_fwhm**3 * L_fwhm**2
+#                  + 4.47163 * G_fwhm**2 * L_fwhm**3
+#                  + 0.07842 * G_fwhm**1 * L_fwhm**4
+#                  + L_fwhm**5
+#                  )**(1 / 5))
 
-        eta = (1.36603 * (L_fwhm / fwhm)
-               -0.47719 * (L_fwhm / fwhm)**2
-               +0.11116 * (L_fwhm / fwhm)**3)'''
+#         eta = (1.36603 * (L_fwhm / fwhm)
+#                -0.47719 * (L_fwhm / fwhm)**2
+#                +0.11116 * (L_fwhm / fwhm)**3)'''
 
 
-        # True Voigt FWHM poor approximation (error = 1.2%)
-        #FWHM = FWHM_L / 2 + np.sqrt(((FWHM_L**2) / 4) + (FWHM_G**2))
+#         # True Voigt FWHM poor approximation (error = 1.2%)
+#         #FWHM = FWHM_L / 2 + np.sqrt(((FWHM_L**2) / 4) + (FWHM_G**2))
 
-        # True Voigt FWHM better approximation (error = 0.2%)
-        #FWHM = 0.5346 * FWHM_L + np.sqrt((0.2166 * (FWHM_L**2)) + (FWHM_G**2))
+#         # True Voigt FWHM better approximation (error = 0.2%)
+#         #FWHM = 0.5346 * FWHM_L + np.sqrt((0.2166 * (FWHM_L**2)) + (FWHM_G**2))
 
-        # Maybe true Voigt FWHM approximation (unknown error)
-        #
+#         # Maybe true Voigt FWHM approximation (unknown error)
+#         #
 
-        # Not sure this is correct...
-        return eta * G_fwhm + (1 - eta) * L_fwhm
+#         # Not sure this is correct...
+#         return eta * G_fwhm + (1 - eta) * L_fwhm
     
-    @staticmethod
-    def get_2d_fwhm(amp, x0, y0, G_fwhm_x, G_fwhm_y, L_fwhm_x, L_fwhm_y, theta, eta, radians=False):
-        V = PseudoVoigtFunctions
-        fwhm_x = V.get_1d_fwhm(amp, x0, G_fwhm_x, L_fwhm_x, eta)
-        fwhm_y = V.get_1d_fwhm(amp, y0, G_fwhm_y, L_fwhm_y, eta)
+#     @staticmethod
+#     def get_2d_fwhm(amp, x0, y0, G_fwhm_x, G_fwhm_y, L_fwhm_x, L_fwhm_y, theta, eta, radians=False):
+#         V = PseudoVoigtFunctions
+#         fwhm_x = V.get_1d_fwhm(amp, x0, G_fwhm_x, L_fwhm_x, eta)
+#         fwhm_y = V.get_1d_fwhm(amp, y0, G_fwhm_y, L_fwhm_y, eta)
 
-        return SpotModelBase.get_2d_fwhm(amp, x0, y0, fwhm_x, fwhm_y, theta, radians=radians)
+#         return SpotModelBase.get_2d_fwhm(amp, x0, y0, fwhm_x, fwhm_y, theta, radians=radians)
 
-        # Gaussian and Lorentzian grab from the same
-        return V.G.get_2d_fwhm(amp, x0, y0, fwhm_x, fwhm_y, theta, radians=radians)
+#         # Gaussian and Lorentzian grab from the same
+#         return V.G.get_2d_fwhm(amp, x0, y0, fwhm_x, fwhm_y, theta, radians=radians)
         
-        #if not radians:
-        #    theta = np.radians(theta)
-        #
-        #fwhm_rx = fwhm_x * np.cos(-theta) - fwhm_y * np.sin(-theta)
-        #fwhm_ry = fwhm_x * np.sin(-theta) + fwhm_y * np.cos(-theta)
-        #
-        #return fwhm_rx, fwhm_ry, fwhm_x, fwhm_y
+#         #if not radians:
+#         #    theta = np.radians(theta)
+#         #
+#         #fwhm_rx = fwhm_x * np.cos(-theta) - fwhm_y * np.sin(-theta)
+#         #fwhm_ry = fwhm_x * np.sin(-theta) + fwhm_y * np.cos(-theta)
+#         #
+#         #return fwhm_rx, fwhm_ry, fwhm_x, fwhm_y
 
-    #@staticmethod
-    #def get_2d_fwhm(amp, x0, y0, sigma_x, sigma_y, gamma_x, gamma_y, theta, eta, radians=False):
-    #   
-    #    if not radians:
-    #        theta = np.radians(theta)
-    #
-    #    gamma_rx = gamma_x * np.cos(-theta) - gamma_y * np.sin(-theta)
-    #    gamma_ry = gamma_x * np.sin(-theta) + gamma_y * np.cos(-theta)
-    #    sigma_rx = sigma_x * np.cos(-theta) - sigma_y * np.sin(-theta)
-    #    sigma_ry = sigma_x * np.sin(-theta) + sigma_y * np.cos(-theta)
-    #    
-    #    # 1D cuts of the rotated profile
-    #    V = PseudoVoigtFunctions
-    #    fwhm_rx = V.get_1d_fwhm(amp, x0, sigma_rx, gamma_rx, eta)
-    #    fwhm_ry = V.get_1d_fwhm(amp, y0, sigma_ry, gamma_ry, eta)
-    #    fwhm_x = V.get_1d_fwhm(amp, x0, sigma_x, gamma_x, eta)
-    #    fwhm_y = V.get_1d_fwhm(amp, y0, sigma_y, gamma_y, eta)
-    #
-    #    return fwhm_rx, fwhm_ry, fwhm_x, fwhm_y
+#     #@staticmethod
+#     #def get_2d_fwhm(amp, x0, y0, sigma_x, sigma_y, gamma_x, gamma_y, theta, eta, radians=False):
+#     #   
+#     #    if not radians:
+#     #        theta = np.radians(theta)
+#     #
+#     #    gamma_rx = gamma_x * np.cos(-theta) - gamma_y * np.sin(-theta)
+#     #    gamma_ry = gamma_x * np.sin(-theta) + gamma_y * np.cos(-theta)
+#     #    sigma_rx = sigma_x * np.cos(-theta) - sigma_y * np.sin(-theta)
+#     #    sigma_ry = sigma_x * np.sin(-theta) + sigma_y * np.cos(-theta)
+#     #    
+#     #    # 1D cuts of the rotated profile
+#     #    V = PseudoVoigtFunctions
+#     #    fwhm_rx = V.get_1d_fwhm(amp, x0, sigma_rx, gamma_rx, eta)
+#     #    fwhm_ry = V.get_1d_fwhm(amp, y0, sigma_ry, gamma_ry, eta)
+#     #    fwhm_x = V.get_1d_fwhm(amp, x0, sigma_x, gamma_x, eta)
+#     #    fwhm_y = V.get_1d_fwhm(amp, y0, sigma_y, gamma_y, eta)
+#     #
+#     #    return fwhm_rx, fwhm_ry, fwhm_x, fwhm_y
     
 
 

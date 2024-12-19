@@ -362,6 +362,52 @@ def get_spot_int(xdm):
     return plot_map
 
 
+def get_spot_int(xdm):
+
+    plot_map = np.zeros(xdm.map_shape)
+
+    for index in range(xdm.num_images):
+        indices = np.unravel_index(index, xdm.map_shape)
+        pixel_df = xdm.pixel_spots(indices)
+        val = sum(pixel_df['guess_int'].values)
+        plot_map[indices] = val
+    
+    return plot_map
+
+
+def get_spot_tth_integrations(xdm, function=np.max):
+
+    tth_min = np.min(xdm.tth_arr)
+    tth_max = np.max(xdm.tth_arr)
+
+    tth_num = int(np.round((tth_max - tth_min)
+                                   / xdm.tth_resolution))
+
+    integration_map = np.zeros((*xdm.map_shape, tth_num))
+
+    for indices in tqdm(xdm.indices):
+        pixel_df = xdm.pixel_spots(indices)
+        tth = pixel_df['guess_cen_tth'].values
+
+        for i, tth_cen in enumerate(
+                       np.linspace(tth_min,
+                                   tth_max,
+                                   tth_num)):
+            tth_st = tth_cen - xdm.tth_resolution
+            tth_en = tth_cen + xdm.tth_resolution
+
+            tth_mask = (tth > tth_st) & (tth < tth_en)
+
+            if tth_mask.sum() > 0:
+                val = function(pixel_df['guess_int'].values[tth_mask])
+            else:
+                val = 0
+
+            integration_map[(*indices, i)] = val
+    
+    return integration_map
+
+
 def get_spot_elements(xdm):
 
     min_tth = np.min(xdm.tth)

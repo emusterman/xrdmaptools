@@ -23,22 +23,22 @@ import dask.array as da
 from collections import OrderedDict
 
 # Local imports
-from ..utilities.math import (
+from xrdmaptools.utilities.math import (
     circular_mask,
     compute_r_squared,
     arbitrary_center_of_mass
 )
-from ..utilities.utilities import (
+from xrdmaptools.utilities.utilities import (
     label_nearest_spots,
     rescale_array
 )
-from ..geometry.geometry import (
+from xrdmaptools.geometry.geometry import (
     estimate_image_coords,
     estimate_polar_coords,
     modular_azimuthal_shift,
     modular_azimuthal_reshift
 )
-from .SpotModels import generate_bounds
+from xrdmaptools.reflections.SpotModels import generate_bounds
 
 
 def resize_blobs(blob_image, distance=0):
@@ -131,10 +131,10 @@ def blob_search(scaled_image,
 
 
 def spot_search(scaled_image,
-                    blob_mask,
-                    blurred_image,
-                    min_distance=3,
-                    plotme=False):        
+                blob_mask,
+                blurred_image,
+                min_distance=3,
+                plotme=False):        
         
     spots = peak_local_max(blurred_image,
                 #threshold_rel=image_noise,
