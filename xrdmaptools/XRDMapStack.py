@@ -725,24 +725,21 @@ class XRDMapStack(list):
     ### Plotting Functions ###
     ##########################
 
-    def plot_image():
-        raise NotImplementedError()
-
-    def plot_integration():
-        raise NotImplementedError()
-
-    def plot_interactive_map():
-        raise NotImplementedError()
-
-    def plot_interactive_integration_map():
-        raise NotImplementedError()
+    # Disable q-space plotting
+    def plot_q_space(*args, **kwargs):
+        err_str = ('Q-space plotting not supported for '
+                   + 'XRDMapStack, since Ewald sphere and/or '
+                   + 'crystal orientation changes during scanning.')
+        raise NotImplementedError(err_str)
 
 
     def plot_map_stack(self,
                        map_stack,
                        slider_vals=None,
                        slider_label=None,
+                       title=None,
                        shifts=None,
+                       title_scan_id=True,
                        return_plot=False,
                        **kwargs,
                        ):
@@ -757,11 +754,18 @@ class XRDMapStack(list):
             if self.rocking_axis == 'energy':
                 slider_label = 'Energy [keV]'
             if self.rocking_axis == 'angle':
-                slider_label = 'Angle [deg.]'
+                slider_label = 'Angle [deg]'
 
         if (shifts is None
             and hasattr(self.shifts)):
             shifts = self.shifts
+
+        title = self._title_with_scan_id(
+                    title,
+                    default_title=('XRD '
+                        + f'{self.rocking_axis.capitalize()} '
+                        + 'Map Stack'),
+                    title_scan_id=title_scan_id)
 
         (fig,
          ax,
@@ -769,6 +773,7 @@ class XRDMapStack(list):
                                 map_stack,
                                 slider_vals=slider_vals,
                                 slider_label=slider_label,
+                                title=title,
                                 shifts=shifts,
                                 **kwargs
                                 )
@@ -779,16 +784,3 @@ class XRDMapStack(list):
         else:
             self.__slider = slider
             fig.show()
-
-
-    
-    def plot_3D_scatter(self,):
-        raise NotImplementedError()
-
-
-    def plot_3D_volume(self,):
-        raise NotImplementedError()
-
-    
-    def plot_3D_sampled_outline(self,):
-        raise NotImplementedError()

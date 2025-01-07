@@ -367,8 +367,9 @@ def phase_selector(xrd,
                    phases,
                    energy,
                    tth,
+                   title=None,
                    ignore_less=1,
-                   save_reflections=False,
+                   update_reflections=False,
                    return_plot=False):
     # TODO:
     # Add 2d plot for better understanding of peak character and significance
@@ -388,7 +389,7 @@ def phase_selector(xrd,
                                   ignore_less=ignore_less)
 
     # Waiting is odd..
-    if save_reflections:
+    if update_reflections:
         plt.close('all') 
 
     fig, ax = plt.subplots(1, 1, figsize=(8, 5), dpi=200)
@@ -436,8 +437,11 @@ def phase_selector(xrd,
 
     ax.set_ylim(0)
     ax.set_xlabel('Scattering Angle, 2θ [°]')
-    ax.set_title('Phase Selector')
     ax.legend(fontsize=10)
+
+    if title is None:
+        title = 'Phase Selector'
+    ax.set_title(title)
 
     phase_vals = {}
     def on_close(event):
@@ -446,18 +450,19 @@ def phase_selector(xrd,
         #print(zero_phases)
         return phase_vals
     
-    if save_reflections:
-        print('Saving reflections...')
+    if update_reflections:
+        print('Updating reflections...')
         fig.canvas.mpl_connect('close_event', on_close)
         plt.show(block=True)
         plt.pause(0.01)
         return phase_vals
     else:
-        print('Not saving reflections...')
+        print('Not updating reflections...')
         if return_plot:
             return fig, ax, slider_lst
         else:
             fig.show()
+            return slider_lst
         #return phase_vals
 
 

@@ -1272,23 +1272,39 @@ class XRDBaseScan(XRDData):
 
     def select_phases(self,
                       remove_less_than=-1,
-                      image=None,
+                      xrd=None,
                       energy=None,
-                      tth_num=4096,
+                      tth_resolution=None,
+                      tth_num=None,
                       unit='2th_deg',
                       ignore_less=1,
+                      title=None,
+                      title_scan_id=True,
+                      update_reflections=True,
                       save_to_hdf=True):
         
         if not hasattr(self, 'ai') or self.ai is None:
             err_str = ('Must first set calibration '
                        + 'before selecting phases.')
             raise AttributeError(err_str)
+
+        if tth_resolution is None:
+            tth_resolution = self.tth_resolution
+
+        tth_min = np.min(self.tth_arr)
+        tth_max = np.max(self.tth_arr)
+        if tth_num is None:
+            tth_num = int(np.round((tth_max - tth_min)
+                                   / tth_resolution))
+        elif tth_num is None and tth_resolution is None:
+            err_str = 'Must define either tth_num or tth_resolution.'
+            raise ValueError(err_str)
         
-        if image is None:
+        if xrd is None:
             if self.corrections['polar_calibration']:
-                image = self._processed_images_composite
+                xrd = self._processed_images_composite
             else:
-                image = self.composite_image
+                xrd = self.composite_image
         
         if energy is None:
             if isinstance(self.energy, list):
@@ -1298,20 +1314,43 @@ class XRDBaseScan(XRDData):
             else:
                 energy = self.energy
         
-        tth, xrd = self.integrate1d_image(image=image,
-                                          tth_num=tth_num,
-                                          unit=unit)
+        if xrd.ndim == 2:
+            tth, xrd = self.integrate1d_image(image=xrd,
+                                              tth_num=tth_num,
+                                              unit=unit)
+        elif xrd.ndim == 1:
+            if not hasattr(self, 'tth') or self.tth is None:
+                tth, _ = self.integrate1d_image(
+                                image=np.zeros(xdm.image_shape),
+                                tth_num=len(xrd.ndim),
+                                unit=unit)
+            else:
+                tth = self.tth
+        else:
+            err_str = (f'Given XRD has {xrd.ndim} dimensions, but '
+                       + 'phase selector tool can only handle 2D or '
+                       + '1D XRD patterns.')
+            raise ValueError(err_str)
+
+        title = self._title_with_scan_id(
+                            title,
+                            default_title='Phase Selector',
+                            title_scan_id=title_scan_id)
 
         # Plot phase_selector
         phase_vals = phase_selector(xrd,
                                     list(self.phases.values()),
+                                    energy,
                                     tth,
-                                    ignore_less=ignore_less)
+                                    ignore_less=ignore_less,
+                                    title=title,
+                                    update_reflections=update_reflections)
 
-        old_phases = list(self.phases.keys())
-        for phase in old_phases:
-            if phase_vals[phase] <= remove_less_than:
-                self.remove_phase(phase)
+        if update_reflections:
+            old_phases = list(self.phases.keys())
+            for phase in old_phases:
+                if phase_vals[phase] <= remove_less_than:
+                    self.remove_phase(phase)
         
         # Write phases to disk
         if save_to_hdf:
@@ -1332,6 +1371,22 @@ class XRDBaseScan(XRDData):
     ### Plotting Functions ###
     ##########################
 
+    def _title_with_scan_id(self,
+                            title,
+                            default_title='',
+                            title_scan_id=True):
+        
+        if title is None:
+            title = default_title
+        if title_scan_id:
+            if title == '':
+                return f'scan{self.scan_id}'
+            else:
+                return f'scan{self.scan_id}: {title}'
+        else:
+            return title
+
+
     def plot_image(self,
                    image=None,
                    indices=None,
@@ -1343,6 +1398,7 @@ class XRDBaseScan(XRDData):
                    ax=None,
                    aspect='auto',
                    return_plot=False,
+                   title_scan_id=True,
                    **kwargs):
         
         image, indices = _xrdmap_image(self,
@@ -1366,6 +1422,12 @@ class XRDBaseScan(XRDData):
                              aspect=aspect,
                              **kwargs)
         
+        # Reset title
+        title = self._title_with_scan_id(
+                            ax.title._text,
+                            title_scan_id=title_scan_id)
+        ax.set_title(title)
+        
         if return_plot:
             return fig, ax
         else:
@@ -1382,6 +1444,7 @@ class XRDBaseScan(XRDData):
                          ax=None,
                          y_min=None,
                          y_max=None,
+                         title_scan_id=True,
                          return_plot=False,
                          **kwargs):
         
@@ -1405,6 +1468,12 @@ class XRDBaseScan(XRDData):
                                    y_min=y_min,
                                    y_max=y_max,
                                    **kwargs)
+
+        # Reset title
+        title = self._title_with_scan_id(
+                            ax.title._text,
+                            title_scan_id=title_scan_id)
+        ax.set_title(title)
         
         if return_plot:
             return fig, ax
@@ -1426,6 +1495,7 @@ class XRDBaseScan(XRDData):
                      beam_path=True,
                      fig=None,
                      ax=None,
+                     title_scan_id=True,
                      return_plot=False):
  
         fig, ax = plot_q_space(self,
@@ -1436,6 +1506,11 @@ class XRDBaseScan(XRDData):
                                beam_path=beam_path,
                                fig=fig,
                                ax=ax)
+
+        title = self._title_with_scan_id(
+                            'Q-Space',
+                            title_scan_id=title_scan_id)
+        ax.set_title(title)
         
         if return_plot:
             return fig, ax
@@ -1447,12 +1522,18 @@ class XRDBaseScan(XRDData):
                                skip=300,
                                fig=None,
                                ax=None,
+                               title_scan_id=True,
                                return_plot=False):
         
         fig, ax = plot_detector_geometry(self,
                                          skip=skip,
                                          fig=fig,
                                          ax=ax)
+
+        title = self._title_with_scan_id(
+                            'Detector Geometry',
+                            title_scan_id=title_scan_id)
+        ax.set_title(title)
         
         if return_plot:
             return fig, ax

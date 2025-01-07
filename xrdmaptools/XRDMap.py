@@ -1134,8 +1134,10 @@ class XRDMap(XRDBaseScan):
                  map_values,
                  map_extent=None,
                  position_units=None,
+                 title=None,
                  fig=None,
                  ax=None,
+                 title_scan_id=True,
                  return_plot=False,
                  **kwargs):
         
@@ -1153,10 +1155,16 @@ class XRDMap(XRDBaseScan):
             map_extent = self.map_extent()
         if position_units is None:
             position_units = self.position_units
+
+        title = self._title_with_scan_id(
+                        title,
+                        default_title='Custom Map',
+                        title_scan_id=title_scan_id)
         
         fig, ax = plot_map(map_values,
                            map_extent=map_extent,
                            position_units=position_units,
+                           title=title,
                            fig=fig,
                            ax=ax,
                            **kwargs)
@@ -1171,6 +1179,7 @@ class XRDMap(XRDBaseScan):
     def plot_interactive_map(self,
                              dyn_kw=None,
                              map_kw=None,
+                             title_scan_id=True,
                              return_plot=False,
                              **kwargs):
         
@@ -1223,6 +1232,13 @@ class XRDMap(XRDBaseScan):
             if not _check_dict_key(map_kw, 'y_label'):
                 map_kw['y_label'] = ('y position '
                                      + f'[{self.position_units}]')
+        
+        if 'title' not in map_kw:
+            map_kw['title'] = None
+        map_kw['title'] = self._title_with_scan_id(
+                            map_kw['title'],
+                            default_title='Custom Map',
+                            title_scan_id=title_scan_id)
 
         fig, ax = interactive_2D_plot(dyn_kw,
                                       map_kw,
@@ -1237,6 +1253,7 @@ class XRDMap(XRDBaseScan):
     def plot_interactive_integration_map(self,
                                          dyn_kw=None,
                                          map_kw=None,
+                                         title_scan_id=True,
                                          return_plot=False,
                                          **kwargs):
         
@@ -1285,6 +1302,13 @@ class XRDMap(XRDBaseScan):
             if not _check_dict_key(map_kw, 'y_label'):
                 map_kw['y_label'] = ('y position '
                                      + f'[{self.position_units}]')
+        
+        if 'title' not in map_kw:
+            map_kw['title'] = None
+        map_kw['title'] = self._title_with_scan_id(
+                            map_kw['title'],
+                            default_title='Custom Map',
+                            title_scan_id=title_scan_id)
     
         fig, ax = interactive_1D_plot(dyn_kw,
                                       map_kw,

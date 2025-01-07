@@ -269,6 +269,7 @@ def plot_reconstruction(self,
 def plot_map(value,
              map_extent=None,
              position_units=None,
+             title=None,
              fig=None,
              ax=None,
              **kwargs):
@@ -276,11 +277,7 @@ def plot_map(value,
     if fig is None and ax is None:
         fig, ax = plt.subplots(1, 1, figsize=(5, 5), dpi=200)
     elif fig is None and ax is not None or fig is not None and ax is None:
-        raise ValueError('Figure and axes must both provided or both None')
-    
-    if 'title' in kwargs:
-        title = kwargs.pop('title')
-        ax.set_title(title)
+        raise ValueError('Figure and axes must both provided or both None')    
 
     im = ax.imshow(value, extent=map_extent, **kwargs)
     fig.colorbar(im, ax=ax)
@@ -291,7 +288,8 @@ def plot_map(value,
 
     ax.set_xlabel(f'x position [{position_units}]')
     ax.set_ylabel(f'y position [{position_units}]')
-
+    
+    ax.set_title(title)
     ax.set_aspect('equal') # in case of non-square pixel size
 
     return fig, ax

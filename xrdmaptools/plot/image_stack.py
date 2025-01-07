@@ -10,6 +10,7 @@ def base_slider_plot(image_stack,
                      shifts=None,
                      vmin=None,
                      vmax=None,
+                     title=None,
                      **kwargs
                      ):
 
@@ -54,7 +55,11 @@ def base_slider_plot(image_stack,
                       vmin=img_vmin,
                       vmax=img_vmax,
                       **kwargs)
-    ax.set_title(f'0')
+
+    if title is None:
+        title = ''
+
+    ax.set_title(f'{title} [0]')
 
     if np.any(np.asarray(shifts) != 0):
         rect_left = x_max - image_stack[0].shape[1]
@@ -114,7 +119,7 @@ def base_slider_plot(image_stack,
         image.set_clim(img_vmin, img_vmax)
         image.set_extent(extent)
 
-        ax.set_title(f'{val_ind}')
+        ax.set_title(f'{title} [{val_ind}]')
         fig.canvas.draw_idle()
         
     slider.on_changed(update)

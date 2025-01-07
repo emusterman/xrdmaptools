@@ -369,10 +369,3 @@ def fit_rotation(th, data):
     
     return np.asarray(jitter_list), np.asarray(popt_list)
 
-
-
-
-# class Projected(PseudoPositioner):
-
-#     proj_x = Cpt(PsuedoSingle)
-#     proj_z = 

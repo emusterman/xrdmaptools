@@ -1262,12 +1262,22 @@ class XRDRockingCurve(XRDBaseScan):
     ### Plotting Functions ###
     ##########################
 
+    # Disable q-space plotting
+    def plot_q_space(*args, **kwargs):
+        err_str = ('Q-space plotting not supported for '
+                   + 'XRDRockingCurves, since Ewald sphere/or '
+                   + 'crystal orientation changes during scanning.')
+        raise NotImplementedError(err_str)
+
+
     def plot_image_stack(self,
                          images=None,
                          slider_vals=None,
                          slider_label='Index',
+                         title=None,
                          vmin=None,
                          vmax=None,
+                         title_scan_id=True,
                          return_plot=False,
                          **kwargs):
 
@@ -1275,8 +1285,19 @@ class XRDRockingCurve(XRDBaseScan):
             images = self.images.squeeze()
 
         if slider_vals is None:
-            slider_vals = self.energy
-            slider_label = 'Energy [keV]'
+            if self.rocking_axis == 'energy':
+                slider_vals = self.energy
+                slider_label = 'Energy [keV]'
+            elif self.rocking_axis == 'angle':
+                slider_vals = self.theta
+                slider_label = 'Angle [deg]'
+
+        title = self._title_with_scan_id(
+                            title,
+                            default_title=('XRD '
+                                + f'{self.rocking_axis.capitalize()} '
+                                + 'Rocking Curve'),
+                            title_scan_id=title_scan_id)
         
         (fig,
         ax,
@@ -1284,10 +1305,10 @@ class XRDRockingCurve(XRDBaseScan):
             images,
             slider_vals=slider_vals,
             slider_label=slider_label,
+            title=title,
             vmin=vmin,
             vmax=vmax,
             **kwargs)
-        
 
         if return_plot:
             # Need a slider reference
@@ -1302,8 +1323,10 @@ class XRDRockingCurve(XRDBaseScan):
     def plot_3D_scatter(self,
                         q_vectors=None,
                         intensity=None,
+                        title=None,
                         edges=None,
                         skip=None,
+                        title_scan_id=True,
                         return_plot=False,
                         **kwargs):
 
@@ -1331,6 +1354,12 @@ class XRDRockingCurve(XRDBaseScan):
                                   edges=edges,
                                   **kwargs)
 
+        title = self._title_with_scan_id(
+                            title,
+                            default_title='3D Scatter',
+                            title_scan_id=title_scan_id)
+        ax.set_title(title)
+
         if return_plot:
             return fig, ax
         else:
@@ -1340,8 +1369,10 @@ class XRDRockingCurve(XRDBaseScan):
     # Convenience wrapper of plot_3D_scatter to plot found 3D spots
     def plot_3D_spots(self,
                       spots_3D=None,
+                      title=None,
                       edges=None,
                       skip=None,
+                      title_scan_id=True,
                       return_plot=False,
                       **kwargs):
         
@@ -1368,6 +1399,12 @@ class XRDRockingCurve(XRDBaseScan):
                         alpha=1,
                         **kwargs
                         )
+        
+        title = self._title_with_scan_id(
+                            title,
+                            default_title='3D Spots',
+                            title_scan_id=title_scan_id)
+        ax.set_title(title)
 
         if return_plot:
             return fig, ax
@@ -1457,9 +1494,11 @@ class XRDRockingCurve(XRDBaseScan):
                             **kwargs)
         
     
-    def plot_sampled_outline(self,
-                             edges=None,
-                             return_plot=False):
+    def plot_sampled_volume_outline(self,
+                                    edges=None,
+                                    title=None,
+                                    title_scan_id=True,
+                                    return_plot=False):
 
         if edges is None:
             if hasattr(self, 'edges'):
@@ -1476,6 +1515,12 @@ class XRDRockingCurve(XRDBaseScan):
 
         for edge in edges:
             ax.plot(*edge.T, c='gray', lw=1)
+
+        title = self._title_with_scan_id(
+                            title,
+                            default_title='Sampled Volume Outline',
+                            title_scan_id=title_scan_id)
+        ax.set_title(title)
 
         ax.set_xlabel('qx [Å⁻¹]')
         ax.set_ylabel('qy [Å⁻¹]')
