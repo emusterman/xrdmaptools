@@ -17,6 +17,8 @@ from xrdmaptools.utilities.utilities import (
     _check_dict_key
 )
 from xrdmaptools.io.hdf_utils import (
+    check_attr_overwrite,
+    overwrite_attr,
     get_large_map_slices
 )
 from xrdmaptools.io.db_io import load_data
@@ -67,17 +69,23 @@ class XRDMap(XRDBaseScan):
             )
 
         # Set position dictionary
+        save_init_sets = False
+        if 'check_init_sets' in xrdbasekwargs:
+            check_init_sets = xrdbasekwargs['check_init_sets']
         self.pos_dict = None
         if pos_dict is not None:
-            self.set_positions(pos_dict)
-        if self.scan_input is not None:
-            self.interpolate_positions()
-
+            self.set_positions(pos_dict,
+                               check_init_sets=check_init_sets)
+        
         # Swap axes if called. Tranposes major data components
         # This flag is used to avoid changing the original saved data
         self._swapped_axes = bool(swapped_axes)
         if self._swapped_axes:
             self.swap_axes(only_images=True)
+        
+        # Interpolate positions after any swapped axes!
+        if self.scan_input is not None:
+            self.interpolate_positions(check_init_sets=check_init_sets)
 
         # Save xrf_path location. Do not load unless explicitly called
         self.xrf_path = xrf_path
@@ -314,12 +322,32 @@ class XRDMap(XRDBaseScan):
 
         return wrapped
 
+    load_images_from_hdf = _check_swapped_axes(
+                            XRDBaseScan.load_images_from_hdf)
     save_images = _check_swapped_axes(
                             XRDBaseScan.save_images)
     save_integrations = _check_swapped_axes(
                             XRDBaseScan.save_integrations)
     _dask_2_hdf = _check_swapped_axes(
                             XRDBaseScan._dask_2_hdf)
+
+    
+    def save_current_hdf(self):
+        super().save_current_hdf() # no inputs!
+
+        # Save positions
+        if (hasattr(self, 'pos_dict')
+            and self.pos_dict is not None):
+            # Write to hdf file
+            self.save_sclr_pos('positions',
+                                self.pos_dict,
+                                self.position_units)
+        
+        # Save spots
+        if (hasattr(self, 'spots')
+            and self.spots is not None):
+            self.save_spots()
+
     
     
     ##################
@@ -474,7 +502,7 @@ class XRDMap(XRDBaseScan):
             raise ValueError(err_str)
 
         # Set up empty array to fill
-        integrated_map2d = np.empty((self.num_images, 
+        integrated_map2d = np.empty((self.num_images,
                                      chi_num, tth_num), 
                                      dtype=(self.dtype))
         
@@ -514,7 +542,10 @@ class XRDMap(XRDBaseScan):
     ### Position Arrays ###
     #######################
 
-    def set_positions(self, pos_dict, position_units=None):
+    def set_positions(self,
+                      pos_dict,
+                      position_units=None,
+                      check_init_sets=False):
 
         # Re-work dictionary keys into stable format
         temp_dict = {}
@@ -544,7 +575,8 @@ class XRDMap(XRDBaseScan):
         # Write to hdf file
         self.save_sclr_pos('positions',
                             self.pos_dict,
-                            self.position_units)
+                            self.position_units,
+                            check_init_sets=check_init_sets)
 
     
     def map_extent(self, map_x=None, map_y=None):
@@ -659,7 +691,9 @@ class XRDMap(XRDBaseScan):
 
         # Update shape values
         # This will force a new save in hdf
-        self.shape = self.images.shape 
+        # self.shape = self.images.shape # breaks if no images
+        self.shape = (self.shape[1], self.shape[0],
+                      self.shape[2], self.shape[3])
         self.map_shape = self.shape[:2]
 
         # Delete any cached maps
@@ -720,12 +754,20 @@ class XRDMap(XRDBaseScan):
 
             @XRDBaseScan.protect_hdf()
             def save_swapped_axes(self):
-                attrs = self.hdf[self._hdf_type].attrs
-                attrs['swapped_axes'] = int(self._swapped_axes)
+                # attrs = self.hdf[self._hdf_type].attrs
+                overwrite_attr(self.hdf[self._hdf_type].attrs,
+                               'swapped_axes',
+                               int(self._swapped_axes))
+                # if check_attr_overwrite(attrs,
+                #                         'swapped_axes',
+                #                         int(self._swapped_axes)):
+                #     attrs['swapped_axes'] = int(self._swapped_axes)
             save_swapped_axes(self)
 
 
-    def interpolate_positions(self, scan_input=None):
+    def interpolate_positions(self,
+                              scan_input=None,
+                              check_init_sets=False):
 
         if scan_input is None:
             if (hasattr(self, 'scan_input')
@@ -765,7 +807,8 @@ class XRDMap(XRDBaseScan):
         # Write to hdf file
         self.save_sclr_pos('positions',
                             self.pos_dict,
-                            self.position_units)
+                            self.position_units,
+                            check_init_sets=check_init_sets)
     
     
     #######################
@@ -1037,7 +1080,8 @@ class XRDMap(XRDBaseScan):
         if extra_attrs is not None:
             self.open_hdf()
             for key, value in extra_attrs.items():
-                self.hdf[hdf_str].attrs[key] = value        
+                overwrite_attr(self.hdf[hdf_str].attrs, key, value)
+                #self.hdf[hdf_str].attrs[key] = value        
         print('done!')
 
 
@@ -1052,24 +1096,24 @@ class XRDMap(XRDBaseScan):
     #############################################################
     
     def load_xrfmap(self,
-                    xrf_dir=None,
+                    wd=None,
                     xrf_name=None,
                     full_data=True):
 
         # Look for path if no information is provided
-        if (xrf_dir is None
+        if (wd is None
             and xrf_name is None
             and self.xrf_path is not None):
             xrf_path = self.xrf_path
         else:
-            if xrf_dir is None:
-                xrf_dir = self.wd
+            if wd is None:
+                wd = self.wd
 
             # Try default name for SRX
             if xrf_name is None:
                 xrf_name =  f'scan2D_{self.scan_id}_xs_sum8ch'
             
-            xrf_path = pathify(xrf_dir, xrf_name, '.h5')        
+            xrf_path = pathify(wd, xrf_name, '.h5')        
 
         if not os.path.exists(xrf_path):
             raise FileNotFoundError(f"{xrf_path} does not exist.")
@@ -1121,7 +1165,10 @@ class XRDMap(XRDBaseScan):
             
         @XRDBaseScan.protect_hdf()
         def save_xrf_path(self):
-            self.hdf[self._hdf_type].attrs['xrf_path'] = self.xrf_path
+            overwrite_attr(self.hdf[self._hdf_type].attrs,
+                           'xrf_path',
+                           self.xrf_path)
+            # self.hdf[self._hdf_type].attrs['xrf_path'] = self.xrf_path
         save_xrf_path(self)
         
 

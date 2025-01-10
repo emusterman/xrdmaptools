@@ -29,6 +29,10 @@ from xrdmaptools.geometry.geometry import (
     get_q_vect,
     q_2_polar
 )
+from xrdmaptools.io.hdf_utils import (
+    check_attr_overwrite,
+    overwrite_attr
+)
 from xrdmaptools.io.db_io import (
     get_scantype,
     load_step_rc_data,
@@ -118,7 +122,8 @@ class XRDRockingCurve(XRDBaseScan):
         # Parse sclr_dict into useble format
         if sclr_dict is not None and isinstance(sclr_dict, dict):
             for key, value in sclr_dict.items():
-                sclr_dict[key] = np.asarray(value).reshape(self.map_shape)
+                sclr_dict[key] = np.asarray(value).reshape(
+                                                    self.map_shape)
 
         XRDBaseScan.__init__(
             self,
@@ -197,11 +202,17 @@ class XRDRockingCurve(XRDBaseScan):
         @XRDBaseScan.protect_hdf()
         def save_extra_attrs(self): # Not sure if this needs self...
             attrs = self.hdf[self._hdf_type].attrs
-            attrs['energy'] = self.energy
-            attrs['wavelength'] = self.wavelength
-            attrs['theta'] = self.theta
-            attrs['rocking_axis'] = self.rocking_axis
+            overwrite_attr(attrs, 'energy', self.energy)
+            overwrite_attr(attrs, 'wavelength', self.wavelength)
+            overwrite_attr(attrs, 'theta', self.theta)
+            overwrite_attr(attrs, 'rocking_axis', self.rocking_axis)
+            
+            # attrs['energy'] = self.energy
+            # attrs['wavelength'] = self.wavelength
+            # attrs['theta'] = self.theta
+            # attrs['rocking_axis'] = self.rocking_axis
         save_extra_attrs(self)
+
 
     # Overwrite parent function
     def __str__(self):
@@ -211,6 +222,7 @@ class XRDRockingCurve(XRDBaseScan):
                 + f'shape={self.images.shape}')
         return ostr
     
+
     # Modify parent function
     def __repr__(self):
         lines = XRDBaseScan.__repr__(self).splitlines(True)
@@ -269,8 +281,10 @@ class XRDRockingCurve(XRDBaseScan):
         @XRDBaseScan.protect_hdf()
         def save_attrs(self): # Not sure if this needs self...
             attrs = self.hdf[self._hdf_type].attrs
-            attrs['energy'] = self.energy
-            attrs['wavelength'] = self.wavelength
+            overwrite_attr(attrs, 'energy', self.energy)
+            overwrite_attr(attrs, 'wavelength', self.wavelength)
+            # attrs['energy'] = self.energy
+            # attrs['wavelength'] = self.wavelength
         save_attrs(self)
 
 
@@ -289,8 +303,10 @@ class XRDRockingCurve(XRDBaseScan):
         @XRDBaseScan.protect_hdf()
         def save_attrs(self): # Not sure if this needs self...
             attrs = self.hdf[self._hdf_type].attrs
-            attrs['energy'] = self.energy
-            attrs['wavelength'] = self.wavelength
+            overwrite_attr(attrs, 'energy', self.energy)
+            overwrite_attr(attrs, 'wavelength', self.wavelength)
+            # attrs['energy'] = self.energy
+            # attrs['wavelength'] = self.wavelength
         save_attrs(self)
 
     
@@ -312,8 +328,11 @@ class XRDRockingCurve(XRDBaseScan):
             
         @XRDBaseScan.protect_hdf()
         def save_attrs(self): # Not sure if this needs self...
-            attrs = self.hdf[self._hdf_type].attrs
-            attrs['theta'] = self.theta
+            overwrite_attr(self.hdf[self._hdf_type].attrs,
+                           'theta',
+                           self.theta)
+            # attrs = self.hdf[self._hdf_type].attrs
+            # attrs['theta'] = self.theta
         save_attrs(self)
 
 
@@ -361,6 +380,29 @@ class XRDRockingCurve(XRDBaseScan):
                                 energy=self.energy[0],
                                 **kwargs)    
     
+
+    def save_current_hdf(self):
+        super().save_current_hdf() # no inputs!
+
+        # Vectorized_data
+        if ((hasattr(self, 'q_vectors')
+             and self.q_vectors is not None)
+            and (hasattr(self, 'intensity')
+                 and self.intensity is not None)
+            and (hasattr(self, 'edges'))):
+            self.save_vectorization(
+                        q_vectors=self.q_vectors,
+                        intensity=self.intensity,
+                        edges=self.edges)
+        
+        # blob_labels and spot_labels should be dynamically saved
+        # and will be missing intensity cut-off otherwise...
+
+        # Save spots
+        if (hasattr(self, 'spots_3D')
+            and self.spots_3D is not None):
+            self.save_3D_spots()
+
     
     # Override of XRDData absorption correction
     # def apply_absorption_correction():
@@ -648,6 +690,7 @@ class XRDRockingCurve(XRDBaseScan):
                                 edges=self.edges,
                                 rewrite_data=rewrite_data)
 
+
     @XRDBaseScan.protect_hdf()
     def save_vectorization(self,
                            q_vectors=None,
@@ -877,7 +920,7 @@ class XRDRockingCurve(XRDBaseScan):
                       subsample=1,
                       intensity_cutoff=0,
                       label_int_method='mean',
-                      save_2_hdf=True):
+                      save_to_hdf=True):
 
         if (not hasattr(self, 'q_vectors')
             or not hasattr(self, 'intensity')):
@@ -922,7 +965,7 @@ class XRDRockingCurve(XRDBaseScan):
         self.spot_int_mask = int_mask
 
         # Write to hdf
-        if save_2_hdf:
+        if save_to_hdf:
             self.save_3D_spots()
             self.save_vector_information(
                 self.spot_labels,
@@ -942,7 +985,8 @@ class XRDRockingCurve(XRDBaseScan):
         if extra_attrs is not None:
             self.open_hdf()
             for key, value in extra_attrs.items():
-                self.hdf[hdf_str].attrs[key] = value        
+                overwrite_attr(self.hdf[hdf_str].attrs, key, value)
+                # self.hdf[hdf_str].attrs[key] = value        
         print('done!')
 
 
@@ -987,7 +1031,8 @@ class XRDRockingCurve(XRDBaseScan):
         # Add extra information
         if extra_attrs is not None:
             for key, value in extra_attrs.items():
-                dset.attrs[key] = value
+                overwrite_attr(dset.attrs, key, value)
+                # dset.attrs[key] = value
 
 
     ###########################################
@@ -1035,7 +1080,7 @@ class XRDRockingCurve(XRDBaseScan):
                          spot_intensity_cutoff=0,
                          phase=None,
                          method='pair_casting',
-                         save_2_hdf=True,
+                         save_to_hdf=True,
                          **kwargs
                          ):
         
@@ -1100,7 +1145,7 @@ class XRDRockingCurve(XRDBaseScan):
                 self.spots_3D[key] = values
             
             # Write to hdf
-            if save_2_hdf:
+            if save_to_hdf:
                 self.save_3D_spots()
 
         return best_connection, best_qof
@@ -1114,7 +1159,7 @@ class XRDRockingCurve(XRDBaseScan):
                         spot_intensity_cutoff=0,
                         phase=None,
                         method='pair_casting',
-                        save_2_hdf=True,
+                        save_to_hdf=True,
                         **kwargs
                         ):
         
@@ -1180,7 +1225,7 @@ class XRDRockingCurve(XRDBaseScan):
                 self.spots_3D[key] = values
             
             # Write to hdf
-            if save_2_hdf:
+            if save_to_hdf:
                 self.save_3D_spots()
         
         return best_connections, best_qofs
@@ -1287,9 +1332,13 @@ class XRDRockingCurve(XRDBaseScan):
         if slider_vals is None:
             if self.rocking_axis == 'energy':
                 slider_vals = self.energy
-                slider_label = 'Energy [keV]'
-            elif self.rocking_axis == 'angle':
+            if self.rocking_axis == 'angle':
                 slider_vals = self.theta
+        
+        if slider_label is None:
+            if self.rocking_axis == 'energy':
+                slider_label = 'Energy [keV]'
+            if self.rocking_axis == 'angle':
                 slider_label = 'Angle [deg]'
 
         title = self._title_with_scan_id(

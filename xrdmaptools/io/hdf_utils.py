@@ -4,6 +4,7 @@ import h5py
 import psutil
 import numpy.core.numeric as _nx
 from itertools import product
+from collections.abc import Iterable
 
 
 ##################
@@ -76,6 +77,41 @@ def get_optimal_chunks(data,
     chunk_size = (chunk_x, chunk_y, *data_shape[-2:])
 
     return chunk_size
+
+
+# Check to see if the hdf attr needs to be overwritten
+def check_attr_overwrite(attrs, attr_key, new_attr):
+
+    # Check if attr exists
+    if attr_key not in attrs:
+        return True
+    else:
+        attr = attrs[attr_key]
+    
+    # Check if attr matches new attr
+    if (isinstance(attr, Iterable)
+        and isinstance(new_attr, Iterable)):
+        if (isinstance(attr, str)
+            and isinstance(new_attr, str)):
+            return attr != new_attr
+        elif len(attr) == len(new_attr):
+            return np.any([np.any(attr[i] != new_attr[i])
+                           for i in range(len(attr))])
+        else:
+            return True
+    elif (not isinstance(attr, Iterable)
+          and not isinstance(new_attr, Iterable)):
+        return attr != new_attr
+    else:
+        return True # Overwriting different object types
+
+
+# Check and overwrite hdf attr only if changed
+# Separate from check_attr_overwrite in case of special processing
+def overwrite_attr(attrs, attr_key, new_attr):
+    if check_attr_overwrite(attrs, attr_key, new_attr):
+        print(f'Overwriting {attr_key} with {new_attr}')
+        attrs[attr_key] = new_attr
 
 
 # Built on improved code from get_optimal_chunks above

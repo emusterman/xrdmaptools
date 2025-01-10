@@ -28,7 +28,9 @@ from xrdmaptools.io.hdf_io import (
     load_xrdbase_hdf
     )
 from xrdmaptools.io.hdf_utils import (
-    check_hdf_current_images
+    check_hdf_current_images,
+    check_attr_overwrite,
+    overwrite_attr,
 )
 from xrdmaptools.plot.general import (
     _plot_parse_xrdmap,
@@ -67,6 +69,7 @@ class XRDBaseScan(XRDData):
                  use_stage_rotation=False,
                  poni_file=None,
                  sclr_dict=None,
+                 check_init_sets=False,
                  tth_resolution=None,
                  chi_resolution=None,
                  tth=None, # Used when loading from hdf
@@ -126,7 +129,7 @@ class XRDBaseScan(XRDData):
             dask_enabled=dask_enabled,
             hdf_type=self._hdf_type, # Gets redefined as same value...
             **xrddatakwargs
-        )    
+        )
             
         # Store energy, dwell, and theta
         if energy is not None:
@@ -146,13 +149,15 @@ class XRDBaseScan(XRDData):
         
         self.phases = {} # Place holder for potential phases
         if poni_file is not None:
-            self.set_calibration(poni_file)
+            self.set_calibration(poni_file,
+                                 check_init_sets=check_init_sets)
         else:
             self.ai = None # Place holder for calibration
 
         self.sclr_dict = None
         if sclr_dict is not None:
-            self.set_scalers(sclr_dict)
+            self.set_scalers(sclr_dict,
+                             check_init_sets=check_init_sets)
         
         # Default units and flags
         # Not fully implemented
@@ -258,7 +263,7 @@ class XRDBaseScan(XRDData):
                             image_shape=image_shape,
                             dask_enabled=dask_enabled)
 
-            # Remove several pieces to allow for unpacking
+            # Remove several kwargs to allow for unpacking
             base_md = input_dict.pop('base_md')
             image_attrs = input_dict.pop('image_attrs')
             image_corrections = input_dict.pop('image_corrections')
@@ -274,6 +279,13 @@ class XRDBaseScan(XRDData):
             spot_model = input_dict.pop('spot_model')
             spots_3D = input_dict.pop('spots_3D')
             vect_dict = input_dict.pop('vect_dict')
+            
+            # Other kwargs needing special treatment
+            # Bias swapped axes towards user input.
+            # Might break things switching back and forth...
+            if 'swapped_axes' in kwargs:
+                if 'swapped_axes' in base_md:
+                    del base_md['swapped_axes']
 
             # Scrub data keys. For backward compatibility
             if image_data_key is not None:
@@ -360,8 +372,6 @@ class XRDBaseScan(XRDData):
             inst = cls(**input_dict,
                        **base_md,
                        **recip_pos,
-                    #    map_shape=map_shape, # Now in input_dict
-                    #    image_shape=image_shape, # Now in input_dict
                        title=title,
                        corrections=corrections,
                        wd=wd,
@@ -369,6 +379,7 @@ class XRDBaseScan(XRDData):
                        hdf_filename=hdf_filename,
                        dask_enabled=dask_enabled,
                        extra_attrs=extra_attrs,
+                       check_init_sets=True, # Don't overwrite hdf values
                        **kwargs)
             
             print(f'{cls.__name__} loaded!')
@@ -438,8 +449,19 @@ class XRDBaseScan(XRDData):
         @XRDBaseScan.protect_hdf()
         def save_attrs(self): # Not sure if this needs self...
             attrs = self.hdf[self._hdf_type].attrs
-            attrs['energy'] = self.energy
-            attrs['wavelength'] = self.wavelength
+
+            # if check_attr_overwrite(attrs, 'energy', self.energy):
+            #     print(self.energy)
+            #     print(self.hdf[self._hdf_type].attrs['energy'])
+            # if check_attr_overwrite(attrs, 'wavelength', self.wavelength):
+            #     print(self.wavelength)
+            #     print(self.hdf[self._hdf_type].attrs['wavelength'])
+            
+            
+            overwrite_attr(attrs, 'energy', self.energy)
+            overwrite_attr(attrs, 'wavelength', self.wavelength)
+            # attrs['energy'] = self.energy
+            # attrs['wavelength'] = self.wavelength
         save_attrs(self)
 
 
@@ -468,8 +490,10 @@ class XRDBaseScan(XRDData):
         @XRDData.protect_hdf()
         def save_attrs(self): # Not sure if this needs self...
             attrs = self.hdf[self._hdf_type].attrs
-            attrs['energy'] = self.energy
-            attrs['wavelength'] = self.wavelength
+            overwrite_attr(attrs, 'energy', self.energy)
+            overwrite_attr(attrs, 'wavelength', self.wavelength)
+            # attrs['energy'] = self.energy
+            # attrs['wavelength'] = self.wavelength
         save_attrs(self)
         
     
@@ -489,8 +513,11 @@ class XRDBaseScan(XRDData):
         # Re-write hdf values
         @XRDBaseScan.protect_hdf()
         def save_attrs(self): # Not sure if this needs self...
-            attrs = self.hdf[self._hdf_type].attrs
-            attrs['theta'] = self.theta
+            overwrite_attr(self.hdf[self._hdf_type].attrs,
+                           'theta',
+                           self.theta)
+            # attrs = self.hdf[self._hdf_type].attrs
+            # attrs['theta'] = self.theta
         save_attrs(self)
 
 
@@ -509,8 +536,11 @@ class XRDBaseScan(XRDData):
         # Re-write hdf values
         @XRDBaseScan.protect_hdf()
         def save_attrs(self): # Not sure if this needs self...
-            attrs = self.hdf[self._hdf_type].attrs
-            attrs['use_stage_rotation'] = int(self.use_stage_rotation)
+            overwrite_attr(self.hdf[self._hdf_type].attrs,
+                           'use_stage_rotation',
+                           int(self.use_stage_rotation))
+            # attrs = self.hdf[self._hdf_type].attrs
+            # attrs['use_stage_rotation'] = int(self.use_stage_rotation)
         save_attrs(self)
 
 
@@ -655,7 +685,9 @@ class XRDBaseScan(XRDData):
                                wavelength=self.wavelength,
                                stage_rotation=theta,
                                degrees=self.polar_units == 'deg')
-            self._q_arr = q_arr
+            self._q_arr = q_arr.astype(self.dtype)
+            # self._q_arr = q_arr
+
             return self._q_arr
 
     @q_arr.deleter
@@ -679,11 +711,11 @@ class XRDBaseScan(XRDData):
     ############################
 
     def start_saving_hdf(self,
-                 hdf=None,
-                 hdf_filename=None,
-                 hdf_path=None,
-                 dask_enabled=False,
-                 save_current=False):
+                         hdf=None,
+                         hdf_filename=None,
+                         hdf_path=None,
+                         dask_enabled=False,
+                         save_current=False):
         
         # Check for previous iterations
         if ((hasattr(self, 'hdf')
@@ -704,26 +736,22 @@ class XRDBaseScan(XRDData):
             self.hdf_path = hdf.filename
         elif hdf_filename is None:
             if hdf_path is None:
-                #self.hdf_path = f'{self.wd}{self.filename}.h5'
                 self.hdf_path = pathify(self.wd,
                                         self.filename,
                                         '.h5',
                                         check_exists=False)
             else:
-                #self.hdf_path = f'{hdf_path}{self.filename}.h5'
                 self.hdf_path = pathify(hdf_path,
                                         self.filename,
                                         '.h5',
                                         check_exists=False)
         else:
             if hdf_path is None:
-                #self.hdf_path = f'{self.wd}{hdf_filename}'
                 self.hdf_path = pathify(self.wd,
                                         hdf_filename,
                                         '.h5',
                                         check_exists=False)
             else:
-                #self.hdf_path = f'{hdf_path}{hdf_filename}.h5'
                 self.hdf_path = pathify(hdf_path,
                                         hdf_filename,
                                         '.h5',
@@ -767,12 +795,13 @@ class XRDBaseScan(XRDData):
         if hasattr(self, 'poni') and self.poni is not None:
             self.save_calibration()
 
-        # Save positions
-        if hasattr(self, 'pos_dict') and self.pos_dict is not None:
-            # Write to hdf file
-            self.save_sclr_pos('positions',
-                                self.pos_dict,
-                                self.position_units)
+        # # Save positions
+        # # Only works for XRDMaps...
+        # if hasattr(self, 'pos_dict') and self.pos_dict is not None:
+        #     # Write to hdf file
+        #     self.save_sclr_pos('positions',
+        #                         self.pos_dict,
+        #                         self.position_units)
 
         # Save scalers
         if hasattr(self, 'sclr_dict') and self.sclr_dict is not None:
@@ -784,9 +813,10 @@ class XRDBaseScan(XRDData):
         if hasattr(self, 'phases') and self.phases is not None:
             self.update_phases()
 
-        # Save spots
-        if hasattr(self, 'spots'):
-            self.save_spots()
+        # # Save spots
+        # # Also only works for XRDMaps...
+        # if hasattr(self, 'spots'):
+        #     self.save_spots()
 
     
     # Ability to toggle hdf saving and proceed without writing to disk.
@@ -850,7 +880,8 @@ class XRDBaseScan(XRDData):
     def set_calibration(self,
                         poni_file,
                         energy=None,
-                        wd=None):
+                        wd=None,
+                        check_init_sets=False):
         if wd is None:
             wd = self.wd
 
@@ -937,11 +968,18 @@ class XRDBaseScan(XRDData):
         
         # Save poni files as dictionary 
         # Updates poni information to update detector settings
-        self.save_calibration()
+        self.save_calibration(check_init_sets=check_init_sets)
     
 
     @XRDData.protect_hdf()
-    def save_calibration(self):
+    def save_calibration(self, 
+                         check_init_sets=False):
+        
+        if check_init_sets:
+            if 'reciprocal_positions' in self.hdf[self._hdf_type]:
+                if ('poni_file' in 
+                    self.hdf[self._hdf_type]['reciprocal_positions']):
+                    return
 
         # Write data to hdf
         curr_grp = self.hdf[self._hdf_type].require_group('reciprocal_positions')
@@ -956,9 +994,11 @@ class XRDBaseScan(XRDData):
                     # Check for orientation value added in poni_file version 2.1
                     if isinstance(value_i, IntEnum):
                         value_i = value_i.value
-                    new_new_grp.attrs[key_i] = value_i
+                    overwrite_attr(new_new_grp.attrs, key_i, value_i)
+                    # new_new_grp.attrs[key_i] = value_i
             else:
-                new_grp.attrs[key] = value
+                overwrite_attr(new_grp.attrs, key, value)
+                # new_grp.attrs[key] = value
 
 
     # One off 1D integration
@@ -1087,7 +1127,8 @@ class XRDBaseScan(XRDData):
         # This group may already exist if poni file was already initialized
         curr_grp = self.hdf[self._hdf_type].require_group('reciprocal_positions')
         if hasattr(self, 'extent'):
-            curr_grp.attrs['extent'] = self.extent
+            overwrite_attr(curr_grp.attrs, 'extent', self.extent)
+            # curr_grp.attrs['extent'] = self.extent
 
         labels = ['tth_pos', 'chi_pos']
         comments = ["'tth', is the two theta scattering angle",
@@ -1109,12 +1150,21 @@ class XRDBaseScan(XRDData):
                                             data=data[i],
                                             dtype=data[i].dtype,
                                             shape=data[i].shape)
-            dset.attrs['labels'] = labels[i]
-            dset.attrs['comments'] = comments[i]
-            #dset.attrs['units'] = self.calib_unit #'° [deg.]'
-            dset.attrs['dtype'] = str(data[i].dtype)
-            dset.attrs['time_stamp'] = ttime.ctime()
-            dset.attrs[f'{key}_resolution'] = resolution[i]
+            
+            overwrite_attr(dset.attrs, 'labels', labels[i])
+            overwrite_attr(dset.attrs, 'comments', comments[i])
+            overwrite_attr(dset.attrs, 'dtype', str(data[i].dtype))
+            overwrite_attr(dset.attrs,
+                           f'{key}_resolution',
+                           resolution[i])
+            dset.attrs['time_stamp'] = ttime.ctime() # always new
+            
+            # dset.attrs['labels'] = labels[i]
+            # dset.attrs['comments'] = comments[i]
+            # #dset.attrs['units'] = self.calib_unit #'° [deg.]'
+            # dset.attrs['dtype'] = str(data[i].dtype)
+            # dset.attrs['time_stamp'] = ttime.ctime()
+            # dset.attrs[f'{key}_resolution'] = resolution[i]
 
         print('done!')
     
@@ -1124,7 +1174,8 @@ class XRDBaseScan(XRDData):
 
     def set_scalers(self,
                     sclr_dict,
-                    scaler_units='counts'):
+                    scaler_units='counts',
+                    check_init_sets=False):
 
         # Store sclr_dict as attribute
         for key, value in list(sclr_dict.items()):
@@ -1136,14 +1187,24 @@ class XRDBaseScan(XRDData):
 
         # Write to hdf file
         self.save_sclr_pos('scalers',
-                           self.sclr_dict,
-                           self.scaler_units)
+                            self.sclr_dict,
+                            self.scaler_units,
+                            check_init_sets=check_init_sets)
+
 
     @XRDData.protect_hdf()
     def save_sclr_pos(self,
                       group_name,
                       map_dict,
-                      unit_name):
+                      unit_name,
+                      check_init_sets=False):
+
+        if check_init_sets:
+            if group_name in self.hdf[self._hdf_type]:
+                # If all the keys are present, the do not save
+                if all([key in self.hdf[self._hdf_type][group_name].keys()
+                        for key in map_dict.keys()]):
+                    return
 
         # Write data to hdf
         curr_grp = self.hdf[self._hdf_type].require_group(group_name)
@@ -1173,10 +1234,13 @@ class XRDBaseScan(XRDData):
                                     dtype=value.dtype
                                     )
             
-            # Update attrs everytime
-            dset.attrs['labels'] = ['map_x', 'map_y']
-            dset.attrs['units'] = unit_name
-            dset.attrs['dtype'] = str(value.dtype)
+            # Update attrs
+            overwrite_attr(dset.attrs, 'labels', ['map_x', 'map_y'])
+            overwrite_attr(dset.attrs, 'units', unit_name)
+            overwrite_attr(dset.attrs, 'dtype', str(value.dtype))
+            # dset.attrs['labels'] = ['map_x', 'map_y']
+            # dset.attrs['units'] = unit_name
+            # dset.attrs['dtype'] = str(value.dtype)
         
     
     #########################################
@@ -1250,6 +1314,7 @@ class XRDBaseScan(XRDData):
 
     def clear_phases(self):
         self.phases = {}
+
 
     @XRDData.protect_hdf()
     def update_phases(self):

@@ -6,6 +6,10 @@ import h5py
 import time as ttime
 import matplotlib.pyplot as plt
 from matplotlib.widgets import Slider, Button
+from matplotlib import patches
+from matplotlib.collections import PatchCollection
+import matplotlib
+from matplotlib import cm
 from scipy.spatial.transform import Rotation
 
 from sklearn.decomposition import PCA, NMF
@@ -419,20 +423,159 @@ def get_spot_elements(xdm):
     for i in range(tth_num):
         tth_mask = (spot_tth > min_tth + i * xdm.tth_resolution
                    & spot_tth <= min_tth + (i + 1) * xdm.tth_resolution)
-        
 
 
-class Iterable2D:
+def plot_shifted_points(map_arr, shifts, add_grid=True):
 
-    def __init__(self, shape):
-        self.len = np.prod(shape)
-        self.shape = shape
+    x = np.arange(0, map_arr.shape[1])
+    y = np.arange(0, map_arr.shape[0])
 
+    # Redefine y-shifts to match matplotlib axes...
+    shifts = np.asarray(shifts)
+    shifts[:, 0] *= -1
 
-    def __iter__(self):
-        for index in range(self.len):
-            yield np.unravel_index(index, self.shape)
-        
+    # Get sequential colors for each grid
+    norm = matplotlib.colors.Normalize(vmin=0, vmax=(len(shifts)))
+    mapper = cm.ScalarMappable(norm=norm, cmap='jet')
+    grid_colors = [(r, g, b) for r, g, b, a in mapper.to_rgba(range(len(shifts)))]
+
+    # Shifts stats
+    x_step = np.mean(np.diff(x))
+    y_step = np.mean(np.diff(y))
+    ymin, xmin = np.min(shifts, axis=0)
+    ymax, xmax = np.max(shifts, axis=0)
+    xx, yy = np.meshgrid(x, y[::-1])  # matching matplotlib description
+
+    fig, ax = plt.subplots()
+
+    mean_shifts = np.mean(shifts, axis=0)
+    xx_virt = xx + mean_shifts[1]
+    yy_virt = yy + mean_shifts[0]
+
+    # Mask out incomplete virtual pixels
+    mask = np.all([xx_virt > np.min(x) + xmax - (x_step / 2), # left edge
+                   xx_virt < np.max(x) + xmin + (x_step / 2), # right edge
+                   yy_virt > np.min(y) + ymax - (y_step / 2), # bottom edge
+                   yy_virt < np.max(y) + ymin + (y_step / 2)], # top edge
+                  axis=0)
+    xx_virt = xx_virt[mask]
+    yy_virt = yy_virt[mask]
+
+    virt_shape = (len(np.unique(yy_virt)), len(np.unique(xx_virt)))
+    print(virt_shape)
     
-    def __len__(self):
-        return self.len
+    vmask_list = []
+    for i, shift in enumerate(shifts):
+        xxi = (xx + shift[1])
+        yyi = (yy + shift[0])
+
+        xx_ind, yy_ind = xx_virt[0], yy_virt[0]
+        vmask_x0 = np.argmin(np.abs(xxi[0] - xx_ind))
+        vmask_y0 = np.argmin(np.abs(yyi[:, 0] - yy_ind))
+        # print(vmask_x0, vmask_y0)
+        vmask = np.zeros_like(xx, dtype=np.bool_)
+        vmask[vmask_y0 : vmask_y0 + virt_shape[0],
+              vmask_x0 : vmask_x0 + virt_shape[1]] = True
+        vmask_list.append(vmask)
+
+        ax.scatter(xxi.flatten(),
+                   yyi.flatten(),
+                   s=5,
+                   color=grid_colors[i])
+    
+    ax.scatter(xx_virt,
+               yy_virt,
+               s=20,
+               c='r',
+               marker='*')
+
+    if add_grid: # This can probably be done with RegularPolyCollection but this proved finicky
+        rect_list = []
+        for xi, yi in zip(xx_virt, yy_virt):
+            # Create a Rectangle patch
+            rect = patches.Rectangle((xi - (x_step / 2),
+                                      yi - (y_step / 2)),
+                                     x_step,
+                                     y_step,
+                                     linewidth=1,
+                                     edgecolor='gray',
+                                     facecolor='none')
+            rect_list.append(rect)
+        pc = PatchCollection(rect_list, match_original=True)
+        ax.add_collection(pc)
+
+    ax.set_aspect('equal')
+    fig.show()
+    
+    return vmask_list
+    # return xx_virt.reshape(virt_shape), yy_virt.reshape(virt_shape)
+    # return xx_virt.reshape(virt_shape), yy_virt.reshape(virt_shape)[::-1] # flip y-axes again
+
+
+def vectorize_images(xrdmapstack, vmask_list, image_data_key='recent'):
+
+    # Quick input check
+    for i, xrdmap in enumerate(xrdmapstack):
+        if (not hasattr(xrdmap, 'q_arr')
+             or xrdmap.q_arr is None):
+             err_str = f'q_arr not defined for xrdmap[{i}]!'
+             raise AttributeError(err_str)
+        elif (not hasattr(xrdmap, 'blob_masks')
+                or xrdmap.blob_masks is None):
+            err_str = f'blob_masks not defined for xrdmap[{i}]!'
+            raise AttributeError(err_str)
+
+    # Vectorize images
+
+    v_arr_list = []
+    for i, xrdmap in enumerate(xrdmapstack):
+        print(f'Processing data from scan {xrdmap.scan_id}.')
+
+        # Load images
+        xrdmap.load_images_from_hdf(image_data_key=image_data_key)
+
+        v_arr = np.empty(xrdmap.map_shape, dtype=object)
+        # v_arr.fill([])
+
+        print('Vectorizing data...')
+        for indices in tqdm(xrdmap.indices):
+            blob_mask = xrdmap.blob_masks[indices]
+            intensity = xrdmap.images[indices][blob_mask]
+            q_vectors = xrdmap.q_arr[blob_mask]
+            
+            v_arr[indices] = np.hstack([q_vectors,
+                                        intensity.reshape(-1, 1)])
+        
+        v_arr_list.append(v_arr)
+
+        # Release memory
+        xrdmap.dump_images()
+    
+    # Combine v_arr_list with vmask_list
+    # return v_arr_list
+
+    vmask_shape = np.max([vmask_list[0].sum(axis=0),
+                          vmask_list[0].sum(axis=1)],
+                         axis=1)
+
+    full_v_arr = np.empty(vmask_shape, dtype=object)
+
+    for v_arr, vmask in zip(v_arr_list, vmask_list):
+        virt_index = 0
+        for indices in xrdmap.indices:
+            # Skip if not in vmask
+            if not vmask[indices]:
+                continue
+            
+            virt_indices = np.unravel_index(virt_index, vmask_shape)
+
+            if full_v_arr[virt_indices] is None:
+                full_v_arr[virt_indices] = v_arr[indices]
+            else:
+                full_v_arr[virt_indices] = np.vstack([
+                                            full_v_arr[virt_indices],
+                                            v_arr[indices]])
+            virt_index += 1
+
+    return full_v_arr
+        

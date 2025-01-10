@@ -566,9 +566,9 @@ def _load_xrd_hdf_vectorized_data(base_grp):
 
 def initialize_xrdmapstack_hdf(xrdmapstack,
                                hdf_file):
-    raise NotImplementedError()
     
     with h5py.File(hdf_file, 'w-') as f:
+        # Base metadata from xrdmaps
         base_grp = f.require_group(xrdmapstack._hdf_type) # xrdmap or rsm
         base_grp.attrs['scan_id'] = xrdmapstack.scan_id
         base_grp.attrs['beamline'] = xrdmapstack.beamline #'5-ID (SRX)'
@@ -576,25 +576,40 @@ def initialize_xrdmapstack_hdf(xrdmapstack,
         base_grp.attrs['energy'] = xrdmapstack.energy
         base_grp.attrs['wavelength'] = xrdmapstack.wavelength
         base_grp.attrs['theta'] = xrdmapstack.theta
+        base_grp.attrs['use_stage_rotation'] = int(xrdmapstack.use_stage_rotation)
         base_grp.attrs['time_stamp'] = ttime.ctime()
 
-        # Record diffraction data
-        curr_grp = base_grp.require_group('map_data')
-        dset = curr_grp.require_dataset()
+        # Metadata for only xrdmapstack
+        base_grp.attrs['hdf_path'] = xrdmapstack.hdf_path
+        base_grp.attrs['rocking_axis'] = xrdmapstack.rocking_axis
+        # Might be useful for completely ignoring individual xrdmaps. Have not yet decided
+        # base_grp.attrs['shape'] = xrdmapstack.shape
+        # base_grp.attrs['image_shape'] = xrdmapstack.image_shape
+        # base_grp.attrs['map_shape'] = xrdmapstack.map_shape
+        # base_grp.attrs['swapped_axes'] = xrdmapstack._swapped_axes
 
         # Generate emtpy dataset of extra_metadata
         extra_md = base_grp.create_dataset('extra_metadata',
                                             data=h5py.Empty("f"))
-        for key, value in xrdmapstack.extra_metadata.items():
+        for key, value in xrdmapstack.xdms_extra_metadata.items():
             extra_md.attrs[key] = value
+
+        if (not hasattr(xrdmapstack, 'scan_input')
+            or xrdmapstack.scan_input is None):
+            scan_input = []
+        else:
+            scan_input = xrdmapstack.scan_input
+        base_grp.attrs['scan_input'] = scan_input
 
         # Special consideration for when dwell wasn't being recorded...
         if (not hasattr(xrdmapstack, 'dwell')
             or xrdmapstack.dwell is None):
-            dwell = ''
+            dwell = ['',] * len(xrdmapstack)
         else:
             dwell = xrdmapstack.dwell
         base_grp.attrs['dwell'] = dwell
+
+
 
 
 def load_xrdmapstack_hdf():

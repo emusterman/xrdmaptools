@@ -244,7 +244,7 @@ class XRDData:
             self.shape = (*self.map_shape, *self.image_shape)
         
         # Define/determine chunks and rechunk if necessary
-        if isinstance(self.images, da.core.Array):
+        if self._dask_enabled:
             # Redo chunking along image dimensions if not already
             if self.images.chunksize[-2:] != self.images.shape[-2:]:
                 self._get_optimal_chunks()
@@ -371,7 +371,8 @@ class XRDData:
                           + 'A temporary hdf storage dataset will be '
                           + 'generated when applying the first '
                           + 'correction: dark_field.'))
-    
+        
+        # Shared with child classes
         self.ai = ai
         self.sclr_dict = sclr_dict
 
@@ -427,6 +428,12 @@ class XRDData:
             if hasattr(self, property_name):
                 return getattr(self, property_name)
             else:
+                if (not hasattr(self, 'images')
+                    or self.images is None):
+                    err_str = ('Cannot determine image '
+                               + 'projection without images.')
+                    raise AttributeError(err_str)
+
                 # Compute any scheduled operations
                 self._dask_2_dask()
 
@@ -595,7 +602,7 @@ class XRDData:
         self.reset_projections()
 
 
-    # Opens and closes hdf to esnure self.hdf can be used safely
+    # Opens and closes hdf to ensure self.hdf can be used safely
     def protect_hdf(pandas=False):
         def protect_hdf_inner(func):
             @functools.wraps(func)
@@ -624,38 +631,63 @@ class XRDData:
     
     @protect_hdf()
     def load_images_from_hdf(self,
-                             image_data_key,
+                             image_data_key='recent',
+                             dask_enabled=None,
                              chunks=None):
-        # Deletes current image map and loads new values from hdf
-        print(f'Loading {image_data_key}')
-        
-        # Working with dask flag
-        dask_enabled = self._dask_enabled
+
+        # Preserve dask flag from previous images unless specified
+        if dask_enabled is None:
+            dask_enabled = self._dask_enabled
 
         # Actually load the data
-        image_grp = self.hdf[f'{self._hdf_type}/image_data']
+        # This code is from hdf_io.py
+        img_grp = self.hdf[f'{self._hdf_type}/image_data']
+
+        # Check valid image_data_key
+        if (str(image_data_key).lower() != 'recent'
+            and image_data_key not in img_grp.keys()):
+            warn_str = (f'WARNING: Requested image_data_key ({image_data_key}) '
+                        + 'not found in hdf. Proceding without changes...')
+            return
+
+        # Set recent image data key
+        if str(image_data_key).lower() == 'recent':
+            time_stamps, img_keys = [], []
+            for key in img_grp.keys():
+                if key[0] != '_':
+                    time_stamps.append(img_grp[key].attrs['time_stamp'])
+                    img_keys.append(key)
+            if len(img_keys) < 1:
+                raise RuntimeError('Could not find recent image data from hdf.')
+            time_stamps = [ttime.mktime(ttime.strptime(x)) for x in time_stamps]
+            image_data_key = img_keys[np.argmax(time_stamps)]
+
+        # This check is redundant; keeping for now
         if check_hdf_current_images(image_data_key, hdf=self.hdf):
             # Delete previous images from XRDData to save memory
-            del(self.images) 
-            img_dset = image_grp[image_data_key]
-            
+            img_dset = img_grp[image_data_key]
+            self.images = None
+
+            print(f'Loading images from ({image_data_key})...', end='', flush=True)
             if dask_enabled:
-                self.images = da.asarray(img_dset)
+                # Lazy loads data
+                image_dset = img_grp[image_data_key]
+                image_data = da.from_array(image_dset, chunks=image_dset.chunks)
             else:
-                self.images = np.asarray(img_dset)
+                # Fully loads data
+                image_data = img_grp[image_data_key][:]
+            self.images = image_data
 
             # Rebuild correction dictionary
-            corrections = {}
-            for key in image_grp[image_data_key].attrs.keys():
-                corrections[key[1:-11]] = image_grp[
-                                            image_data_key].attrs[key]
-            self.corrections = corrections
+            image_corrections = {}
+            for key, value in img_grp[image_data_key].attrs.items():
+                if key[0] == '_' and key[-11:] == '_correction':
+                    image_corrections[key[1:-11]] = value
+            self.corrections = image_corrections
 
-            if close_hdf_on_finish:
-                self.hdf.close()
-                self.hdf = None
             # Define/determine chunks and rechunk if necessary
-            if isinstance(self.images, da.core.Array):
+            # This code is from __init__
+            if self._dask_enabled:
                 # Redo chunking along image dimensions if not already
                 if (self.images.chunksize[-2:]
                     != self.images.shape[-2:]):
@@ -670,20 +702,26 @@ class XRDData:
                 else:
                     self._get_optimal_chunks()
 
-        # Force title; truncate '_images'
-        self.update_map_title(title=image_data_key[:-7]) 
-        self._dask_2_hdf()
+            # Force title; truncate '_images'
+            self.update_map_title(title=image_data_key[:-7]) 
+            self._dask_2_hdf()
 
-        # Update useful data
-        self._dtype = self.images.dtype
-        self.shape = self.images.shape
-        self.map_shape = self.shape[:2]
-        self.image_shape = self.shape[-2:]
-        self.num_images = np.prod(self.map_shape)
-    
+            # Update useful data
+            self._dtype = self.images.dtype
+            self.shape = self.images.shape
+            self.map_shape = self.shape[:2]
+            self.image_shape = self.shape[-2:]
+            self.num_images = np.prod(self.map_shape)
+            
+            print('done!')
+
 
     def dump_images(self):
-        del self.images
+        if self._dask_enabled:
+            warn_str = ('WARNING: Dask will no longer be enabled '
+                        + 'without images!')
+            print(warn_str)
+        self.images = None
 
 
     ######################
@@ -1668,7 +1706,10 @@ class XRDData:
                     
                     # Must be done explicitly outside of self.save_images()
                     for key, value in self.corrections.items():
-                        temp_dset.attrs[f'_{key}_correction'] = value
+                        overwrite_attr(temp_dset.attrs,
+                                       f'_{key}_correction',
+                                       value)
+                        # temp_dset.attrs[f'_{key}_correction'] = value
 
                     # Relabel to final images and del temp dataset
                     hdf_str = (f'{self._hdf_type}/image_data'
@@ -2094,20 +2135,26 @@ class XRDData:
             # This should ensure lazy operations
             da.store(dask_images, dset, compute=True)
         
-        dset.attrs['labels'] = labels
-        dset.attrs['units'] = units
-        dset.attrs['dtype'] = str(image_dtype)
+        overwrite_attr(dset.attrs, 'labels', labels)
+        overwrite_attr(dset.attrs, 'units', units)
+        overwrite_attr(dset.attrs, 'dtype', str(image_dtype))
         dset.attrs['time_stamp'] = ttime.ctime()
+        # dset.attrs['labels'] = labels
+        # dset.attrs['units'] = units
+        # dset.attrs['dtype'] = str(image_dtype)
+        # dset.attrs['time_stamp'] = ttime.ctime()
 
         # Add non-standard extra metadata attributes
         if extra_attrs is not None:
             for key, value in extra_attrs.items():
-                dset.attrs[key] = value
+                overwrite_attr(dset.attrs, key, value)
+                # dset.attrs[key] = value
 
         # Add correction information to each dataset
         if title[0] != '_':
             for key, value in self.corrections.items():
-                dset.attrs[f'_{key}_correction'] = value
+                overwrite_attr(dset.attrs, f'_{key}_correction', value)
+                # dset.attrs[f'_{key}_correction'] = value
 
 
     @protect_hdf()
@@ -2200,18 +2247,24 @@ class XRDData:
                             compression_opts=None, # default
                             chunks=None) # defualt
         
-        dset.attrs['labels'] = labels
-        dset.attrs['units'] = units
-        dset.attrs['dtype'] = str(integrations_dtype)
+        overwrite_attr(dset.attrs, 'labels', labels)
+        overwrite_attr(dset.attrs, 'units', units)
+        overwrite_attr(dset.attrs, 'dtype', str(integrations_dtype))
         dset.attrs['time_stamp'] = ttime.ctime()
+        # dset.attrs['labels'] = labels
+        # dset.attrs['units'] = units
+        # dset.attrs['dtype'] = str(integrations_dtype)
+        # dset.attrs['time_stamp'] = ttime.ctime()
 
         # Add non-standard extra metadata attributes
         if extra_attrs is not None:
             for key, value in extra_attrs.items():
-                dset.attrs[key] = value
+                overwrite_attr(dset.attrs, key, value)
+                # dset.attrs[key] = value
 
         # Add correction information to each dataset
         if title[0] != '_':
             for key, value in self.corrections.items():
-                dset.attrs[f'_{key}_correction'] = value
+                overwrite_attr(dset.attrs, f'_{key}_correction', value)
+                # dset.attrs[f'_{key}_correction'] = value
     

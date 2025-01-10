@@ -117,11 +117,13 @@ def relative_correlation_auto_alignment(image_stack, **kwargs):
     med_x_diffs = np.median(np.asarray(x_diff_list), axis=0)
 
     med_x_shifts = [0]
-    _ = [med_x_shifts.append(med_x_shifts[-1] + diff) for diff in med_x_diffs]
+    _ = [med_x_shifts.append(med_x_shifts[-1] + diff)
+         for diff in med_x_diffs]
     med_x_shifts = np.round(med_x_shifts, 3)
 
     med_y_shifts = [0]
-    _ = [med_y_shifts.append(med_y_shifts[-1] + diff) for diff in med_y_diffs]
+    _ = [med_y_shifts.append(med_y_shifts[-1] + diff)
+         for diff in med_y_diffs]
     med_y_shifts = np.round(med_y_shifts, 3)
 
     return tuple([(y, x) for y, x in zip(med_y_shifts, med_x_shifts)])
@@ -150,45 +152,25 @@ def neighbor_correlation_auto_alignment(image_stack,
 
     full_shifts = [np.array([0, 0])]
     for i in range(len(image_stack) - 1):
-        full_shifts.append(np.round(full_shifts[-1] + shifts_arr[i], 4))
+        full_shifts.append(np.round(full_shifts[-1] + shifts_arr[i],
+                                    4))
 
     return tuple([(x, y) for y, x in full_shifts])
-
-    # return full_shifts, shifts_arr
-
-    # y_diff_list = []
-    # for i in range(len(image_stack)):
-    #     diff = [shifts_arr[i, idx, 0] - shifts_arr[i, idx - 1, 0]
-    #                 for idx in range(1, len(image_stack))]
-    #     y_diff_list.append(diff)
-    # med_y_diffs = np.median(np.asarray(y_diff_list), axis=0)
-
-    # x_diff_list = []
-    # for i in range(len(image_stack)):
-    #     diff = [shifts_arr[i, idx, 1] - shifts_arr[i, idx - 1, 1]
-    #                 for idx in range(1, len(image_stack))]
-    #     x_diff_list.append(diff)
-    # med_x_diffs = np.median(np.asarray(x_diff_list), axis=0)
-
-    # med_x_shifts = [0]
-    # _ = [med_x_shifts.append(med_x_shifts[-1] + diff) for diff in med_x_diffs]
-    # med_x_shifts = np.round(med_x_shifts, 3)
-
-    # med_y_shifts = [0]
-    # _ = [med_y_shifts.append(med_y_shifts[-1] + diff) for diff in med_y_diffs]
-    # med_y_shifts = np.round(med_y_shifts, 3)
-
-    # return tuple([(y, x) for y, x in zip(med_y_shifts, med_x_shifts)])
 
 
 def com_auto_alignment(image_stack):
 
-    yy, xx = np.meshgrid(*[range(dim) for dim in image_stack[0].shape], indexing='ij')
+    yy, xx = np.meshgrid(*[range(dim)
+                           for dim in image_stack[0].shape],
+                         indexing='ij')
 
-    coms = [arbitrary_center_of_mass(image, yy, xx) for image in image_stack]
+    coms = [arbitrary_center_of_mass(image, yy, xx)
+            for image in image_stack]
 
-    shifts = np.round([np.asarray(coms[0]) - np.asarray(com) for com in coms], 3)
-    shifts = tuple([(shift_y, shift_x) for shift_y, shift_x in shifts])
+    shifts = np.round([np.asarray(coms[0]) - np.asarray(com)
+                       for com in coms], 3)
+    shifts = tuple([(shift_y, shift_x)
+                    for shift_y, shift_x in shifts])
 
     return shifts
     
@@ -208,6 +190,7 @@ def manual_alignment(image_stack,
     # ax.set_xlim(0, image_stack[0].shape[1])
     # ax.set_ylim(0, image_stack[0].shape[0])
 
+    image_stack = np.asarray(image_stack)
     if vmin is None:
         img_vmin = np.min(image_stack)
     else:

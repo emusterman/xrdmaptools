@@ -104,7 +104,7 @@ def plot_detector_geometry(xrdmap,
     ax.set_aspect('equal')
 
     # Initial view
-    ax.view_init(elev=-60, azim=90, roll=0)
+    ax.view_init(elev=-75, azim=90, roll=0)
 
     return fig, ax
 

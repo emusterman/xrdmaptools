@@ -101,9 +101,9 @@ def base_slider_plot(image_stack,
         val_ind = np.argmin(np.abs(slider_vals - val))
 
         extent = [0 + shifts[val_ind][1] - 0.5,
-                image_stack[0].shape[1] + shifts[val_ind][1] - 0.5,
-                0 - shifts[val_ind][0] - 0.5,
-                image_stack[0].shape[0] - shifts[val_ind][0] - 0.5]
+                  image_stack[0].shape[1] + shifts[val_ind][1] - 0.5,
+                  0 - shifts[val_ind][0] - 0.5,
+                  image_stack[0].shape[0] - shifts[val_ind][0] - 0.5]
         
         image.set_data(image_stack[val_ind])
 
