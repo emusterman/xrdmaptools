@@ -9,6 +9,7 @@ import dask.array as da
 import skimage.io as io
 from dask_image import imread as dask_io
 from tqdm import tqdm
+import functools
 
 # Local imports
 from xrdmaptools.XRDBaseScan import XRDBaseScan
@@ -76,17 +77,19 @@ class XRDMap(XRDBaseScan):
         if pos_dict is not None:
             self.set_positions(pos_dict,
                                check_init_sets=check_init_sets)
+
+        # Interpolate positions
+        # Can happen before or after swapped_axes
+        if self.scan_input is not None:
+            self.interpolate_positions(check_init_sets=check_init_sets)
         
         # Swap axes if called. Tranposes major data components
         # This flag is used to avoid changing the original saved data
         self._swapped_axes = bool(swapped_axes)
         if self._swapped_axes:
-            self.swap_axes(only_images=True)
+            # self.swap_axes(only_images=True)
+            self.swap_axes(update_flag=False)
         
-        # Interpolate positions after any swapped axes!
-        if self.scan_input is not None:
-            self.interpolate_positions(check_init_sets=check_init_sets)
-
         # Save xrf_path location. Do not load unless explicitly called
         self.xrf_path = xrf_path
 
@@ -310,18 +313,29 @@ class XRDMap(XRDBaseScan):
     # Re-writing save functions which 
     # will be affected by swapped axes
     def _check_swapped_axes(func):
+        @functools.wraps(func)
         def wrapped(self, *args, **kwargs):
 
             if self._swapped_axes:
-                self.swap_axes(only_images=True)
+                self.swap_axes(update_flag=False)
             
-            func(self, *args, **kwargs)
+            try:
+                func(self, *args, **kwargs)
+                err = None
+            except Exception as e:
+                err = e
             
             if self._swapped_axes:
-                self.swap_axes(only_images=True)
+                self.swap_axes(update_flag=False)
+
+            # Re-raise any exceptions
+            if err is not None:
+                raise(err)
 
         return wrapped
 
+    # There is probably a better way of
+    # wrapping the parent class methods?
     load_images_from_hdf = _check_swapped_axes(
                             XRDBaseScan.load_images_from_hdf)
     save_images = _check_swapped_axes(
@@ -330,6 +344,8 @@ class XRDMap(XRDBaseScan):
                             XRDBaseScan.save_integrations)
     _dask_2_hdf = _check_swapped_axes(
                             XRDBaseScan._dask_2_hdf)
+    save_sclr_pos = _check_swapped_axes(
+                            XRDBaseScan.save_sclr_pos)
 
     
     def save_current_hdf(self):
@@ -663,15 +679,14 @@ class XRDMap(XRDBaseScan):
     # Method to swap axes, specifically swapping the 
     # default format of fast and slow axes
     def swap_axes(self,
-                  only_images=False,
-                  # exclude_images=False,
-                  # save_updates=False
+                  # only_images=False,
+                  update_flag=True,
                   ):
         # This will break if images are loaded with dask.
         # _temp_images will be of the wrong shape...
         # could be called before _temp_images dataset is instantiated??
         # exclude_images included to swap axes upon instantiation
-        # Never save images. Leave that for specific situations...
+        # Only save flag
         
 
         if self._dask_enabled and self.title != 'final':
@@ -690,7 +705,6 @@ class XRDMap(XRDBaseScan):
             self.integrations = self.integrations.swapaxes(0, 1)
 
         # Update shape values
-        # This will force a new save in hdf
         # self.shape = self.images.shape # breaks if no images
         self.shape = (self.shape[1], self.shape[0],
                       self.shape[2], self.shape[3])
@@ -724,45 +738,69 @@ class XRDMap(XRDBaseScan):
             self.scaler_map = self.scaler_map.swapaxes(0, 1)
 
         # Modify other attributes as needed
-        if not only_images:
-            if hasattr(self, 'pos_dict'):
-                for key in list(self.pos_dict.keys()):
-                    self.pos_dict[key] = self.pos_dict[key].swapaxes(
-                                                            0, 1)
-                self.save_sclr_pos('positions',
-                                    self.pos_dict,
-                                    self.position_units)
-            if hasattr(self, 'sclr_dict'):
-                for key in list(self.sclr_dict.keys()):
-                    self.sclr_dict[key] = self.sclr_dict[key].swapaxes(
-                                                              0, 1)
-                self.save_sclr_pos('scalers',
-                                   self.sclr_dict,
-                                   self.scaler_units)
-            # Update spot map_indices
-            if hasattr(self, 'spots'):
-                map_x_ind = self.spots['map_x'].values
-                map_y_ind = self.spots['map_y'].values
-                self.spots['map_x'] = map_y_ind
-                self.spots['map_y'] = map_x_ind
-                self.save_spots()
+        if hasattr(self, 'pos_dict'):
+            for key in list(self.pos_dict.keys()):
+                self.pos_dict[key] = self.pos_dict[key].swapaxes(0, 1)  
+        if hasattr(self, 'sclr_dict'):
+            for key in list(self.sclr_dict.keys()):
+                self.sclr_dict[key] = self.sclr_dict[key].swapaxes(0, 1)
+        # Update spot map_indices
+        if hasattr(self, 'spots'):
+            map_x_ind = self.spots['map_x'].values
+            map_y_ind = self.spots['map_y'].values
+            self.spots['map_x'] = map_y_ind
+            self.spots['map_y'] = map_x_ind
 
-        # Flip swapped axes tag from whatever it was
-        # But when intenionally called
-        if not only_images: 
+        if update_flag: 
             self._swapped_axes = not self._swapped_axes
 
             @XRDBaseScan.protect_hdf()
             def save_swapped_axes(self):
-                # attrs = self.hdf[self._hdf_type].attrs
                 overwrite_attr(self.hdf[self._hdf_type].attrs,
                                'swapped_axes',
                                int(self._swapped_axes))
-                # if check_attr_overwrite(attrs,
-                #                         'swapped_axes',
-                #                         int(self._swapped_axes)):
-                #     attrs['swapped_axes'] = int(self._swapped_axes)
             save_swapped_axes(self)
+
+        # if not only_images:
+        #     if hasattr(self, 'pos_dict'):
+        #         for key in list(self.pos_dict.keys()):
+        #             self.pos_dict[key] = self.pos_dict[key].swapaxes(
+        #                                                     0, 1)
+        #         # self.save_sclr_pos('positions',
+        #         #                     self.pos_dict,
+        #         #                     self.position_units)
+            
+        #     if hasattr(self, 'sclr_dict'):
+        #         for key in list(self.sclr_dict.keys()):
+        #             self.sclr_dict[key] = self.sclr_dict[key].swapaxes(
+        #                                                       0, 1)
+        #         # self.save_sclr_pos('scalers',
+        #         #                    self.sclr_dict,
+        #         #                    self.scaler_units)
+        #     # Update spot map_indices
+        #     if hasattr(self, 'spots'):
+        #         map_x_ind = self.spots['map_x'].values
+        #         map_y_ind = self.spots['map_y'].values
+        #         self.spots['map_x'] = map_y_ind
+        #         self.spots['map_y'] = map_x_ind
+        #         # self.save_spots()
+
+        # Flip swapped axes tag from whatever it was
+        # But when intenionally called
+        # if not only_images: 
+        #     self._swapped_axes = not self._swapped_axes
+
+        #     @XRDBaseScan.protect_hdf()
+        #     def save_swapped_axes(self):
+        #         # attrs = self.hdf[self._hdf_type].attrs
+        #         overwrite_attr(self.hdf[self._hdf_type].attrs,
+        #                        'swapped_axes',
+        #                        int(self._swapped_axes))
+        #         # if check_attr_overwrite(attrs,
+        #         #                         'swapped_axes',
+        #         #                         int(self._swapped_axes)):
+        #         #     attrs['swapped_axes'] = int(self._swapped_axes)
+        #     save_swapped_axes(self)
 
 
     def interpolate_positions(self,
@@ -1067,7 +1105,7 @@ class XRDMap(XRDBaseScan):
         
         return pixel_spots
 
-    
+    @_check_swapped_axes
     @XRDBaseScan.protect_hdf(pandas=True)
     def save_spots(self, extra_attrs=None):
         print('Saving spots to hdf...', end='', flush=True)
