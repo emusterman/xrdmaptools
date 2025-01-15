@@ -614,3 +614,7 @@ def initialize_xrdmapstack_hdf(xrdmapstack,
 
 def load_xrdmapstack_hdf():
     raise NotImplementedError()
+
+
+def _load_xrdmapstack_vectorized_data():
+    raise NotImplementedError()

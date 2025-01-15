@@ -110,7 +110,7 @@ def check_attr_overwrite(attrs, attr_key, new_attr):
 # Separate from check_attr_overwrite in case of special processing
 def overwrite_attr(attrs, attr_key, new_attr):
     if check_attr_overwrite(attrs, attr_key, new_attr):
-        print(f'Overwriting {attr_key} with {new_attr}')
+        # print(f'Overwriting {attr_key} with {new_attr}')
         attrs[attr_key] = new_attr
 
 

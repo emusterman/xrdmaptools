@@ -12,6 +12,7 @@ from ophyd import (
     EpicsMotor,
     Device,
     Signal,
+    SignalRO,
     PseudoPositioner,
     PseudoSingle,
 )
@@ -44,8 +45,8 @@ from ophyd.status import SubscriptionStatus
 class ProjectedTopStage(PseudoPositioner):
 
     # Pseudo axes
-    projx = Cpt(PsuedoSingle)
-    projz = Cpt(PsuedoSingle)
+    projx = Cpt(PseudoSingle)
+    projz = Cpt(PseudoSingle)
 
     # Real axes. From XRXNanoStage class definition.
     topx = Cpt(EpicsMotor, 'XF:05IDD-ES:1{nKB:Smpl-Ax:xth}Mtr')  # XF:05IDD-ES:1{nKB:Smpl-Ax:xth}Mtr.RBV
@@ -55,16 +56,42 @@ class ProjectedTopStage(PseudoPositioner):
     th = Cpt(EpicsSignalRO, 'XF:05IDD-ES:1{nKB:Smpl-Ax:th}Mtr.RBV')  # XF:05IDD-ES:1{nKB:Smpl-Ax:th}Mtr.RBV
     velocity_x = Cpt(EpicsSignal, 'XF:05IDD-ES:1{nKB:Smpl-Ax:xth}Mtr.VELO')
     velocity_z = Cpt(EpicsSignal, 'XF:05IDD-ES:1{nKB:Smpl-Ax:zth}Mtr.VELO')
-    acceleration_x = Cpt(EpicsSignalRO, 'XF:05IDD-ES:1{nKB:Smpl-Ax:xth}Mtr.ACCL.RBV')
-    acceleration_z = Cpt(EpicsSignalRO, 'XF:05IDD-ES:1{nKB:Smpl-Ax:zth}Mtr.ACCL.RBV')
-    motor_egu_x = Cpt(EpicsSignalRO, 'XF:05IDD-ES:1{nKB:Smpl-Ax:xth}Mtr.EGU.RBV')
-    motor_egu_z = Cpt(EpicsSignalRO, 'XF:05IDD-ES:1{nKB:Smpl-Ax:zth}Mtr.EGU.RBV')
+    acceleration_x = Cpt(EpicsSignalRO, 'XF:05IDD-ES:1{nKB:Smpl-Ax:xth}Mtr.ACCL')
+    acceleration_z = Cpt(EpicsSignalRO, 'XF:05IDD-ES:1{nKB:Smpl-Ax:zth}Mtr.ACCL')
+    motor_egu_x = Cpt(EpicsSignalRO, 'XF:05IDD-ES:1{nKB:Smpl-Ax:xth}Mtr.EGU')
+    motor_egu_z = Cpt(EpicsSignalRO, 'XF:05IDD-ES:1{nKB:Smpl-Ax:zth}Mtr.EGU')
+
+    # Dumb way to overwrite the hard-coded Signal class limits
+    class LimitedSignal(Signal):
+
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            self._signal_limits = (0, 0)
+        
+        @property
+        def limits(self):
+            return self._signal_limits
+        
+        # Not as setter to help avoid non-explicit calls
+        def _set_signal_limits(self, new_limits):
+            new_limits = tuple(new_limits)
+            if len(new_limits) != 2:
+                err_str = ('Length of new limits must be 2, not '
+                           + f'{len(new_limits)}.')
+                raise ValueError(err_str)
+
+            self._signal_limits = new_limits
+
 
     # Create projected signals to read
-    # Consider replacing with DerivedSignal class
-    velocity = Cpt(Signal, '.VELO', add_prefix=(), kind='config', value=0)
-    acceleration = Cpt(SignalRO, '.ACCL', add_prefix=(), kind='config', value=0)
-    motor_egu = Cpt(SignalRO, '.EGU', add_previs=(), kind='config', value=0)
+    velocity = Cpt(LimitedSignal, None, add_prefix=(), kind='config')
+    acceleration = Cpt(LimitedSignal, None, add_prefix=(), kind='config')
+    motor_egu = Cpt(LimitedSignal, None, add_prefix=(), kind='config')
+
+    # How to connect EpicsSignal to something readable???
+    # epics_velocity = Cpt(EpicsSignal, '.VELO', kind='config', auto_monitor=False)
+    # acceleration = Cpt(EpicsSignal, '.ACCL', kind='config')
+    # motor_egu = Cpt(EpicsSignal, '.EGU', kind='config')
 
     # # user_readback = Cpt(DerivedSignal, ".RBV", kind="hinted", auto_monitor=True)
     # projx.user_readback = Cpt(DerivedSignal([topx, topz], write_access=False), '.RBV')
@@ -72,22 +99,23 @@ class ProjectedTopStage(PseudoPositioner):
     # def projx_user_readback_inverse(self, value):
     # def projz_user_readback_inverse(self, value):
 
-    # Create modified user_readback functions
-    projx.user_readback = Cpt(SignalRO, '.RBV', kind='hinted', auto_monitor=True)
-    projz.user_readback = Cpt(SignalRO, '.RBV', kind='hinted', auto_monitor=True)
+    # # Create modified user_readback functions
+    # user_readback = Cpt(SignalRO, None, kind='hinted')
 
-    # Overwrite .get()
-    def user_readback_get(self, axis=0):
-        return self._inverse(topx.get(), topz.get())[0]
-    projx.user_readback.get = lambda : self.user_readback_get(axis=0)
-    projz.user_readback.get = lambda : self.user_readback_get(axis=1)
+    # # Overwrite .get()
+    # def _user_readback_get(self):
+    #     return self._inverse(self.topx.user_readback.get(),
+    #                          self.topz.user_readback.get())[0]
+    
+    # user_readback.get = lambda self: _user_readback_get(self)
 
 
     def __init__(self,
-                 *args
+                 *args,
                  projected_axis=None,
                  **kwargs):
-        super().__init__(*arg, **kwargs)
+
+        super().__init__(*args, **kwargs)
         
         # Store projected axis for determining projected velocity
         if projected_axis is None:
@@ -97,34 +125,49 @@ class ProjectedTopStage(PseudoPositioner):
             err_str = ("ProjectedTopStage axis only supported for 'x' "
                        + f"or 'z' projected axis not {projected_axis}.")
             raise ValueError(err_str)
-        self._axis = str(projected_axis).lower()
+        self._projected_axis = str(projected_axis).lower()
 
         # Define defualt projected signals
         velocity = min([self.velocity_x.get(),
                         self.velocity_z.get()])
         acceleration = min([self.acceleration_x.get(),
                             self.acceleration_z.get()])
-        if motor_egu_x.get() == motor_egu_z.get():
-            motor_egu = motor_egu_x.get()
+        if self.motor_egu_x.get() == self.motor_egu_z.get():
+            motor_egu = self.motor_egu_x.get()
         else:
-            err_str = (f'topx motor_egu of {motor_egu_x.get()} does '
+            err_str = (f'topx motor_egu of {self.motor_egu_x.get()} does '
                        + 'not match topz motor_egu of '
-                       + f'{motor_egu_z.get()}')
+                       + f'{self.motor_egu_z.get()}')
             raise AttributeError(err_str)
 
         self.velocity.set(velocity)
         self.acceleration.set(acceleration)
         self.motor_egu.set(motor_egu)
+        self.motor_egu._set_signal_limits((None, None))
 
         # Set velocity limits
         velocity_limits = (
             max([self.velocity_x.low_limit,
-                 self.velocity_z.low_limit])
+                 self.velocity_z.low_limit]),
             min([self.velocity_x.high_limit,
                  self.velocity_z.high_limit])
         )
-        self.velocity.limits = property(lambda : velocity_limits)
+        self.velocity._set_signal_limits(velocity_limits)
 
+        # Set acceleration limits
+        acceleration_limits = (
+            max([self.acceleration_x.low_limit,
+                 self.acceleration_z.low_limit]),
+            min([self.acceleration_x.high_limit,
+                 self.acceleration_z.high_limit])
+        )
+        self.acceleration._set_signal_limits(acceleration_limits)
+
+        # Set up alias for flyer readback
+        if self._projected_axis == 'x':
+            self.user_readback = self.projx.readback
+        else:
+            self.user_readback = self.projz.readback
 
     # Convenience function to get rotation matrix between 
     # rotated top stage axes and projected lab axes
@@ -150,21 +193,25 @@ class ProjectedTopStage(PseudoPositioner):
         elif bool_flags == 2:
             # Determine component velocities from projected
             velocity = self.velocity.get()
-            if projected_axis == 'x':
+            if self._projected_axis == 'x':
                 velocity_vector = [velocity, 0]
             else:
                 velocity_vector = [0, velocity]
 
             (topx_velocity,
-             topz_velocity) = self.R() @ velocity_vector
+             topz_velocity) = np.abs(self.R() @ velocity_vector)
         
-        if topx_velocity < 1e-8: # too small
-            topx_velocity = np.max([1e-8, self.topx.velocity.low_limit])
-        if topz_velocity < 1e-8: # too small
-            topz_velocity = np.max([1e-8, self.topz.velocity.low_limit])
+        if topx_velocity < self.topx.velocity.low_limit:
+            topx_velocity = self.topx.velocity.low_limit
+        if topz_velocity < self.topz.velocity.low_limit:
+            topz_velocity = self.topz.velocity.low_limit
         
+        # In the background is a set_and_wait. Returning status object may not be necessary
         self.velocity_x.set(topx_velocity)
+        # print(f'{topx_velocity=}')
         self.velocity_z.set(topz_velocity)
+        # print(f'{topz_velocity=}')
+        # print('finished changing velocities')
 
     
     # Wrap move function with stage_sigs-like behavior
@@ -174,15 +221,23 @@ class ProjectedTopStage(PseudoPositioner):
         start_topz_velocity = self.velocity_z.get()
         
         # Set component velocities based on internal velocity signal
+        # print('setting velocities')
         self.set_component_velocities()
 
         # Move like normal
-        super().move(*args, **kwargs)
-        
+        # print('starting move')
+        mv_st = super().move(*args, **kwargs)
+        mv_st.wait()
+        # print('move done')
+
         # Reset component velocities to original values
-        self.set_component_velocity(
+        # print('resetting velocities')
+        self.set_component_velocities(
                     topx_velocity=start_topx_velocity,
                     topz_velocity=start_topz_velocity)
+        
+        # Must return move status object!!
+        return mv_st
 
 
     def _forward(self, projx, projz):
@@ -199,8 +254,16 @@ class ProjectedTopStage(PseudoPositioner):
 
     @pseudo_position_argument
     def forward(self, p_pos):
-        projx = p_pos.projx
-        projz = p_pos.projz
+
+        if self._projected_axis == 'x':
+            projx = p_pos.projx
+            self.projz.sync() # Ignore setpoint value
+            projz = p_pos.projz
+        else:
+            projz = p_pos.projz
+            self.projx.sync()
+            projx = p_pos.projx
+        
         topx, topz = self._forward(projx, projz)
         return self.RealPosition(topx=topx, topz=topz)
 
@@ -248,3 +311,37 @@ class ProjectedTopStage(PseudoPositioner):
 
 projx = ProjectedTopStage(name='projected_top_x', projected_axis='x')
 projz = ProjectedTopStage(name='projected_top_z', projected_axis='z')
+
+
+def projected_scan_and_fly(*args, extra_dets=None, center=True, **kwargs):
+    kwargs.setdefault('xmotor', projx)
+    kwargs.setdefault('ymotor', nano_stage.y)
+    kwargs.setdefault('flying_zebra', nano_flying_zebra_coarse)
+    yield from abs_set(kwargs['flying_zebra'].fast_axis, 'NANOHOR')
+    yield from abs_set(kwargs['flying_zebra'].slow_axis, 'NANOVER')
+
+    _xs = kwargs.pop('xs', xs)
+    if extra_dets is None:
+        extra_dets = []
+    dets = [_xs] + extra_dets
+
+    if center:
+        yield from move_to_map_center(*args, **kwargs)
+    yield from scan_and_fly_base(dets, *args, **kwargs)
+    if center:
+        yield from move_to_map_center(*args, **kwargs)
+
+
+def move_to_map_center(*args, **kwargs):
+    xmotor = kwargs['xmotor']
+    ymotor = kwargs['ymotor']
+
+    xstart, xend, xnum, ystart, yend, ynum, dwell = args
+
+    xcen = xstart + ((xend - xstart) / 2)
+    ycen = ystart + ((yend - ystart) / 2)
+
+    # print(f'Move to {xcen} xcen')
+    # print(f'Move to {ycen} ycen.')
+    yield from mv(xmotor, xcen,
+                  ymotor, ycen)

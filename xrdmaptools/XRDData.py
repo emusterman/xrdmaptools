@@ -618,13 +618,21 @@ class XRDData:
                         self.hdf = h5py.File(self.hdf_path, 'a')
 
                     # Call function
-                    func(self, *args, **kwargs)
+                    try:
+                        func(self, *args, **kwargs)
+                        err = None
+                    except Exception as e:
+                        err = e
                     
                     # Clean up hdf state
                     if pandas and active_hdf:
                         self.open_hdf()
                     elif not active_hdf:
                         self.close_hdf()
+
+                    # Re-raise any exceptions, after cleaning up hdf
+                    if err is not None:
+                        raise(err)
             return protector
         return protect_hdf_inner
 

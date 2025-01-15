@@ -1,6 +1,8 @@
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.colors import Normalize, LogNorm
+from mpl_toolkits.mplot3d.art3d import Path3DCollection
+
 
 '''
 Preliminary interactive plotting for scanning XRD maps from SRX beamline.
@@ -9,28 +11,6 @@ More formalized, detailed, and conventional analysis will be saved for other mod
 Short-term goal is to write down several iterations of interactive functions, not necessarilly following best coding practices.
 This will keep them all in one place to ease access later.
 '''
-
-'''
-Terms:
-xticks              (arr)   List of two theta radial angle values (in degrees or radians). Could be different between 1D and 2D outputs
-yticks              (arr)   List of y_ticks azimuthal angle values (in degrees or radians)
-integrated_data     (arr)   (x, y, x_ticks) array of integrated mapped data from the pyFAI 1D azimuthal integrator
-image_data          (arr)   (x, y, x_ticks, y_ticks) array of calibrated mapped data from pyFAI 2D azimuthal integrator
-'''
-
-
-# map_kw = {
-#     map : 2D array,
-#     title : str,
-#     vmin : float,
-#     vmax : float,
-#     norm : normalizer,
-#     x_ticks : list,
-#     y_ticks : list,
-#     x_label : str,
-#     y_label : str,
-# }
-
 
 
 
@@ -66,6 +46,7 @@ def _update_coordinates(event,
 
 
 def _update_axes(dyn_kw,
+                 dimensions=None,
                  fig=None,
                  cmap='viridis',
                  marker_color='red'):
@@ -77,26 +58,45 @@ def _update_axes(dyn_kw,
         dyn_kw,
         ['data',
          'axes', # [display map, and dynamic ax]
-         'vmin',
-         'vmax',
-         'scale',
-         'x_ticks',
+         'vmin', # For images only
+         'vmax', # For images only
+         'scale', # For plot and images
+         'edges', # For 3D scatter
+         'skip', # For 3D scatter
+         'int_cutoff', # For 3D scatter
+         'x_ticks', # For plot, images, and 3D scatter
          'x_min',
          'x_max',
          'x_label',
-         'y_ticks',
+         'y_ticks', # For images and 3D scatter
          'y_min',
          'y_max',
-         'y_label']
+         'y_label',
+         # 'z_ticks', # Unused 
+         'z_min', # For 3D scatter
+         'z_max',
+         'z_label',
+         ]
     )
+
+    if dimensions is None:
+        if len(dyn_kw['data'].shape) == 3:
+            dimensions = 1
+        elif len(dyn_kw['data'].shape) == 4:
+            dimensions = 2
     
-    dyn_kw['axes'][1].clear()
-    if len(dyn_kw['data'].shape) == 3:
+    # dyn_kw['axes'][1].clear()
+    if dimensions == 1:
         _update_plot(dyn_kw=dyn_kw)
 
-    elif len(dyn_kw['data'].shape) == 4:
+    elif dimensions == 2:
         _update_image(dyn_kw=dyn_kw,
                       cmap=cmap)
+
+    elif dimensions == 3:
+        # raise NotImplementedError('3D interactive not yet supported.')
+        _update_3D_scatter(dyn_kw=dyn_kw,
+                           cmap=cmap)
         
     dyn_kw['axes'][1].set_title((f'Row = {row}, Col = {col}\n'
                                  + f'y = {map_y:.2f}, x = {map_x:.2f}'))
@@ -110,36 +110,39 @@ def _update_plot(dyn_kw):
     
     '''
     #print('Updating Plot!')
-    x_tick_range = np.max(dyn_kw['x_ticks']) - np.min(dyn_kw['x_ticks'])
-    if dyn_kw['x_min'] is None:
-        dyn_kw['x_min'] = np.min(dyn_kw['x_ticks']) - 0.05 * x_tick_range
-    if dyn_kw['x_max'] is None:
-        dyn_kw['x_max'] = np.max(dyn_kw['x_ticks']) + 0.05 * x_tick_range
+    if not dyn_kw['axes'][1].has_data():
+        x_tick_range = np.max(dyn_kw['x_ticks']) - np.min(dyn_kw['x_ticks'])
+        if dyn_kw['x_min'] is None:
+            dyn_kw['x_min'] = np.min(dyn_kw['x_ticks']) - 0.05 * x_tick_range
+        if dyn_kw['x_max'] is None:
+            dyn_kw['x_max'] = np.max(dyn_kw['x_ticks']) + 0.05 * x_tick_range
 
-    y_tick_range = np.max(dyn_kw['data']) - np.min(dyn_kw['data'])
-    if dyn_kw['y_min'] is None:
-        dyn_kw['y_min'] = np.min(dyn_kw['data']) - 0.05 * y_tick_range
-    if dyn_kw['y_max'] is None:
-        dyn_kw['y_max'] = np.max(dyn_kw['data']) + 0.05 * y_tick_range
+        y_tick_range = np.max(dyn_kw['data']) - np.min(dyn_kw['data'])
+        if dyn_kw['y_min'] is None:
+            dyn_kw['y_min'] = np.min(dyn_kw['data']) - 0.05 * y_tick_range
+        if dyn_kw['y_max'] is None:
+            dyn_kw['y_max'] = np.max(dyn_kw['data']) + 0.05 * y_tick_range
 
-    if dyn_kw['scale'] in [None, 'linear', Normalize]:
-        dyn_kw['scale'] = 'linear'
-    elif dyn_kw['scale'] in ['log', 'logrithmic', LogNorm]:
-        dyn_kw['scale'] = 'log'
+        if dyn_kw['scale'] in [None, 'linear', Normalize]:
+            dyn_kw['scale'] = 'linear'
+        elif dyn_kw['scale'] in ['log', 'logrithmic', LogNorm]:
+            dyn_kw['scale'] = 'log'
+        
+        if len(dyn_kw['x_ticks']) != len(dyn_kw['data'][row, col]):
+            dyn_kw['x_ticks'] = np.linspace(np.min(dyn_kw['x_ticks']),
+                                            np.max(dyn_kw['x_ticks']),
+                                            len(dyn_kw['data'][row, col]))
 
-    if len(dyn_kw['x_ticks']) == len(dyn_kw['data'][row, col]):
         dyn_kw['axes'][1].plot(dyn_kw['x_ticks'], dyn_kw['data'][row, col])
-    else:
-        plot_x = np.linspace(np.min(dyn_kw['x_ticks']),
-                             np.max(dyn_kw['x_ticks']),
-                             len(dyn_kw['data'][row, col]))
-        dyn_kw['axes'][1].plot(plot_x, dyn_kw['data'][row, col])
+        dyn_kw['axes'][1].set_yscale(dyn_kw['scale'])
+        dyn_kw['axes'][1].set_xlim(dyn_kw['x_min'], dyn_kw['x_max'])
+        dyn_kw['axes'][1].set_ylim(dyn_kw['y_min'], dyn_kw['y_max'])
+        dyn_kw['axes'][1].set_xlabel(dyn_kw['x_label'])
+        dyn_kw['axes'][1].set_ylabel(dyn_kw['y_label'])
     
-    dyn_kw['axes'][1].set_yscale(dyn_kw['scale'])
-    dyn_kw['axes'][1].set_xlim(dyn_kw['x_min'], dyn_kw['x_max'])
-    dyn_kw['axes'][1].set_ylim(dyn_kw['y_min'], dyn_kw['y_max'])
-    dyn_kw['axes'][1].set_xlabel(dyn_kw['x_label'])
-    dyn_kw['axes'][1].set_ylabel(dyn_kw['y_label'])
+    else:
+       axi = dyn_kw['axes'][1].get_children()[0]
+       axi.set_data(dyn_kw['x_ticks'], dyn_kw['data'][row, col])   
 
 
 def _update_image(dyn_kw,
@@ -147,36 +150,117 @@ def _update_image(dyn_kw,
     '''
     
     '''
-
-    plot_img = dyn_kw['data'][row, col]
-    extent = _find_image_extent(dyn_kw['x_ticks'], dyn_kw['y_ticks'])
     
-    if dyn_kw['vmin'] is None:
-        dyn_kw['vmin'] = np.min(plot_img)
-    if dyn_kw['vmax'] is None:
-        dyn_kw['vmax'] = np.max(plot_img)
-    
-    if dyn_kw['scale'] in [Normalize, LogNorm]:
-        pass
-    elif dyn_kw['scale'] in [None, 'linear']:
-        dyn_kw['scale'] = Normalize
-    elif dyn_kw['scale'] in ['log', 'logrithmic']:
-        dyn_kw['scale'] = LogNorm
+    if not dyn_kw['axes'][1].has_data():
+        plot_img = dyn_kw['data'][row, col]
+        extent = _find_image_extent(dyn_kw['x_ticks'], dyn_kw['y_ticks'])
+        
+        if dyn_kw['vmin'] is None:
+            dyn_kw['vmin'] = np.min(plot_img)
+        if dyn_kw['vmax'] is None:
+            dyn_kw['vmax'] = np.max(plot_img)
+        
+        if dyn_kw['scale'] in [Normalize, LogNorm]:
+            pass
+        elif dyn_kw['scale'] in [None, 'linear']:
+            dyn_kw['scale'] = Normalize
+        elif dyn_kw['scale'] in ['log', 'logrithmic']:
+            dyn_kw['scale'] = LogNorm
 
-    #print(f'row is {row}, col is {col}')
-    img = dyn_kw['axes'][1].imshow(
-        plot_img,
-        extent=extent,
-        aspect='auto',
-        cmap=cmap,
-        norm=dyn_kw['scale'](
-            vmin=dyn_kw['vmin'],
-            vmax=dyn_kw['vmax']
+        #print(f'row is {row}, col is {col}')
+        dyn_kw['axes'][1].imshow(
+            plot_img,
+            extent=extent,
+            aspect='auto',
+            cmap=cmap,
+            norm=dyn_kw['scale'](
+                vmin=dyn_kw['vmin'],
+                vmax=dyn_kw['vmax']
+            )
         )
-    )
+        
+        dyn_kw['axes'][1].set_xlabel(dyn_kw['x_label'])
+        dyn_kw['axes'][1].set_ylabel(dyn_kw['y_label'])
+    else:
+        axi = dyn_kw['axes'][1].get_children()[0]
+        axi.set_data(dyn_kw['data'][row, col]) 
+
+
+def _update_3D_scatter(dyn_kw,
+                       cmap='viridis'):
+
     
-    dyn_kw['axes'][1].set_xlabel(dyn_kw['x_label'])
-    dyn_kw['axes'][1].set_ylabel(dyn_kw['y_label'])
+
+    plot_scatter = dyn_kw['data'][row, col]
+
+    if dyn_kw['int_cutoff'] is None:
+        dyn_kw['int_cutoff'] = 0
+    int_mask = plot_scatter[:, -1] > dyn_kw['int_cutoff']
+    plot_scatter = plot_scatter[int_mask]
+
+    if len(plot_scatter) == 0:
+        return # skip pixel
+
+    if dyn_kw['skip'] is None:
+        skip = np.round(len(plot_scatter)
+                        / 5000, 0).astype(int) # skips to about 5000 points
+    else:
+        skip = dyn_kw['skip']
+    if skip == 0: # Default to at least 1
+        skip = 1
+
+    if not dyn_kw['axes'][1].has_data():
+        dyn_kw['axes'][1].scatter(
+                *plot_scatter[::skip, :3].T,
+                c=plot_scatter[::skip, -1],
+                cmap=cmap)
+
+        if dyn_kw['edges'] is not None:
+            # print('Plotting edges!!!')
+            for edge in dyn_kw['edges']:
+                dyn_kw['axes'][1].plot(*edge.T, c='gray', lw=1)
+        
+        # Define limits
+        x_min, x_max = dyn_kw['axes'][1].get_xlim()
+        y_min, y_max = dyn_kw['axes'][1].get_ylim()
+        z_min, z_max = dyn_kw['axes'][1].get_zlim()
+        for key, value in zip(['x_min', 'x_max',
+                               'y_min', 'y_max',
+                               'z_min', 'z_max'],
+                               [x_min, x_max,
+                                y_min, y_max,
+                                z_min, z_max]):
+            if dyn_kw[key] is None:
+                dyn_kw[key] = value
+        
+        # Set limits
+        dyn_kw['axes'][1].set_xlim(dyn_kw['x_min'], dyn_kw['x_max'])
+        dyn_kw['axes'][1].set_ylim(dyn_kw['y_min'], dyn_kw['y_max'])
+        dyn_kw['axes'][1].set_zlim(dyn_kw['z_min'], dyn_kw['z_max'])
+
+        # Set default labels
+        if dyn_kw['x_label'] is None:
+            dyn_kw['x_label'] = 'qx [Å⁻¹]'
+        if dyn_kw['y_label'] is None:
+            dyn_kw['y_label'] = 'qy [Å⁻¹]'
+        if dyn_kw['z_label'] is None:
+            dyn_kw['z_label'] = 'qz [Å⁻¹]'
+
+        # Set plot labels
+        dyn_kw['axes'][1].set_xlabel(dyn_kw['x_label'])
+        dyn_kw['axes'][1].set_ylabel(dyn_kw['y_label'])
+        dyn_kw['axes'][1].set_zlabel(dyn_kw['z_label'])
+        dyn_kw['axes'][1].set_aspect('equal')
+
+    else:
+        for child in dyn_kw['axes'][1].get_children():
+            if isinstance(child, Path3DCollection):
+                child.remove()
+
+        dyn_kw['axes'][1].scatter(
+                *plot_scatter[::skip, :3].T,
+                c=plot_scatter[::skip, -1],
+                cmap=cmap)
 
 
 def _update_marker(axi=None,
@@ -187,7 +271,12 @@ def _update_marker(axi=None,
 
     global marker
     marker.remove()
-    marker = axi.scatter(map_x, map_y, marker='+', s=25, linewidth=1, color=marker_color)
+    marker = axi.scatter(map_x,
+                         map_y,
+                         marker='+',
+                         s=25,
+                         linewidth=1,
+                         color=marker_color)
     if dynamic_toggle:
         marker.set_visible(False)
 
@@ -305,6 +394,7 @@ def interactive_1D_plot(dyn_kw={},
         if _update_coordinates(event,
                                map_kw):
             _update_axes(dyn_kw,
+                         dimensions=1,
                          fig=fig,
                          cmap=cmap,
                          marker_color=marker_color)
@@ -356,6 +446,7 @@ def interactive_2D_plot(dyn_kw={},
         if _update_coordinates(event,
                                map_kw):
             _update_axes(dyn_kw=dyn_kw,
+                         dimensions=2,
                          fig=fig,
                          cmap=cmap,
                          marker_color=marker_color)
@@ -417,10 +508,12 @@ def interactive_2D_1D_plot(dyn_2D_kw={},
         if _update_coordinates(event,
                                map_kw):
             _update_axes(dyn_kw=dyn_2D_kw,
+                         dimensions=2,
                          fig=fig,
                          cmap=cmap,
                          marker_color=marker_color)
             _update_axes(dyn_kw=dyn_1D_kw,
+                         dimensions=1,
                          fig=fig,
                          cmap=cmap,
                          marker_color=marker_color)
@@ -481,6 +574,7 @@ def interactive_1D_1D_plot(dyn_kw1={},
                                map_kw):
             for dyn_kw in [dyn_kw1, dyn_kw2]:
                 _update_axes(dyn_kw,
+                             dimensions=1,
                              fig=fig,
                              cmap=cmap,
                              marker_color=marker_color)
@@ -544,10 +638,12 @@ def interactive_shared_2D_1D_plot(dyn_2D_kw={},
         if _update_coordinates(event,
                                map_kw):
             _update_axes(dyn_kw=dyn_1D_kw,
+                         dimensions=1,
                          fig=fig,
                          cmap=cmap,
                          marker_color=marker_color,)
             _update_axes(dyn_kw=dyn_2D_kw,
+                         dimensions=2,
                          fig=fig,
                          cmap=cmap,
                          marker_color=marker_color)
@@ -647,6 +743,7 @@ def integrateable_dynamic_1D_plot(dyn_kw={},
         if _update_coordinates(event,
                                map_kw):
             _update_axes(dyn_kw,
+                         dimensions=1,
                          fig=fig,
                          cmap=cmap,
                          marker_color=marker_color)
@@ -699,8 +796,54 @@ def integrateable_dynamic_1D_plot(dyn_kw={},
         drag_from_anywhere=True
     )
 
-    # ax[1].plot(dyn_kw['data'][0, 0])
-
     cid = fig.canvas.mpl_connect('button_press_event', onclick)
     binding_id = plt.connect('motion_notify_event', onmove)
     return fig, ax, span
+
+
+def interactive_3D_plot(dyn_kw={},
+                        map_kw={},
+                        cmap='viridis',
+                        marker_color='red'):
+    '''
+    
+    '''
+
+    # Generate plot
+    # fig, ax = plt.subplots(1, 2, figsize=(10, 5), dpi=200)
+    fig = plt.figure(figsize=(10, 5), dpi=200)
+    ax = [fig.add_axes(121), fig.add_axes(122, projection='3d')]
+    dyn_kw['axes'] = ax
+    _display_map(dyn_kw['data'],
+                 map_kw=map_kw,
+                 axes=ax,
+                 cmap=cmap)
+
+    _set_globals(ax)
+
+    def update_axes(event):
+        if _update_coordinates(event,
+                               map_kw):
+            _update_axes(dyn_kw=dyn_kw,
+                         dimensions=3,
+                         fig=fig,
+                         cmap=cmap,
+                         marker_color=marker_color)
+
+    # Make interactive
+    def onclick(event):
+        if event.inaxes == ax[0]:
+            global dynamic_toggle, marker
+            dynamic_toggle = not dynamic_toggle
+            update_axes(event)
+    
+    # Make dynamic
+    def onmove(event):
+        global dynamic_toggle
+        if dynamic_toggle:
+            if event.inaxes == ax[0]:
+                update_axes(event)
+    
+    cid = fig.canvas.mpl_connect('button_press_event', onclick)
+    binding_id = plt.connect('motion_notify_event', onmove)
+    return fig, ax

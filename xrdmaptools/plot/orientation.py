@@ -75,9 +75,11 @@ def plot_3D_indexing(connections,
 
 
 def plot_unit_cell(phase,
-                   orientation,
+                   orientation=None,
                    degrees=False):
     # Re-write of phase.show_unitcell
+    if orientation is None:
+        orientation = np.eye(3)
 
     ori = _parse_rotation_input(
                     orientation,
@@ -112,21 +114,6 @@ def plot_unit_cell(phase,
         (a1 + a3, a1 + a2 + a3),
         (a2 + a3, a1 + a2 + a3)
     ])
-    # print(edges)
-    # edges = np.asarray([
-    #     ((0, 0, 0), phase.a1), # basis vectors
-    #     ((0, 0, 0), phase.a2), # basis vectors
-    #     ((0, 0, 0), phase.a3), # basis vectors
-    #     (phase.a1, phase.a1 + phase.a2),
-    #     (phase.a1, phase.a1 + phase.a3),
-    #     (phase.a2, phase.a2 + phase.a1),
-    #     (phase.a2, phase.a2 + phase.a3),
-    #     (phase.a3, phase.a3 + phase.a1),
-    #     (phase.a3, phase.a3 + phase.a2),
-    #     (phase.a1 + phase.a2, phase.a1 + phase.a2 + phase.a3),
-    #     (phase.a1 + phase.a3, phase.a1 + phase.a2 + phase.a3),
-    #     (phase.a2 + phase.a3, phase.a1 + phase.a2 + phase.a3)
-    # ])
 
     edges[:, 0] = ori.apply(edges[:, 0], inverse=True)
     edges[:, 1] = ori.apply(edges[:, 1], inverse=True)

@@ -372,7 +372,7 @@ class XRDMapStack(list):
         self._shifts = shifts
 
         # Re-write hdf values
-        @XRDMapStack.protect_hdf()
+        @XRDMapStack.protect_xdms_hdf()
         def save_attrs(self): # Not sure if this needs self...
             overwrite_attr(self.xdms_hdf[self._hdf_type].attrs,
                            'shifts',
@@ -526,7 +526,7 @@ class XRDMapStack(list):
                         # Redefine arg as repeated list
                         arglists[i] = [arg,] * len(self)
 
-                # Check and fix karglists
+                # Check and fix kwarglists
                 for key, kwarg in kwarglists.items():
                     if (isinstance(kwarg, list)
                         and len(kwarg) == len(self)):
@@ -574,7 +574,7 @@ class XRDMapStack(list):
 
 
     # List of iterated methods
-    iterable_methods = (
+    iterable_methods = ( # function, variable_inputs, timed_iterator
         # hdf functions
         ('start_saving_hdf', False, False),
         ('save_current_hdf', False, True),
@@ -590,10 +590,10 @@ class XRDMapStack(list):
         ('integrate2d_map', False, True),
         ('save_reciprocal_positions', False, True),
         # Working with positions only
-        # Unlikely, but should support interferometers in future
         ('set_positions', True, False), 
         ('save_sclr_pos', False, False),
         ('swap_axes', False, False),
+        ('map_extent', False, False),
         # Working with phases
         # This one saves to individual hdfs
         ('update_phases', False, False), 
@@ -620,9 +620,10 @@ class XRDMapStack(list):
     def _get_verbatim_method(self, method):
 
         def verbatim_method(*args, **kwargs):
-            setattr(self,
-                    method,
-                    getattr(self[0], method))(*args, **kwargs)
+            # setattr(self,
+            #         method,
+            #         getattr(self[0], method))(*args, **kwargs)
+            getattr(self[0], method)(*args, **kwargs)
         
         return verbatim_method
 
@@ -647,13 +648,9 @@ class XRDMapStack(list):
         'remove_phase',
         'load_phase',
         'clear_phases',
-        # Positional
-        # No swap_axes or interpolate_positions.
-        # Should be called during processing.
-        'map_extent',
         # Plotting functions
         'plot_detector_geometry',
-        'plot_map'
+        'plot_map' # May break on extent
     )
 
     ################################
@@ -662,7 +659,7 @@ class XRDMapStack(list):
 
     # Re-defined from XRDData class
     # New names and no dask concerns
-    def protect_hdf(pandas=False):
+    def protect_xdms_hdf(pandas=False):
         def protect_hdf_inner(func):
             @functools.wraps(func)
             def protector(self, *args, **kwargs):
@@ -678,13 +675,21 @@ class XRDMapStack(list):
                                                   'a')
 
                     # Call function
-                    func(self, *args, **kwargs)
-                    
+                    try:
+                        func(self, *args, **kwargs)
+                        err = None
+                    except Exception as e:
+                        err = e
+
                     # Clean up hdf state
                     if pandas and active_hdf:
                         self.open_xdms_hdf()
                     elif not active_hdf:
                         self.close_xdms_hdf()
+                    
+                    # Re-raise any exceptions, after cleaning up hdf
+                    if err is not None:
+                        raise(err)
             return protector
         return protect_hdf_inner
 
@@ -768,7 +773,7 @@ class XRDMapStack(list):
 
     # Saves current major features
     # Calls several other save functions
-    @protect_hdf()
+    @protect_xdms_hdf()
     def save_current_xrdmapstack_hdf(self):
         
         if self.xdms_hdf_path is None:
@@ -803,7 +808,7 @@ class XRDMapStack(list):
         elif xdms_hdf == self.xdms_hdf:
             ostr = (f'WARNING: provided hdf ({self.xdms_hdf.filename})'
                     + ' is already the current save location. '
-                    + '\nProceeding                                     dask_enabled=False, without changes')
+                    + '\nProceeding without changes')
             print(ostr)
             return
         
@@ -822,6 +827,19 @@ class XRDMapStack(list):
                             xdms_hdf=xdms_hdf,
                             xdms_hdf_path=xdms_hdf_path,
                             xmds_hdf_filename=xdms_hdf_filename)
+
+    ##########################
+    ### Modified Functions ###
+    ##########################
+
+    # Need to modify to not look for a random image
+    def plot_image():
+        raise NotImplementedError()
+
+    
+    # May redefine based on differing map extents
+    # def plot_map():
+        # raise NotImplementedError()
 
 
     #####################################
@@ -870,7 +888,7 @@ class XRDMapStack(list):
             setattr(self, sorted_attr, attr_type(sorted_list))
 
         # Re-write sorted values in hdf for consistency
-        @XRDMapStack.protect_hdf()
+        @XRDMapStack.protect_xdms_hdf()
         def save_attrs(self):
             sorted_attrs = [
                 'scan_id',
@@ -986,7 +1004,7 @@ class XRDMapStack(list):
             err_str = f'Unknown method ({method}) indicated.'
             raise ValueError(err_str)
 
-        self.shifts = shifts
+        self.shifts = np.asarray(shifts)
 
 
     def vectorize_images(self):
