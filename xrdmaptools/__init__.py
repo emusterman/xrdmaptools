@@ -2,7 +2,7 @@
 # Module for working with scanning monochromatic X-ray diffraction data
 # =====================================================================
 #
-# This as yet unamed Python module is intended to automate data
+# This Python module is intended to automate data
 # processing of scanning monochromatic diffraction data acquired from
 # sychrotron beamlines. It was designed originally for data acquired at
 # the 5-ID (SRX) beamline at at NSLS-II, but is intended to be generally
@@ -27,7 +27,7 @@ submodules = [
     'geometry',
     'io',
     'reflections',
-    'utitlities',
+    'utilities',
     'plot'
 ]
 

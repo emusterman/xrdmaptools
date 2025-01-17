@@ -28,10 +28,85 @@ from xrdmaptools.utilities.background_estimators import (
     masked_bruckner_background
 )
 
-
+# This class is intended to hold and process raw data with I/O
+# Analysis and interpretations are reserved for child classes
 class XRDData:
-    # This class is intended to hold and process raw data with I/O
-    # Analysis and interpretations are reserved for child classes
+    """
+    A class for holding and processing raw XRD images with some I/O 
+    functionality. Analysis and interpretation are reserved for child 
+    classes, but there is some cross-communication.
+
+    Parameters
+    ----------
+    image_data : 4D Numpy array, Dask array, list, h5py dataset, optional
+        Image data that can be fully loaded as a 4D array with XRDMap
+        axes (map_y, map_x, image_y, image_x), or XRDRockingCurve axes
+        (rocking_axis, 1, image_y, image_x)
+    integration_data : 3D Numpy array, Dask array, list, h5py dataset, optional
+        Integration data as a 3D array with XRDMap axes (map_y, map_x,
+        intensity), or XRDRockingCurve axes (rocking_axis, 1,
+        intensity)
+    map_shape : iterable, optional
+        Shape of first two axes in image_data and integration_data as
+        (map_y, map_x) or (rocking_axis, 1).
+    image_shape : iterable, optional
+        Shape of last two axes in image_data (image_y, image_x).
+    map_labels : iterable, optional
+        Labels passed to HDF for map axes. Defaults to 'map_y_ind' and
+        'map_x_ind' for XRDMap, and 'rocking_ind' and 'null_ind' for 
+        XRDRockingCurve.
+    dtype : dtype, optional
+        Images and integrations will be converted to this data type if
+        given.
+    title : str, optional
+        Custom title used to title HDF datasets when saving. Will be
+        updated to default value after processing.
+    hdf_path : path str, optional
+        Path of HDF file. If None and hdf is None, then all save
+        functions are disabled.
+    hdf : h5py File, optional
+        h5py File instance. If None and hdf is None, then all save
+        functions are disabled.
+    ai : AzimuthalIntegrator, optional
+        pyFAI AzimuthalIntegrator instance of the calibrated detector
+        geometry. This is instance and its methods are used for
+        geometric corrections (e.g., polarization).
+    sclr_dict : dict, optional
+        Dictionary of 2D numpy arrays matching the map shape with
+        scaler intensities used for intensity normalization.
+    null_map : 2D array, optional
+        Numpy array matching the map shape used to nullify bad
+        images/map pixels (e.g., dropped frames).
+    chunks : iterable, optional
+        Iterable of length 4 with the chunk sizes for image data. The
+        last two dimensions should match the image shape to avoid
+        chunking data through images.
+    corrections : dict, optional
+        Dictionary of correction names and their boolean value of
+        whether they have been applied to the image data.
+    dask_enabled : bool, optional
+        Flag to indicate whether the image data should be lazily loaded
+        as a Dask array. Default is False.
+    hdf_type : str, optional
+        String passed from child classes indicating their type.
+
+    Raises
+    ------
+    ValueError if insufficient information is provided to construct
+    instance.
+    ValueError if HDF functionality is intended, but hdf_type if not
+    given.
+    TypeError if image_data is not given as supported type.
+    ValueError if image_data cannot be constructed into 4D data.
+    ValueError if integration_data cannot be constructed into 3D data.
+    ValueError if HDF file information cannot be properly resolved.
+    ValueError if map_labels is not length two.
+    RuntimeError if Dask is enabled without providing an active HDF.
+
+    Methods
+    -------
+    __len__
+    """
 
     def __init__(self,
                  image_data=None,
@@ -137,7 +212,7 @@ class XRDData:
                     if map_side % 1 != 0:
                         err_str = ('Assummed square map could not '
                                    + 'be constructed...')
-                        raise RuntimeError(err_str)
+                        raise ValueError(err_str)
                     new_shape = (int(map_side),
                                  int(map_side),
                                  *input_shape[1:])
@@ -201,7 +276,7 @@ class XRDData:
                 if map_side % 1 != 0:
                     err_str = ('Assummed square map could not '
                                + 'be constructed...')
-                    raise RuntimeError(err_str)
+                    raise ValueError(err_str)
                 new_shape = (int(map_side),
                              int(map_side),
                              input_shape[-1])
@@ -379,15 +454,39 @@ class XRDData:
     
     # Just for convenience
     def __len__(self):
+        """
+        Number of frames/images/XRD patterns in this object.
+
+        Returns
+        -------
+        length : int
+            Number of frames/images/XRD patterns in this object.
+        """
         return self.num_images
 
 
     def __str__(self):
+        """
+        A simple represenation of the class.
+
+        Returns
+        -------
+        outstring : str
+            A simple representation of the class.
+        """
         ostr = f'XRDData: ({self.shape}), dtype={self.dtype}'
         return ostr
 
     
     def __repr__(self):
+        """
+        A nice representation of the class with relevant information.
+
+        Returns
+        -------
+        outstring : str
+            A nice representation of the class with relevant information.
+        """
         ostr = f'XRDData:'
         ostr += f'\n\tshape:  {self.shape}'
         ostr += f'\n\tdtype:  {self.dtype}'
@@ -400,6 +499,11 @@ class XRDData:
 
     @property
     def dtype(self):
+        """
+        Get the current data type of images and integrations arrays.
+        Setting this to a new value will change the images and
+        integrations data type to the new value if they exist.
+        """
         return self._dtype
 
     @dtype.setter
@@ -419,10 +523,17 @@ class XRDData:
     
     @property
     def indices(self):
+        """
+        Get an Iterable2D class for easily iterating through all
+        pixels/images/XRD patterns.
+        """
         return Iterable2D(self.map_shape)
 
     
-    def projection_factory(property_name, function, axes):
+    def _projection_factory(property_name, function, axes):
+        """
+        Internal function for constructing projection properties.
+        """
         property_name = f'_{property_name}' # This line is crucial! 
         def get_projection(self):
             if hasattr(self, property_name):
@@ -464,28 +575,33 @@ class XRDData:
         return property(get_projection, None, del_projection)
 
 
-    min_map = projection_factory('min_map', np.min, (2, 3))
-    min_image = projection_factory('min_image', np.min, (0, 1))
+    min_map = _projection_factory('min_map', np.min, (2, 3))
+    min_image = _projection_factory('min_image', np.min, (0, 1))
 
-    max_map = projection_factory('max_map', np.max, (2, 3))
-    max_image = projection_factory('max_image', np.max, (0, 1))
+    max_map = _projection_factory('max_map', np.max, (2, 3))
+    max_image = _projection_factory('max_image', np.max, (0, 1))
 
-    med_map = projection_factory('med_map', np.median, (2, 3))
-    med_image = projection_factory('med_image', np.median, (0, 1))
+    med_map = _projection_factory('med_map', np.median, (2, 3))
+    med_image = _projection_factory('med_image', np.median, (0, 1))
 
     # Will not be accurate at default dtype of np.uint16
-    mean_map = projection_factory('mean_map', np.mean, (2, 3))
-    mean_image = projection_factory('mean_image', np.mean, (0, 1))
+    mean_map = _projection_factory('mean_map', np.mean, (2, 3))
+    mean_image = _projection_factory('mean_image', np.mean, (0, 1))
 
     # May cause overflow errors
-    sum_map = projection_factory('sum_map', np.sum, (2, 3))
-    sum_image = projection_factory('sum_image', np.sum, (0, 1))
+    sum_map = _projection_factory('sum_map', np.sum, (2, 3))
+    sum_image = _projection_factory('sum_image', np.sum, (0, 1))
 
 
     # Adaptively saves for whatever the current processing state
     # Add other methods, or rename to something more intuitive
     @property
     def composite_image(self):
+        """
+        Image generated from the minimum image pixel values subtracted
+        from the maximum pixel values. This is a convenience method for
+        quickly emphasizing signal across a dataset.
+        """
         if hasattr(self, f'_composite_image'):
             return getattr(self, f'_composite_image')
         else:
@@ -510,6 +626,11 @@ class XRDData:
     
     @property
     def mask(self):
+        """
+        Get a combined image mask from any calibration, defect, or
+        custom mask of the class. Masked pixels are discounted from
+        analysis.
+        """
         # a bit redundant considering only 4D shapes are allowed
         img_slc = (0,) * (self.images.ndim - 2) 
         #mask = np.ones_like(self.images[img_slc], dtype=np.bool_)
@@ -547,6 +668,9 @@ class XRDData:
     # Function to dump accummulated processed images and maps
     # Not sure if will be needed between processing the full map
     def reset_projections(self):
+        """
+        Delete cached projected images, integrations, and maps.
+        """
         old_attr = list(self.__dict__.keys())       
         for attr in old_attr:
             if attr in ['_composite_image',
@@ -570,6 +694,27 @@ class XRDData:
 
 
     def update_map_title(self, title=None):
+        """
+        Update internal title parameter.
+        
+        Title is updated according to given title or the current
+        corrections applied to the dataset. This title is used for
+        default naming in the HDF file.
+
+        Parameters
+        ----------
+        title : str, optional
+            New title of dataset.
+
+        Notes
+        -----
+        Default Updated Titles
+        - raw : no corrections
+        - detector_corrected : dark_field or flat_field
+        - geometry_corrected : lorentz, polarization, or solid_angle
+        - background_corrected : background
+        - calibrated : polar_calibration
+        """
         # The title will never be able to capture everything
         # This is intended to only capture major changes
         # Will be used to create new groups when saving to hdf
@@ -642,20 +787,42 @@ class XRDData:
                              image_data_key='recent',
                              dask_enabled=None,
                              chunks=None):
+        """
+        Load images from HDF file.
 
-        # Preserve dask flag from previous images unless specified
-        if dask_enabled is None:
-            dask_enabled = self._dask_enabled
+        Load images from active HDF file according. Defaults to most
+        recent set of images.
 
-        # Actually load the data
-        # This code is from hdf_io.py
+        Parameters
+        ----------
+        image_data_key : str, optional
+            Dataset title in image_data group within HDF file used to
+            load image data. Defaults to 'recent', which will load the
+            most recently written image data.
+        dask_enabled : bool, optional
+            Flag to indicate whether the image data should be lazily
+            loaded as a Dask array. Default is to check current images
+            or False if there are not any images.
+        chunks : iterable, optional
+            Iterable of length 4 with the chunk sizes for image data.
+            The last two dimensions should match the image shape to
+            avoid chunking data through images.
+
+        Raises
+        ------
+        RuntimeError if 'recent' image data is requested without any
+        image data in the HDF file.
+        """
+
+        # Actually load the data. code is modified from hdf_io.py
         img_grp = self.hdf[f'{self._hdf_type}/image_data']
 
         # Check valid image_data_key
         if (str(image_data_key).lower() != 'recent'
             and image_data_key not in img_grp.keys()):
-            warn_str = (f'WARNING: Requested image_data_key ({image_data_key}) '
-                        + 'not found in hdf. Proceding without changes...')
+            warn_str = (f'WARNING: Requested image_data_key'
+                        + f'({image_data_key}) not found in hdf. '
+                        + 'Proceding without changes...')
             return
 
         # Set recent image data key
@@ -663,32 +830,42 @@ class XRDData:
             time_stamps, img_keys = [], []
             for key in img_grp.keys():
                 if key[0] != '_':
-                    time_stamps.append(img_grp[key].attrs['time_stamp'])
+                    time_stamps.append(
+                        img_grp[key].attrs['time_stamp'])
                     img_keys.append(key)
             if len(img_keys) < 1:
-                raise RuntimeError('Could not find recent image data from hdf.')
-            time_stamps = [ttime.mktime(ttime.strptime(x)) for x in time_stamps]
+                raise RuntimeError('Could not find recent image data'
+                                   + 'from hdf.')
+            time_stamps = [ttime.mktime(ttime.strptime(x))
+                           for x in time_stamps]
             image_data_key = img_keys[np.argmax(time_stamps)]
 
-        # This check is redundant; keeping for now
-        if check_hdf_current_images(image_data_key, hdf=self.hdf):
+        # Setting up
+        img_dset = img_grp[image_data_key]
+        print(f'Loading images from ({image_data_key})...',
+              end='',
+              flush=True)
+
+        # Loading full image dataset
+        if image_data_key[0] != '_':
+            # Preserve dask flag from previous images unless specified
+            if dask_enabled is None:
+                dask_enabled = self._dask_enabled
+
             # Delete previous images from XRDData to save memory
-            img_dset = img_grp[image_data_key]
             self.images = None
 
-            print(f'Loading images from ({image_data_key})...', end='', flush=True)
             if dask_enabled:
-                # Lazy loads data
-                image_dset = img_grp[image_data_key]
-                image_data = da.from_array(image_dset, chunks=image_dset.chunks)
+                # Lazy load data
+                image_data = da.from_array(img_dset, chunks=img_dset.chunks)
             else:
-                # Fully loads data
-                image_data = img_grp[image_data_key][:]
+                # Fully load data
+                image_data = img_dset[:]
             self.images = image_data
 
             # Rebuild correction dictionary
             image_corrections = {}
-            for key, value in img_grp[image_data_key].attrs.items():
+            for key, value in img_dset.attrs.items():
                 if key[0] == '_' and key[-11:] == '_correction':
                     image_corrections[key[1:-11]] = value
             self.corrections = image_corrections
@@ -720,16 +897,135 @@ class XRDData:
             self.map_shape = self.shape[:2]
             self.image_shape = self.shape[-2:]
             self.num_images = np.prod(self.map_shape)
+        
+        # Loading only an image attribute
+        else:
+            # Convert dataset title to attribute. Some special cases
+            if image_data_key == '_statice_background':
+                attr_name = 'background'
+            elif image_data_key == '_spot_masks':
+                attr_name = 'blob_masks'
+            else:
+                attr_name = image_data_key[1:]
             
-            print('done!')
+            # Load and set attribute
+            setattr(self, attr_name, img_dset[:])
+
+        print('done!')
 
 
     def dump_images(self):
+        """
+        Release current images from memory.
+        """
         if self._dask_enabled:
             warn_str = ('WARNING: Dask will no longer be enabled '
                         + 'without images!')
             print(warn_str)
+        del self.images # This may help with gc
         self.images = None
+
+    
+    @protect_hdf()
+    def load_integrations_from_hdf(self,
+                                   integration_data_key='recent'):
+        """
+        Load integrations from HDF file.
+
+        Load integrations from active HDF file according. Defaults to
+        most recent set of integrations. Loaded data is not checked
+        against loaded images to ensure the two datasets are
+        compatible. This will be added in the future.
+
+        Parameters
+        ----------
+        integration_data_key : str, optional
+            Dataset title in integration_data group within HDF file
+            used to load integration data. Defaults to 'recent',
+            which will load the most recently written integration data.
+
+        Raises
+        ------
+        RuntimeError if 'recent' integration data is requested without
+        any integration data in the HDF file.
+        """
+
+        # Actually load the data. code is modified from hdf_io.py
+        int_grp = self.hdf[f'{self._hdf_type}/integration_data']
+
+        # Check valid integration_data_key
+        if (str(integration_data_key).lower() != 'recent'
+            and integration_data_key not in int_grp.keys()):
+            warn_str = (f'WARNING: Requested integration_data_key '
+                        + f'({integration_data_key}) not found in hdf.'
+                        + ' Proceding without changes...')
+            return
+
+        # Set recent integration data key
+        if str(integration_data_key).lower() == 'recent':
+            time_stamps, int_keys = [], []
+            for key in int_grp.keys():
+                if key[0] != '_':
+                    time_stamps.append(
+                            int_grp[key].attrs['time_stamp'])
+                    int_keys.append(key)
+            if len(int_keys) < 1:
+                err_str = ('Could not find recent '
+                           + 'integration data from hdf.')
+                raise RuntimeError(err_str)
+            time_stamps = [ttime.mktime(ttime.strptime(x))
+                           for x in time_stamps]
+            integration_data_key = imt_keys[np.argmax(time_stamps)]
+
+        # Setting up
+        int_dset = int_grp[integration_data_key]
+        print(f'Loading integrations from ({integration_data_key})...',
+              end='',
+              flush=True)
+
+        # Loading full image dataset
+        if integration_data_key[0] != '_':
+            # Delete and redefine integrations to save memory
+            self.integration = None
+            self.integrations = int_dset[:]
+
+            # Rebuild correction dictionary
+            integration_corrections = {}
+            for key, value in (
+                        int_grp[integration_data_key].attrs.items()):
+                if key[0] == '_' and key[-11:] == '_correction':
+                    integration_corrections[key[1:-11]] = value
+
+            # Check state of integrations to images
+            integration_title = '_'.join([x for x in
+                                        integration_data_key.split('_')
+                                        if x not in ['images',
+                                                     'integrations']])
+            if self.images is None:
+                self.corrections = integration_corrections
+            else:
+                warn_str = ('WARNING: Checks for matching loaded '
+                            + 'integrations with currently loaded '
+                            + 'images are not yet implemented.')
+                print(warn_str)
+
+        # Loading only an image attribute
+        else:
+            # Convert dataset title to attribute. 
+            attr_name = integration_data_key[1:]
+            
+            # Load and set attribute
+            setattr(self, attr_name, int_dset[:])
+
+        print('done!')
+
+    
+    def dump_integrations(self):
+        """
+        Release current integrations from memory.
+        """
+        del self.integrations # This may help with gc
+        self.integrations = None
 
 
     ######################
@@ -807,24 +1103,51 @@ class XRDData:
     # This function does NOT stop saving to hdf
     # It only closes open hdf locations and stops lazy loading images
     def close_hdf(self):
+        """
+        Closes currently active HDF file.
+        """
         if self.hdf is not None:
             self._dask_2_hdf()
             self.hdf.close()
             self.hdf = None
         
 
-    def open_hdf(self, dask_enabled=False):
+    def open_hdf(self, dask_enabled=None):
+        """
+        Opens HDF file.
+
+        Opens HDF file from hdf path information if available. If dask
+        is enabled, then a temporary image data storage location in the
+        HDF file will be setup or accessed if it already exist.
+
+        Parameters
+        ----------
+        dask_enabled : bool, optional
+            Flag to determine if a reference to a temporary storage
+            location needs to be setup in order to store the lazily
+            loaded image data. By default this flag is set to whether
+            the images are already lazily loaded.
+        """
         if self.hdf is not None:
             # Should this raise errors or just ping warnings
-            note_str = ('NOTE: hdf is already open. '
+            note_str = ('NOTE: HDF is already open. '
                         + 'Proceeding without changes.')
+            print(note_str)
+            return
+        elif self.hdf_path is None:
+            note_str = ('NOTE: HDF path is not being saved in this'
+                        + 'instance. Run start_saving_hdf method to '
+                        + 'start saving to HDF file.')
             print(note_str)
             return
         else:
             self.hdf = h5py.File(self.hdf_path, 'a')
 
         # This flag persists even when the dataset is closed!
-        if dask_enabled or self._dask_enabled: 
+        if dask_enabled is None:
+            dask_enabled = self._dask_enabled
+
+        if dask_enabled: 
             img_grp = self.hdf[f'{self._hdf_type}/image_data']
             if self.title == 'final':
                 if check_hdf_current_images(f'{self.title}_images',
@@ -869,6 +1192,37 @@ class XRDData:
     def correct_dark_field(self,
                            dark_field=None,
                            override=False):
+        """
+        Apply dark-field correction.
+
+        Subtract dark-field from images if correction is not already
+        applied or override requested. Internal dark_field attribute is
+        used unless specified. Successful execution will then store the
+        dark-field internally and in the HDF file.
+
+        Parameters
+        ----------
+        dark_field : 2D array, optional
+            2D array matching the image shape to be subtracted from
+            images. Internal dark_field attribute is used unless
+            specified.
+        override : bool, optional
+            Override already applied corrections if True. Default is
+            False.
+
+        Raises
+        ------
+        ValueError if dark-field shape does not match image shape.
+        
+        Notes
+        -----
+        Since this should be the first correction applied, this
+        function will upcast the data to 32-bit floats to prevent
+        future errors. This function will also generate a temporary
+        storage dataset in the HDF file if dask is enabled and one
+        does not already exist.
+        """
+
 
         if self._check_correction('dark_field', override=override):
             return
@@ -940,6 +1294,36 @@ class XRDData:
     def correct_flat_field(self,
                            flat_field=None,
                            override=False):
+        """
+        Apply flat-field correction.
+
+        Divide flat-field from images if correction is not already
+        applied or override requested. Internal flat_field attribute is
+        used unless specified. Successful execution will then store the
+        flat-field internallyu and in the HDF File.
+
+        Parameters
+        ----------
+        flat_field : 2D array, optional
+            2D array matching the image shape to be divided from
+            images. Internal flat_field attribute is used unless
+            specified.
+        override : bool, optional
+            Override already applied corrections if True. Default is
+            False.
+
+        Raises
+        ------
+        ValueError if flat-field shape does not match image shape.
+        
+        Notes
+        -----
+        Since this should be the first correction applied, this
+        function will upcast the data to 32-bit floats to prevent
+        future errors. This function will also generate a temporary
+        storage dataset in the HDF file if dask is enabled and one
+        does not already exist.
+        """
 
         if self._check_correction('flat_field', override=override):
             return
@@ -977,6 +1361,38 @@ class XRDData:
                             air_scatter=None,
                             applied_corrections=None,
                             override=False):
+        """
+        Correct for air scatter.
+
+        Subtract air scatter contribution from images if correction not already applied or override requested. 
+
+        Subtract dark-field from images if correction not already
+        applied or override requested. Internal dark_field attribute is
+        used unless specified. Successful excution will then store the
+        dark-field internally and in the HDF file.
+
+        Parameters
+        ----------
+        dark_field : 2D array, optional
+            2D array matching the image shape to be subtracted from
+            images. Internal dark_field attribute is used unless
+            specified.
+        override : bool, optional
+            Override already applied corrections if True. Default is
+            False.
+
+        Raises
+        ------
+        ValueError if dark-field shape does not match image shape.
+        
+        Notes
+        -----
+        Since this should be the first correction applied, this
+        function will upcast the data to 32-bit floats to prevent
+        future errors. This function will also generate a temporary
+        storage dataset in the HDF file if dask is enabled and one
+        does not already exist.
+        """
 
         if self._check_correction('air_scatter', override=override):
             return
@@ -1120,8 +1536,8 @@ class XRDData:
 
 
     ### Geometric corrections ###
-    # TODO: Add conditionals to allow corrections
-    # to be applied to calibrated images
+    # These corrections are only applicable to the signals themselves
+    # Lorentz correction should only be applied when not tranforming into 3D RSM
     def apply_lorentz_correction(self,
                                  powder=False,
                                  apply=True,
@@ -1742,7 +2158,7 @@ class XRDData:
 
     # Simpler from image_projection_factor
     # because no mask is considered
-    def integration_projection_factory(property_abbreviation,
+    def integration__projection_factory(property_abbreviation,
                                        function, axes):
         # This line is crucial!
         property_name = f'_{property_abbreviation}'  
@@ -1764,29 +2180,29 @@ class XRDData:
         
         return property(get_projection, None, del_projection)
     
-    min_integration = integration_projection_factory(
+    min_integration = integration__projection_factory(
                             'min_integration', np.min, (0, 1))
-    min_integration_map = integration_projection_factory(
+    min_integration_map = integration__projection_factory(
                             'min_integration_map', np.min, (2))
 
-    max_integration = integration_projection_factory(
+    max_integration = integration__projection_factory(
                             'max_integration', np.max, (0, 1))
-    max_integration_map = integration_projection_factory(
+    max_integration_map = integration__projection_factory(
                             'max_integration_map', np.max, (2))
 
-    sum_integration = integration_projection_factory(
+    sum_integration = integration__projection_factory(
                             'sum_integration', np.sum, (0, 1))
-    sum_integration_map = integration_projection_factory(
+    sum_integration_map = integration__projection_factory(
                             'sum_integration_map', np.sum, (2))
 
-    med_integration = integration_projection_factory(
+    med_integration = integration__projection_factory(
                             'med_integration', np.median, (0, 1))
-    med_integration_map = integration_projection_factory(
+    med_integration_map = integration__projection_factory(
                             'med_integration_map', np.median, (2))
 
-    mean_integration = integration_projection_factory(
+    mean_integration = integration__projection_factory(
                             'mean_integration', np.mean, (0, 1))
-    mean_integration_map = integration_projection_factory(
+    mean_integration_map = integration__projection_factory(
                             'mean_integration_map', np.mean, (2))
 
 

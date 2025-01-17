@@ -1,6 +1,3 @@
-# Note: This class is highly experimental
-# It is intended to wrap the XRDMap class and convert every method to apply iteratively across a stack of XRDMaps
-# This is instended for 3D RSM mapping where each method / parameter may change between maps
 
 import os
 import h5py
@@ -61,14 +58,40 @@ from xrdmaptools.plot.volume import (
 
 
 class XRDRockingCurve(XRDBaseScan):
+    """
+    Class for analyzing and processing XRD data acquired along
+    either and energy/wavelength or angle rocking axis.
+
+    Parameters
+    ----------
+    image_data : 3D or 4D Numpy array, Dask array, list, h5py dataset, optional
+        Image data that can be fully loaded as a 4D array XRDRockingCurve axes
+        (rocking_axis, 1, image_y, image_x). The extra axis will be added if
+        data is provided as 3D array.
+    map_shape : iterable, optional
+        Shape of first two axes in image_data as (rocking_axis, 1).
+    image_shape : iterable, optional
+        Shape of last two axes in image_data (image_y, image_x).
+    sclr_dict : dict, optional
+        Dictionary of 2D numpy arrays or 1D iterables that matching the
+        rocking_axis shape with scaler intensities used for intensity
+        normalization.
+    rocking_axis : {'energy', 'angle'}, optional
+        String indicating which axis was used as the rocking axis to
+        scan in reciprocal space. Will accept variations of 'energy',
+        'wavelength', 'angle' and 'theta', but stored internally as
+        'energy', or 'angle'. Defaults to 'energy'.
+    xrdbasekwargs : dict, optional
+        Dictionary of all other kwargs for parent XRDBaseScan class.
+    """
 
     # Class variables
     _hdf_type = 'rsm'
 
     def __init__(self,
                  image_data=None,
-                 image_shape=None,
                  map_shape=None,
+                 image_shape=None,
                  sclr_dict=None,
                  rocking_axis=None,
                  **xrdbasekwargs

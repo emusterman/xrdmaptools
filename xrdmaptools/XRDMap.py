@@ -43,9 +43,23 @@ from xrdmaptools.plot.general import (
 
 
 class XRDMap(XRDBaseScan):
-    '''
-    Main class object for scanning XRD maps.
-    '''
+    """
+    Class for analyzing and processing XRD data acquired every
+    pixel along a 2D spatial map.
+
+    Parameters
+    ----------
+    pos_dict : dict, optional
+        Dictionary of 2D numpy arrays matching the map shape with
+        position values used to inform and scale map plots.
+    swapped_axes: bool, optional
+        Flag to indicate if the fast and slow scanning axes are
+        swapped. Default is False assuming a fast x-axis and slow y-axis.
+    xrf_path : str, optional
+        Path string of associated xrfmap hdf file generate from pyXRF.
+    xrdbasekwargs : dict, optional
+        Dictionary of all other kwargs for parent XRDBaseScan class.
+    """
 
     # Class variables
     _hdf_type = 'xrdmap'
@@ -754,12 +768,12 @@ class XRDMap(XRDBaseScan):
         if update_flag: 
             self._swapped_axes = not self._swapped_axes
 
-            @XRDBaseScan.protect_hdf()
-            def save_swapped_axes(self):
-                overwrite_attr(self.hdf[self._hdf_type].attrs,
-                               'swapped_axes',
-                               int(self._swapped_axes))
-            save_swapped_axes(self)
+        @XRDBaseScan.protect_hdf()
+        def save_swapped_axes(self):
+            overwrite_attr(self.hdf[self._hdf_type].attrs,
+                            'swapped_axes',
+                            int(self._swapped_axes))
+        save_swapped_axes(self)
 
         # if not only_images:
         #     if hasattr(self, 'pos_dict'):

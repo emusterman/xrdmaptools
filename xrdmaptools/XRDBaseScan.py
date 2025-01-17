@@ -48,10 +48,104 @@ from xrdmaptools.crystal.Phase import Phase, phase_selector
 
 
 class XRDBaseScan(XRDData):
-    '''
-    Base class for general functions working with XRD data.
-    Built more for analysis and interpretable data
-    '''
+    """
+    Base class for working with XRD scans, built from XRDData. This 
+    class adds general utility analyzing and interpreting XRD data 
+    without any assumptions or special considerations for the 
+    individual experiment type. This class also lays the groundwork for
+    hdf file read/write capabilities.
+
+    Parameters
+    ----------
+    scan_id : int or str, optional
+        Unique identifier for the scan used to acquire the XRD data.
+        May be string if connecting series of scan IDs.
+    wd : path str, optional
+        Path str indicating the main working directory for the XRD
+        data. Will be used as the default read/write location.
+        Defaults to the current working directy.
+    filename : str, optional
+        Custom file name if not provided. Defaults to include scan ID
+        and child class type.
+    hdf_filename : str, optional
+        Custom file name of hdf file. Defaults to include the filename
+        parameter if not provided.
+    hdf : h5py File, optional
+        h5py File instance. Will be used to derive hdf_filename and hdf
+        path location if provided.
+    energy : float, optional
+        Energy of incident X-rays. Will be used to determine wavelength
+        if provided.
+    wavelength : float, optional
+        Wavelength of incident X-rays. Will be used to determin energy
+        if energy is not provided.
+    dwell : float, optional
+        Dwell time of pixel/frame/image.
+    theta : float, optional
+        Angle of stage rotation about the vertical (y-axis). Defaults
+        to 0, and currently only degree units are supported.
+    use_stage_rotation : bool, optional
+        Flag to indicate if the stage rotation should be included in
+        determining recprocal space values. This should only be true
+        when using the stage rotation to find specific reflections or
+        to rock through reciprocal space. Default is false.
+    poni_file : path str, OrderedDict, PoniFile, optional
+        Calibration parameters for instantiating an AzimuthalIntegrator
+        from pyFAI. Can be provided as a path string to a .poni file,
+        and OrderedDict of parameters, or a PoniFile instance.
+    sclr_dict : dict, optional
+        Dictionary of 2D numpy arrays matching the map shape with
+        scaler intensities used for intensity normalization.
+    check_init_sets : bool, optional
+        Flag to disable overwriting of AzimuthalIntegrator calibration
+        parameters and scaler and position dictionaries. Only intended
+        to be True when loading for hdf file, default is False.
+    tth_resolution : float, optional
+        Resolution of scattering angles for 1D image integrations and
+        the x-axis of 2D image integrations. 0.01 degrees by default
+        and currently only supports degree units.
+    chi_resolution : float, optional 
+        Resolution of azimuthal angles for the y-axis of 2D image
+        integrations. 0.05 deg by default and currently only supports
+        degree units.
+    tth : iterable, optional
+        Iterable of scattering angles used to interpret 1D image
+        integrations or the x-axis of 2D image integrations. None by
+        default, and length should match integrations of XRDData if
+        provided and currently only supports degree units.
+    chi : iterable, optional
+        Iterable of azimuthal angles used to interpret the y-axis of
+        cake or 2D image integrations. None by default and currently
+        only supports degree units.
+    beamline : str, optional
+        String to record the beamline where the XRD data was acquired.
+    facility : str, optional
+        String to record the facility where the XRD data was acquired.
+    scan_input : iterable, optional
+        List of input parameters for the scan generating the XRD data.
+        Should be given as [xstart, xend, xnum, ystart, yend, ynum, *].
+        These values are used to determine the map extent if given.
+    time_stamp : str, optional
+        String intended to indicate the time which the XRD data was
+        first acquired. Defaults to current time if not given.
+    extra_metadata : dict, optional
+        Dictionary of extra metadata to be stored with the XRD data.
+        Extra metadata will be written to the hdf file if enabled, but
+        is not intended to be interacted with during normal data
+        processing.
+    save_hdf : bool, optional
+        If False, this flag disables all hdf read/write functions.
+        True by default.
+    dask_enabled : bool, optional
+        Flag to indicate whether the image data should be lazily loaded
+        as a Dask array. Default is False.
+    extra_attrs : dict, optional
+        Dictionary of extra attributes to be given to XRDBaseScan.
+        These attributes are intended for those value generated during
+        processing of the XRD data.
+    xrddatakwargs : dict, optional 
+        Dictionary of all other kwargs for parent XRDData class.
+    """
 
     # Class variables
     _hdf_type = 'xrdbase'
@@ -97,6 +191,8 @@ class XRDBaseScan(XRDData):
 
         self.beamline = beamline
         self.facility = facility
+        if time_stamp is None:
+            time_stamp = ttime.ctime()
         self.time_stamp = time_stamp
         self.scan_input = scan_input
         if extra_metadata is None:
@@ -242,6 +338,7 @@ class XRDBaseScan(XRDData):
                  dask_enabled=False,
                  image_data_key='recent',
                  integration_data_key='recent',
+                 load_blob_masks=True,
                  map_shape=None,
                  image_shape=None,
                  **kwargs):
@@ -259,6 +356,7 @@ class XRDBaseScan(XRDData):
                             wd,
                             image_data_key=image_data_key,
                             integration_data_key=integration_data_key,
+                            load_blob_masks=load_blob_masks,
                             map_shape=map_shape,
                             image_shape=image_shape,
                             dask_enabled=dask_enabled)
@@ -449,15 +547,6 @@ class XRDBaseScan(XRDData):
         @XRDBaseScan.protect_hdf()
         def save_attrs(self): # Not sure if this needs self...
             attrs = self.hdf[self._hdf_type].attrs
-
-            # if check_attr_overwrite(attrs, 'energy', self.energy):
-            #     print(self.energy)
-            #     print(self.hdf[self._hdf_type].attrs['energy'])
-            # if check_attr_overwrite(attrs, 'wavelength', self.wavelength):
-            #     print(self.wavelength)
-            #     print(self.hdf[self._hdf_type].attrs['wavelength'])
-            
-            
             overwrite_attr(attrs, 'energy', self.energy)
             overwrite_attr(attrs, 'wavelength', self.wavelength)
             # attrs['energy'] = self.energy
@@ -794,14 +883,6 @@ class XRDBaseScan(XRDData):
         
         if hasattr(self, 'poni') and self.poni is not None:
             self.save_calibration()
-
-        # # Save positions
-        # # Only works for XRDMaps...
-        # if hasattr(self, 'pos_dict') and self.pos_dict is not None:
-        #     # Write to hdf file
-        #     self.save_sclr_pos('positions',
-        #                         self.pos_dict,
-        #                         self.position_units)
 
         # Save scalers
         if hasattr(self, 'sclr_dict') and self.sclr_dict is not None:

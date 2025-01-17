@@ -33,9 +33,46 @@ from xrdmaptools.plot.image_stack import base_slider_plot
 # Class for working with PROCESSED XRDMaps
 # Maybe should be called XRDMapList
 class XRDMapStack(list): 
-    # Does not inherit XRDMap class
-    # But many methods have been rewritten to interact
-    # with the XRDMap methods of the same name
+    """
+    Class for combining XRDMaps acquired along either an
+    energy/wavelength or angle rocking axis for analyzing and processing
+    the XRD data. Many XRDMap methods are included to work verbatim,
+    iterably though the full stack, or modified with this class.
+
+    Parameters
+    ----------
+    stack : iterable of XRDMaps, optional
+        Iterable of xrdmap instances used to construct the XRDMapStack.
+    shifts : iterable, optional
+        Iterable of iterables indicating the
+        [[y-shift, x-shifts], [...], ...] with a shape of (n, 2), where
+        n is the number of XRDMaps in the stack.
+    rocking_axis : {'energy', 'angle'}, optional
+        String indicating which axis was used as the rocking axis to
+        scan in reciprocal space. Will accept variations of 'energy',
+        'wavelength', 'angle' and 'theta', but stored internally as
+        'energy', or 'angle'. Defaults to 'energy'.
+    xdms_wd : path str, optional
+        Path str indicating the main working directory for the XRD
+        data. Will be used as the default read/write location.
+        Defaults to the current working directy.
+    xdms_filename : str, optional
+        Custom file name if not provided. Defaults to include scan IDs.
+    xdms_hdf_filename : str, optional
+        Custom file name of hdf file. Defaults to include the filename
+        parameter if not provided.
+    xdms_hdf : 
+        h5py File instance. Will be used to derive hdf_filename and hdf
+        path location if provided.
+    save_hdf : bool, optional
+        If False, this flag disables all hdf read/write functions.
+        True by default.
+    xdms_extra_metadata : dict, optional
+        Dictionary of extra metadata to be stored with the XRD data.
+        Extra metadata will be written to the hdf file if enabled, but
+        is not intended to be interacted with during normal data
+        processing.
+    """
 
     # Class variables
     _hdf_type = 'xrdmapstack'
@@ -402,7 +439,8 @@ class XRDMapStack(list):
                          save_hdf=True,
                          dask_enabled=False,
                          image_data_key=None, # Load empty datasets
-                         integration_data_key=None, # Load mostly empty datasets
+                         integration_data_key=None, # Load empty datasets
+                         load_blob_masks=False, # Load empty datasets
                          map_shape=None,
                          image_shape=None,
                          **kwargs):
@@ -432,6 +470,7 @@ class XRDMapStack(list):
                     dask_enabled=dask_enabled,
                     image_data_key=image_data_key,
                     integration_data_key=integration_data_key,
+                    load_blob_masks=load_blob_masks,
                     map_shape=map_shape,
                     image_shape=image_shape,
                     save_hdf=save_hdf,

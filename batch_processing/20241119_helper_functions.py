@@ -19,6 +19,7 @@ from xrdmaptools.utilities.utilities import (
   rescale_array,
   timed_iter 
 )
+from xrdmaptools.XRDBaseScan import XRDBaseScan
 
 
 # elemental names in American English
@@ -463,7 +464,7 @@ def interpolate_positions(map_shape,
     xx_virt = xx_virt[mask]
     yy_virt = yy_virt[mask]
     virt_shape = (len(np.unique(yy_virt)), len(np.unique(xx_virt)))
-    print(virt_shape)
+    # print(virt_shape)
 
     if plotme:
         fig, ax = plt.subplots()
@@ -482,7 +483,7 @@ def interpolate_positions(map_shape,
         x_start = vmask_x0
         x_end = vmask_x0 + virt_shape[1]
 
-        print(vmask_x0, vmask_y0)
+        # print(vmask_x0, vmask_y0)
         vmask = np.zeros_like(xx, dtype=np.bool_)
         vmask[y_start : y_end,
               x_start : x_end] = True
@@ -609,19 +610,76 @@ def interpolate_positions(map_shape,
 #     # return xx_virt.reshape(virt_shape), yy_virt.reshape(virt_shape)
 #     # return xx_virt.reshape(virt_shape), yy_virt.reshape(virt_shape)[::-1] # flip y-axes again
 
+@XRDBaseScan.protect_hdf()
+def vectorize_map_data(self,
+                       image_data_key='recent',
+                       keep_images=False):
+
+    # Check required data
+    remove_blob_masks_after = False
+    if not hasattr(self, 'blob_masks') or self.blob_masks is None:
+        if '_blob_masks' in self.hdf[
+                            f'{self._hdf_type}/image_data'].keys():
+            self.load_images_from_hdf('_blob_masks')
+        # For backwards compatibility
+        elif '_spot_masks' in self.hdf[
+                            f'{self._hdf_type}/image_data'].keys():
+            self.load_images_from_hdf('_spot_masks')
+        else:
+            err_str = (f'{self._hdf_type} does not have blob_masks'
+                       + 'attribute.')
+            raise AttributeError(err_str)
+        remove_blob_masks_after = True
+
+    remove_images_after = False
+    if not hasattr(self, 'images') or self.images is None:
+        remove_images_after = True
+        self.load_images_from_hdf(image_data_key=image_data_key)
+
+    print('Vectorizing data...')
+    vector_map = np.empty(self.map_shape, dtype=object)
+
+    for indices in tqdm(self.indices):
+        blob_mask = self.blob_masks[indices]
+        intensity = self.images[indices][blob_mask]
+        q_vectors = self.q_arr[blob_mask]
+        
+        vector_map[indices] = np.hstack([q_vectors,
+                                         intensity.reshape(-1, 1)])
+
+    # Record values
+    self.vector_map = vector_map
+    
+    # Cleaning up XRDMap state
+    if not keep_images and remove_images_after:
+        self.dump_images()
+    if not keep_images and remove_blob_masks_after:
+        del self.blob_masks
+        self.blob_masks = None
+
 
 def vectorize_xrdmapstack_data(xrdmapstack, vmask_list, image_data_key='recent'):
 
     # Quick input check
     for i, xrdmap in enumerate(xrdmapstack):
+        active_hdf = xrdmap.hdf is not None
+        if not active_hdf:
+            xrdmap.open_hdf()
+
+        img_grp = xrdmap.hdf['xrdmap/image_data']
+
         if (not hasattr(xrdmap, 'q_arr')
              or xrdmap.q_arr is None):
              err_str = f'q_arr not defined for xrdmap[{i}]!'
              raise AttributeError(err_str)
-        elif (not hasattr(xrdmap, 'blob_masks')
-                or xrdmap.blob_masks is None):
+        elif ('_blob_masks' not in img_grp.keys()
+              and (not hasattr(xrdmap, 'blob_masks')
+                   or xrdmap.blob_masks is None)):
             err_str = f'blob_masks not defined for xrdmap[{i}]!'
             raise AttributeError(err_str)
+        
+        if not active_hdf:
+            xrdmap.close_hdf()
 
     # Vectorize images
     v_arr_list = []
@@ -630,8 +688,13 @@ def vectorize_xrdmapstack_data(xrdmapstack, vmask_list, image_data_key='recent')
                                 iter_name='XRDMap'):
         print(f'Processing data from scan {xrdmap.scan_id}.')
 
+        vectorize_map_data(xrdmap)
+
         # Load images
         xrdmap.load_images_from_hdf(image_data_key=image_data_key)
+        # Load blob masks
+        # Deprecated: _spot_masks key will not be supported
+        xrdmap.load_images_from_hdf(image_data_key='_blob_masks')
 
         v_arr = np.empty(xrdmap.map_shape, dtype=object)
 
@@ -644,38 +707,49 @@ def vectorize_xrdmapstack_data(xrdmapstack, vmask_list, image_data_key='recent')
             v_arr[indices] = np.hstack([q_vectors,
                                         intensity.reshape(-1, 1)])
         
-        # Record and then memory
+        # Record and then release memory
         v_arr_list.append(v_arr)
+        del intensity, q_vectors
         xrdmap.dump_images()
+        del xrdmap.blob_masks, blob_mask # Helps with gc
+        xrdmap.blob_masks = None
     
 
-    # Construct full vector array
-    print('Combining all vectorized images...', end='', flush=True)
-    vmask_shape = np.max([vmask_list[0].sum(axis=0),
-                          vmask_list[0].sum(axis=1)],
-                         axis=1)
+    try:
+        # Construct full vector array
+        print('Combining all vectorized images...', end='', flush=True)
+        # vmask_shape = np.max([vmask_list[0].sum(axis=0),
+        #                       vmask_list[0].sum(axis=1)],
+        #                      axis=1)
+        vmask_shape = (np.max(vmask_list[0].sum(axis=0)),
+                    np.max(vmask_list[0].sum(axis=1)))
 
-    full_v_arr = np.empty(vmask_shape, dtype=object)
+        full_v_arr = np.empty(vmask_shape, dtype=object)
 
-    for v_arr, vmask in zip(v_arr_list, vmask_list):
-        virt_index = 0
-        for indices in xrdmap.indices:
-            # Skip if not in vmask
-            if not vmask[indices]:
-                continue
-            
-            virt_indices = np.unravel_index(virt_index, vmask_shape)
+        for v_arr, vmask in zip(v_arr_list, vmask_list):
+            virt_index = 0
+            for indices in xrdmap.indices:
+                # Skip if not in vmask
+                if not vmask[indices]:
+                    continue
+                
+                virt_indices = np.unravel_index(virt_index, vmask_shape)
 
-            if full_v_arr[virt_indices] is None:
-                full_v_arr[virt_indices] = v_arr[indices]
-            else:
-                full_v_arr[virt_indices] = np.vstack([
-                                            full_v_arr[virt_indices],
-                                            v_arr[indices]])
-            virt_index += 1
+                if full_v_arr[virt_indices] is None:
+                    full_v_arr[virt_indices] = v_arr[indices]
+                else:
+                    full_v_arr[virt_indices] = np.vstack([
+                                                full_v_arr[virt_indices],
+                                                v_arr[indices]])
+                virt_index += 1
+    except:
+        return v_arr_list, None
     
     # Get edges too
-    edges = get_sampled_edges(xrdmapstack)
+    try:
+        edges = get_sampled_edges(xrdmapstack)
+    except:
+        return full_v_arr, None
 
     print('done!')
     return full_v_arr, edges
@@ -711,33 +785,35 @@ def get_sampled_edges(xrdmapstack):
     return edges
 
 
-# @XRDBaseScan.protect_hdf()
-def save_vectorization(self,
-                       full_v_arr=None,
-                       edges=None,
-                       rewrite_data=False):
+@XRDBaseScan.protect_hdf()
+def save_map_vectorization(self,
+                           vector_map=None,
+                           edges=None,
+                           rewrite_data=False):
+
 
     # Check input
-    if full_v_arr is None:
-        if (hasattr(self.full_v_arr)
-            and self.full_v_arr is not None):
-            full_v_arr = self.full_v_arr
+    if vector_map is None:
+        if (hasattr(self, 'vector_map')
+            and self.vector_map is not None):
+            vector_map = self.vector_map
         else:
-            err_str = (f'Must provide full_v_arr or XRDMapStack must '
-                       + 'have full_v_arr attribute.')
+            err_str = ('Must provide vector_map or '
+                       + f'{self.__class__.__name__} must have '
+                       + 'vector_map attribute.')
             raise AttributeError(err_str)
 
     # Write data to hdf
-    print('Saving vectorized data...')
-    vect_grp = self.xdms_hdf[self._hdf_type].require_group(
-                                            'vectorized_data')
+    print('Saving vectorized map data...')
+    vect_grp = self.hdf[self._hdf_type].require_group(
+                                            'vectorized_map')
     vect_grp.attrs['time_stamp'] = ttime.ctime()
-    vect_grp.attrs['virtual_shape'] = full_v_arr.shape
+    vect_grp.attrs['virtual_shape'] = vector_map.shape
 
     all_used_indices = [] # For potential vmask shape changes
-    for index in range(np.prod(full_v_arr.shape)):
-        indices = np.unravel_index(index, full_v_arr.shape)
-        data = full_v_arr[indices]
+    for index in range(np.prod(vector_map.shape)):
+        indices = np.unravel_index(index, vector_map.shape)
+        data = vector_map[indices]
         title = ','.join([str(ind) for ind in indices]) # e.g., '1,2'
         all_used_indices.append(title)
 
@@ -842,139 +918,34 @@ def load_vectorization(xrdmapstack):
 
             
     
-   
 
 
+# Quick throw-away function
+def transpose_dictionaries(self):
 
-# @XRDBaseScan.protect_hdf()
-# def save_vectorization(self,
-#                         q_vectors=None,
-#                         intensity=None,
-#                         edges=None,
-#                         rewrite_data=False):
-
-#     print('Saving vectorized image data...')
-
-#     # Write data to hdf
-#     vect_grp = self.hdf[self._hdf_type].require_group(
-#                                             'vectorized_data')
-#     vect_grp.attrs['time_stamp'] = ttime.ctime()
-
-#     # Save q_vectors and intensity
-#     for attr, attr_name in zip([q_vectors, intensity],
-#                                 ['q_vectors', 'intensity']):
-
-#         # Check for values/attributes.
-#         # Must have both q_vectors and intensity
-#         if attr is None:
-#             if (hasattr(self, attr_name)
-#                 and getttr(self, attr_name) is not None):
-#                 attr = getattr(self, attr_name)
-#             else:
-#                 self.hdf.close()
-#                 self.hdf = None
-#                 err_str = (f'Cannot save {attr_name} if not '
-#                             + 'given or already an attribute.')
-#                 raise AttributeError(err_str)
-
-#         # Check for dataset and compatibility
-#         attr = np.asarray(attr)
-#         if attr_name not in vect_grp.keys():
-#             dset = vect_grp.require_dataset(
-#                     attr_name,
-#                     data=attr,
-#                     shape=attr.shape,
-#                     dtype=attr.dtype)
-#         else:
-#             dset = vect_grp[attr_name]
-
-#             if (dset.shape == attr.shape
-#                 and dset.dtype == attr.dtype):
-#                 dset[...] = attr
-
-#             else:
-#                 warn_str = 'WARNING:'
-#                 if dset.shape != attr.shape:
-#                     warn_str += (f'{attr_name} shape of'
-#                                 + f' {attr.shape} does not '
-#                                 + 'match dataset shape '
-#                                 + f'{dset.shape}. ')
-#                 if dset.dtype != attr.dtype:
-#                     warn_str += (f'{attr_name} dtype of'
-#                                 + f' {attr.dtype} does not '
-#                                 + 'match dataset dtype '
-#                                 + f'{dset.dtype}. ')
-#                 if rewrite_data:
-#                     warn_str += (f'\nOvewriting {attr_name}. This '
-#                                 + 'may bloat the total file size.')
-#                     # Shape changes should not happen
-#                     # except from q_arr changes
-#                     print(warn_str)
-#                     del vect_grp[attr_name]
-#                     dset = vect_grp.require_dataset(
-#                         attr_name,
-#                         data=attr,
-#                         shape=attr.shape,
-#                         dtype=attr.dtype)
-#                 else:
-#                     warn_str += '\nProceeding without changes.'
-#                     print(warn_str)
-            
+    xdm.open_hdf()
     
-#     # Check for edge information
-#     if edges is None:
-#         if hasattr(self, 'edges') and self.edges is not None:
-#             edges = self.edges
-#         else:
-#             warn_str = ('WARNING: No edges given or found. '
-#                         + 'Edges will not be saved.')
-#             print(warn_str)
+    if hasattr(self, 'pos_dict'):
+        for key in list(self.pos_dict.keys()):
+            self.pos_dict[key] = self.pos_dict[key].swapaxes(
+                                                    0, 1)
+        self.save_sclr_pos('positions',
+                            self.pos_dict,
+                            self.position_units)
+    
+    if hasattr(self, 'sclr_dict'):
+        for key in list(self.sclr_dict.keys()):
+            self.sclr_dict[key] = self.sclr_dict[key].swapaxes(
+                                                        0, 1)
+        self.save_sclr_pos('scalers',
+                           self.sclr_dict,
+                           self.scaler_units)
+    # Update spot map_indices
+    if hasattr(self, 'spots'):
+        map_x_ind = self.spots['map_x'].values
+        map_y_ind = self.spots['map_y'].values
+        self.spots['map_x'] = map_y_ind
+        self.spots['map_y'] = map_x_ind
+        self.save_spots()
 
-#     # Only save edge information if given
-#     if edges is not None:
-#         edge_grp = vect_grp.require_group('edges')
-#         edge_grp.attrs['time_stamp'] = ttime.ctime()
-
-#         # Check for existenc and compatibility
-#         for i, edge in enumerate(edges):
-#             edge = np.asarray(edge)
-#             edge_title = f'edge_{i}'
-#             if edge_title not in edge_grp.keys():
-#                 edge_grp.require_dataset(
-#                     edge_title,
-#                     data=edge,
-#                     shape=edge.shape,
-#                     dtype=edge.dtype)
-#             else:
-#                 dset = edge_grp[edge_title]
-
-#                 if (dset.shape == edge.shape
-#                     and dset.dtype == edge.dtype):
-#                     dset[...] = edge
-#                 else:
-#                     warn_str = 'WARNING:'
-#                     if dset.shape != edge.shape:
-#                         warn_str += (f'Edge shape for {edge_title}'
-#                                     + f' {edge.shape} does not '
-#                                     + 'match dataset shape '
-#                                     + f'{dset.shape}. ')
-#                     if dset.dtype != edge.dtype:
-#                         warn_str += (f'Edge dtype for {edge_title}'
-#                                     + f' {edge.dtype} does not '
-#                                     + 'match dataset dtype '
-#                                     + f'{dset.dtype}. ')
-#                     if rewrite_data:
-#                         warn_str += ('\nOvewriting data. This may '
-#                                     + 'bloat the total file size.')
-#                         # Shape changes should not happen
-#                         # except from q_arr changes
-#                         print(warn_str)
-#                         del edge_grp[edge_title]
-#                         edge_grp.require_dataset(
-#                                 edge_title,
-#                                 data=edge,
-#                                 shape=edge.shape,
-#                                 dtype=edge.dtype)
-#                     else:
-#                         warn_str += '\nProceeding without changes.'
-#                         print(warn_str)
+    xdm.close_hdf()

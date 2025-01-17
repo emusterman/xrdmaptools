@@ -11,9 +11,9 @@ from xrdmaptools.reflections.SpotModels import _load_peak_function
 from xrdmaptools.utilities.utilities import pathify
 
 
-##################
-### HDF Format ###
-##################
+###################
+### XRDBaseScan ###
+###################
 
 def initialize_xrdbase_hdf(xrdbase,
                            hdf_file):
@@ -27,7 +27,10 @@ def initialize_xrdbase_hdf(xrdbase,
         base_grp.attrs['wavelength'] = xrdbase.wavelength
         base_grp.attrs['theta'] = xrdbase.theta
         base_grp.attrs['use_stage_rotation'] = int(xrdbase.use_stage_rotation)
-        base_grp.attrs['time_stamp'] = ttime.ctime()
+        if xrdbase.time_stamp is None:
+            base_grp.attrs['time_stamp'] = ttime.ctime()
+        else:
+            base_grp.attrs['time_stamp'] = xrdbase.time_stamp
 
         # Record diffraction data
         curr_grp = base_grp.require_group('image_data') # naming the group after the detector may be a bad idea...
@@ -63,6 +66,7 @@ def load_xrdbase_hdf(filename,
                      wd,
                      image_data_key='recent',
                      integration_data_key='recent',
+                     load_blob_masks=True,
                      map_shape=None,
                      image_shape=None,
                      dask_enabled=False,
@@ -150,6 +154,7 @@ def load_xrdbase_hdf(filename,
      image_shape) = _load_xrd_hdf_image_data(
                                 base_grp,
                                 image_data_key=image_data_key,
+                                load_blob_masks=load_blob_masks,
                                 map_shape=map_shape,
                                 image_shape=image_shape,
                                 dask_enabled=dask_enabled)
@@ -212,6 +217,7 @@ def load_xrdbase_hdf(filename,
 
 def _load_xrd_hdf_image_data(base_grp,
                              image_data_key='recent',
+                             load_blob_masks=True,
                              map_shape=None,
                              image_shape=None,
                              dask_enabled=False):
@@ -328,12 +334,14 @@ def _load_xrd_hdf_image_data(base_grp,
         if '_null_map' in img_grp.keys():
             image_attrs['null_map'] = img_grp['_null_map'][:]
         
-        # Deprecated tag, but kept for backwards compatibility
-        if '_spot_masks' in img_grp.keys():
-            image_attrs['blob_masks'] = img_grp['_spot_masks'][:]
-        
-        if '_blob_masks' in img_grp.keys():
-            image_attrs['blob_masks'] = img_grp['_blob_masks'][:]
+        # Can be bulky and take up too much memory
+        if load_blob_masks: 
+            # Deprecated tag, but kept for backwards compatibility
+            if '_spot_masks' in img_grp.keys():
+                image_attrs['blob_masks'] = img_grp['_spot_masks'][:]
+            
+            if '_blob_masks' in img_grp.keys():
+                image_attrs['blob_masks'] = img_grp['_blob_masks'][:]
     
     else:
         if image_data_key is not None:
@@ -563,6 +571,13 @@ def _load_xrd_hdf_vectorized_data(base_grp):
     return vect_dict
 
 
+def _load_xrd_hdf_vectorized_map_data(base_grp):
+    vect_arr = None
+    raise NotImplementedError()
+
+###################
+### XRDMapStack ###
+###################
 
 def initialize_xrdmapstack_hdf(xrdmapstack,
                                hdf_file):
