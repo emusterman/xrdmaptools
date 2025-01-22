@@ -38,11 +38,11 @@ class XRDData:
 
     Parameters
     ----------
-    image_data : 4D Numpy array, Dask array, list, h5py dataset, optional
+    image_data : 4D Numpy or Dask array, list, h5py dataset, optional
         Image data that can be fully loaded as a 4D array with XRDMap
         axes (map_y, map_x, image_y, image_x), or XRDRockingCurve axes
         (rocking_axis, 1, image_y, image_x)
-    integration_data : 3D Numpy array, Dask array, list, h5py dataset, optional
+    integration_data : 3D Numpy or Dask array, list, h5py dataset, optional
         Integration data as a 3D array with XRDMap axes (map_y, map_x,
         intensity), or XRDRockingCurve axes (rocking_axis, 1,
         intensity)
@@ -194,8 +194,9 @@ class XRDData:
                             + f'map_shape as {self.images.shape}.')
                     print(ostr)
                 elif image_shape is not None:  # This may break wtih a theta or energy channel
-                    self.images = image_data.reshape((*input_shape[:-2],
-                                                      *image_shape))
+                    self.images = image_data.reshape(
+                                                (*input_shape[:-2],
+                                                 *image_shape))
                     map_shape = self.images.shape[:-2]
                     warn_str = ('Reshaping data into given image_shape'
                                 + f' as {self.images.shape}.\nWARNING:'
@@ -485,7 +486,8 @@ class XRDData:
         Returns
         -------
         outstring : str
-            A nice representation of the class with relevant information.
+            A nice representation of the class with relevant
+            information.
         """
         ostr = f'XRDData:'
         ostr += f'\n\tshape:  {self.shape}'
@@ -532,7 +534,8 @@ class XRDData:
     
     def _projection_factory(property_name, function, axes):
         """
-        Internal function for constructing projection properties.
+        Internal function for constructing projection properties from
+        images.
         """
         property_name = f'_{property_name}' # This line is crucial! 
         def get_projection(self):
@@ -609,8 +612,9 @@ class XRDData:
                     self.max_image - self.min_image)
             
             # Set the generic value to this as well
-            self._composite_image = getattr(self,
-                                        f'_{self.title}_composite_image')
+            self._composite_image = getattr(
+                                    self,
+                                    f'_{self.title}_composite_image')
 
             # Save image to hdf. Should update if changed
             self.save_images(images='_composite_image',
@@ -627,9 +631,9 @@ class XRDData:
     @property
     def mask(self):
         """
-        Get a combined image mask from any calibration, defect, or
-        custom mask of the class. Masked pixels are discounted from
-        analysis.
+        Get a combined mask matching the image shape from calibration,
+        defect, or custom masks of the class. Truthy values will be
+        considered for further analysis.
         """
         # a bit redundant considering only 4D shapes are allowed
         img_slc = (0,) * (self.images.ndim - 2) 
@@ -637,9 +641,9 @@ class XRDData:
         mask = np.ones(self.images[img_slc].shape, dtype=np.bool_)
 
         # Remove unused calibration pixels
-        if hasattr(self, 'calibration_mask'):
-            if self.calibration_mask.shape == mask.shape:
-                mask *= self.calibration_mask
+        if hasattr(self, 'polar_mask'):
+            if self.polar_mask.shape == mask.shape:
+                mask *= self.polar_mask
             else:
                 warn_str = ('WARNING: Calibration mask found, but '
                             + 'shape does not match images.')
@@ -857,7 +861,8 @@ class XRDData:
 
             if dask_enabled:
                 # Lazy load data
-                image_data = da.from_array(img_dset, chunks=img_dset.chunks)
+                image_data = da.from_array(img_dset,
+                                           chunks=img_dset.chunks)
             else:
                 # Fully load data
                 image_data = img_dset[:]
@@ -1165,6 +1170,11 @@ class XRDData:
     ########################################
 
     def _check_correction(self, correction, override=False):
+        """
+        Internal convenience function for checking if correction has
+        already been applied and overriding if specified.
+        """
+
         apply_correction = True
         if self.title == 'final':
             warn_str = f'WARNING: XRDData has been finalized!'
@@ -1227,7 +1237,11 @@ class XRDData:
         if self._check_correction('dark_field', override=override):
             return
         elif dark_field is None:
-            print('No dark-field given for correction.')
+            if (hasattr(self, 'dark_field')
+                and self.dark_field is not None):
+                dark_field = self.dark_field
+            else:
+                print('No dark-field given for correction.')
         elif dark_field.shape != self.image_shape:
             err_str = (f'Dark-field shape of {dark_field.shape} does '
                        + 'not match image shape of '
@@ -1276,7 +1290,8 @@ class XRDData:
                 # Not sure how to decide which int precision
                 # Trying to save memory if possible
                 if np.max(self.dark_field) > np.min(self.images):
-                    self.dtype = np.float32 # Go ahead and make it the final size...
+                    # Upcast to final size
+                    self.dtype = np.float32
         
         print('Correcting dark-field...', end='', flush=True)
         self.images -= self.dark_field
@@ -1297,10 +1312,10 @@ class XRDData:
         """
         Apply flat-field correction.
 
-        Divide flat-field from images if correction is not already
+        Divide images by flat-field if correction is not already
         applied or override requested. Internal flat_field attribute is
         used unless specified. Successful execution will then store the
-        flat-field internallyu and in the HDF File.
+        flat-field internally and in the HDF File.
 
         Parameters
         ----------
@@ -1318,17 +1333,19 @@ class XRDData:
         
         Notes
         -----
-        Since this should be the first correction applied, this
-        function will upcast the data to 32-bit floats to prevent
-        future errors. This function will also generate a temporary
-        storage dataset in the HDF file if dask is enabled and one
-        does not already exist.
+        Flat-field corrections create erroneuous results for any pixel
+        values too close to zero. Currently, there are no precautions
+        against this.
         """
 
         if self._check_correction('flat_field', override=override):
             return
         elif flat_field is None:
-            print('No flat-field correction.')
+            if (hasattr(self, 'flat_field')
+                and self.flat_field is not None):
+                flat_field = self.flat_field
+            else:
+                print('No flat-field correction.')
         elif flat_field.shape != self.image_shape:
             err_str = (f'Flat-field shape of {flat_field.shape} does '
                        + 'not match image shape of '
@@ -1364,40 +1381,49 @@ class XRDData:
         """
         Correct for air scatter.
 
-        Subtract air scatter contribution from images if correction not already applied or override requested. 
-
-        Subtract dark-field from images if correction not already
-        applied or override requested. Internal dark_field attribute is
-        used unless specified. Successful excution will then store the
-        dark-field internally and in the HDF file.
+        Subtract air scatter contribution from images if correction not
+        already applied or override requested. Successful execution
+        will then store the air scatter internally and in the HDF file.
 
         Parameters
         ----------
-        dark_field : 2D array, optional
+        air_scatter : 2D array, optional
             2D array matching the image shape to be subtracted from
-            images. Internal dark_field attribute is used unless
+            images. Internal air_scatter attribute is used unless
             specified.
+        applied_corrections : dict, optional
+            A dictionary with keys included in the internal correction
+            dictionary of any corrections already applied to the
+            provided air scatter array. Any corrections applied to the
+            current images, but not listed in applied corrections will
+            then be applied to the air scatter array before
+            corrections. By default the applied_corrections are those
+            already applied to the current images.
         override : bool, optional
             Override already applied corrections if True. Default is
             False.
 
         Raises
         ------
-        ValueError if dark-field shape does not match image shape.
+        ValueError if air scatter shape does not match image shape.
         
         Notes
         -----
-        Since this should be the first correction applied, this
-        function will upcast the data to 32-bit floats to prevent
-        future errors. This function will also generate a temporary
-        storage dataset in the HDF file if dask is enabled and one
-        does not already exist.
+        Only certain corrections can be reasonably applied to the air
+        scatter reference. These include 'dark-field', 'flat-field',
+        'Lorentz', 'polarization', and 'solid-angle'. Air scatter
+        cannot and will not be corrected after either 'background' or
+        'absorption' corrections.
         """
 
         if self._check_correction('air_scatter', override=override):
             return
         elif air_scatter is None:
-            print('No air_scatter given for correction.')
+            if (hasattr(self, 'air_scatter')
+            and self.air_scatter is not None):
+                air_scatter = self.air_scatter
+            else:
+                print('No air_scatter given for correction.')
         elif air_scatter.shape != self.image_shape:
             err_str = (f'air_scatter shape of {air_scatter.shape} does'
                        + ' not match image shape of '
@@ -1475,12 +1501,47 @@ class XRDData:
                          tolerance=2,
                          override=False):
 
+        """
+        Correct for outlier image pixels.
+
+        Find and replace for outlier pixels with median intensity of
+        surrounding pixels. These include hot pixels, dead pixels, and
+        zingers. Pixels are found and replaced by defining a tolerance
+        beyond a median of neighboring pixels.
+
+        Parameters
+        ----------
+        size : int, optional
+            Nearest neighbor distance used to apply median filter
+            across images. Should be greater than or equal to 2.
+        tolerance : float, optional
+            Normalized difference of allowable fluctuations between
+            original image and median-filtered image. For example, an
+            original pixel value of 2 and median pixel value of 1 would
+            have a 0.5 value to compare against the tolerance.
+        override : bool, optional
+            Override already applied corrections if True. Default is
+            False.
+
+        Raises
+        ------
+        ValueError if size is greater than or equal to 2 or tolerance
+        is less than or equal to zero.
+        """
+
         if self._check_correction('outliers', override=override):
             return
+
+        if size < 2:
+            err_str = ('Size for outlier correction must be greater'
+                       + 'than or equal to 2.')
+            raise ValueError(err_str)
+        if tolerance < 0:
+            err_str = ('Tolerance for outlier correction must be '
+                       + 'greater than 0.')
+            raise ValueError(err_str)
+
         print('Finding and correcting image outliers...')
-        # self.images = find_outlier_pixels(self.images,
-        #                                   size=size,
-        #                                   tolerance=tolerance)
         num_pixels_replaced = iterative_outlier_correction(
                                     self.images,
                                     size=size, 
@@ -1502,6 +1563,33 @@ class XRDData:
                           max_bounds=(0, np.inf),
                           mask=None,
                           override=False):
+        """
+        Method for approximating defective pixels.
+
+        Approximate defective pixels by defining bounds on the
+        projected maximum and minimum images. This can be used to help
+        mask overlly high pixels or pixel behind beam blocks.
+        Successful execution will write the defect mask in the HDF
+        file.
+
+        Parameters
+        ----------
+        min_bounds : tuple, optional
+            Tuple defining the (lower bound, upper bound) range of
+            acceptable pixel values for the minimum projected image. By
+            defualt these values are (-infinity, zero).
+        max_bounds : tuple, optional
+            Tuple defining the (lower bound, upper bound) range of
+            acceptable pixel values for the maximum projected image. By
+            default these values are (0, infinity).
+        mask : 2D array, optional
+            Starting mask to use when comparing bounds. Must match
+            image shape and truthy values are pixels that will be
+            considered.
+        override : bool, optional
+            Override already applied corrections if True. Default is
+            False.
+        """
         
         if self._check_correction('pixel_defects', override=override):
             return
@@ -1526,9 +1614,36 @@ class XRDData:
 
     # No correction for custom mask,
     # since it is used whenever mask is called
-    def apply_custom_mask(self, mask=None):
+    def apply_custom_mask(self,
+                          mask=None):
+        """
+        Method for applying a custom mask.
+
+        Apply custom mask to images. This can be used to ignore any
+        image pixels across the dataset. Successful excution will then
+        write the custom mask in the HDF file.
+
+        Parameters
+        ----------
+        mask : 2D array, optional
+            Custom mask matching image shape. Truthy pixels are counted
+            towards analysis. Default is None and no custom mask will
+            be considered.
+
+        Raises
+        ------
+        ValueError if mask shape does not match image shape.
+        """
+        
+
         if mask is not None:
-            self.custom_mask = np.asarray(mask).astype(np.bool_)
+            mask = np.asarray(mask).astype(np.bool_)
+            if mask.shape != self.image_shape:
+                err_str = ('Mask shape should match image shape of '
+                           + f'{self.image_shape} not {mask.shape}.')
+                raise ValueError(err_str)
+
+            self.custom_mask = 
             # Write mask to disk
             self.save_images(images='custom_mask')
         else:
@@ -1536,15 +1651,50 @@ class XRDData:
 
 
     ### Geometric corrections ###
-    # These corrections are only applicable to the signals themselves
-    # Lorentz correction should only be applied when not tranforming into 3D RSM
+
     def apply_lorentz_correction(self,
                                  powder=False,
                                  apply=True,
                                  override=False):
+        """
+        Apply the Lorentz correction.
+
+        Divide images by Lorentz correction to correct for per pixel
+        reciprocal space sampling allowing comparison of signals
+        acquired at different scattering angles. This correction should
+        not be applied if pixel signals will be converted into 3D
+        reciprocal space.
+        
+        Like the other geometric corrections, this correction is only
+        applicable to actual signals, even though it is applied across
+        full images.  Detector calibration must already be set.
+        Successful execution will then store the Lorentz correction
+        internally and in the HDF file.
+
+        Parameters
+        ----------
+        powder : bool, optional
+            Flag to include powder contribution to Lorentz correction.
+        apply : bool, optional
+            Flag to apply correction to images. Default is True.
+        override : bool, optional
+            Override already applied corrections if True. Default is
+            False.
+        
+        Raises
+        ------
+        AttributeError if calibration (ai attribute) has not been
+        applied.
+        """
 
         if self._check_correction('lorentz', override=override):
             return
+        
+        # Check for calibraitons
+        if (not hasattr(self, 'ai') or self.ai is None):
+            err_str = ('Lorentz correction cannot be applied without '
+                       + 'calibration!')
+            raise AttributeError(err_str)
 
         # In radians
         tth_arr = self.ai.twoThetaArray().astype(self.dtype)
@@ -1572,9 +1722,46 @@ class XRDData:
                                       polarization=0.9,
                                       apply=True,
                                       override=False):
+        """
+        Apply the polarization correction.
+
+        Divide images by a polarization correction to account for
+        differing scattering intensities from the X-ray polarization.
+        
+        Like the other geometric corrections, this correction is only
+        applicable to actual signals, even though it is applied across
+        full images. Detector calibration must already be set.
+        Successful execution will then store the polarization
+        correction internally and in the HDF file.
+
+        Parameters
+        ----------
+        polarization : float, optional
+            Float between -1 and 1 indicating the degree of X-ray
+            polarization. -1 is vertically polarized, 0 is not
+            polarization, and 1 is entirely horizontally polarized. The
+            default value is 0.9, where synchrotron X-rays are
+            typically horizontally polarized between 0.9 and 0.99.
+        apply : bool, optional
+            Flag to apply correction to images. Default is True.
+        override : bool, optional
+            Override already applied corrections if True. Default is
+            False.
+
+        Raises
+        ------
+        AttributeError if calibration (ai attribute) has not been
+        applied.
+        """
 
         if self._check_correction('polarization', override=override):
             return
+
+        # Check for calibraitons
+        if (not hasattr(self, 'ai') or self.ai is None):
+            err_str = ('Polarization correction cannot be applied '
+                       + 'without calibration!')
+            raise AttributeError(err_str)
         
         # TODO: Does not work with already calibrated images
         
@@ -1612,9 +1799,41 @@ class XRDData:
     def apply_solidangle_correction(self,
                                     apply=True,
                                     override=False):
+        """
+        Apply solid-angle correction.
+
+        Divide images by a solid-angle correction to account for the
+        volume of scintillating material intersected by the diffracted
+        beam. 
+        
+        Like the other geometric corrections, this correction is
+        only applicable to actual signals, even though it is applied
+        across full images. Detector calibration must already be set.
+        Successful execution will then store the solid-angle correction
+        internally and in the HDF file.
+
+        Parameters
+        ----------
+        apply : bool, optional
+            Flag to apply correction to images. Default is True.
+        override : bool, optional
+            Override already applied corrections if True. Default is
+            False.
+
+        Raises
+        ------
+        AttributeError if calibration (ai attribute) has not been
+        applied.
+        """
 
         if self._check_correction('solid_angle', override=override):
             return
+
+        # Check for calibraitons
+        if (not hasattr(self, 'ai') or self.ai is None):
+            err_str = ('Solid-angle correction cannot be applied '
+                       + 'without calibration!')
+            raise AttributeError(err_str)
 
         # TODO: Does not work with already calibrated images
         #tth_arr = ai.twoThetaArray()
@@ -1639,11 +1858,45 @@ class XRDData:
             print('done!')
 
 
-    # WIP
+    # TODO: Add user-provided absorption correction!
     def apply_absorption_correction(self,
                                     exp_dict,
                                     apply=True,
                                     override=False):
+        """
+        Apply an absorption correction.
+
+        Divide images by an absorption correction to account for
+        the intensity lost by the diffracted beam traveling through the
+        sample. This method depends on many factors and assumptions
+        about the sample composition and geometry that are not often
+        known; thus, is still a work in progress.
+        
+        Like the other geometric corrections, this correction is only
+        applicable to actual signals, even though it is applied across
+        full images. Detector calibration must already be set.
+        Successful execution will then store the absorption correction
+        internally and in the HDF file.
+
+        Parameters
+        ----------
+        exp_dict : dict, optional
+            Float between -1 and 1 indicating the degree of X-ray
+            polarization. -1 is vertically polarized, 0 is not
+            polarization, and 1 is entirely horizontally polarized. The
+            default value is 0.9, where synchrotron X-rays are
+            typically horizontally polarized between 0.9 and 0.99.
+        apply : bool, optional
+            Flag to apply correction to images. Default is True.
+        override : bool, optional
+            Override already applied corrections if True. Default is
+            False.
+
+        Raises
+        ------
+        AttributeError if calibration (ai attribute) has not been
+        applied.
+        """
 
         #exp_dict = {
         #    'attenuation_length' : value,
@@ -1654,6 +1907,12 @@ class XRDData:
 
         if self._check_correction('absorption', override=override):
             return
+    
+        # Check for calibraitons
+        if (not hasattr(self, 'ai') or self.ai is None):
+            err_str = ('Absorption correction cannot be applied '
+                       + 'without calibration!')
+            raise AttributeError(err_str)
         
         # In radians
         tth_arr = self.ai.twoThetaArray()
@@ -1687,7 +1946,8 @@ class XRDData:
                 # and transmitted beam
                 # y1 = x1 / np.tan(tth) # diffracted beam
                 # y2 = np.cos(chi) * np.tan(theta) + t / np.cos(theta) # far surface
-                xi = (t / (np.cos(theta))) / ((1 / np.tan(tth_arr)) - (np.cos(chi_arr) * np.tan(theta)))
+                xi = ((t / (np.cos(theta))) / ((1 / np.tan(tth_arr))
+                      - (np.cos(chi_arr) * np.tan(theta))))
                 yi = xi / (np.tan(tth_arr))
                 # Distance of intersection point
                 x = np.sqrt(xi**2 + yi**2)
@@ -1715,12 +1975,36 @@ class XRDData:
     def normalize_scaler(self,
                          scaler_arr=None,
                          override=False):
+        """
+        Normalize images by their scaler intensity.
 
-        if self._check_correction('scaler_intensity', override=override):
+        Divide full images by their incident scaler X-ray intensity.
+        Successful execution will then store the scaler intensity map
+        internally and in the HDF file.
+
+        Parameters
+        ----------
+        scaler_arr : 2D array, optional
+            Scaler intensity map used for image normalization. If not
+            provided, a map from the internal scaler dictionary will be
+            used instead. If this fails, the image medians will be used
+            instead. Default is to use internal scaler dictionary.
+        override : bool, optional
+            Override already applied corrections if True. Default is
+            False.
+        
+        Raises
+        ------
+        ValueError if scaler array does not match map shape.
+        """
+
+        if self._check_correction('scaler_intensity',
+                                  override=override):
             return
         
         elif scaler_arr is None:
-            if hasattr(self, 'sclr_dict') and self.sclr_dict is not None:
+            if (hasattr(self, 'sclr_dict')
+                and self.sclr_dict is not None):
                 if 'i0' in self.sclr_dict.keys():
                     scaler_arr = self.sclr_dict['i0']
                     sclr_key = 'i0'
@@ -1780,9 +2064,53 @@ class XRDData:
                             inplace=True,
                             override=False,
                             **kwargs):
+        """
+        Estimate image backgrounds.
+
+        Determine image backgrounds by a variety of methods. These
+        backgrounds can account for scatter from air, amorphous
+        regions, or thermal vibrations and fluorescence from the sample
+        or diffracted beams. Successful execution may temporarily store
+        the backgrounds internally and will save static single images 
+        to the HDF file.
+
+        Parameters
+        ----------
+        method : str, optional
+            String indicating the method for estimating background.
+            Many different variants are accepted, but currently
+            supported methods for estimating backgrounds are 'median',
+            'minimum', 'gaussian', 'bruckner', 'none', and 'custom'.
+            The method parameter is only considered if background is
+            None and the default value is to not estimate any
+            background or 'none'.
+        background : 2D or 4D array, optional
+            Array with dimensions matching either the image shape or
+            full dataset shape that will be used as a custom
+            background. None by default and will be estimated with the
+            method perscribed.
+        inplace : bool, optional
+            Flag to indicate inplace background subtraction where
+            possible. If true, the background is never stored
+            internally and can save on memory usage.
+        override : bool, optional
+            Override already applied corrections if True. Default is
+            False.
+        kwargs : dict, optional
+            Dictionary of kwargs passed to the individual method for
+            estimating backgrounds.
+
+        Raises
+        ------
+        NotImplementedError for not fully implemented methods for
+        estimating background: 'rolling_ball', 'spline', and
+        'polynomial'.
+        """
+
         method = str(method).lower()
 
-        # Check to see if background correction has already been applied.
+        # Check to see if background correction
+        # has already been applied.
         if inplace and self._check_correction('background',
                                               override=override):
             if (hasattr(self, 'background')
@@ -1840,15 +2168,17 @@ class XRDData:
                         + 'convolution.\nNote: Progress bar is '
                         + 'unavailable for this method.')
                 print(ostr)
-                self.background = masked_gaussian_background(self.images,
-                                                             **kwargs)
+                self.background = masked_gaussian_background(
+                                                    self.images,
+                                                    **kwargs)
                 self.background_method = 'gaussian'
 
             elif method in ['Bruckner', 'bruckner']:
                 print('Estimating background with Bruckner algorithm.')
-                self.background = masked_bruckner_background(self.images,
-                                                             mask=self.mask,
-                                                             **kwargs)
+                self.background = masked_bruckner_background(
+                                                    self.images,
+                                                    mask=self.mask,
+                                                    **kwargs)
                 self.background_method = 'bruckner'
 
             elif method in ['none']:
@@ -1876,7 +2206,7 @@ class XRDData:
 
             if (self.background is not None
                 and np.squeeze(self.background).shape
-                    == self.images.shape[-2:]):
+                == self.images.shape[-2:]):
                 self.save_images(images='background',
                                  title='static_background')
             else:
@@ -1884,10 +2214,31 @@ class XRDData:
 
     
 
+    # TODO: Does this break with 2D backgrounds???
     def remove_background(self,
                           background=None,
                           save_images=False,
                           override=False):
+        """
+        Remove image backgrounds.
+
+        Subtract backgrounds from images if provided or stored
+        internally. Successful execution will save static single images
+        to the HDF file.
+
+        Parameters
+        ----------
+        background : 2D or 4D array, optional
+            Array with dimensions matching either the image shape or
+            full dataset shape that will be used a custom background.
+            None by default to use internall stored backgrounds
+        save_images : bool, optional
+            Flag to indicate if images should be saved after subtacting
+            backgrounds. False by default.
+        override : bool, optional
+            Override already applied corrections if True. Default is
+            False.
+        """
 
         if self._check_correction('background', override=override):
             if background is None and hasattr(self, 'background'):
@@ -1934,10 +2285,44 @@ class XRDData:
             print('done!')
 
 
+    # Not often used.
+    # TODO: Check for polar_calibration correction, maybe create a
+    # weaker function that is called in XRDBaseScan
     def get_polar_mask(self,
                        tth_num=None,
                        chi_num=None,
                        units='2th_deg'):
+        """
+        Get polar mask.
+
+        Create a mask for 2D image integrations. This discounts image
+        pixels outside of the integration area.
+
+        Parameters
+        ----------
+        tth_num : int, optional
+            Number of steps to divide two theta scattering range, and
+            shape of resulting integrations x-axis. Default is to look
+            for internal tth_num.
+        chi_num : int, optional
+            Number of step sto divide chi azimuthal range, and shape of
+            resulting integrations y-axis. Default is to look for
+            internal chi_num.
+        units : str, optional
+            Units given to pyFAI AzimuthalIntegrator. Default is
+            '2th_deg'.
+        
+        Raises
+        ------
+        AttributeError if calibration (ai attribute) has not been
+        applied.
+        """
+
+        # Check for calibraitons
+        if (not hasattr(self, 'ai') or self.ai is None):
+            err_str = ('Absorption correction cannot be applied '
+                       + 'without calibration!')
+            raise AttributeError(err_str)
 
         if tth_num is None:
             tth_num = self.tth_num
@@ -1951,9 +2336,9 @@ class XRDData:
                                              chi_num,
                                              unit=units)
 
-        calibration_mask = (image != 0)
+        polar_mask = (image != 0)
 
-        return calibration_mask
+        self.polar_mask = polar_mask
     
 
     def rescale_images(self,
@@ -1962,6 +2347,33 @@ class XRDData:
                        arr_min=0,
                        arr_max=None,
                        mask=None):
+        """
+        Rescale images inplace.
+
+        Rescale images inplace into more useful intensity range. This
+        method cannot be easily reversed.
+
+        Parameters
+        ----------
+        lower : float, optional
+            New lower bound of rescaled images. 0 by default.
+        upper : float, optional
+            New upper bound of rescaled images. 100 by default.
+        arr_min : float, optional
+            Minimum value of array used for rescaling. If None, the
+            minimum value of images is used. If this number matches the
+            'lower' parameter, then the images lower value will not be
+            changed. 0 by default.
+        arr_max : float, optional
+            Maximum value of array used for rescaling. If None, the
+            maximum value of images is used. If this number matches the
+            'upper' parameter, then the images upper value will not be
+            changed. None by default.
+        mask : 2D array, optional
+            Mask matching the image shape used to discount values from
+            rescaling and from determining arr_min and arr_max if not
+            provided.
+        """
 
         if mask is None and np.any(self.mask != 1):
             mask = np.empty_like(self.images, dtype=np.bool_)
@@ -1986,6 +2398,31 @@ class XRDData:
                                  # Saturated value from detector 
                                  raw_max_val=(2**14 - 1), 
                                  method='median'):
+        """
+        Estimate the maximum value of current images.
+
+        Estimate the maximum value of the current images given the
+        currently applied corrections. If this value is used as the
+        'arr_max' parameter in the 'rescale_images' method, then
+        rescaled images acquired from different scans can be more
+        reasonably compared.
+
+        Parameters
+        ----------
+        raw_max_val : float, optional
+            Maximum possible raw value from detector. By default this
+            value is the maximum of a 14 bit color depth detector.
+        method : str, optional
+            String describing either 'median' or 'minimum' function
+            used to estimate the value of applied corrections. 'median'
+            provides are more stastical and often more accurate
+            estimate.
+
+        Raises
+        ------
+        ValueError if not enough information is provided to determine
+        image normalization.
+        """
 
         # Usually better statistics 
         if method.lower() in ['median', 'med']: 
@@ -2003,7 +2440,8 @@ class XRDData:
         #     raw_max_val -= np.min(self.air_scatter)
         
         if self.corrections['scaler_intensity']:
-            if hasattr(self, 'scaler_map') and self.scaler_map is not None:
+            if (hasattr(self, 'scaler_map')
+                and self.scaler_map is not None):
                 scaler_map = self.scaler_map
             elif hasattr(self, 'sclr_dict'):
                 for key in ['i0', 'im']:
@@ -2038,7 +2476,26 @@ class XRDData:
 
 
     @protect_hdf()
-    def construct_null_map(self, override=False):
+    def construct_null_map(self,
+                           override=False):
+        """
+        Determine null map if not already provided.
+
+        Determine which map pixels should not considered in subsequent
+        analysis if a null map is not already stored intenally.
+        
+        This method requires data from the 'raw_images' dataset and
+        will access the HDF file if necessary and allowed. This can
+        take some time and cannot be performed while Dask is enabled or
+        override is True.
+
+        Parameters
+        ----------
+        override : bool, optional
+            Flag to determine if null map should be constructed
+            regardless if null map already exists or if Dask is
+            enabled.
+        """
         if (not override
             and hasattr(self, 'null_map')
             and self.null_map is not None):
@@ -2076,6 +2533,13 @@ class XRDData:
 
     
     def nullify_images(self):
+        """
+        Nullify images based on null map attribute.
+
+        Nullify images by setting all pixel values to zero based on the 
+        internal 'null_map' attribute. This allows entire images to be
+        discounted from later analysis.
+        """
         if not hasattr(self, 'null_map'):
             err_str = 'XRDData does not have null_map attribute.'
             raise AttributeError(err_str)
@@ -2093,7 +2557,29 @@ class XRDData:
                 getattr(self, attr)[self.null_map] = 0
         
 
-    def finalize_images(self, save_images=True):
+    # Formalized function to declare no further image processing.
+    def finalize_images(self,
+                        save_images=True):
+        """
+        Formally declare image corrections finished.
+
+        This method formally declares all image corrections to be
+        finished. The internal title is changed to 'final' and all
+        image corrections are disabled unless override is called. 
+        
+        If dask is not enabled, this method will write the final images
+        to the HDF if 'save images' is True. If dask is enabled, the
+        temporary dataset in the HDF file is renamed to the final
+        images while still acting as the temporary storage location.
+        Finally, any not applied corrections are called and the dataset
+        size is called.
+
+        Parameters
+        ----------
+        save_images : bool, optional
+            Flag to determine if the final images will be written to
+            the HDF file. True by default.
+        """
 
         if np.any(self.corrections.values()):
             print('Caution: Images not corrected for:')
@@ -2158,8 +2644,12 @@ class XRDData:
 
     # Simpler from image_projection_factor
     # because no mask is considered
-    def integration__projection_factory(property_abbreviation,
+    def _integration_projection_factor(property_abbreviation,
                                        function, axes):
+        """
+        Internal function for constructing projection properties from
+        integrations.
+        """
         # This line is crucial!
         property_name = f'_{property_abbreviation}'  
         def get_projection(self):
@@ -2180,34 +2670,40 @@ class XRDData:
         
         return property(get_projection, None, del_projection)
     
-    min_integration = integration__projection_factory(
+
+    min_integration = _integration_projection_factor(
                             'min_integration', np.min, (0, 1))
-    min_integration_map = integration__projection_factory(
+    min_integration_map = _integration_projection_factor(
                             'min_integration_map', np.min, (2))
 
-    max_integration = integration__projection_factory(
+    max_integration = _integration_projection_factor(
                             'max_integration', np.max, (0, 1))
-    max_integration_map = integration__projection_factory(
+    max_integration_map = _integration_projection_factor(
                             'max_integration_map', np.max, (2))
 
-    sum_integration = integration__projection_factory(
+    sum_integration = _integration_projection_factor(
                             'sum_integration', np.sum, (0, 1))
-    sum_integration_map = integration__projection_factory(
+    sum_integration_map = _integration_projection_factor(
                             'sum_integration_map', np.sum, (2))
 
-    med_integration = integration__projection_factory(
+    med_integration = _integration_projection_factor(
                             'med_integration', np.median, (0, 1))
-    med_integration_map = integration__projection_factory(
+    med_integration_map = _integration_projection_factor(
                             'med_integration_map', np.median, (2))
 
-    mean_integration = integration__projection_factory(
+    mean_integration = _integration_projection_factor(
                             'mean_integration', np.mean, (0, 1))
-    mean_integration_map = integration__projection_factory(
+    mean_integration_map = _integration_projection_factor(
                             'mean_integration_map', np.mean, (2))
 
 
     @property
     def composite_integration(self):
+        """
+        Integration generated from the minimum integration pixel values
+        subtracted from the maximum pixel values. This is a convenience
+        method for quickly emphasizing signal across a dataset.
+        """
         if hasattr(self, f'_composite_integration'):
             return getattr(self, f'_composite_integration')
         else:
@@ -2236,6 +2732,42 @@ class XRDData:
                                         method=None,
                                         background=None,
                                         **kwargs):
+        """
+        Estimate integration backgrounds.
+
+        This method is not fully implemented.
+
+        Determine integration backgrounds by a variety of methods.
+        These backgrounds can account for scatter from air, amorphous
+        regions, or thermal vibrations and fluorescence from the sample
+        or diffracted beams. Successful execution may temporarily store
+        the backgrounds internally.
+
+        Parameters
+        ----------
+        method : str, optional
+            String indicating the method for estimating background.
+            Many different variants are accepted, but currently
+            supported methods for estimating backgrounds are 'median',
+            'minimum', 'none', and 'custom'.
+            The method parameter is only considered if background is
+            None and the default value is to not estimate any
+            background or 'none'.
+        background : 1D or 3D array, optional
+            Array with dimensions matching either the integration shape
+            or full dataset shape that will be used as a custom
+            background. None by default and will be estimated with the
+            method perscribed.
+        kwargs : dict, optional
+            Dictionary of kwargs passed to the individual method for
+            estimating backgrounds.
+
+        Raises
+        ------
+        NotImplementedError for not fully implemented methods for
+        estimating background: 'rolling_ball', 'spline',
+        'polynomial', 'gaussian', and 'bruckner'.
+        """
         method = str(method).lower()
 
         if background is None:
@@ -2318,6 +2850,22 @@ class XRDData:
     
 
     def remove_integration_background(background=None):
+        """
+        Remove integration backgrounds.
+
+        This method is not yet implemented.
+
+        Subtract backgrounds from integrations if provided or stored
+        internally.
+
+        Parameters
+        ----------
+        background : 1D or 3D array, optional
+            Array with dimensions matching either the integration shape
+            or full dataset shape that will be used as a custom
+            background. None by default and will use internal
+            integration backgrounds.
+        """
         raise NotImplementedError()
         if background is None:
             if hasattr(self, 'integration_background'):
@@ -2346,6 +2894,29 @@ class XRDData:
                              upper=100,
                              arr_min=0,
                              arr_max=None):
+        """
+        Rescale integrations inplace.
+
+        Rescale integrations inplace into more useful intensity range.
+        This method cannot be easily reversed.
+
+        Parameters
+        ----------
+        lower : float, optional
+            New lower bound of rescaled integrations. 0 by default.
+        upper : float, optional
+            New upper bound of rescaled integrations. 100 by default.
+        arr_min : float, optional
+            Minimum value of array used for rescaling. If None, the
+            minimum value of integrations is used. If this number
+            matches the 'lower' parameter, then the integrations lower
+            value will not be changed. 0 by default.
+        arr_max : float, optional
+            Maximum value of array used for rescaling. If None, the
+            maximum value of integrations is used. If this number
+            matches the 'upper' parameter, then the integrations upper
+            value will not be changed. None by default.
+        """
         
         rescale_array(
             self.integrations,
@@ -2359,7 +2930,33 @@ class XRDData:
     ### IO Functions ###
     ####################
 
-    def disk_size(self, return_val=False, dtype=None):
+    def disk_size(self,
+                  return_val=False,
+                  dtype=None):
+        """
+        Get current images disk size.
+
+        Print current images disk size is human readable format.
+
+        Parameters
+        ----------
+        return_val : bool, optional
+            Flag to indicate if the disk size and units should be
+            returned. False by default.
+        dtype : dtype, optional
+            Datatype used to determine dataset size. Default is current
+            dataset dtype, but can be used to estimate new dtype memory
+            usage.
+        
+        Returns
+        -------
+        disk_size : float, optional
+            Disk size of images if return_val is True. The units of
+            this value is described by the 'units' returned value.
+        units : str, optional
+            Units of 'disk_size' if return_val is True. Possible values
+            are 'B', 'KB', 'MB', and 'GB'.
+        """
         # Return current map size which
         # should be most of the memory usage
         # Helps to estimate file size too
@@ -2386,29 +2983,31 @@ class XRDData:
                     units = 'GB'
         
         if return_val:
-            return disk_size
-        print(f'Diffraction map size is {disk_size:.3f} {units}.')
+            return disk_size, units
+        print(f'Disk size of images is {disk_size:.3f} {units}.')
 
 
     # WIP apparently???
-    @staticmethod
-    def estimate_disk_size(size):
-        # External reference function to estimate map size before acquisition
-        raise NotImplementedError()
+    # @staticmethod
+    # def estimate_disk_size(size):
+    #     # External reference function to estimate map size before acquisition
+    #     raise NotImplementedError()
 
-        if not isinstance(size, (tuple, list, np.ndarray)):
-            err_str = ('Size argument must be iterable of '
-                       + 'map dimensions.')
-            raise TypeError(err_str)
+    #     if not isinstance(size, (tuple, list, np.ndarray)):
+    #         err_str = ('Size argument must be iterable of '
+    #                    + 'map dimensions.')
+    #         raise TypeError(err_str)
 
-        disk_size = np.prod([*size, 2])
+    #     disk_size = np.prod([*size, 2])
 
 
     def _get_save_labels(self,
                          arr_shape,
                          base_labels=None,
                          units='a.u.'):
-        
+        """
+        Internal parameter to get save labels for HDF file.
+        """
         if base_labels is None:
             base_labels = self.map_labels
 
@@ -2440,14 +3039,57 @@ class XRDData:
                     labels=None,
                     compression=None,
                     compression_opts=None,
-                    mode='a',
                     extra_attrs=None):
+        """
+        Save images to HDF file.
+
+        Save images to 'image_data' in HDF File. This function is valid
+        for full 4D images dataset and individual images. Several other
+        parameters and details are written along with the image data.
+
+        Parameters
+        ----------
+        images : 2D or 4D array or str, optional
+            2D array as an image, 4D array as full image dataset, or
+            string indicating an attribute to be written to HDF file.
+            If this parameter is not provided, the current images will
+            be used.
+        title : dtype, optional
+            Title to give the new dataset in the HDF file. If the saved
+            array is 2D, the the title will be prepended with '_'. If
+            title is None, then the current image title or attribute
+            being saved will be used.
+        units : str, optional
+            Description of the units each image pixel represent. By
+            default this is None and 'a.u.' will be used.
+        labels : iterable of str, optional
+            List of labels used for each axis of array. The length
+            should match the number of dimensions in saved array. By
+            default this uses the default dataset labels.
+        compression : str, optional
+            String describing the compression used in the h5py dataset.
+            Defaults to 'gzip' for 4D images.
+        compression_opts : int, optional
+            Options corresponding to the compression string used in the
+            h5py dataset. Defaults to 4 for 4D images if compression is
+            None.
+        extra_attrs : dict, optional
+            Extra metadata used to describe the saved images.
+        
+        Raises
+        ------
+        AttributeError if images are not explicitly provided and cannot
+        be found internally.
+        ValueError if title is not provided for custom images.
+        ValueError if images is not 2D or 4D.
+        TypeError if images cannot be parsed.
+        """
         
         # Save all images
         if images is None:
             if not hasattr(self, 'images') or self.images is None:
                 err_str = 'Must provide images to write to hdf.'
-                raise RuntimeError(err_str)
+                raise AttributeError(err_str)
             images = self.images
             if title is None:
                 title = f'{self.title}_images'
@@ -2489,10 +3131,10 @@ class XRDData:
         elif images.ndim != 4:
             err_str = (f'Images input has {images.ndim} dimensions '
                        + 'instead of 2 (image) or 4 (XRDData).')
-            raise ValueError()
+            raise ValueError(err_str)
         elif images.ndim == 4 and compression is None:
             compression = 'gzip'
-            compression_opts = 4 # changed default from 8 to h5py default
+            compression_opts = 4
         else:
             raise TypeError('Unknown image type detected!')
         
@@ -2563,22 +3205,16 @@ class XRDData:
         overwrite_attr(dset.attrs, 'units', units)
         overwrite_attr(dset.attrs, 'dtype', str(image_dtype))
         dset.attrs['time_stamp'] = ttime.ctime()
-        # dset.attrs['labels'] = labels
-        # dset.attrs['units'] = units
-        # dset.attrs['dtype'] = str(image_dtype)
-        # dset.attrs['time_stamp'] = ttime.ctime()
 
         # Add non-standard extra metadata attributes
         if extra_attrs is not None:
             for key, value in extra_attrs.items():
                 overwrite_attr(dset.attrs, key, value)
-                # dset.attrs[key] = value
 
         # Add correction information to each dataset
         if title[0] != '_':
             for key, value in self.corrections.items():
                 overwrite_attr(dset.attrs, f'_{key}_correction', value)
-                # dset.attrs[f'_{key}_correction'] = value
 
 
     @protect_hdf()
@@ -2587,23 +3223,59 @@ class XRDData:
                           title=None,
                           units=None,
                           labels=None,
-                          mode='a',
                           extra_attrs=None):
-        # # No dask support
+        """
+        Save integrations to HDF file.
+
+        Save integrations to 'integration_data' in HDF File. This
+        function is valid for full 3D integration datasets and
+        individual integrations. Several other parameters and details
+        are written along with the integration data.
+
+        Parameters
+        ----------
+        integrations : 1D or 3D array or str, optional
+            1D array as an integration, 3D array as full integration 
+            dataset, or string indicating an attribute to be written to
+            HDF file. If this parameter is not provided, the current
+            integrations will be used.
+        title : dtype, optional
+            Title to give the new dataset in the HDF file. If the saved
+            array is 1D, the the title will be prepended with '_'. If
+            title is None, then the current integration title or
+            attribute being saved will be used.
+        units : str, optional
+            Description of the units each integration value represent.
+            By default this is None and 'a.u.' will be used.
+        labels : iterable of str, optional
+            List of labels used for each axis of array. The length
+            should match the number of dimensions in saved array. By
+            default this uses the dataset labels.
+        extra_attrs : dict, optional
+            Extra metadata used to describe the saved integrations.
+        
+        Raises
+        ------
+        AttributeError if integrations are not explicitly provided and
+        cannot be found internally.
+        ValueError if title is not provided for custom integrations.
+        ValueError if integrations is not 1D or 3D.
+        TypeError if integrations cannot be parsed.
+        """
 
         # Save all integrations
         if integrations is None:
             if (not hasattr(self, 'integrations')
                 or self.integrations is None):
                 err_str = 'Must provide integrations to write to hdf.'
-                raise RuntimeError(err_str)
+                raise AttributeError(err_str)
             integrations = self.integrations
             if title is None:
                 title = f'{self.title}_integrations'
         
         # Save particular attribute of XRDData
         elif isinstance(integrations, str):
-            # Can directly grap attributes.
+            # Can directly grab attributes.
             # This is for overwriting this function
             if (hasattr(self, integrations)
                 and getattr(self, integrations) is not None):
@@ -2617,17 +3289,20 @@ class XRDData:
 
         # Save custom images
         else:
-            # This conditional is for single images mostly (e.g., dark-field)
+            # This conditional is for single integrations mostly
             integrations = np.asarray(integrations)
             if title is None:
                 err_str = 'Must define title to save custom images.'
                 raise ValueError(err_str)
         
         # Check shape and set title
-        if integrations.ndim != 3:
-            err_str = ('Integrations must have 3 dimensions, '
+        if integrations.ndim == 1:
+            if title[0] != '_':
+                title = f'_{title}'
+        elif integrations.ndim != 3:
+            err_str = ('Integrations must have 1 or 3 dimensions, '
                        + f'not {len(integrations.shape)}.')
-            raise ValueError()
+            raise ValueError(err_str)
         
         # Get labels
         _units, _labels = self._get_save_labels(integrations.shape)
@@ -2675,10 +3350,6 @@ class XRDData:
         overwrite_attr(dset.attrs, 'units', units)
         overwrite_attr(dset.attrs, 'dtype', str(integrations_dtype))
         dset.attrs['time_stamp'] = ttime.ctime()
-        # dset.attrs['labels'] = labels
-        # dset.attrs['units'] = units
-        # dset.attrs['dtype'] = str(integrations_dtype)
-        # dset.attrs['time_stamp'] = ttime.ctime()
 
         # Add non-standard extra metadata attributes
         if extra_attrs is not None:

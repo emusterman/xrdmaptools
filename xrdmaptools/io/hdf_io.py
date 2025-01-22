@@ -271,7 +271,7 @@ def _load_xrd_hdf_image_data(base_grp,
                         'absorption_correction',
                         'custom_mask',
                         'defect_mask',
-                        'calibration_mask']:
+                        'polar_mask']:
                 if f'_{key}' in img_grp.keys():
                     image_attrs[key] = img_grp[f'_{key}'][:]
 
