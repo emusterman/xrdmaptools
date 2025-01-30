@@ -33,11 +33,10 @@ def plot_3D_indexing(connections,
     else:
         c = 'k'
 
-
     fig, ax = plt.subplots(1, 1, 
-                            figsize=(5, 5),
-                            dpi=200,
-                            subplot_kw={'projection':'3d'})
+                           figsize=(5, 5),
+                           dpi=200,
+                           subplot_kw={'projection':'3d'})
 
     # Iterate and plot all connections
     for connection in connections:

@@ -233,7 +233,7 @@ def get_blob_integrations():
 
 
 
-def multi_phase_fit(tth, intensity, phases):
+def multi_phase_fit(tth, intensity, phases, SpotModel=GaussianFunctions):
 
     for phase in phases:
         phase.get_hkl_reflections(
@@ -253,17 +253,21 @@ def multi_phase_fit(tth, intensity, phases):
 
             p0.append(amp)
             p0.append(tth_i) # tth
-            p0.append(0.2) # sigma guess
+            p0.append(0.2) # fwhm guess
+            if SpotModel.name == 'PseudoVoigt':
+                p0.append(0.2) # other fwhm guess
             peak_identities.extend([f'{phase.name}_{phase.reflections["hkl"][i]}',] * 3)
 
-    bounds = generate_bounds(p0[1:], GaussianFunctions.func_1d, tth_step=np.diff(tth)[0])
+    # return p0
+
+    bounds = generate_bounds(p0[1:], SpotModel.func_1d, tth_step=np.diff(tth)[0] * 3)
     bounds[0].insert(0, np.min(intensity)) # offset lower bound
     bounds[1].insert(0, np.max(intensity)) # offset upper bound
 
-    return p0, bounds
+    # return p0, bounds
 
-    popt, _ = curve_fit(GaussianFunctions.multi_1d, tth, intensity, p0=p0, bounds=bounds)
-    r_squared = compute_r_squared(intensity, GaussianFunctions.multi_1d(tth, *popt))
+    popt, _ = curve_fit(SpotModel.multi_1d, tth, intensity, p0=p0, bounds=bounds)
+    r_squared = compute_r_squared(intensity, SpotModel.multi_1d(tth, *popt))
 
     return popt, r_squared
 

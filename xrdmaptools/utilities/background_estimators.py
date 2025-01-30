@@ -331,7 +331,7 @@ def masked_bruckner_background(image_map,
     div_filter = uniform_filter(div_image, size=size)
 
     if not inplace:
-        bkg_map = np.zeros_like(xrddata.images)
+        bkg_map = np.zeros_like(image_map)
 
     # Cycle through all map images. TODO: Parallelize this
     for index in tqdm(range(num_images)):

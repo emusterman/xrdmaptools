@@ -10,6 +10,7 @@ import functools
 # Local imports
 from xrdmaptools.io.hdf_utils import (
     check_hdf_current_images,
+    overwrite_attr,
     get_optimal_chunks
 )
 from xrdmaptools.utilities.math import check_precision
@@ -1459,12 +1460,16 @@ class XRDData:
         allowed_corrections = [
             'dark_field',
             'flat_field',
+            'scaler_intensity',
             'lorentz',
             'polarization',
             'solid_angle'
         ]
         
         print('Correcting air scatter...', end='', flush=True)
+        # Copy and change type of air scatter as needed
+        air_scatter = air_scatter.astype(self.dtype)
+
         if (self.corrections['dark_field']
             and not applied_corrections['dark_field']):
             air_scatter -= self.dark_field
@@ -1472,6 +1477,16 @@ class XRDData:
         if (self.corrections['flat_field']
             and not applied_corrections['flat_field']):
             air_scatter /= self.flat_field
+        
+        # Attempt to normalize air_scatter based on known scalers
+        # This is not a strictly valid fix...
+        if (self.corrections['scaler_intensity']
+            and not applied_corrections['scaler_intensity']):
+            warn_str = ('\nWARNING: Attempting to normalize '
+                        + 'air_scatter values by already applied '
+                        + 'scaler normalization.')
+            print(warn_str)
+            air_scatter /= np.median(self.scaler_map)
         
         if (self.corrections['lorentz']
             and not applied_corrections['lorentz']):
@@ -1643,7 +1658,7 @@ class XRDData:
                            + f'{self.image_shape} not {mask.shape}.')
                 raise ValueError(err_str)
 
-            self.custom_mask = 
+            self.custom_mask = mask
             # Write mask to disk
             self.save_images(images='custom_mask')
         else:
@@ -2178,6 +2193,7 @@ class XRDData:
                 self.background = masked_bruckner_background(
                                                     self.images,
                                                     mask=self.mask,
+                                                    inplace=inplace,
                                                     **kwargs)
                 self.background_method = 'bruckner'
 

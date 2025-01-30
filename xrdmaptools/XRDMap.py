@@ -68,6 +68,7 @@ class XRDMap(XRDBaseScan):
                  pos_dict=None,
                  swapped_axes=False,
                  xrf_path=None,
+                 check_init_sets=False,
                  **xrdbasekwargs
                  ):
 
@@ -80,6 +81,7 @@ class XRDMap(XRDBaseScan):
             self,
             map_labels=['map_y_ind',
                         'map_x_ind'],
+            check_init_sets=check_init_sets,
             **xrdbasekwargs,
             )
 
@@ -489,6 +491,7 @@ class XRDMap(XRDBaseScan):
         
 
     # Briefly doubles memory. No Dask support
+    # TODO: change corrections, reset projections, update map_title, etc. from XRDData
     def integrate2d_map(self,
                         tth_num=None,
                         tth_resolution=None,
@@ -497,7 +500,7 @@ class XRDMap(XRDBaseScan):
                         unit='2th_deg',
                         **kwargs):
         
-        if not hasattr(self, 'ai'):
+        if (not hasattr(self, 'ai') or self.ai is None):
             err_str = ('Images cannot be calibrated without '
                        + 'any calibration files!')
             raise RuntimeError(err_str)

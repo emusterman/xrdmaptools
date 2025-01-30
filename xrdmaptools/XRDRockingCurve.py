@@ -65,9 +65,9 @@ class XRDRockingCurve(XRDBaseScan):
     Parameters
     ----------
     image_data : 3D or 4D Numpy array, Dask array, list, h5py dataset, optional
-        Image data that can be fully loaded as a 4D array XRDRockingCurve axes
-        (rocking_axis, 1, image_y, image_x). The extra axis will be added if
-        data is provided as 3D array.
+        Image data that can be fully loaded as a 4D array
+        XRDRockingCurve axes (rocking_axis, 1, image_y, image_x). The
+        extra axis will be added if data is provided as 3D array.
     map_shape : iterable, optional
         Shape of first two axes in image_data as (rocking_axis, 1).
     image_shape : iterable, optional
@@ -574,10 +574,6 @@ class XRDRockingCurve(XRDBaseScan):
                     null_map=null_map,
                     rocking_axis=rocking_axis
                     )
-            
-            # # Add xrf if it exists
-            # if 'xs_fluor' in data_dict.keys():
-            #     rc.xrf = {'data':data_dict['xs_fluor']}
             
             rocking_curves.append(rc)
 
@@ -1129,13 +1125,13 @@ class XRDRockingCurve(XRDBaseScan):
         if method.lower() in ['pair_casting']:
             (best_connection,
              best_qof) = pair_casting_index_best_grain(
-                    spots,
-                    phase,
-                    near_q,
-                    near_angle,
-                    qmask,
-                    degrees=self.polar_units == 'deg',
-                    **kwargs)
+                            spots,
+                            phase,
+                            near_q,
+                            near_angle,
+                            qmask,
+                            degrees=self.polar_units == 'deg',
+                            **kwargs)
         else:
             err_str = (f"Unknown method ({method}) specified. Only "
                        + "'pair_casting' is currently supported.")

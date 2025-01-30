@@ -53,28 +53,31 @@ def pair_casting_index_best_grain(
             near_angle,
             min_q,
             degrees=degrees)
-
-    # Symmetrically reduce pairs
-    red_pairs = reduce_symmetric_equivalents(
-            pairs,
-            all_spot_qs,
-            phase.all_qs,
-            phase.all_hkls,
-            near_angle,
-            min_q)
-    
-    # Index spots
-    connections, qofs, _ = pair_casting_indexing(
-            red_pairs,
-            all_spot_qs,
-            phase.all_qs,
-            phase.all_fs,
-            qmask,
-            near_q,
-            iter_max=max_ori_refine_iter,
-            keep_initial_pair=keep_initial_pair,
-            exclude_found_pairs=False,
-            verbose_iterator=True)
+    if len(pairs) > 0:
+        # Symmetrically reduce pairs
+        red_pairs = reduce_symmetric_equivalents(
+                pairs,
+                all_spot_qs,
+                phase.all_qs,
+                phase.all_hkls,
+                near_angle,
+                min_q)
+        
+        # Index spots
+        connections, qofs, _ = pair_casting_indexing(
+                red_pairs,
+                all_spot_qs,
+                phase.all_qs,
+                phase.all_fs,
+                qmask,
+                near_q,
+                iter_max=max_ori_refine_iter,
+                keep_initial_pair=keep_initial_pair,
+                exclude_found_pairs=False,
+                verbose_iterator=True)
+    else:
+        best_connections = [[np.nan,] * len(all_spot_qs)]
+        best_qofs = [np.nan,] * len(all_spot_qs)
 
     return connections[np.argmax(qofs)], qofs[np.argmax(qofs)]
 
@@ -115,28 +118,32 @@ def pair_casting_index_full_pattern(
             near_angle,
             min_q,
             degrees=degrees)
-
-    # Symmetrically reduce pairs
-    red_pairs = reduce_symmetric_equivalents(
-            pairs,
-            all_spot_qs,
-            phase.all_qs,
-            phase.all_hkls,
-            near_angle,
-            min_q)
     
-    # Iteratively decompose patterns
-    best_connections, best_qofs = decaying_pattern_decomposition(
-            red_pairs,
-            all_spot_qs,
-            phase.all_qs,
-            phase.all_fs,
-            qmask,
-            near_q,
-            qof_minimum=qof_minimum,
-            keep_initial_pair=keep_initial_pair,
-            max_ori_refine_iter=max_ori_refine_iter,
-            max_ori_decomp_count=max_ori_decomp_count)
+    if len(pairs) > 0:
+        # Symmetrically reduce pairs
+        red_pairs = reduce_symmetric_equivalents(
+                pairs,
+                all_spot_qs,
+                phase.all_qs,
+                phase.all_hkls,
+                near_angle,
+                min_q)
+        
+        # Iteratively decompose patterns
+        best_connections, best_qofs = decaying_pattern_decomposition(
+                red_pairs,
+                all_spot_qs,
+                phase.all_qs,
+                phase.all_fs,
+                qmask,
+                near_q,
+                qof_minimum=qof_minimum,
+                keep_initial_pair=keep_initial_pair,
+                max_ori_refine_iter=max_ori_refine_iter,
+                max_ori_decomp_count=max_ori_decomp_count)
+    else:
+        best_connections = [[np.nan,] * len(all_spot_qs)]
+        best_qofs = [np.nan,] * len(all_spot_qs)
 
     return best_connections, best_qofs
 
