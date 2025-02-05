@@ -4,6 +4,7 @@ import os
 from skimage.restoration import rolling_ball
 from tqdm import tqdm
 import time as ttime
+from collections import OrderedDict
 import dask.array as da
 import functools
 
@@ -82,7 +83,7 @@ class XRDData:
         Iterable of length 4 with the chunk sizes for image data. The
         last two dimensions should match the image shape to avoid
         chunking data through images.
-    corrections : dict, optional
+    corrections : OrderedDict, optional
         Dictionary of correction names and their boolean value of
         whether they have been applied to the image data.
     dask_enabled : bool, optional
@@ -161,11 +162,12 @@ class XRDData:
                 # Non-paralleized image processing
                 if isinstance(image_data, da.core.Array):
                     image_data = image_data.compute()
-                # list input is handled lazily, but should only be from databroker
+                # list input is handled lazily,
+                # but should only be from databroker
                 elif isinstance(image_data, list):
                     if dask_enabled:
-                        # print('Converting rows of images into lazily loaded 4D array...')
-                        image_data = da.stack(image_data) # bad chunking will be fixed later
+                        # bad chunking will be fixed later
+                        image_data = da.stack(image_data) 
                     else:
                         image_data = np.stack(image_data)
                 # Otherwise as a numpy array
@@ -173,7 +175,8 @@ class XRDData:
                     image_data = np.asarray(image_data)
 
             # Working wtih image_data shape
-            # Check inputs first. If these are given, assumed they will be used.
+            # Check inputs first.
+            # If these are given, assumed they will be used.
             for shape, name in zip([map_shape, image_shape],
                                    ['map_shape', 'image_shape']):
                 if shape is not None and len(shape) != 2:
@@ -188,13 +191,15 @@ class XRDData:
                 input_shape = image_data.shape
                 print('WARNING: image_data given as 3D object.')
                 if map_shape is not None:
-                    self.images = image_data.reshape((*map_shape,
-                                                      *input_shape[-2:]))
+                    self.images = image_data.reshape((
+                                        *map_shape,
+                                        *input_shape[-2:]))
                     image_shape = self.images.shape[-2:]
                     ostr = ('Reshaping image_data into given '
                             + f'map_shape as {self.images.shape}.')
                     print(ostr)
-                elif image_shape is not None:  # This may break wtih a theta or energy channel
+                # This may break wtih a theta or energy channel   
+                elif image_shape is not None:  
                     self.images = image_data.reshape(
                                                 (*input_shape[:-2],
                                                  *image_shape))
@@ -356,25 +361,33 @@ class XRDData:
                 dtype = None
         self._dtype = dtype
 
-        if isinstance(corrections, dict):
-            self.corrections = corrections
-        else:
-            self.corrections = {
-                'dark_field' : False,
-                'flat_field' : False, 
+        # 
+        ordered_correction_keys = [
+                'dark_field',
+                'flat_field', 
                 # Can be approximated with background
-                'air_scatter' : False, 
-                'outliers' : False,
-                'pixel_defects' : False, # Just a mask
-                'pixel_distortions' : False, # Uncommon
-                'polar_calibration' : False, # Bulky
-                'lorentz' : False,
-                'polarization' : False,
-                'solid_angle' : False,
-                'absorption' : False, # Tricky      
-                'scaler_intensity' : False,
-                'background' : False
-            }
+                'air_scatter', 
+                'outliers',
+                'pixel_defects', # Just a mask
+                'pixel_distortions', # Unknown
+                'scaler_intensity',
+                'lorentz',
+                'polarization',
+                'solid_angle',
+                'absorption', # Tricky      
+                'background',
+                'polar_calibration', # Bulky
+            ]
+
+        if isinstance(corrections, (dict, OrderedDict)):
+            self.corrections = OrderedDict([
+                (key, corrections[key])
+                for key in ordered_correction_keys
+                ])
+        else:
+            self.corrections = OrderedDict([
+                (key, False) for key in ordered_correction_keys
+                ])
 
         self.update_map_title(title=title)
         if isinstance(null_map, list):
@@ -1896,11 +1909,9 @@ class XRDData:
         Parameters
         ----------
         exp_dict : dict, optional
-            Float between -1 and 1 indicating the degree of X-ray
-            polarization. -1 is vertically polarized, 0 is not
-            polarization, and 1 is entirely horizontally polarized. The
-            default value is 0.9, where synchrotron X-rays are
-            typically horizontally polarized between 0.9 and 0.99.
+            Dictionary of values for 'attenuation_length', 'mode',
+            'thickness', 'theta'. Currently for only a plane of
+            material of homogenous composition.
         apply : bool, optional
             Flag to apply correction to images. Default is True.
         override : bool, optional
@@ -2018,22 +2029,28 @@ class XRDData:
             return
         
         elif scaler_arr is None:
+            sclr_key = None
             if (hasattr(self, 'sclr_dict')
-                and self.sclr_dict is not None):
-                if 'i0' in self.sclr_dict.keys():
-                    scaler_arr = self.sclr_dict['i0']
-                    sclr_key = 'i0'
-                elif 'im' in self.sclr_dict.keys():
-                    print('"i0" could not be found. Switching to "im".')
-                    scaler_arr = self.sclr_dict['im']
-                    sclr_key = 'im'
-                else:
-                    first_key = list(self.sclr_dict.keys())[0]
-                    scaler_arr = self.sclr_dict[first_key]
+                and self.sclr_dict is not None
+                and self.sclr_dict is not {}):
+                for sclr_key in ['flux_i0',
+                                 'flux_im',
+                                 'energy_corrected_i0',
+                                 'energy_corrected_im',
+                                 'i0',
+                                 'im']:
+                    if sclr_key in self.sclr_dict.keys():
+                        scaler_arr = sclr_dict[sclr_key]
+                        break
+                    else:
+                        sclr_key = None
+                if sclr_key is None:
+                    # Hope for the best
+                    sclr_key = list(self.sclr_dict.keys())[0]
+                    scaler_arr = self.sclr_dict[sclr_key]
                     warn_str = ("WARNING: Unrecognized scaler keys. "
-                                + f"Using '{first_key}' instead.")
+                                + f"Using '{sclr_key}' instead.")
                     print(err_str)
-                    sclr_key = first_key
             else:
                 ostr = ('No scaler array given or found. '
                         + 'Approximating with image medians.')
@@ -2228,7 +2245,6 @@ class XRDData:
             else:
                 del self.background
 
-    
 
     # TODO: Does this break with 2D backgrounds???
     def remove_background(self,
@@ -2460,7 +2476,12 @@ class XRDData:
                 and self.scaler_map is not None):
                 scaler_map = self.scaler_map
             elif hasattr(self, 'sclr_dict'):
-                for key in ['i0', 'im']:
+                for key in ['flux_i0',
+                            'flux_im',
+                            'energy_corrected_i0',
+                            'energy_corrected_im',
+                            'i0',
+                            'im']:
                     if key in self.sclr_dict.keys():
                         scaler_map = self.sclr_dict[key]
                         break
@@ -2660,7 +2681,7 @@ class XRDData:
 
     # Simpler from image_projection_factor
     # because no mask is considered
-    def _integration_projection_factor(property_abbreviation,
+    def _integration_projection_factory(property_abbreviation,
                                        function, axes):
         """
         Internal function for constructing projection properties from
@@ -2687,29 +2708,29 @@ class XRDData:
         return property(get_projection, None, del_projection)
     
 
-    min_integration = _integration_projection_factor(
+    min_integration = _integration_projection_factory(
                             'min_integration', np.min, (0, 1))
-    min_integration_map = _integration_projection_factor(
+    min_integration_map = _integration_projection_factory(
                             'min_integration_map', np.min, (2))
 
-    max_integration = _integration_projection_factor(
+    max_integration = _integration_projection_factory(
                             'max_integration', np.max, (0, 1))
-    max_integration_map = _integration_projection_factor(
+    max_integration_map = _integration_projection_factory(
                             'max_integration_map', np.max, (2))
 
-    sum_integration = _integration_projection_factor(
+    sum_integration = _integration_projection_factory(
                             'sum_integration', np.sum, (0, 1))
-    sum_integration_map = _integration_projection_factor(
+    sum_integration_map = _integration_projection_factory(
                             'sum_integration_map', np.sum, (2))
 
-    med_integration = _integration_projection_factor(
+    med_integration = _integration_projection_factory(
                             'med_integration', np.median, (0, 1))
-    med_integration_map = _integration_projection_factor(
+    med_integration_map = _integration_projection_factory(
                             'med_integration_map', np.median, (2))
 
-    mean_integration = _integration_projection_factor(
+    mean_integration = _integration_projection_factory(
                             'mean_integration', np.mean, (0, 1))
-    mean_integration_map = _integration_projection_factor(
+    mean_integration_map = _integration_projection_factory(
                             'mean_integration_map', np.mean, (2))
 
 

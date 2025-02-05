@@ -31,7 +31,7 @@ def plot_3D_indexing(connections,
     if colors is not None:
         c = colors
     else:
-        c = 'k'
+        c = ['k',] * len(connections)
 
     fig, ax = plt.subplots(1, 1, 
                            figsize=(5, 5),
@@ -39,7 +39,7 @@ def plot_3D_indexing(connections,
                            subplot_kw={'projection':'3d'})
 
     # Iterate and plot all connections
-    for connection in connections:
+    for i, connection in enumerate(connections):
         spot_inds, ref_inds = _get_connection_indices(
                                 connection)
         orientation, _ = Rotation.align_vectors(
@@ -50,13 +50,13 @@ def plot_3D_indexing(connections,
 
         ax.scatter(*all_rot_qs[temp_q_mask].T,
                    s=all_ref_fs[temp_q_mask] * 0.1,
-                   c=c)
+                   c=c[i])
         ax.scatter(*all_spot_qs.T,
                    s=1,
                    c='r')
 
         for spot, hkl in zip(all_spot_qs[spot_inds], all_ref_hkls[ref_inds]):
-            ax.text(*spot.T, str(tuple(hkl)), fontsize=8, c=c)
+            ax.text(*spot.T, str(tuple(hkl)), fontsize=8, c=c[i])
     
     # Plot bounding edges if they are given
     for edge in edges:

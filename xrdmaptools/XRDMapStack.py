@@ -9,13 +9,15 @@ import pandas as pd
 import functools
 
 from xrdmaptools.XRDMap import XRDMap
+from xrdmaptools.XRDRockingCurve import XRDRockingCurve
 from xrdmaptools.utilities.utilities import (
     timed_iter,
     pathify
 )
 from xrdmaptools.io.hdf_io import (
     initialize_xrdmapstack_hdf,
-    load_xrdmapstack_hdf
+    load_xrdmapstack_hdf,
+    _load_xrd_hdf_vectorized_map_data
     )
 from xrdmaptools.io.hdf_utils import (
     check_attr_overwrite,
@@ -72,6 +74,10 @@ class XRDMapStack(list):
         Extra metadata will be written to the hdf file if enabled, but
         is not intended to be interacted with during normal data
         processing.
+    xdms_extra_attrs : dict, optional
+        Dictionary of extra attributes to be given to XRDMapStack.
+        These attributes are intended for those values generated during
+        processing of the XRD data.
     """
 
     # Class variables
@@ -81,12 +87,13 @@ class XRDMapStack(list):
                  stack=None,
                  shifts=None,
                  rocking_axis=None,
-                 xdms_wd=None,
+                 wd=None,
                  xdms_filename=None,
                  xdms_hdf_filename=None,
                  xdms_hdf=None,
                  save_hdf=False,
-                 xdms_extra_metadata=None
+                 xdms_extra_metadata=None,
+                 xdms_extra_attrs=None
                  ):
         
         # Create list to build around
@@ -100,9 +107,9 @@ class XRDMapStack(list):
                 raise ValueError(f'Stack index {i} is not an XRDMap!')
 
         # Set up metdata
-        if xdms_wd is None:
-            xdms_wd = self.wd[0] # Grab from first xrdmap
-        self.xdms_wd = xdms_wd
+        if wd is None:
+            wd = self.wd[0] # Grab from first xrdmap
+        self.xdms_wd = wd
         if xdms_filename is None:
             scan_str = f'{np.min(self.scan_id)}-{np.max(self.scan_id)}'
             xdms_filename = f'scan{scan_str}_{self._hdf_type}'
@@ -187,6 +194,12 @@ class XRDMapStack(list):
         # If none, map pixels may not correspond to each other
         if shifts is not None:
             self.shifts = shifts
+        
+        # Catch-all of extra attributes.
+        # Gets them into __init__ sooner
+        if xdms_extra_attrs is not None:
+            for key, value in xdms_extra_attrs.items():
+                setattr(self, key, value)
 
         # Define several methods
         self._construct_iterable_methods()
@@ -264,17 +277,15 @@ class XRDMapStack(list):
     wavelength = _list_property_constructor(
                                 'wavelength',
                                 include_set=True)
-    q_arr = _list_property_constructor(
-                                'q_arr',
-                                include_del=True)
-
+    # q_arr = _list_property_constructor(
+    #                             'q_arr',
+    #                             include_del=True)
     tth_arr = _universal_property_constructor(
                                 'tth_arr',
                                 include_del=True)
     chi_arr = _universal_property_constructor(
                                 'chi_arr',
                                 include_del=True)
-
     scattering_units = _universal_property_constructor(
                                 'scattering_units',
                                 include_set=True)
@@ -334,11 +345,33 @@ class XRDMapStack(list):
                                                 include_set=True)
 
     # Not guaranteed attributes. May throw errors
-    blob_masks = _list_property_constructor('blob_masks')
+    # blob_masks = _list_property_constructor('blob_masks')
 
     ##############################
     ### XRDMapStack Properties ###
     ##############################
+
+    @property
+    def q_arr(self):
+
+        if hasattr(self, '_q_arr'):
+            return self._q_arr
+        else:
+            q_arr_list = []
+            for i, xrdmap in enumerate(self):
+                if hasattr(xrdmap, 'q_arr'):
+                    q_arr_list.append(getattr(xrdmap, 'q_arr'))
+                else:
+                    err_str = (f'XRDMap [{i}] does not have '
+                                + f'attribute q_arr.')
+                    raise AttributeError(err_str)
+            self._q_arr = np.asarray(q_arr_list)
+            return self._q_arr
+    
+    @q_arr.deleter
+    def q_arr(self):
+        del self._q_arr
+
 
     @property
     def xrf(self):
@@ -414,9 +447,6 @@ class XRDMapStack(list):
             overwrite_attr(self.xdms_hdf[self._hdf_type].attrs,
                            'shifts',
                            self.shifts)
-            # attrs = self.xdms_hdf[self._hdf_type].attrs
-            # if check_attr_overwrite(attrs, 'shifts', self.shifts):
-            #     attrs['shifts'] = self.shifts
         save_attrs(self)
     
     @shifts.deleter
@@ -441,6 +471,7 @@ class XRDMapStack(list):
                          image_data_key=None, # Load empty datasets
                          integration_data_key=None, # Load empty datasets
                          load_blob_masks=False, # Load empty datasets
+                         load_vector_maps=False, # Load emtpy datasets
                          map_shape=None,
                          image_shape=None,
                          **kwargs):
@@ -449,6 +480,9 @@ class XRDMapStack(list):
             wd = [os.getcwd(),] * len(hdf_filenames)
         elif isinstance(wd, str):
             wd = [wd,] * len(hdf_filenames)
+        
+        if xdms_wd is None:
+            xdms_wd = wd[0]
 
         # Check that each file exists
         for filename, wdi in zip(hdf_filenames, wd):
@@ -458,7 +492,6 @@ class XRDMapStack(list):
                 raise FileNotFoundError(err_str)
         
         xrdmap_list = []
-
         for hdf_filename, wdi in timed_iter(zip(hdf_filenames,
                                                 wd),
                                             total=len(hdf_filenames),
@@ -471,6 +504,7 @@ class XRDMapStack(list):
                     image_data_key=image_data_key,
                     integration_data_key=integration_data_key,
                     load_blob_masks=load_blob_masks,
+                    load_vector_maps=load_vector_maps,
                     map_shape=map_shape,
                     image_shape=image_shape,
                     save_hdf=save_hdf,
@@ -479,7 +513,7 @@ class XRDMapStack(list):
             )
 
         return cls(stack=xrdmap_list,
-                   xdms_wd=xdms_wd,
+                   wd=xdms_wd,
                    xdms_filename=xdms_filename,
                    xdms_hdf_filename=xdms_hdf_filename,
                    xdms_hdf=xdms_hdf,
@@ -488,28 +522,84 @@ class XRDMapStack(list):
     
     @classmethod
     def from_hdf(cls,
-                 hdf_filename,
-                 wd=None,
-                 save_hdf=True
+                 xdms_hdf_filename,
+                 # converts to xdms_wd, but kept wd for consistency
+                 wd=None, 
+                 load_xdms_vector_map=True,
+                 save_hdf=True,
+                 dask_enabled=False,
+                 image_data_key=None,
+                 integration_data_key=None,
+                 load_blob_masks=False,
+                 load_vector_maps=False,
+                 map_shape=None,
+                 image_shape=None,
+                 **kwargs
                  ):
-        raise NotImplementedError()
 
-        # # out = load_XRDMapStack_hdf()
+        if wd is None:
+            wd = os.getcwd()
         
-        # inst = cls.from_XRDMap_hdfs(
-        #     out['list of hdfs']
-        # )
+        xdms_hdf_path = pathify(wd, xdms_hdf_filename, '.h5')
+        if not os.path.exists(xdms_hdf_path):
+            # Should be redundant...
+            raise FileNotFoundError(f'No hdf file at {xdms_hdf_path}.')
+        
+        # File exists, attempt to load data!
+        print('Loading data from hdf file...')
+        input_dict = load_xrdmapstack_hdf(
+                            os.path.basename(xdms_hdf_path),
+                            os.path.dirname(xdms_hdf_path),
+                            load_xdms_vector_map=load_xdms_vector_map)
+        
+        hdf_path = input_dict['base_md'].pop('hdf_path')
+        shifts = input_dict['base_md'].pop('shifts')
+        rocking_axis = input_dict['base_md'].pop('rocking_axis')
+        xdms_extra_metadata = input_dict.pop('xdms_extra_metadata')
+        # xdms_hdf = input_dict.pop('xdms_hdf')
 
-        # inst.attr = out[attr]
+        xdms_extra_attrs = {}
+        if input_dict['vector_dict'] is not None:
+            (xdms_extra_attrs['xdms_vector_map'] # rename
+             ) = input_dict['vector_dict'].pop('vector_map')
+            xdms_extra_attrs.update(input_dict['vector_dict'])
+        
+        print(xdms_extra_attrs.keys())
+        
+        xrdmap_list = []
+        for hdf_path_i in timed_iter(hdf_path, iter_name='xrdmap'):
+            hdf_filename_i = os.path.basename(hdf_path_i)
+            wd_i = os.path.dirname(hdf_path_i)
+            xrdmap_list.append(
+                XRDMap.from_hdf(
+                    hdf_filename_i,
+                    wd=wd_i,
+                    dask_enabled=dask_enabled,
+                    image_data_key=image_data_key,
+                    integration_data_key=integration_data_key,
+                    load_blob_masks=load_blob_masks,
+                    load_vector_maps=load_vector_maps,
+                    map_shape=map_shape,
+                    image_shape=image_shape,
+                    save_hdf=save_hdf,
+                    **kwargs
+                )
+            )
 
-        # return inst
+        inst = cls(stack=xrdmap_list,
+                   wd=wd,
+                   rocking_axis=rocking_axis,
+                   shifts=shifts,
+                   xdms_filename=xdms_hdf_filename[:-3],
+                   xdms_hdf_filename=xdms_hdf_filename,
+                   # xdms_hdf=xdms_hdf,
+                   save_hdf=save_hdf,
+                   xdms_extra_metadata=xdms_extra_metadata,
+                   xdms_extra_attrs=xdms_extra_attrs)
+        
+        print(f'{cls.__name__} loaded!')
+        return inst
 
-    
-    def load_XRDMaps(self,
-                     dask_enabled=True):
-        raise NotImplementedError()
-
-        print('WARNING:')
 
 
     #########################
@@ -527,6 +617,8 @@ class XRDMapStack(list):
         return list(iterable)
 
 
+    # This is currently called during __init__,
+    # but may work as a decorator within the class
     def _get_iterable_method(self,
                              method,
                              variable_inputs=False,
@@ -612,7 +704,7 @@ class XRDMapStack(list):
                     ))
 
 
-    # List of iterated methods
+    # List of iterable methods
     iterable_methods = ( # function, variable_inputs, timed_iterator
         # hdf functions
         ('start_saving_hdf', False, False),
@@ -646,6 +738,7 @@ class XRDMapStack(list):
         ('remove_spot_guesses', False, False),
         ('remove_spot_fits', False, False),
         ('save_spots', False, True),
+        ('vectorize_map_data', False, True),
         # Working with xrfmap
         # Multiple inputs may be crucial here
         ('load_xrfmap', True, False) 
@@ -659,9 +752,6 @@ class XRDMapStack(list):
     def _get_verbatim_method(self, method):
 
         def verbatim_method(*args, **kwargs):
-            # setattr(self,
-            #         method,
-            #         getattr(self[0], method))(*args, **kwargs)
             getattr(self[0], method)(*args, **kwargs)
         
         return verbatim_method
@@ -688,6 +778,7 @@ class XRDMapStack(list):
         'load_phase',
         'clear_phases',
         # Plotting functions
+        '_title_with_scan_id',
         'plot_detector_geometry',
         'plot_map' # May break on extent
     )
@@ -871,6 +962,51 @@ class XRDMapStack(list):
     ### Modified Functions ###
     ##########################
 
+    @protect_xdms_hdf()
+    def save_map_vectorization(self,
+                               xdms_vector_map=None,
+                               edges=None,
+                               rewrite_data=False):
+
+        # Allows for more customizability with other functions
+        hdf = getattr(self, 'xdms_hdf')
+
+        # Check input
+        if xdms_vector_map is None:
+            if (hasattr(self, 'xdms_vector_map')
+                and self.xdms_vector_map is not None):
+                xdms_vector_map = self.xdms_vector_map
+            else:
+                err_str = ('Must provide xdms_vector_map or '
+                        + f'{self.__class__.__name__} must have '
+                        + 'xdms_vector_map attribute.')
+                raise AttributeError(err_str)
+        if edges is None:
+            if (hasattr(self, 'edges')
+                and self.edges is not None):
+                edges = self.edges
+            else:
+                err_str = ('Must provide edges or '
+                        + f'{self.__class__.__name__} must have edges'
+                        + ' attribute.')
+                raise AttributeError(err_str)
+    
+        XRDMap._save_map_vectorization(self, # this might break
+                                       hdf,
+                                       vector_map=xdms_vector_map,
+                                       edges=edges,
+                                       rewrite_data=rewrite_data)
+        
+        # Remove secondary reference
+        del hdf
+    
+
+    def get_sampled_edges(self,
+                          q_arr=None):
+        XRDRockingCurve.get_sampled_edges(self,
+                                          q_arr=q_arr)
+
+
     # Need to modify to not look for a random image
     def plot_image():
         raise NotImplementedError()
@@ -900,9 +1036,6 @@ class XRDMapStack(list):
         attr_list = [getattr(xrdmap, attr) for xrdmap in self]
         self.sort(key=dict(zip(self, attr_list)).get,
                   reverse=reverse)
-
-        # self.sort(key = lambda xrdmap : getattr(xrdmap, attr),
-        #           reverse=reverse)
 
         # Delete sorted attrs built from indvidual xrdmaps
         if hasattr(self, '_xrf'):
@@ -941,10 +1074,6 @@ class XRDMapStack(list):
                 overwrite_attr(self.xdms_hdf[self._hdf_type].attrs,
                                attr,
                                getattr(self, attr))
-                # if check_attr_overwrite(hdf_attrs,
-                #                         attr,
-                #                         getattr(self, attr)):
-                #     hdf_attrs[attr] = getattr(self, attr)
         save_attrs(self)
 
     
@@ -976,6 +1105,7 @@ class XRDMapStack(list):
             batched_functions(xrdmap, **kwargs)
 
 
+    # Invalid with shifts??
     def stack_spots(self):
     
         all_spots_list = []
@@ -1045,85 +1175,224 @@ class XRDMapStack(list):
 
         self.shifts = np.asarray(shifts)
 
+    
+    def interpolate_map_positions(self,
+                                  shifts=None,
+                                  map_shape=None,
+                                  plotme=False):
 
-    def vectorize_images(self):
-        raise NotImplementedError()
-
-        for i, xrdmap in enumerate(self):
-            if (not hasattr(xrdmap, 'blob_masks')
-                or xrdmap.blob_masks is None):
-                err_str = (f'XRDMap [{i}] does not have blob_masks. '
-                           + 'These are needed to avoid unecessarily '
-                           + 'large file sizes.')
+        # Check inputs
+        if shifts is None:
+            if (hasattr(self, 'shifts')
+                and self.shifts is not None):
+                shifts = self.shifts
+            else:
+                err_str = ('Must provide shifts between maps or have '
+                           + 'internally saved these shifts.')
+                raise AttributeError(err_str)
+        if map_shape is None:
+            if (hasattr(self, 'map_shape')
+                and self.map_shape is not None):
+                map_shape = self.map_shape
+            else:
+                err_str = ('Must provide map_shape or have internal '
+                        + 'map_shape attribute.')
                 raise AttributeError(err_str)
 
-        
-        edges = ([[] for _ in range(12)])
+        # Create generic regular coordinates
+        x = np.arange(0, map_shape[1])
+        y = np.arange(0, map_shape[0])
 
-        # Reserve memory, a little faster and throws errors sooner
-        q_vectors = np.zeros((len(self.wavelength), 3),
-                              dtype=self.dtype)
+        # Redefine y-shifts to match matplotlib axes...
+        shifts = np.asarray(shifts)
+        shifts[:, 0] *= -1
 
-        print('Vectorizing images...')
-        filled_indices = 0
-        for i, wavelength in tqdm(enumerate(self.wavelength),
-                                  total=self.num_images):
-            q_arr = get_q_vect(self.tth_arr,
-                               self.chi_arr,
-                               wavelength=wavelength,
-                               degrees=self.polar_units == 'deg'
-                               ).astype(self.dtype)
-            q_vectors[i] = q_arr
+        # Shifts stats
+        x_step = np.mean(np.diff(x))
+        y_step = np.mean(np.diff(y))
+        ymin, xmin = np.min(shifts, axis=0)
+        ymax, xmax = np.max(shifts, axis=0)
+        # matching matplotlib description
+        xx, yy = np.meshgrid(x, y[::-1])  
 
-            # Find edges
-            if i == 0:
-                edges[4] = q_arr[0].T
-                edges[5] = q_arr[-1].T
-                edges[6] = q_arr[:, 0].T
-                edges[7] = q_arr[:, -1].T
-            elif i == len(self.wavelength) - 1:
-                edges[8] = q_arr[0].T
-                edges[9] = q_arr[-1].T
-                edges[10] = q_arr[:, 0].T
-                edges[11] = q_arr[:, -1].T
-            else: # Corners
-                edges[0].append(q_arr[0, 0])
-                edges[1].append(q_arr[0, -1])
-                edges[2].append(q_arr[-1, 0])
-                edges[3].append(q_arr[-1, -1])
-        
-        for i in range(4):
-            edges[i] = np.asarray(edges[i])
-        
-        # Assign useful variables
-        self.edges = edges
-        self.q_vectors = q_vectors
-        
-        # Get all q-coordinates
+        # Determine virtual grid centers based on mean positions
+        mean_shifts = np.mean(shifts, axis=0)
+        xx_virt = xx + mean_shifts[1]
+        yy_virt = yy + mean_shifts[0]
 
-        # Assign vectorization to images within blob_masks
+        # Mask out incomplete virtual pixels
+        mask = np.all([
+            xx_virt > np.min(x) + xmax - (x_step / 2), # left edge
+            xx_virt < np.max(x) + xmin + (x_step / 2), # right edge
+            yy_virt > np.min(y) + ymax - (y_step / 2), # bottom edge
+            yy_virt < np.max(y) + ymin + (y_step / 2)], # top edge
+                axis=0)
+        xx_virt = xx_virt[mask]
+        yy_virt = yy_virt[mask]
+        virt_shape = (len(np.unique(yy_virt)), len(np.unique(xx_virt)))
+        # print(virt_shape)
 
+        if plotme:
+            fig, ax = plt.subplots()
 
+        # Contruct virtual masks of full grids to fill virtual grid
+        virtual_masks = []
+        for i, shift in enumerate(shifts):
+            xxi = (xx + shift[1])
+            yyi = (yy + shift[0])
 
+            xx_ind, yy_ind = xx_virt[0], yy_virt[0]
+            vmask_x0 = np.argmin(np.abs(xxi[0] - xx_ind))
+            vmask_y0 = np.argmin(np.abs(yyi[:, 0] - yy_ind))
+            y_start = xx.shape[0] - (virt_shape[0] + vmask_y0)
+            y_end = xx.shape[0] - vmask_y0
+            x_start = vmask_x0
+            x_end = vmask_x0 + virt_shape[1]
 
-    def save_vectorized_data(self):
-        raise NotImplementedError()
+            # print(vmask_x0, vmask_y0)
+            vmask = np.zeros_like(xx, dtype=np.bool_)
+            vmask[y_start : y_end,
+                  x_start : x_end] = True
+            virtual_masks.append(vmask)
+
+            if plotme:
+                ax.scatter(xxi.flatten(),
+                        yyi.flatten(),
+                        s=5,
+                        color=grid_colors[i])
+
+        # Store parameter. Write to hdf?
+        self.virtual_masks = virtual_masks
+
+        if plotme:
+            ax.scatter(xx_virt,
+                      yy_virt,
+                      s=20,
+                      c='r',
+                      marker='*')
+
+            # This can probably be done with RegularPolyCollection
+            # but this proved finicky
+            rect_list = []
+            for xi, yi in zip(xx_virt, yy_virt):
+                # Create a Rectangle patch
+                rect = patches.Rectangle((xi - (x_step / 2),
+                                          yi - (y_step / 2)),
+                                          x_step,
+                                          y_step,
+                                          linewidth=1,
+                                          edgecolor='gray',
+                                          facecolor='none')
+                rect_list.append(rect)
+            pc = PatchCollection(rect_list, match_original=True)
+            ax.add_collection(pc)
+
+            ax.set_aspect('equal')
+            fig.show()
+
     
-    
-    
-    # Def get 3D q-coordinates
+    def stack_vector_maps(self,
+                          vector_maps=None,
+                          virtual_masks=None,
+                          rewrite_data=False):
 
-    # Combined spots...Useful for not 3D RSM analysis
-    
-    # Segment 3D data
+        # Check inputs
+        if virtual_masks is None:
+            if (hasattr(self, 'virtual_masks')
+                and self.virtual_masks is not None):
+                virtual_masks = self.virtual_masks
+            else:
+                err_str = ('Must provide virtual_masks or have '
+                           + 'internal virutal_masks attribute.')
+                raise AttributeError(err_str)
+        
+        # Compare inputs if provided
+        if vector_maps is not None: 
+            if (len(vector_maps) != len(self)
+                or len(virtual_masks) != len(self)):
+                err_str = ('Provided vector_maps length of '
+                        + f'{len(vector_maps)} or virtual_masks length '
+                        + f'of {len(virutal_masks)} does not match '
+                        + f'XRDMapStack length of {len(self)}.')
+                raise ValueError(err_str)
+        else: # Check to make sure everything is available
 
-    # Center of mass
+            @XRDMap.protect_hdf()
+            def check_xrdmap_for_vector_map(xrdmap, i):
+                if ('vectorized_map'
+                    not in xrdmap.hdf[xrdmap._hdf_type]):
+                        err_str = ('Could not find vector_map for '
+                                   + f'XRDMap[{i}] internally or in '
+                                   + 'HDF file.')
+                        raise RuntimeError(err_str)
+            
+            @XRDMap.protect_hdf()
+            def retrieve_vector_map_from_hdf(xrdmap):
+                vector_dict = _load_xrd_hdf_vectorized_map_data(
+                                        xrdmap.hdf[xrdmap._hdf_type])
+                xrdmap.vector_map = vector_dict['vector_map']
 
-    # Indexing
+            for i, xrdmap in enumerate(self):
+                if (not hasattr(xrdmap, 'vector_map')
+                    or xrdmap.vector_map is None):
+                    check_xrdmap_for_vector_map(xrdmap, i)
 
-    # Strain math
+        # Construct full vector array
+        print('Combining all vectorized maps...')
+        vmask_shape = (np.max(virtual_masks[0].sum(axis=0)),
+                       np.max(virtual_masks[0].sum(axis=1)))
 
-    # 3D plotting
+        full_vector_map = np.empty(vmask_shape, dtype=object)
+
+        for i, xrdmap in enumerate(self):
+            if vector_maps is None:
+                if (hasattr(xrdmap, 'vector_map')
+                    and xrdmap.vector_map is not None):
+                    vector_map = xrdmap.vector_map
+                    # Remove reference to save on memory later
+                    del xrdmap.vector_map
+                else:
+                    retrieve_vector_map_from_hdf(xrdmap)
+                    vector_map = xrdmap.vector_map
+                    # Remove reference to save on memory later
+                    del xrdmap.vector_map 
+            else:
+                vector_map = vector_maps[i]
+                # Remove reference to save on memory later
+                vector_maps[i] = None
+
+            virt_index = 0
+            for indices in self[0].indices:
+                #skip if not in virtual_mask
+                if not virtual_masks[i][indices]:
+                    continue
+                
+                virt_indices = np.unravel_index(virt_index,
+                                                vmask_shape)
+                
+                if full_vector_map[virt_indices] is None:
+                    full_vector_map[virt_indices] = vector_map[indices]
+                else:
+                    full_vector_map[virt_indices] = np.vstack([
+                            full_vector_map[virt_indices],
+                            vector_map[indices]
+                        ])
+                virt_index += 1
+            
+            # Release memory
+            del vector_map
+        
+        
+        # Save internally
+        self.xdms_vector_map = full_vector_map
+        print('done!')
+        
+        # Find edges too
+        self.get_sampled_edges()
+
+        # Write to hdf
+        self.save_map_vectorization(rewrite_data=rewrite_data)
+
 
     ##########################
     ### Plotting Functions ###

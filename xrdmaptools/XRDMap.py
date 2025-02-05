@@ -126,6 +126,13 @@ class XRDMap(XRDBaseScan):
                 save_hdf=True,
                 dask_enabled=False,
                 repair_method='fill'):
+        
+        if wd is None:
+            wd = os.getcwd()
+        else:
+            if not os.path.exists():
+                err_str = f'Cannot find directory {wd}'
+                raise OSError(err_str)
     
         # No fluorescence key
         pos_keys = ['enc1', 'enc2']
@@ -778,47 +785,6 @@ class XRDMap(XRDBaseScan):
                             int(self._swapped_axes))
         save_swapped_axes(self)
 
-        # if not only_images:
-        #     if hasattr(self, 'pos_dict'):
-        #         for key in list(self.pos_dict.keys()):
-        #             self.pos_dict[key] = self.pos_dict[key].swapaxes(
-        #                                                     0, 1)
-        #         # self.save_sclr_pos('positions',
-        #         #                     self.pos_dict,
-        #         #                     self.position_units)
-            
-        #     if hasattr(self, 'sclr_dict'):
-        #         for key in list(self.sclr_dict.keys()):
-        #             self.sclr_dict[key] = self.sclr_dict[key].swapaxes(
-        #                                                       0, 1)
-        #         # self.save_sclr_pos('scalers',
-        #         #                    self.sclr_dict,
-        #         #                    self.scaler_units)
-        #     # Update spot map_indices
-        #     if hasattr(self, 'spots'):
-        #         map_x_ind = self.spots['map_x'].values
-        #         map_y_ind = self.spots['map_y'].values
-        #         self.spots['map_x'] = map_y_ind
-        #         self.spots['map_y'] = map_x_ind
-        #         # self.save_spots()
-
-        # Flip swapped axes tag from whatever it was
-        # But when intenionally called
-        # if not only_images: 
-        #     self._swapped_axes = not self._swapped_axes
-
-        #     @XRDBaseScan.protect_hdf()
-        #     def save_swapped_axes(self):
-        #         # attrs = self.hdf[self._hdf_type].attrs
-        #         overwrite_attr(self.hdf[self._hdf_type].attrs,
-        #                        'swapped_axes',
-        #                        int(self._swapped_axes))
-        #         # if check_attr_overwrite(attrs,
-        #         #                         'swapped_axes',
-        #         #                         int(self._swapped_axes)):
-        #         #     attrs['swapped_axes'] = int(self._swapped_axes)
-        #     save_swapped_axes(self)
-
 
     def interpolate_positions(self,
                               scan_input=None,
@@ -1139,6 +1105,93 @@ class XRDMap(XRDBaseScan):
                 #self.hdf[hdf_str].attrs[key] = value        
         print('done!')
 
+    ############################
+    ### Vectorizing Map Data ###
+    ############################
+
+    @XRDBaseScan.protect_hdf()
+    def vectorize_map_data(self,
+                           image_data_key='recent',
+                           keep_images=False,
+                           rewrite_data=False):
+
+        # Check required data
+        remove_blob_masks_after = False
+        if not hasattr(self, 'blob_masks') or self.blob_masks is None:
+            if '_blob_masks' in self.hdf[
+                                f'{self._hdf_type}/image_data'].keys():
+                self.load_images_from_hdf('_blob_masks')
+            # For backwards compatibility
+            elif '_spot_masks' in self.hdf[
+                                f'{self._hdf_type}/image_data'].keys():
+                self.load_images_from_hdf('_spot_masks')
+            else:
+                err_str = (f'{self._hdf_type} does not have blob_masks'
+                        + 'attribute.')
+                raise AttributeError(err_str)
+            remove_blob_masks_after = True
+
+        remove_images_after = False
+        if not hasattr(self, 'images') or self.images is None:
+            remove_images_after = True
+            self.load_images_from_hdf(image_data_key=image_data_key)
+
+        print('Vectorizing map data...')
+        vector_map = np.empty(self.map_shape, dtype=object)
+
+        for indices in tqdm(self.indices):
+            blob_mask = self.blob_masks[indices]
+            intensity = self.images[indices][blob_mask]
+            q_vectors = self.q_arr[blob_mask]
+            
+            vector_map[indices] = np.hstack([q_vectors,
+                                             intensity.reshape(-1, 1)])
+
+        # Record values
+        self.vector_map = vector_map
+        # Write to hdf
+        self.save_map_vectorization(rewrite_data=rewrite_data)
+        
+        # Cleaning up XRDMap state
+        if not keep_images and remove_images_after:
+            self.dump_images()
+        if not keep_images and remove_blob_masks_after:
+            del self.blob_masks
+            self.blob_masks = None       
+    
+    
+    @XRDBaseScan.protect_hdf()
+    def save_map_vectorization(self,
+                               vector_map=None,
+                               edges=None,
+                               rewrite_data=False):
+
+        # Allows for more customizability with other functions
+        hdf = getattr(self, 'hdf')
+
+        # Check input
+        if vector_map is None:
+            if (hasattr(self, 'vector_map')
+                and self.vector_map is not None):
+                vector_map = self.vector_map
+            else:
+                err_str = ('Must provide vector_map or '
+                        + f'{self.__class__.__name__} must have '
+                        + 'vector_map attribute.')
+                raise AttributeError(err_str)
+
+        # Use internal edges if available. Only for XRDMapStack
+        if edges is None:
+            if hasattr(self, 'edges'):
+                edges = self.edges
+    
+        self._save_map_vectorization(hdf,
+                                     vector_map=vector_map,
+                                     edges=edges,
+                                     rewrite_data=rewrite_data)
+        
+        # Remove secondary reference
+        del hdf
 
     #################################
     ### Analysis of Selected Data ###
@@ -1170,7 +1223,7 @@ class XRDMap(XRDBaseScan):
             
             xrf_path = pathify(wd, xrf_name, '.h5')        
 
-        if not os.path.exists(xrf_path):
+        if not os.path.exists(xrf_path): # redundant!
             raise FileNotFoundError(f"{xrf_path} does not exist.")
         else:
             self.xrf_path = xrf_path

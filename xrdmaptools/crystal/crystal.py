@@ -331,13 +331,20 @@ def are_coplanar(vectors, return_volume=False):
     vecs = np.asarray(vectors)
 
     if vecs.ndim != 2:
-        raise ValueError('Input vectors must be iterable with at least three 3D vectors.')
+        err_str = ('Input vectors must be iterable with at least three'
+                   + ' 3D vectors.')
+        raise ValueError(err_str)
     else:
         # Attempt to fix transpose
         if vecs.shape[1] != 3:
             vecs = vecs.T
         if vecs.shape[1] != 3:
             raise ValueError('Vectors are not 3D.')
+    
+    if len(vecs) < 3:
+        err_str = ('Must provide at least three vectors to determine '
+                    + f'if they are coplanar, not {len(vecs)}.')
+        raise ValueError(err_str)
     
     combos = list(combinations(vecs, 3))
     vols = []
@@ -362,37 +369,80 @@ def are_coplanar(vectors, return_volume=False):
         return vols
     else:
         return coplanar_flag
-    
+
 
 # This assumes list of vectors which may be different than are_coplanar()
-def are_collinear(vectors):
+def are_collinear(vectors, return_area=False):
     vecs = np.asarray(vectors)
+
+    if vecs.ndim != 2:
+        err_str = ('Input vectors must be iterable with at least two '
+                   + '3D vectors.')
+        raise ValueError(err_str)
+    else:
+        # Attempt to fix transpose
+        if vecs.shape[1] != 3:
+            vecs = vecs.T
+        if vecs.shape[1] != 3:
+            raise ValueError('Vectors are not 3D.')
+    
+    if len(vecs) < 2:
+        err_str = ('Must provide at least two vectors to determine if '
+                    + f'they are collinear, not {len(vecs)}.')
+        raise ValueError(err_str)
+    
+    combos = list(combinations(vecs, 2))
+    areas = []
     collinear_flag = True
-
-    # Probably faster. Not easy to perform pairwise
-    if len(vecs) == 2:
-        if np.sum(np.abs(np.cross(*vecs))) > 1e-8:
-            collinear_flag = False
-        return collinear_flag
-
-    # Pairwise analysis fo list of vectors
-    const_list = []
-    for ind in range(vecs.shape[1]):
-        vecs_axis = vecs[:, ind]
-        if not np.any(vecs_axis == 0):
-            const = np.abs(vecs_axis[:, np.newaxis] / vecs_axis[np.newaxis, :])
-            const_list.append(np.round(const, 3))
-
-    combos = list(combinations(range(vecs.shape[1]), 2))
-    if len(combos) > 1:
-        combos.pop(-1) # last index is redundant
-
     for combo in combos:
-        if np.any(const_list[combo[0]] != const_list[combo[1]]):
+        vec1, vec2 = combo
+
+        # Compute cross product
+        area = np.linalg.norm(np.cross(vec1, vec2))
+        
+        areas.append(area)
+        area = np.round(area, 8)
+
+        if not return_area and area != 0:
             collinear_flag = False
             break
         
-    return collinear_flag
+    # If the area of the 2 vectors is 0, then they are collinear
+    if return_area:
+        return area
+    else:
+        return collinear_flag
+    
+
+# # This assumes list of vectors which may be different than are_coplanar()
+# def are_collinear(vectors):
+#     vecs = np.asarray(vectors)
+#     collinear_flag = True
+
+#     # Probably faster. Not easy to perform pairwise
+#     if len(vecs) == 2:
+#         if np.sum(np.abs(np.cross(*vecs))) > 1e-8:
+#             collinear_flag = False
+#         return collinear_flag
+
+#     # Pairwise analysis for list of vectors
+#     const_list = []
+#     for ind in range(vecs.shape[1]):
+#         vecs_axis = vecs[:, ind]
+#         if not np.any(vecs_axis == 0):
+#             const = np.abs(vecs_axis[:, np.newaxis] / vecs_axis[np.newaxis, :])
+#             const_list.append(np.round(const, 3))
+
+#     combos = list(combinations(range(vecs.shape[1]), 2))
+#     if len(combos) > 1:
+#         combos.pop(-1) # last index is redundant
+
+#     for combo in combos:
+#         if np.any(const_list[combo[0]] != const_list[combo[1]]):
+#             collinear_flag = False
+#             break
+        
+#     return collinear_flag
     
 
 def hkl_2_hkil(hkls):

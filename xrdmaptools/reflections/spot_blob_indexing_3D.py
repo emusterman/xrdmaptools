@@ -35,9 +35,6 @@ def pair_casting_index_best_grain(
 
     # Find phase reciprocal lattice
     phase.generate_reciprocal_lattice(1.15 * max_q)
-    all_ref_qs = phase.all_qs
-    all_ref_fs = phase.all_fs
-    all_ref_hkls = phase.all_hkls
 
     # Find minimum q vector step size from reference phase
     min_q = np.min(np.linalg.norm(phase.Q([[1, 0, 0],
@@ -61,7 +58,8 @@ def pair_casting_index_best_grain(
                 phase.all_qs,
                 phase.all_hkls,
                 near_angle,
-                min_q)
+                min_q,
+                dgrees=degrees)
         
         # Index spots
         connections, qofs, _ = pair_casting_indexing(
@@ -76,6 +74,7 @@ def pair_casting_index_best_grain(
                 exclude_found_pairs=False,
                 verbose_iterator=True)
     else:
+        # This is where all nans are coming from!
         best_connections = [[np.nan,] * len(all_spot_qs)]
         best_qofs = [np.nan,] * len(all_spot_qs)
 
@@ -100,9 +99,6 @@ def pair_casting_index_full_pattern(
 
     # Find phase reciprocal lattice
     phase.generate_reciprocal_lattice(1.15 * max_q)
-    all_ref_qs = phase.all_qs
-    all_ref_fs = phase.all_fs
-    all_ref_hkls = phase.all_hkls
 
     # Find minimum q vector step size from reference phase
     min_q = np.min(np.linalg.norm(phase.Q([[1, 0, 0],
@@ -127,7 +123,8 @@ def pair_casting_index_full_pattern(
                 phase.all_qs,
                 phase.all_hkls,
                 near_angle,
-                min_q)
+                min_q,
+                degrees=degrees)
         
         # Iteratively decompose patterns
         best_connections, best_qofs = decaying_pattern_decomposition(
@@ -142,6 +139,7 @@ def pair_casting_index_full_pattern(
                 max_ori_refine_iter=max_ori_refine_iter,
                 max_ori_decomp_count=max_ori_decomp_count)
     else:
+        # This is where all nans are coming from!
         best_connections = [[np.nan,] * len(all_spot_qs)]
         best_qofs = [np.nan,] * len(all_spot_qs)
 
@@ -220,7 +218,8 @@ def reduce_symmetric_equivalents(connection_pairs,
                                  all_ref_qs,
                                  all_ref_hkls,
                                  near_angle,
-                                 min_q):
+                                 min_q,
+                                 degrees=False):
 
     # Convert to arrays
     all_spot_qs = np.asarray(all_spot_qs)
@@ -239,7 +238,7 @@ def reduce_symmetric_equivalents(connection_pairs,
         pair_spot_qs = all_spot_qs[spot_indices]
 
         # Check colinearity.
-        # 3D orientation cannot be determined from colinear pairs
+        # 3D orientation cannot be determined from collinear pairs
         pair_divs = pair_ref_hkls[0] / pair_ref_hkls[1]
         if len(np.unique(pair_divs[~np.isnan(pair_divs)])) < 2:
             pair_orientations.append(np.nan) # assumes validity
@@ -252,6 +251,11 @@ def reduce_symmetric_equivalents(connection_pairs,
         rmse = get_rmse(pair_spot_qs,
                         orientation.apply(pair_ref_qs,
                                           inverse=False))
+
+        if degrees:
+            ori_mag = np.degrees(orientation.magnitude)
+        else:
+            ori_mag = orientation.magnitude()
 
         pair_orientations.append(orientation)
         pair_mis_mag.append(np.degrees(orientation.magnitude()))

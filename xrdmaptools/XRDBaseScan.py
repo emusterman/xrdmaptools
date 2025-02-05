@@ -13,10 +13,12 @@ import dask.array as da
 import skimage.io as io
 from dask_image import imread as dask_io
 from tqdm import tqdm
+from scipy import constants
 
 # Local imports
 from xrdmaptools.XRDData import XRDData
 from xrdmaptools.utilities.math import *
+from xrdmaptools.utilities import reference_data
 from xrdmaptools.utilities.utilities import (
     delta_array,
     pathify,
@@ -141,7 +143,7 @@ class XRDBaseScan(XRDData):
         as a Dask array. Default is False.
     extra_attrs : dict, optional
         Dictionary of extra attributes to be given to XRDBaseScan.
-        These attributes are intended for those value generated during
+        These attributes are intended for those values generated during
         processing of the XRD data.
     xrddatakwargs : dict, optional 
         Dictionary of all other kwargs for parent XRDData class.
@@ -339,6 +341,7 @@ class XRDBaseScan(XRDData):
                  image_data_key='recent',
                  integration_data_key='recent',
                  load_blob_masks=True,
+                 load_vector_maps=False, # Redundant information
                  map_shape=None,
                  image_shape=None,
                  **kwargs):
@@ -348,144 +351,149 @@ class XRDBaseScan(XRDData):
         
         # Load from previously saved data, including all processed data...
         hdf_path = pathify(wd, hdf_filename, '.h5')
-        if os.path.exists(hdf_path):
-            print('Loading data from hdf file...')
-            input_dict = load_xrdbase_hdf(
-                            hdf_filename,
-                            cls._hdf_type,
-                            wd,
-                            image_data_key=image_data_key,
-                            integration_data_key=integration_data_key,
-                            load_blob_masks=load_blob_masks,
-                            map_shape=map_shape,
-                            image_shape=image_shape,
-                            dask_enabled=dask_enabled)
-
-            # Remove several kwargs to allow for unpacking
-            base_md = input_dict.pop('base_md')
-            image_attrs = input_dict.pop('image_attrs')
-            image_corrections = input_dict.pop('image_corrections')
-            image_data_key = input_dict.pop('image_data_key')
-            integration_attrs = input_dict.pop('integration_attrs')
-            integration_corrections = input_dict.pop(
-                                        'integration_corrections')
-            integration_data_key = input_dict.pop(
-                                        'integration_data_key')
-            recip_pos = input_dict.pop('recip_pos')
-            phases = input_dict.pop('phases')
-            spots = input_dict.pop('spots')
-            spot_model = input_dict.pop('spot_model')
-            spots_3D = input_dict.pop('spots_3D')
-            vect_dict = input_dict.pop('vect_dict')
-            
-            # Other kwargs needing special treatment
-            # Bias swapped axes towards user input.
-            # Might break things switching back and forth...
-            if 'swapped_axes' in kwargs:
-                if 'swapped_axes' in base_md:
-                    del base_md['swapped_axes']
-
-            # Scrub data keys. For backward compatibility
-            if image_data_key is not None:
-                image_title = '_'.join([x for x in 
-                                        image_data_key.split('_')
-                                        if x not in ['images',
-                                                     'integrations']])
-            else:
-                image_title = None
-            if integration_data_key is not None:
-                integration_title = '_'.join([x for x in
-                                        integration_data_key.split('_')
-                                        if x not in ['images',
-                                                     'integrations']])
-            else:
-                integration_title = None
-
-            # Compare image and integration data
-            title = image_title
-            corrections = image_corrections
-            if (input_dict['image_data'] is not None
-                and input_dict['integration_data'] is not None):
-
-                if image_title != integration_title:
-                    warn_str = (f'WARNING: Image data from '
-                                + f'({image_data_key}) does '
-                                + 'not match integration data '
-                                + f'from ({integration_data_key}).')
-                    print(warn_str)
-                
-                # Check corrections if the titles match
-                elif not np.all([val1 == val2
-                            for val1, val2 in zip(
-                                image_corrections.values(),
-                                integration_corrections.values())]):
-                    warn_str = ('WARNING: Different corrections '
-                                + 'applied to images and integrations.'
-                                + ' Using image corrections.')
-                    print(warn_str)
-            elif (input_dict['image_data'] is None
-                  and input_dict['integration_data'] is not None):
-                title = integration_title # truncate _integrations
-                corrections = integration_corrections        
-            
-            # Remove unused values
-            # (keeps pos_dict out of rocking curve...)
-            for key, value in list(input_dict.items()):
-                if value is None:
-                    del input_dict[key]
-
-            # Set up extra attributes
-            extra_attrs = {}
-            extra_attrs.update(image_attrs)
-            extra_attrs.update(integration_attrs)
-            # Add phases
-            extra_attrs['phases'] = phases
-            # Add spots
-            if spots is not None:
-                extra_attrs['spots'] = spots
-            if spot_model is not None:
-                extra_attrs['spot_model'] = spot_model
-            if spots_3D is not None:
-                extra_attrs['spots_3D'] = spots_3D
-
-             # Add vector information. Not super elegant
-            if vect_dict is not None:
-                for key, value in vect_dict.items():
-                    # Check for int cutoffs
-                    # Wait to make sure intensity is processed
-                    if key == 'blob_int_cutoff':
-                        (extra_attrs['blob_int_mask']
-                        ) = generate_intensity_mask(
-                            vect_dict['intensity'],
-                            intensity_cutoff=vect_dict['blob_int_cutoff'])
-                    elif key == 'spot_int_cutoff':
-                        (extra_attrs['spot_int_mask']
-                        ) = generate_intensity_mask(
-                            vect_dict['intensity'],
-                            intensity_cutoff=vect_dict['spot_int_cutoff'])
-                    else:
-                        extra_attrs[key] = value
-
-            # Instantiate XRDBaseScan
-            inst = cls(**input_dict,
-                       **base_md,
-                       **recip_pos,
-                       title=title,
-                       corrections=corrections,
-                       wd=wd,
-                       filename=hdf_filename[:-3], # remove the .h5 extention
-                       hdf_filename=hdf_filename,
-                       dask_enabled=dask_enabled,
-                       extra_attrs=extra_attrs,
-                       check_init_sets=True, # Don't overwrite hdf values
-                       **kwargs)
-            
-            print(f'{cls.__name__} loaded!')
-            return inst
-        
-        else:
+        if not os.path.exists(hdf_path):
             # Should be redundant...
             raise FileNotFoundError(f'No hdf file at {hdf_path}.')
+        
+        # File exists, attempt to load data
+        print('Loading data from hdf file...')
+        input_dict = load_xrdbase_hdf(
+                        os.path.basename(hdf_path),
+                        cls._hdf_type,
+                        os.path.dirname(hdf_path),
+                        image_data_key=image_data_key,
+                        integration_data_key=integration_data_key,
+                        load_blob_masks=load_blob_masks,
+                        load_vector_maps=load_vector_maps,
+                        map_shape=map_shape,
+                        image_shape=image_shape,
+                        dask_enabled=dask_enabled)
+
+        # Remove several kwargs to allow for unpacking
+        base_md = input_dict.pop('base_md')
+        image_attrs = input_dict.pop('image_attrs')
+        image_corrections = input_dict.pop('image_corrections')
+        image_data_key = input_dict.pop('image_data_key')
+        integration_attrs = input_dict.pop('integration_attrs')
+        integration_corrections = input_dict.pop(
+                                    'integration_corrections')
+        integration_data_key = input_dict.pop(
+                                    'integration_data_key')
+        recip_pos = input_dict.pop('recip_pos')
+        phases = input_dict.pop('phases')
+        spots = input_dict.pop('spots')
+        spot_model = input_dict.pop('spot_model')
+        spots_3D = input_dict.pop('spots_3D')
+        vector_dict = input_dict.pop('vector_dict')
+        
+        # Other kwargs needing special treatment
+        # Bias swapped axes towards user input.
+        # Might break things switching back and forth...it does.
+        if 'swapped_axes' in kwargs:
+            if 'swapped_axes' in base_md:
+                del base_md['swapped_axes']
+
+        # Scrub data keys. For backward compatibility
+        if image_data_key is not None:
+            image_title = '_'.join([x for x in 
+                                    image_data_key.split('_')
+                                    if x not in ['images',
+                                                    'integrations']])
+        else:
+            image_title = None
+        if integration_data_key is not None:
+            integration_title = '_'.join([x for x in
+                                    integration_data_key.split('_')
+                                    if x not in ['images',
+                                                    'integrations']])
+        else:
+            integration_title = None
+
+        # Compare image and integration data
+        title = image_title
+        corrections = image_corrections
+        if (input_dict['image_data'] is not None
+            and input_dict['integration_data'] is not None):
+
+            if image_title != integration_title:
+                warn_str = (f'WARNING: Image data from '
+                            + f'({image_data_key}) does '
+                            + 'not match integration data '
+                            + f'from ({integration_data_key}).')
+                print(warn_str)
+            
+            # Check corrections if the titles match
+            elif not np.all([val1 == val2
+                        for val1, val2 in zip(
+                            image_corrections.values(),
+                            integration_corrections.values())]):
+                warn_str = ('WARNING: Different corrections '
+                            + 'applied to images and integrations.'
+                            + ' Using image corrections.')
+                print(warn_str)
+        elif (input_dict['image_data'] is None
+                and input_dict['integration_data'] is not None):
+            title = integration_title # truncate _integrations
+            corrections = integration_corrections        
+        
+        # Remove unused values
+        # (keeps pos_dict out of rocking curve...)
+        for key, value in list(input_dict.items()):
+            if value is None:
+                del input_dict[key]
+
+        # Set up extra attributes
+        extra_attrs = {}
+        extra_attrs.update(image_attrs)
+        extra_attrs.update(integration_attrs)
+        # Add phases
+        extra_attrs['phases'] = phases
+        # Add spots
+        if spots is not None:
+            extra_attrs['spots'] = spots
+        if spot_model is not None:
+            extra_attrs['spot_model'] = spot_model
+        if spots_3D is not None:
+            extra_attrs['spots_3D'] = spots_3D
+
+        # Add vector information. Not super elegant
+        if vector_dict is not None:
+            for key, value in vector_dict.items():
+                # Check for int cutoffs
+                # Wait to make sure intensity is processed
+                if key == 'blob_int_cutoff':
+                    intensity = vector_dict['vectors'][:, -1]
+                    (extra_attrs['blob_int_mask']
+                    ) = generate_intensity_mask(
+                        intensity,
+                        intensity_cutoff=vector_dict[
+                                            'blob_int_cutoff'])
+                elif key == 'spot_int_cutoff':
+                    intensity = vector_dict['vectors'][:, -1]
+                    (extra_attrs['spot_int_mask']
+                    ) = generate_intensity_mask(
+                        intensity,
+                        intensity_cutoff=vector_dict[
+                                            'spot_int_cutoff'])
+                else:
+                    extra_attrs[key] = value
+
+        # Instantiate XRDBaseScan
+        inst = cls(**input_dict,
+                    **base_md,
+                    **recip_pos,
+                    title=title,
+                    corrections=corrections,
+                    wd=wd,
+                    filename=hdf_filename[:-3], # remove the .h5 extention
+                    hdf_filename=hdf_filename,
+                    dask_enabled=dask_enabled,
+                    extra_attrs=extra_attrs,
+                    check_init_sets=True, # Don't overwrite hdf values
+                    **kwargs)
+        
+        print(f'{cls.__name__} loaded!')
+        return inst
         
 
     @classmethod 
@@ -549,8 +557,6 @@ class XRDBaseScan(XRDData):
             attrs = self.hdf[self._hdf_type].attrs
             overwrite_attr(attrs, 'energy', self.energy)
             overwrite_attr(attrs, 'wavelength', self.wavelength)
-            # attrs['energy'] = self.energy
-            # attrs['wavelength'] = self.wavelength
         save_attrs(self)
 
 
@@ -581,8 +587,6 @@ class XRDBaseScan(XRDData):
             attrs = self.hdf[self._hdf_type].attrs
             overwrite_attr(attrs, 'energy', self.energy)
             overwrite_attr(attrs, 'wavelength', self.wavelength)
-            # attrs['energy'] = self.energy
-            # attrs['wavelength'] = self.wavelength
         save_attrs(self)
         
     
@@ -605,8 +609,6 @@ class XRDBaseScan(XRDData):
             overwrite_attr(self.hdf[self._hdf_type].attrs,
                            'theta',
                            self.theta)
-            # attrs = self.hdf[self._hdf_type].attrs
-            # attrs['theta'] = self.theta
         save_attrs(self)
 
 
@@ -628,8 +630,6 @@ class XRDBaseScan(XRDData):
             overwrite_attr(self.hdf[self._hdf_type].attrs,
                            'use_stage_rotation',
                            int(self.use_stage_rotation))
-            # attrs = self.hdf[self._hdf_type].attrs
-            # attrs['use_stage_rotation'] = int(self.use_stage_rotation)
         save_attrs(self)
 
 
@@ -967,15 +967,17 @@ class XRDBaseScan(XRDData):
             wd = self.wd
 
         if isinstance(poni_file, str):
-            if not os.path.exists(f'{wd}{poni_file}'):
-                err_str = f'{wd}{poni_file} does not exist.'
-                raise FileNotFoundError(err_str)
+            poni_path = pathify(wd, poni_file, '.poni')
+            # if not os.path.exists(f'{wd}{poni_file}'):
+            #     err_str = f'{wd}{poni_file} does not exist.'
+            #     raise FileNotFoundError(err_str)
 
-            if poni_file[-4:] != 'poni':
-                raise RuntimeError('Please provide a .poni file.')
+            # if poni_file[-4:] != 'poni':
+            #     raise RuntimeError('Please provide a .poni file.')
 
             print('Setting detector calibration...')
-            self.ai = pyFAI.load(f'{wd}{poni_file}')
+            # self.ai = pyFAI.load(f'{wd}{poni_file}')
+            self.ai = pyFAI.load(poni_path)
         
         elif isinstance(poni_file, OrderedDict):
             print('Setting detector calibration...')
@@ -1271,6 +1273,132 @@ class XRDBaseScan(XRDData):
                             self.sclr_dict,
                             self.scaler_units,
                             check_init_sets=check_init_sets)
+    
+    def get_scaler_absorption(self,
+                              scaler_key='i0',
+                              chamber_length=None,
+                              gas_name=None):
+        
+        
+        if (not hasattr(self, 'energy')
+            or self.energy is None):
+            err_str = f'Must define energy in {self._hdf_type}.'
+            raise AttributeError(err_str)
+        if (not hasattr(self, 'sclr_dict')
+            or self.energy is None
+            or sclr_dict == {}):
+            err_str = f'Must define scalers in {self._hdf_type}.'
+            raise AttributeError(err_str)
+        elif scaler_key not in self.sclr_dict.keys():
+            err_str = (f'Scaler {scaler_key} not in scaler dictionary.'
+                       + f'\nChose from {self.sclr_dict.keys()}.')
+
+        # Add default values for SRX
+        if chamber_length is None:
+            if scaler_key == 'i0':
+                chamber_length = 1
+                note_str = ('NOTE: Using default chamber length of 1 '
+                            + f'cm for {scaler_key} scaler.')
+                print(note_str)
+            elif scaler_key == 'im':
+                chamber_legnth == 10
+                note_str = ('NOTE: Using default chamber length of 10 '
+                            + f'cm for {scaler_key} scaler.')
+                print(note_str)
+            else:
+                err_str = ('Must provide chamber length for '
+                           + f'{scaler_key} scaler.')
+                raise ValueError(err_str)
+        if gas_name is None:
+            if scaler_key == 'i0':
+                gas_name = 'N2'
+                note_str = ('NOTE: Using default chamber gas of N2 for'
+                            + f' {scaler_key} scaler.')
+                print(note_str)
+            elif scaler_key == 'im':
+                gas_name = 'air'
+                note_str = ('NOTE: Using default chamber gas of air '
+                            + f'for {scaler_key} scaler.')
+                print(note_str)
+            else:
+                err_str = (f'Must provide gas for {scaler_key} scaler '
+                           + 'key.')
+                raise ValueError(err_str)
+        elif gas_name not in reference_data.gases[gas_name]:
+            err_str = (f'Unknown gas of {gas}. Only gases in '
+                       + f'{reference_data.gases.keys()} are '
+                       + 'supported.')
+            raise ValueError(err_str)
+
+        gas = reference_data.gases[gas_name]
+        absorption = gas.get_absorption(self.energy, chamber_length)
+
+        return absorption, scaler_key, chamber_length, gas_name
+    
+
+    # Scalers have an energy dependence
+    # Remove this proportionality when comparing different energies
+    def correct_scaler_energies(self,
+                                scaler_key='i0',
+                                chamber_length=None,
+                                gas_name=None):
+
+        # Get absorption and parse inputs
+        absorption, _, _, _ = self.get_scaler_absorption(
+                                    scaler_key=scaler_key,
+                                    chamber_length=chamber_length,
+                                    gas_name=gas_name)
+
+        # Determine energy independent scaler values
+        new_scaler_key = f'energy_corrected_{scaler_key}'
+        new_sclr_arr = (self.sclr_dict[scaler_key]
+                        / (absorption * energy))
+
+        # Set values and write to hdf
+        self.sclr_dict[new_scaler_key] = new_sclr_arr
+        self.save_sclr_pos('scalers',
+                           self.sclr_dict,
+                           self.scaler_units)
+
+
+    # Post-conversion of scaler to real flux values
+    def convert_scalers_to_flux(self,
+                                S_preamp,
+                                f_range,
+                                V_range,
+                                scaler_key='i0',
+                                chamber_length=None,
+                                gas_name=None,
+                                ):
+        
+        # Get absorption and parse inputs
+        (absorption,
+         scaler_key,
+         chamber_length,
+         gas_name) = self.get_scaler_absorption(
+                                    scaler_key=scaler_key,
+                                    chamber_length=chamber_length,
+                                    gas=gas)
+        
+        (ionization_energy
+         ) = reference_data.average_gas_ionization_energies[gas_name]
+
+        charge_term = (ionization_energy
+                       / scipy.constants.e * self.energy * 1e3)
+        
+        v_to_f_term = ((V_range * S_preamp) / (f_range * self.dwell))
+        
+        # Determine energy independent scaler values
+        new_scaler_key = f'flux_{scaler_key}'
+        new_sclr_arr = (self.sclr_dict[scaler_key]
+                        * charge_term
+                        * v_to_f_term)
+
+        # Set values and write to hdf
+        self.sclr_dict[new_scaler_key] = new_sclr_arr
+        self.save_sclr_pos('scalers',
+                           self.sclr_dict,
+                           self.scaler_units)
 
 
     @XRDData.protect_hdf()
@@ -1511,6 +1639,185 @@ class XRDBaseScan(XRDData):
                               # Used for indexing later
                            np.max(self.tth)),
                 ignore_less=ignore_less)
+
+
+    ###########################
+    ### Vectorized Data I/O ###
+    ###########################
+
+
+    # Called in other functions. Not protected.
+    def _save_map_vectorization(self,
+                                hdf,
+                                vector_map,
+                                edges=None,
+                                rewrite_data=False):
+
+        # Write data to hdf
+        print('Saving vectorized map data...')
+        vector_grp = hdf[self._hdf_type].require_group(
+                                                'vectorized_map')
+        vector_grp.attrs['time_stamp'] = ttime.ctime()
+        vector_grp.attrs['vectorized_map_shape'] = vector_map.shape
+
+        all_used_indices = [] # For potential vmask shape changes
+        for index in range(np.prod(vector_map.shape)):
+            indices = np.unravel_index(index, vector_map.shape)
+            # e.g., '1,2'
+            title = ','.join([str(ind) for ind in indices]) 
+            all_used_indices.append(title)
+
+            XRDBaseScan._save_vectors(vector_grp,
+                                      vector_map[indices],
+                                      title=title,
+                                      rewrite_data=rewrite_data)
+    
+        # In case virtual shape changed; remove extra datasets
+        for dset_key in vector_grp.keys():
+            if dset_key not in all_used_indices:
+                del vector_grp[dset_key]
+        
+        # Save edges if available. Only useful for XRDMapStack
+        XRDBaseScan._save_edges(vector_grp,
+                                edges=edges,
+                                rewrite_data=rewrite_data)
+        print('done!')
+    
+
+    # Called in other functions. Not protected.
+    def _save_rocking_vectorization(self,
+                                    hdf,
+                                    vectors,
+                                    edges=None,
+                                    rewrite_data=False):
+        
+        print('Saving vectorized image data...')
+        # Write data to hdf
+        vector_grp = hdf[self._hdf_type].require_group(
+                                                'vectorized_data')
+        vect_grp.attrs['time_stamp'] = ttime.ctime()
+
+        # Save vectors
+        XRDBaseScan._save_vectors(vector_grp,
+                                  vectors,
+                                  rewrite_data=rewrite_data)
+
+        # Scrub old tags for backwards compatibility
+        for dset_key in vector_grp.keys():
+            if dset_key not in ['vectors, edges']:
+                del vector_grp[dset_key]
+
+        # Save edges which should be available
+        XRDBaseScan._save_edges(vector_grp,
+                                edges=edges,
+                                rewrite_data=rewrite_data)
+        print('done!')
+    
+
+    # Called in other functions. Not protected.
+    @staticmethod # For XRDMapStack
+    def _save_vectors(vector_grp,
+                      vectors,
+                      title=None,
+                      rewrite_data=False): # required vectors
+        
+        if title is None:
+            title = 'vectors' # Generic
+        
+        if title not in vector_grp:
+            dset = vector_grp.require_dataset(
+                        title,
+                        data=vectors,
+                        shape=vectors.shape,
+                        dtype=vectors.dtype)
+        else:
+            dset = vector_grp[title]
+
+            if (dset.shape == vectors.shape
+                and dset.dtype == vectors.dtype):
+                dset[...] = vectors
+            else:
+                warn_str = 'WARNING:'
+                if dset.shape != attr.shape:
+                    warn_str += (f'{attr_name} shape of'
+                                + f' {attr.shape} does not '
+                                + 'match dataset shape '
+                                + f'{dset.shape}. ')
+                if dset.dtype != attr.dtype:
+                    warn_str += (f'{attr_name} dtype of'
+                                + f' {attr.dtype} does not '
+                                + 'match dataset dtype '
+                                + f'{dset.dtype}. ')
+                if rewrite_data:
+                        warn_str += (f'\nOvewriting {title}. This '
+                                    + 'may bloat the total file size.')
+                        print(warn_str)
+                        del vector_grp[title]
+                        dset = vector_grp.require_dataset(
+                            title,
+                            data=vectors,
+                            shape=vectors.shape,
+                            dtype=vectors.dtype)
+                else:
+                    warn_str += '\nProceeding without changes.'
+                    print(warn_str)
+    
+
+    # Called in other functions. Not protected.
+    @staticmethod # For XRDMapStack
+    def _save_edges(vector_grp,
+                    edges=None,
+                    rewrite_data=False):
+
+        # Only save edge information if given. Quiet if not.
+        if edges is not None:
+            edge_grp = vector_grp.require_group('edges')
+            edge_grp.attrs['time_stamp'] = ttime.ctime()
+
+            # Check for existenc and compatibility
+            for i, edge in enumerate(edges):
+                edge = np.asarray(edge)
+                edge_title = f'edge_{i}'
+                if edge_title not in edge_grp.keys():
+                    edge_grp.require_dataset(
+                        edge_title,
+                        data=edge,
+                        shape=edge.shape,
+                        dtype=edge.dtype)
+                else:
+                    dset = edge_grp[edge_title]
+
+                    if (dset.shape == edge.shape
+                        and dset.dtype == edge.dtype):
+                        dset[...] = edge
+                    else:
+                        warn_str = 'WARNING:'
+                        if dset.shape != edge.shape:
+                            warn_str += (f'Edge shape for {edge_title}'
+                                        + f' {edge.shape} does not '
+                                        + 'match dataset shape '
+                                        + f'{dset.shape}. ')
+                        if dset.dtype != edge.dtype:
+                            warn_str += (f'Edge dtype for {edge_title}'
+                                        + f' {edge.dtype} does not '
+                                        + 'match dataset dtype '
+                                        + f'{dset.dtype}. ')
+                        if rewrite_data:
+                            warn_str += ('\nOvewriting data. This may '
+                                        + 'bloat the total file size.')
+                            # Shape changes should not happen
+                            # except from q_arr changes
+                            print(warn_str)
+                            del edge_grp[edge_title]
+                            edge_grp.require_dataset(
+                                    edge_title,
+                                    data=edge,
+                                    shape=edge.shape,
+                                    dtype=edge.dtype)
+                        else:
+                            warn_str += '\nProceeding without changes.'
+                            print(warn_str)
+    
          
 
     ##########################

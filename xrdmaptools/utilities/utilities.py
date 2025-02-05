@@ -78,8 +78,10 @@ def check_ext(path,
                 return root + e
         if err_str != '':
             err_str += '\n'
-        err_str += ('No file exists with default extensions '
-                    + f'in: {ext}')
+        err_str += (f'Could not find file {root} with default '
+                    + f'extensions in: {ext}')
+        # err_str += ('No file exists with default extensions '
+        #             + f'in: {ext}')
         raise FileNotFoundError(err_str)
         
 

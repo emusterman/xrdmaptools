@@ -7,7 +7,7 @@ import scipy.constants as constants
 ###################################
 
 def energy_2_wavelength(energy):
-    energy = np.asarray(energy)
+    energy = np.asarray(energy).astype(float)
     # Convert energy into keV
     if np.any(energy > 1e3):
         energy /= 1e3

@@ -18,6 +18,7 @@ from xrdmaptools.utilities.utilities import pathify
 def initialize_xrdbase_hdf(xrdbase,
                            hdf_file):
     
+    # Is this with statement still necessary?
     with h5py.File(hdf_file, 'w-') as f:
         base_grp = f.require_group(xrdbase._hdf_type) # xrdmap or rsm
         base_grp.attrs['scan_id'] = xrdbase.scan_id
@@ -67,6 +68,7 @@ def load_xrdbase_hdf(filename,
                      image_data_key='recent',
                      integration_data_key='recent',
                      load_blob_masks=True,
+                     load_vector_maps=False,
                      map_shape=None,
                      image_shape=None,
                      dask_enabled=False,
@@ -181,11 +183,25 @@ def load_xrdbase_hdf(filename,
     # Load pixel positions
     pos_dict = _load_xrd_hdf_positions(base_grp) 
 
+    # Vector data is mutually exclusive between rsm and xrdmap
     # Load vectorized data
-    vect_dict = _load_xrd_hdf_vectorized_data(base_grp)
+    vector_dict = _load_xrd_hdf_vectorized_data(base_grp)
+
+    # Load vectorized map data
+    if load_vector_maps:
+        _vector_dict = _load_xrd_hdf_vectorized_map_data(base_grp)
+        if vector_dict is not None and _vector_dict is not None:
+            err_str = ('Vectorized data found in both rocking curve '
+                       + 'and mapped format! Something is very wrong!')
+            raise RuntimeError(err_str)
+        else:
+            # Replace with real values
+            if vector_dict is None:
+                vector_dict = _vector_dict
 
     # Final hdf considerations
     if not dask_enabled:
+        hdf.close()
         hdf = None
     
     # Return dictionary of useful values
@@ -209,7 +225,7 @@ def load_xrdbase_hdf(filename,
                   'spot_model' : spot_model,
                   'sclr_dict' : sclr_dict,
                   'pos_dict' : pos_dict,
-                  'vect_dict' : vect_dict,
+                  'vector_dict' : vector_dict,
                   'hdf' : hdf}
 
     return ouput_dict
@@ -543,37 +559,77 @@ def _load_xrd_hdf_positions(base_grp):
     return pos_dict
 
 
+# For rocking curves. Labeled as 'vectorized_data'
 def _load_xrd_hdf_vectorized_data(base_grp):
-    vect_dict = None
+    vector_dict = None
     if 'vectorized_data' in base_grp.keys():
         print('Loading vectorized data...', end='', flush=True)
-        vect_grp = base_grp['vectorized_data']
-        vect_dict = {}
+        vector_grp = base_grp['vectorized_data']
+        vector_dict = {}
 
-        for key, value in base_grp['vectorized_data'].items():
+        q_vectors, intensity = None, None
+        for key, value in vector_grp.items():
             if key == 'edges':
                 edges = []
                 for edge_title, edge_dset in value.items():
                     edges.append(edge_dset[:])
-                vect_dict[key] = edges
+                vector_dict[key] = edges
+            elif key == 'q_vectors': # backwards compatibility
+                q_vectors = value
+            elif key == 'intensity': # backwards compatibility
+                intensity = value
             else:
-                vect_dict[key] = value[:]
+                vector_dict[key] = value[:]
+            
+        # Construct vectors for backwards compatibility
+        if q_vectors is not None and intensity is not None:
+            vector_dict['vectors'] = np.hstack([
+                                        q_vectors[:],
+                                        intensity[:].reshape(-1, 1)])
 
-            # Collect extra_attrs
-            for attr_key, attr_value in value.attrs.items():
-                vect_dict[attr_key] = attr_value
+        # Collect extra_attrs
+        for attr_key, attr_value in value.attrs.items():
+            vector_dict[attr_key] = attr_value
         
-        # On the off-chance the group was created, but without any datasets
-        if len(vect_dict.keys()) == 0:
-            vect_dict = None
+        # On the off-chance the group was created,
+        # but without any datasets
+        if len(vector_dict.keys()) == 0:
+            vector_dict = None
 
         print('done!')
-    return vect_dict
+    return vector_dict
 
 
+# For full maps. Labeled as 'vectorized_map'
 def _load_xrd_hdf_vectorized_map_data(base_grp):
-    vect_arr = None
-    raise NotImplementedError()
+
+    vector_map = None
+    edges = None
+    vector_dict = None
+    if 'vectorized_map' in base_grp.keys():
+        print('Loading vectorized map...', end='', flush=True)
+        vector_grp = base_grp['vectorized_map']
+        map_shape = vector_grp.attrs['vectorized_map_shape']
+        vector_map = np.empty(map_shape, dtype=object)
+
+        for index in range(np.prod(map_shape)):
+            indices = np.unravel_index(index, map_shape)
+            title = ','.join([str(ind) for ind in indices])
+            vector_map[indices] = vector_grp[title][:]
+        
+        if 'edges' in vector_grp:
+            edges = []
+            for edge_title, edge_dset in vector_grp['edges'].items():
+                edges.append(edge_dset[:])
+        
+        vector_dict = {
+            'vector_map' : vector_map,
+            'edges' : edges
+        }
+        print('done!')
+        
+    return vector_dict
+
 
 ###################
 ### XRDMapStack ###
@@ -584,7 +640,7 @@ def initialize_xrdmapstack_hdf(xrdmapstack,
     
     with h5py.File(hdf_file, 'w-') as f:
         # Base metadata from xrdmaps
-        base_grp = f.require_group(xrdmapstack._hdf_type) # xrdmap or rsm
+        base_grp = f.require_group(xrdmapstack._hdf_type)
         base_grp.attrs['scan_id'] = xrdmapstack.scan_id
         base_grp.attrs['beamline'] = xrdmapstack.beamline #'5-ID (SRX)'
         base_grp.attrs['facility'] = xrdmapstack.facility #'NSLS-II'
@@ -625,11 +681,76 @@ def initialize_xrdmapstack_hdf(xrdmapstack,
         base_grp.attrs['dwell'] = dwell
 
 
+# Does NOT load the individual XRDMaps
+def load_xrdmapstack_hdf(filename,
+                         wd,
+                         load_xdms_vector_map=True,
+                         ):
+    
+    # Figuring out hdf file stuff
+    hdf_type = 'xrdmapstack' # hard-coded
+    hdf_path = pathify(wd, filename, '.h5')
 
+    hdf = h5py.File(hdf_path, 'r')
+    base_grp = hdf[hdf_type]
 
-def load_xrdmapstack_hdf():
-    raise NotImplementedError()
+    # Load base metadata
+    base_md = dict(base_grp.attrs.items())
 
+    # Backwards compatability
+    if 'scanid' in base_md:
+        # Change dictionary
+        base_md['scan_id'] = base_md['scanid']
+        del base_md['scanid']
+        # Overwrite hdf values
+        write_flag = (hdf.mode == 'a')
+        if not write_flag:
+            hdf.close()
+            hdf = h5py.File(hdf_path, 'a')
+            base_grp = hdf[hdf_type]
+        base_grp.attrs['scan_id'] = base_md['scan_id']
+        del base_grp.attrs['scanid']
+        if not write_flag:
+            hdf.close()
+            hdf = h5py.File(hdf_path, 'r')
+            base_grp = hdf[hdf_type]
 
-def _load_xrdmapstack_vectorized_data():
-    raise NotImplementedError()
+    # Load extra metadata
+    extra_md = {}
+    # Check for backwards compatibility
+    if 'extra_metadata' in base_grp.keys(): 
+        for key, value in base_grp['extra_metadata'].attrs.items():
+            extra_md[key] = value
+
+    # Backwards compatibility
+    if ('vectorized_map' in base_grp
+        and 'virtual_shape' in base_grp['vectorized_map'].attrs):
+        map_shape = base_grp['vectorized_map'].attrs['virtual_shape']
+        write_flag = (hdf.mode == 'a')
+        if not write_flag:
+            hdf.close()
+            hdf = h5py.File(hdf_path, 'a')
+            base_grp = hdf[hdf_type]
+        del base_grp['vectorized_map'].attrs['virtual_shape']
+        hdf[f'{hdf_type}/vectorized_map'].attrs[
+                                'vectorized_map_shape'] = map_shape
+        if not write_flag:
+            hdf.close()
+            hdf = h5py.File(hdf_path, 'r')
+            base_grp = hdf[hdf_type]
+        
+    if load_xdms_vector_map:
+        # Same functions works for XRDMaps and XRDMapStacks
+        vector_dict = _load_xrd_hdf_vectorized_map_data(base_grp)
+    else:
+        vector_dict = None
+
+    # Return dictionary of useful values
+    ouput_dict = {'base_md' : base_md,
+                  'xdms_extra_metadata' : extra_md,
+                  # 'spots' : spots,
+                  # 'spots_3D' : spots_3D,
+                  'vector_dict' : vector_dict
+                  }
+
+    return ouput_dict

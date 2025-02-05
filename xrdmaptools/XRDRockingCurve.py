@@ -105,8 +105,6 @@ class XRDRockingCurve(XRDBaseScan):
             raise ValueError(err_str)
         
         if image_data is not None:
-            # Parse image_data into useble format
-            image_data = np.asarray(image_data)
             data_ndim = image_data.ndim
             data_shape = image_data.shape 
 
@@ -229,11 +227,6 @@ class XRDRockingCurve(XRDBaseScan):
             overwrite_attr(attrs, 'wavelength', self.wavelength)
             overwrite_attr(attrs, 'theta', self.theta)
             overwrite_attr(attrs, 'rocking_axis', self.rocking_axis)
-            
-            # attrs['energy'] = self.energy
-            # attrs['wavelength'] = self.wavelength
-            # attrs['theta'] = self.theta
-            # attrs['rocking_axis'] = self.rocking_axis
         save_extra_attrs(self)
 
 
@@ -306,8 +299,6 @@ class XRDRockingCurve(XRDBaseScan):
             attrs = self.hdf[self._hdf_type].attrs
             overwrite_attr(attrs, 'energy', self.energy)
             overwrite_attr(attrs, 'wavelength', self.wavelength)
-            # attrs['energy'] = self.energy
-            # attrs['wavelength'] = self.wavelength
         save_attrs(self)
 
 
@@ -328,8 +319,6 @@ class XRDRockingCurve(XRDBaseScan):
             attrs = self.hdf[self._hdf_type].attrs
             overwrite_attr(attrs, 'energy', self.energy)
             overwrite_attr(attrs, 'wavelength', self.wavelength)
-            # attrs['energy'] = self.energy
-            # attrs['wavelength'] = self.wavelength
         save_attrs(self)
 
     
@@ -354,8 +343,6 @@ class XRDRockingCurve(XRDBaseScan):
             overwrite_attr(self.hdf[self._hdf_type].attrs,
                            'theta',
                            self.theta)
-            # attrs = self.hdf[self._hdf_type].attrs
-            # attrs['theta'] = self.theta
         save_attrs(self)
 
 
@@ -408,15 +395,22 @@ class XRDRockingCurve(XRDBaseScan):
         super().save_current_hdf() # no inputs!
 
         # Vectorized_data
-        if ((hasattr(self, 'q_vectors')
-             and self.q_vectors is not None)
-            and (hasattr(self, 'intensity')
-                 and self.intensity is not None)
-            and (hasattr(self, 'edges'))):
-            self.save_vectorization(
-                        q_vectors=self.q_vectors,
-                        intensity=self.intensity,
-                        edges=self.edges)
+        if ((hasattr(self, 'vectors')
+             and self.vectors is not None)
+            and (hasattr(self, 'edges')
+             and self.edges is not None)):
+            self.save_vectorization()
+
+        # # Vectorized_data
+        # if ((hasattr(self, 'q_vectors')
+        #      and self.q_vectors is not None)
+        #     and (hasattr(self, 'intensity')
+        #          and self.intensity is not None)
+        #     and (hasattr(self, 'edges'))):
+        #     self.save_vectorization(
+        #                 q_vectors=self.q_vectors,
+        #                 intensity=self.intensity,
+        #                 edges=self.edges)
         
         # blob_labels and spot_labels should be dynamically saved
         # and will be missing intensity cut-off otherwise...
@@ -445,6 +439,13 @@ class XRDRockingCurve(XRDBaseScan):
                 poni_file=None,
                 save_hdf=True,
                 repair_method='fill'):
+        
+        if wd is None:
+            wd = os.getcwd()
+        else:
+            if not os.path.exists():
+                err_str = f'Cannot find directory {wd}'
+                raise OSError(err_str)
         
         if isinstance(scan_id, str):
             scantype = 'EXTENDED_ENERGY_RC'
@@ -514,9 +515,6 @@ class XRDRockingCurve(XRDBaseScan):
             null_map = data_dict['null_map']
         else:
             null_map = None
-
-        # filenames = [f'scan{filename_id}_{det}_rsm'
-        #                 for det in xrd_dets]
         
         if filename is None:
             if len(xrd_data) < 1:
@@ -650,6 +648,43 @@ class XRDRockingCurve(XRDBaseScan):
     ### Rocking Curve to 3D Reciprocal Space Map ###
     ################################################
 
+    def get_sampled_edges(self,
+                          q_arr=None):
+        
+        if q_arr is None:
+            if (hasattr(self, 'q_arr')
+                and self.q_arr is not None):
+                q_arr = self.q_arr
+            else:
+                err_str = ('Must provide q_arr or have q_arr stored '
+                           + 'internally.')
+                raise AttributeError(err_str)
+
+        edges = ([[] for _ in range(12)])
+        for i, qi in enumerate(q_arr):
+            # Find edges
+            if i == 0:
+                edges[4] = qi[0]
+                edges[5] = qi[-1]
+                edges[6] = qi[:, 0]
+                edges[7] = qi[:, -1]
+            elif i == len(q_arr) - 1:
+                edges[8] = qi[0]
+                edges[9] = qi[-1]
+                edges[10] = qi[:, 0]
+                edges[11] = qi[:, -1]
+            # Corners
+            edges[0].append(qi[0, 0])
+            edges[1].append(qi[0, -1])
+            edges[2].append(qi[-1, 0])
+            edges[3].append(qi[-1, -1])
+        
+        for i in range(4):
+            edges[i] = np.asarray(edges[i])
+
+        self.edges = edges
+
+
     def vectorize_images(self,
                          override_blob_search=False,
                          rewrite_data=False):
@@ -678,170 +713,217 @@ class XRDRockingCurve(XRDBaseScan):
                 ) = q_arr[self.blob_masks[i].squeeze()]
             filled_indices += next_indices
 
-            # Find edges
-            if i == 0:
-                edges[4] = q_arr[0]
-                edges[5] = q_arr[-1]
-                edges[6] = q_arr[:, 0]
-                edges[7] = q_arr[:, -1]
-            elif i == len(self.wavelength) - 1:
-                edges[8] = q_arr[0]
-                edges[9] = q_arr[-1]
-                edges[10] = q_arr[:, 0]
-                edges[11] = q_arr[:, -1]
-            else: # Corners
-                edges[0].append(q_arr[0, 0])
-                edges[1].append(q_arr[0, -1])
-                edges[2].append(q_arr[-1, 0])
-                edges[3].append(q_arr[-1, -1])
+        #     # Find edges
+        #     if i == 0:
+        #         edges[4] = q_arr[0]
+        #         edges[5] = q_arr[-1]
+        #         edges[6] = q_arr[:, 0]
+        #         edges[7] = q_arr[:, -1]
+        #     elif i == len(self.wavelength) - 1:
+        #         edges[8] = q_arr[0]
+        #         edges[9] = q_arr[-1]
+        #         edges[10] = q_arr[:, 0]
+        #         edges[11] = q_arr[:, -1]
+        #     else: # Corners
+        #         edges[0].append(q_arr[0, 0])
+        #         edges[1].append(q_arr[0, -1])
+        #         edges[2].append(q_arr[-1, 0])
+        #         edges[3].append(q_arr[-1, -1])
         
-        for i in range(4):
-            edges[i] = np.asarray(edges[i])
+        # for i in range(4):
+        #     edges[i] = np.asarray(edges[i])
+
+        self.get_sampled_edges()
         
         # Assign useful variables
-        self.edges = edges
-        self.q_vectors = q_vectors
-        # A bit redundant; copies data
-        self.intensity = self.images[self.blob_masks] 
+        # self.edges = edges
+        self.vectors = np.hstack([
+                        q_vectors,
+                        self.images[self.blob_masks].reshape(-1, 1)
+                        ])
         # Write to hdf
-        self.save_vectorization(q_vectors=self.q_vectors,
-                                intensity=self.intensity,
-                                edges=self.edges,
-                                rewrite_data=rewrite_data)
+        self.save_vectorization(rewrite_data=rewrite_data)
+
+        # self.q_vectors = q_vectors
+        # # A bit redundant; copies data
+        # self.intensity = self.images[self.blob_masks]
+        
+        # # Write to hdf
+        # self.save_vectorization(q_vectors=self.q_vectors,
+        #                         intensity=self.intensity,
+        #                         edges=self.edges,
+        #                         rewrite_data=rewrite_data)
 
 
     @XRDBaseScan.protect_hdf()
-    def save_vectorization(self,
-                           q_vectors=None,
-                           intensity=None,
-                           edges=None,
-                           rewrite_data=False):
+    def save_vectoriation(self,
+                          vectors=None,
+                          edges=None,
+                          rewrite_data=False):
 
-        print('Saving vectorized image data...')
+        # Allows for more customizability with other functions
+        hdf = getattr(self, 'hdf')
 
-        # Write data to hdf
-        vect_grp = self.hdf[self._hdf_type].require_group(
-                                                'vectorized_data')
-        vect_grp.attrs['time_stamp'] = ttime.ctime()
-
-        # Save q_vectors and intensity
-        for attr, attr_name in zip([q_vectors, intensity],
-                                    ['q_vectors', 'intensity']):
-
-            # Check for values/attributes.
-            # Must have both q_vectors and intensity
-            if attr is None:
-                if (hasattr(self, attr_name)
-                    and getttr(self, attr_name) is not None):
-                    attr = getattr(self, attr_name)
-                else:
-                    self.hdf.close()
-                    self.hdf = None
-                    err_str = (f'Cannot save {attr_name} if not '
-                                + 'given or already an attribute.')
-                    raise AttributeError(err_str)
-
-            # Check for dataset and compatibility
-            attr = np.asarray(attr)
-            if attr_name not in vect_grp.keys():
-                dset = vect_grp.require_dataset(
-                        attr_name,
-                        data=attr,
-                        shape=attr.shape,
-                        dtype=attr.dtype)
+        # Check input
+        if vectors is None:
+            if (hasattr(self, 'vectors')
+                and self.vectors is not None):
+                vectors = self.vectors
             else:
-                dset = vect_grp[attr_name]
-
-                if (dset.shape == attr.shape
-                    and dset.dtype == attr.dtype):
-                    dset[...] = attr
-
-                else:
-                    warn_str = 'WARNING:'
-                    if dset.shape != attr.shape:
-                        warn_str += (f'{attr_name} shape of'
-                                    + f' {attr.shape} does not '
-                                    + 'match dataset shape '
-                                    + f'{dset.shape}. ')
-                    if dset.dtype != attr.dtype:
-                        warn_str += (f'{attr_name} dtype of'
-                                    + f' {attr.dtype} does not '
-                                    + 'match dataset dtype '
-                                    + f'{dset.dtype}. ')
-                    if rewrite_data:
-                        warn_str += (f'\nOvewriting {attr_name}. This '
-                                    + 'may bloat the total file size.')
-                        # Shape changes should not happen
-                        # except from q_arr changes
-                        print(warn_str)
-                        del vect_grp[attr_name]
-                        dset = vect_grp.require_dataset(
-                            attr_name,
-                            data=attr,
-                            shape=attr.shape,
-                            dtype=attr.dtype)
-                    else:
-                        warn_str += '\nProceeding without changes.'
-                        print(warn_str)
-                
-        
-        # Check for edge information
+                err_str = ('Must provide vectors or '
+                        + f'{self.__class__.__name__} must have '
+                        + 'vectors attribute.')
+                raise AttributeError(err_str)
         if edges is None:
-            if hasattr(self, 'edges') and self.edges is not None:
+            if (hasattr(self, 'edges')
+                and self.edges is not None):
                 edges = self.edges
             else:
-                warn_str = ('WARNING: No edges given or found. '
-                            + 'Edges will not be saved.')
-                print(warn_str)
+                err_str = ('Must provide edges or '
+                        + f'{self.__class__.__name__} must have '
+                        + 'edges attribute.')
+                raise AttributeError(err_str)
+    
+        self._save_rocking_vectorization(hdf,
+                                         vectors,
+                                         edges=edges,
+                                         rewrite_data=rewrite_data)
+        # Remove secondary reference
+        del hdf
 
-        # Only save edge information if given
-        if edges is not None:
-            edge_grp = vect_grp.require_group('edges')
-            edge_grp.attrs['time_stamp'] = ttime.ctime()
 
-            # Check for existenc and compatibility
-            for i, edge in enumerate(edges):
-                edge = np.asarray(edge)
-                edge_title = f'edge_{i}'
-                if edge_title not in edge_grp.keys():
-                    edge_grp.require_dataset(
-                        edge_title,
-                        data=edge,
-                        shape=edge.shape,
-                        dtype=edge.dtype)
-                else:
-                    dset = edge_grp[edge_title]
+    # @XRDBaseScan.protect_hdf()
+    # def save_vectorization(self,
+    #                        q_vectors=None,
+    #                        intensity=None,
+    #                        edges=None,
+    #                        rewrite_data=False):
 
-                    if (dset.shape == edge.shape
-                        and dset.dtype == edge.dtype):
-                        dset[...] = edge
-                    else:
-                        warn_str = 'WARNING:'
-                        if dset.shape != edge.shape:
-                            warn_str += (f'Edge shape for {edge_title}'
-                                        + f' {edge.shape} does not '
-                                        + 'match dataset shape '
-                                        + f'{dset.shape}. ')
-                        if dset.dtype != edge.dtype:
-                            warn_str += (f'Edge dtype for {edge_title}'
-                                        + f' {edge.dtype} does not '
-                                        + 'match dataset dtype '
-                                        + f'{dset.dtype}. ')
-                        if rewrite_data:
-                            warn_str += ('\nOvewriting data. This may '
-                                        + 'bloat the total file size.')
-                            # Shape changes should not happen
-                            # except from q_arr changes
-                            print(warn_str)
-                            del edge_grp[edge_title]
-                            edge_grp.require_dataset(
-                                    edge_title,
-                                    data=edge,
-                                    shape=edge.shape,
-                                    dtype=edge.dtype)
-                        else:
-                            warn_str += '\nProceeding without changes.'
-                            print(warn_str)
+    #     print('Saving vectorized image data...')
+
+    #     # Write data to hdf
+    #     vect_grp = self.hdf[self._hdf_type].require_group(
+    #                                             'vectorized_data')
+    #     vect_grp.attrs['time_stamp'] = ttime.ctime()
+
+    #     # Save q_vectors and intensity
+    #     for attr, attr_name in zip([q_vectors, intensity],
+    #                                 ['q_vectors', 'intensity']):
+
+    #         # Check for values/attributes.
+    #         # Must have both q_vectors and intensity
+    #         if attr is None:
+    #             if (hasattr(self, attr_name)
+    #                 and getttr(self, attr_name) is not None):
+    #                 attr = getattr(self, attr_name)
+    #             else:
+    #                 self.hdf.close()
+    #                 self.hdf = None
+    #                 err_str = (f'Cannot save {attr_name} if not '
+    #                             + 'given or already an attribute.')
+    #                 raise AttributeError(err_str)
+
+    #         # Check for dataset and compatibility
+    #         attr = np.asarray(attr)
+    #         if attr_name not in vect_grp.keys():
+    #             dset = vect_grp.require_dataset(
+    #                     attr_name,
+    #                     data=attr,
+    #                     shape=attr.shape,
+    #                     dtype=attr.dtype)
+    #         else:
+    #             dset = vect_grp[attr_name]
+
+    #             if (dset.shape == attr.shape
+    #                 and dset.dtype == attr.dtype):
+    #                 dset[...] = attr
+
+    #             else:
+    #                 warn_str = 'WARNING:'
+    #                 if dset.shape != attr.shape:
+    #                     warn_str += (f'{attr_name} shape of'
+    #                                 + f' {attr.shape} does not '
+    #                                 + 'match dataset shape '
+    #                                 + f'{dset.shape}. ')
+    #                 if dset.dtype != attr.dtype:
+    #                     warn_str += (f'{attr_name} dtype of'
+    #                                 + f' {attr.dtype} does not '
+    #                                 + 'match dataset dtype '
+    #                                 + f'{dset.dtype}. ')
+    #                 if rewrite_data:
+    #                     warn_str += (f'\nOvewriting {attr_name}. This '
+    #                                 + 'may bloat the total file size.')
+    #                     # Shape changes should not happen
+    #                     # except from q_arr changes
+    #                     print(warn_str)
+    #                     del vect_grp[attr_name]
+    #                     dset = vect_grp.require_dataset(
+    #                         attr_name,
+    #                         data=attr,
+    #                         shape=attr.shape,
+    #                         dtype=attr.dtype)
+    #                 else:
+    #                     warn_str += '\nProceeding without changes.'
+    #                     print(warn_str)
+                
+        
+    #     # Check for edge information
+    #     if edges is None:
+    #         if hasattr(self, 'edges') and self.edges is not None:
+    #             edges = self.edges
+    #         else:
+    #             warn_str = ('WARNING: No edges given or found. '
+    #                         + 'Edges will not be saved.')
+    #             print(warn_str)
+
+    #     # Only save edge information if given
+    #     if edges is not None:
+    #         edge_grp = vect_grp.require_group('edges')
+    #         edge_grp.attrs['time_stamp'] = ttime.ctime()
+
+    #         # Check for existenc and compatibility
+    #         for i, edge in enumerate(edges):
+    #             edge = np.asarray(edge)
+    #             edge_title = f'edge_{i}'
+    #             if edge_title not in edge_grp.keys():
+    #                 edge_grp.require_dataset(
+    #                     edge_title,
+    #                     data=edge,
+    #                     shape=edge.shape,
+    #                     dtype=edge.dtype)
+    #             else:
+    #                 dset = edge_grp[edge_title]
+
+    #                 if (dset.shape == edge.shape
+    #                     and dset.dtype == edge.dtype):
+    #                     dset[...] = edge
+    #                 else:
+    #                     warn_str = 'WARNING:'
+    #                     if dset.shape != edge.shape:
+    #                         warn_str += (f'Edge shape for {edge_title}'
+    #                                     + f' {edge.shape} does not '
+    #                                     + 'match dataset shape '
+    #                                     + f'{dset.shape}. ')
+    #                     if dset.dtype != edge.dtype:
+    #                         warn_str += (f'Edge dtype for {edge_title}'
+    #                                     + f' {edge.dtype} does not '
+    #                                     + 'match dataset dtype '
+    #                                     + f'{dset.dtype}. ')
+    #                     if rewrite_data:
+    #                         warn_str += ('\nOvewriting data. This may '
+    #                                     + 'bloat the total file size.')
+    #                         # Shape changes should not happen
+    #                         # except from q_arr changes
+    #                         print(warn_str)
+    #                         del edge_grp[edge_title]
+    #                         edge_grp.require_dataset(
+    #                                 edge_title,
+    #                                 data=edge,
+    #                                 shape=edge.shape,
+    #                                 dtype=edge.dtype)
+    #                     else:
+    #                         warn_str += '\nProceeding without changes.'
+    #                         print(warn_str)
                             
 
     #######################
@@ -854,9 +936,14 @@ class XRDRockingCurve(XRDBaseScan):
                             intensity_cutoff=0):
 
         if intensity is None:
-            if (hasattr(self, 'intensity')
-                and self.intensity is not None):
-                intensity = self.intensity
+            if (hasattr(self, 'vectors')
+                and self.vectors is not None):
+                intensity = self.vectors[:, -1]
+
+        # if intensity is None:
+        #     if (hasattr(self, 'intensity')
+        #         and self.intensity is not None):
+        #         intensity = self.intensity
         
         int_mask = generate_intensity_mask(
                         intensity,
@@ -909,19 +996,26 @@ class XRDRockingCurve(XRDBaseScan):
                       intensity_cutoff=0,
                       save_to_hdf=True):
 
-        if (not hasattr(self, 'q_vectors')
-            or not hasattr(self, 'intensity')):
+        if (not hasattr(self, 'vectors')
+            or self.vectors is None):
+        # if (not hasattr(self, 'q_vectors')
+        #     or not hasattr(self, 'intensity')):
             err_str = ('Cannot perform 3D spot search without '
                        + 'first vectorizing images.')
             raise AttributeError(err_str)
 
         int_mask = self.get_vector_int_mask(
                         intensity_cutoff=intensity_cutoff)
-                    
-        labels = rsm_blob_search(self.q_vectors[int_mask],
+
+        labels = rsm_blob_search(self.vectors[:, :3][int_mask],
                                  max_dist=max_dist,
                                  max_neighbors=max_neighbors,
                                  subsample=subsample)
+                    
+        # labels = rsm_blob_search(self.q_vectors[int_mask],
+        #                          max_dist=max_dist,
+        #                          max_neighbors=max_neighbors,
+        #                          subsample=subsample)
         
         self.blob_labels = labels
         self.blob_int_mask = int_mask
@@ -941,22 +1035,32 @@ class XRDRockingCurve(XRDBaseScan):
                       label_int_method='mean',
                       save_to_hdf=True):
 
-        if (not hasattr(self, 'q_vectors')
-            or not hasattr(self, 'intensity')):
+        if (not hasattr(self, 'vectors')
+            or self.vectors is None):
+        # if (not hasattr(self, 'q_vectors')
+        #     or not hasattr(self, 'intensity')):
             err_str = ('Cannot perform 3D spot search without '
                        + 'first vectorizing images.')
             raise AttributeError(err_str)
 
         int_mask = self.get_vector_int_mask(
                         intensity_cutoff=intensity_cutoff)
-
+        
         (spot_labels,
          spots,
-         label_ints) = rsm_spot_search(self.q_vectors[int_mask],
-                                       self.intensity[int_mask],
+         label_ints) = rsm_spot_search(self.vectors[:, :3][int_mask],
+                                       self.vectors[:, -1][int_mask],
                                        nn_dist=nn_dist,
                                        significance=significance,
                                        subsample=subsample)
+
+        # (spot_labels,
+        #  spots,
+        #  label_ints) = rsm_spot_search(self.q_vectors[int_mask],
+        #                                self.intensity[int_mask],
+        #                                nn_dist=nn_dist,
+        #                                significance=significance,
+        #                                subsample=subsample)
 
         tth, chi, wavelength = q_2_polar(spots,
                                          stage_rotation=0,
@@ -1004,8 +1108,7 @@ class XRDRockingCurve(XRDBaseScan):
         if extra_attrs is not None:
             self.open_hdf()
             for key, value in extra_attrs.items():
-                overwrite_attr(self.hdf[hdf_str].attrs, key, value)
-                # self.hdf[hdf_str].attrs[key] = value        
+                overwrite_attr(self.hdf[hdf_str].attrs, key, value)      
         print('done!')
 
 
@@ -1051,7 +1154,6 @@ class XRDRockingCurve(XRDBaseScan):
         if extra_attrs is not None:
             for key, value in extra_attrs.items():
                 overwrite_attr(dset.attrs, key, value)
-                # dset.attrs[key] = value
 
 
     ###########################################
@@ -1322,12 +1424,13 @@ class XRDRockingCurve(XRDBaseScan):
     def get_zero_point_correction():
         raise NotImplementedError()
 
+
     ##########################
     ### Plotting Functions ###
     ##########################
 
     # Disable q-space plotting
-    def plot_q_space(*args, **kwargs):
+    def plot_q_space(self, *args, **kwargs):
         err_str = ('Q-space plotting not supported for '
                    + 'XRDRockingCurves, since Ewald sphere/or '
                    + 'crystal orientation changes during scanning.')
@@ -1397,21 +1500,36 @@ class XRDRockingCurve(XRDBaseScan):
                         title_scan_id=True,
                         return_plot=False,
                         **kwargs):
-
+        
         if q_vectors is None:
-            if hasattr(self, 'q_vectors'):
-                q_vectors = self.q_vectors
+            if hasattr(self, 'vectors') and self.vectors is not None:
+                q_vectors = self.vectors[:, :3]
             else:
                 err_str = 'Must provide or already have q_vectors.'
                 raise ValueError(err_str)
         
         if intensity is None:
-            if (hasattr(self, 'intensity')
-                and len(self.intensity) == len(q_vectors)):
-                intensity = self.intensity
+            if (hasattr(self, 'vectors')
+                and self.vectors is not None):
+                intensity = self.vectors[:, -1]
             else:
                 intensity = np.zeros(len(q_vectors),
                                      dtype=q_vectors.dtype)
+
+        # if q_vectors is None:
+        #     if hasattr(self, 'q_vectors'):
+        #         q_vectors = self.q_vectors
+        #     else:
+        #         err_str = 'Must provide or already have q_vectors.'
+        #         raise ValueError(err_str)
+        
+        # if intensity is None:
+        #     if (hasattr(self, 'intensity')
+        #         and len(self.intensity) == len(q_vectors)):
+        #         intensity = self.intensity
+        #     else:
+        #         intensity = np.zeros(len(q_vectors),
+        #                              dtype=q_vectors.dtype)
         
         if edges is None and hasattr(self, 'edges'):
             edges = self.edges
@@ -1488,19 +1606,34 @@ class XRDRockingCurve(XRDBaseScan):
                             **kwargs):
 
         if q_vectors is None:
-            if hasattr(self, 'q_vectors'):
-                q_vectors = self.q_vectors
+            if hasattr(self, 'vectors') and self.vectors is not None:
+                q_vectors = self.vectors[:, :3]
             else:
                 err_str = 'Must provide or already have q_vectors.'
                 raise ValueError(err_str)
-
+        
         if intensity is None:
-            if (hasattr(self, 'intensity')
-                and len(self.intensity) == len(q_vectors)):
-                intensity = self.intensity
+            if (hasattr(self, 'vectors')
+                and self.vectors is not None):
+                intensity = self.vectors[:, -1]
             else:
-                err_str = 'Must provide or already have intensity.'
-                raise ValueError(err_str)
+                intensity = np.zeros(len(q_vectors),
+                                     dtype=q_vectors.dtype)
+
+        # if q_vectors is None:
+        #     if hasattr(self, 'q_vectors'):
+        #         q_vectors = self.q_vectors
+        #     else:
+        #         err_str = 'Must provide or already have q_vectors.'
+        #         raise ValueError(err_str)
+        
+        # if intensity is None:
+        #     if (hasattr(self, 'intensity')
+        #         and len(self.intensity) == len(q_vectors)):
+        #         intensity = self.intensity
+        #     else:
+        #         intensity = np.zeros(len(q_vectors),
+        #                              dtype=q_vectors.dtype)
 
         # Copy values; they will be modified.
         plot_qs = np.asarray(q_vectors).copy()
