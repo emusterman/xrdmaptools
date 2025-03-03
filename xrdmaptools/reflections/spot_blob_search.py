@@ -124,7 +124,9 @@ def blob_search(scaled_image,
     blob_mask[:, 0] = 0
     blob_mask[:, -1] = 0
 
-    if expansion is not None and expansion != 0:
+    if (expansion is not None
+        and expansion != 0
+        and np.any(blob_mask)):
         blob_mask = resize_blobs(blob_mask, distance=expansion)
 
     return blob_mask, blurred_image

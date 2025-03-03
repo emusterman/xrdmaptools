@@ -141,7 +141,8 @@ def _update_plot(dyn_kw):
         dyn_kw['axes'][1].set_ylabel(dyn_kw['y_label'])
     
     else:
-       axi = dyn_kw['axes'][1].get_children()[0]
+       # axi = dyn_kw['axes'][1].get_children()[0]
+       axi = dyn_kw['axes'][1].lines[0]
        axi.set_data(dyn_kw['x_ticks'], dyn_kw['data'][row, col])   
 
 
@@ -182,7 +183,8 @@ def _update_image(dyn_kw,
         dyn_kw['axes'][1].set_xlabel(dyn_kw['x_label'])
         dyn_kw['axes'][1].set_ylabel(dyn_kw['y_label'])
     else:
-        axi = dyn_kw['axes'][1].get_children()[0]
+        # axi = dyn_kw['axes'][1].get_children()[0]
+        axi = dyn_kw['axes'][1].get_images()[0]
         axi.set_data(dyn_kw['data'][row, col]) 
 
 
@@ -793,6 +795,15 @@ def integrateable_dynamic_1D_plot(dyn_kw={},
         if dynamic_toggle:
             if event.inaxes == ax[0]:
                 update_axes(event)
+
+    global row, col, dynamic_toggle
+    row, col = 0, 0
+    dynamic_toggle = not dynamic_toggle
+    _update_axes(dyn_kw,
+                    dimensions=1,
+                    fig=fig,
+                    cmap=cmap,
+                    marker_color=marker_color)
 
     span = SpanSelector(
         ax[1],

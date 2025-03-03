@@ -9,6 +9,7 @@ import json
 import time as ttime
 import matplotlib.pyplot as plt
 from plotly import graph_objects as go
+import dask.array as da
 
 # from .XRDMap import XRDMap
 # from .utilities.utilities import timed_iter
@@ -94,6 +95,7 @@ class XRDRockingCurve(XRDBaseScan):
                  image_shape=None,
                  sclr_dict=None,
                  rocking_axis=None,
+                 dask_enabled=False,
                  **xrdbasekwargs
                  ):
 
@@ -103,7 +105,41 @@ class XRDRockingCurve(XRDBaseScan):
             err_str = ('Must specify image_data, '
                        + 'or image and map shapes.')
             raise ValueError(err_str)
+
+        # Load image data
+        if image_data is not None:
+            if not isinstance(image_data,
+                (list,
+                np.ndarray,
+                da.core.Array,
+                h5py._hl.dataset.Dataset)
+                ):
+                err_str = ('Incorrect image_data type '
+                           + f'({type(image_data)}).')
+                raise TypeError(err_str)
+
+            # Parallized image processing
+            if dask_enabled:
+                # Unusual chunk shapes are fixed later
+                # Not the best though....
+                image_data = da.asarray(image_data)
+            else:
+                # Non-paralleized image processing
+                if isinstance(image_data, da.core.Array):
+                    image_data = image_data.compute()
+                # list input is handled lazily,
+                # but should only be from databroker
+                elif isinstance(image_data, list):
+                    if dask_enabled:
+                        # bad chunking will be fixed later
+                        image_data = da.stack(image_data) 
+                    else:
+                        image_data = np.stack(image_data)
+                # Otherwise as a numpy array
+                else:
+                    image_data = np.asarray(image_data)
         
+        # Check shape
         if image_data is not None:
             data_ndim = image_data.ndim
             data_shape = image_data.shape 
@@ -152,6 +188,7 @@ class XRDRockingCurve(XRDBaseScan):
             image_shape=image_shape,
             map_shape=map_shape,
             sclr_dict=sclr_dict,
+            dask_enabled=dask_enabled,
             map_labels=['rocking_ind',
                            'null_ind'],
             **xrdbasekwargs
@@ -506,7 +543,7 @@ class XRDRockingCurve(XRDBaseScan):
         if wd is None:
             wd = os.getcwd()
         else:
-            if not os.path.exists():
+            if not os.path.exists(wd):
                 err_str = f'Cannot find directory {wd}'
                 raise OSError(err_str)
         
@@ -819,7 +856,7 @@ class XRDRockingCurve(XRDBaseScan):
 
 
     @XRDBaseScan._protect_hdf()
-    def save_vectoriation(self,
+    def save_vectorization(self,
                           vectors=None,
                           edges=None,
                           rewrite_data=False):
@@ -1021,7 +1058,7 @@ class XRDRockingCurve(XRDBaseScan):
                       multiplier=5,
                       size=3,
                       expansion=10,
-                      override_rescale=True):
+                      override_rescale=False):
     
         # Cleanup images as necessary
         self._dask_2_numpy()

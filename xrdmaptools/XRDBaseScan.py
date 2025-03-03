@@ -1867,7 +1867,7 @@ class XRDBaseScan(XRDData):
         # Write data to hdf
         vector_grp = hdf[self._hdf_type].require_group(
                                                 'vectorized_data')
-        vect_grp.attrs['time_stamp'] = ttime.ctime()
+        vector_grp.attrs['time_stamp'] = ttime.ctime()
 
         # Save vectors
         XRDBaseScan._save_vectors(vector_grp,
