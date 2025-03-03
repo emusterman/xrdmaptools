@@ -68,7 +68,7 @@ def load_xrdbase_hdf(filename,
                      image_data_key='recent',
                      integration_data_key='recent',
                      load_blob_masks=True,
-                     load_vector_maps=False,
+                     load_vector_map=False,
                      map_shape=None,
                      image_shape=None,
                      dask_enabled=False,
@@ -188,7 +188,7 @@ def load_xrdbase_hdf(filename,
     vector_dict = _load_xrd_hdf_vectorized_data(base_grp)
 
     # Load vectorized map data
-    if load_vector_maps:
+    if load_vector_map:
         _vector_dict = _load_xrd_hdf_vectorized_map_data(base_grp)
         if vector_dict is not None and _vector_dict is not None:
             err_str = ('Vectorized data found in both rocking curve '

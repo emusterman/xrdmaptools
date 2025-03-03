@@ -7,6 +7,8 @@ import h5py
 import numpy as np
 import pandas as pd
 import functools
+from matplotlib import patches
+from matplotlib.collections import PatchCollection
 
 from xrdmaptools.XRDMap import XRDMap
 from xrdmaptools.XRDRockingCurve import XRDRockingCurve
@@ -23,6 +25,7 @@ from xrdmaptools.io.hdf_utils import (
     check_attr_overwrite,
     overwrite_attr
 )
+from xrdmaptools.geometry.geometry import QMask
 from xrdmaptools.crystal.rsm import map_2_grid
 from xrdmaptools.crystal.map_alignment import (
     relative_correlation_auto_alignment,
@@ -124,54 +127,57 @@ class XRDMapStack(list):
         # Collect unique phases from individual XRDMaps
         self.phases = {}
         for xrdmap in self:
-            for phase in xrdmap.phases.items():
+            for phase in xrdmap.phases.values():
                 if phase.name not in self.phases.keys():
                      self.phases[phase.name] = phase
             # Redefine individual phases to reference stack phases
             xrdmap.phases = self.phases
 
         # Find rocking axis
-        if rocking_axis is not None:
-            if rocking_axis.lower() in ['energy', 'wavelength']:
-                self.rocking_axis = 'energy'
-            elif rocking_axis.lower() in ['angle', 'theta']:
-                self.rocking_axis = 'angle'
-            else:
-                warn_str = (f'Rocking axis ({rocking_axis}) is not '
-                            + 'supported. Attempting to find '
-                            + 'automatically.')
-                print(warn_str)
-                # kick it back out and find automatically
-                rocking_axis = None 
+        self._set_rocking_axis(rocking_axis=rocking_axis)
+
+        # # Find rocking axis
+        # if rocking_axis is not None:
+        #     if rocking_axis.lower() in ['energy', 'wavelength']:
+        #         self.rocking_axis = 'energy'
+        #     elif rocking_axis.lower() in ['angle', 'theta']:
+        #         self.rocking_axis = 'angle'
+        #     else:
+        #         warn_str = (f'Rocking axis ({rocking_axis}) is not '
+        #                     + 'supported. Attempting to find '
+        #                     + 'automatically.')
+        #         print(warn_str)
+        #         # kick it back out and find automatically
+        #         rocking_axis = None 
             
-        if rocking_axis is None:
-            min_en = np.min(self.energy)
-            max_en = np.max(self.energy)
-            min_ang = np.min(self.theta)
-            max_ang = np.max(self.theta)
+        # if rocking_axis is None:
+        #     min_en = np.min(self.energy)
+        #     max_en = np.max(self.energy)
+        #     min_ang = np.min(self.theta)
+        #     max_ang = np.max(self.theta)
 
-            # Convert to eV
-            if max_en < 1000:
-                max_en *= 1000
-                min_en *= 1000
+        #     # Convert to eV
+        #     if max_en < 1000:
+        #         max_en *= 1000
+        #         min_en *= 1000
 
-            mov_en = max_en - min_en > 5
-            mov_ang = max_ang - min_ang > 0.05
+        #     mov_en = max_en - min_en > 5
+        #     mov_ang = max_ang - min_ang > 0.05
 
-            if mov_en and not mov_ang:
-                self.rocking_axis = 'energy'
-            elif mov_ang and not mov_en:
-                self.rocking_axis = 'angle'
-            elif mov_en and mov_ang:
-                err_str = ('Ambiguous rocking direction. '
-                            + 'Energy varies by more than 5 eV and '
-                            + 'theta varies by more than 50 mdeg.')
-                raise RuntimeError(err_str)
-            else:
-                err_str = ('Ambiguous rocking direction. '
-                            + 'Energy varies by less than 5 eV and '
-                            + 'theta varies by less than 50 mdeg.')
-                raise RuntimeError(err_str)
+        #     if mov_en and not mov_ang:
+        #         self.rocking_axis = 'energy'
+        #     elif mov_ang and not mov_en:
+        #         self.rocking_axis = 'angle'
+        #     elif mov_en and mov_ang:
+        #         err_str = ('Ambiguous rocking direction. '
+        #                     + 'Energy varies by more than 5 eV and '
+        #                     + 'theta varies by more than 50 mdeg.')
+        #         raise RuntimeError(err_str)
+        #     else:
+        #         err_str = ('Ambiguous rocking direction. '
+        #                     + 'Energy varies by less than 5 eV and '
+        #                     + 'theta varies by less than 50 mdeg.')
+        #         raise RuntimeError(err_str)
         
         # Enable features
         # TODO: Fix me!
@@ -442,7 +448,7 @@ class XRDMapStack(list):
         self._shifts = shifts
 
         # Re-write hdf values
-        @XRDMapStack.protect_xdms_hdf()
+        @XRDMapStack._protect_xdms_hdf()
         def save_attrs(self): # Not sure if this needs self...
             overwrite_attr(self.xdms_hdf[self._hdf_type].attrs,
                            'shifts',
@@ -531,7 +537,7 @@ class XRDMapStack(list):
                  image_data_key=None,
                  integration_data_key=None,
                  load_blob_masks=False,
-                 load_vector_maps=False,
+                 load_vector_map=False,
                  map_shape=None,
                  image_shape=None,
                  **kwargs
@@ -564,8 +570,6 @@ class XRDMapStack(list):
              ) = input_dict['vector_dict'].pop('vector_map')
             xdms_extra_attrs.update(input_dict['vector_dict'])
         
-        print(xdms_extra_attrs.keys())
-        
         xrdmap_list = []
         for hdf_path_i in timed_iter(hdf_path, iter_name='xrdmap'):
             hdf_filename_i = os.path.basename(hdf_path_i)
@@ -578,7 +582,7 @@ class XRDMapStack(list):
                     image_data_key=image_data_key,
                     integration_data_key=integration_data_key,
                     load_blob_masks=load_blob_masks,
-                    load_vector_maps=load_vector_maps,
+                    load_vector_map=load_vector_map,
                     map_shape=map_shape,
                     image_shape=image_shape,
                     save_hdf=save_hdf,
@@ -727,7 +731,7 @@ class XRDMapStack(list):
         ('map_extent', False, False),
         # Working with phases
         # This one saves to individual hdfs
-        ('update_phases', False, False), 
+        ('save_phases', False, False), 
         # Working with spots
         ('find_blobs', False, True),
         ('find_spots', False, True),
@@ -789,7 +793,7 @@ class XRDMapStack(list):
 
     # Re-defined from XRDData class
     # New names and no dask concerns
-    def protect_xdms_hdf(pandas=False):
+    def _protect_xdms_hdf(pandas=False):
         def protect_hdf_inner(func):
             @functools.wraps(func)
             def protector(self, *args, **kwargs):
@@ -903,7 +907,7 @@ class XRDMapStack(list):
 
     # Saves current major features
     # Calls several other save functions
-    @protect_xdms_hdf()
+    @_protect_xdms_hdf()
     def save_current_xrdmapstack_hdf(self):
         
         if self.xdms_hdf_path is None:
@@ -962,7 +966,7 @@ class XRDMapStack(list):
     ### Modified Functions ###
     ##########################
 
-    @protect_xdms_hdf()
+    @_protect_xdms_hdf()
     def save_map_vectorization(self,
                                xdms_vector_map=None,
                                edges=None,
@@ -996,19 +1000,25 @@ class XRDMapStack(list):
                                        vector_map=xdms_vector_map,
                                        edges=edges,
                                        rewrite_data=rewrite_data)
-        
         # Remove secondary reference
         del hdf
     
 
+    # Pull functions from XRDRockingCurve
     def get_sampled_edges(self,
                           q_arr=None):
         XRDRockingCurve.get_sampled_edges(self,
                                           q_arr=q_arr)
 
 
+    def _set_rocking_axis(self,
+                          rocking_axis=None):
+        XRDRockingCurve._set_rocking_axis(self,
+                                          rocking_axis=rocking_axis)         
+
+
     # Need to modify to not look for a random image
-    def plot_image():
+    def plot_image(self, *args, **kwargs):
         raise NotImplementedError()
 
     
@@ -1060,7 +1070,7 @@ class XRDMapStack(list):
             setattr(self, sorted_attr, attr_type(sorted_list))
 
         # Re-write sorted values in hdf for consistency
-        @XRDMapStack.protect_xdms_hdf()
+        @XRDMapStack._protect_xdms_hdf()
         def save_attrs(self):
             sorted_attrs = [
                 'scan_id',
@@ -1150,7 +1160,11 @@ class XRDMapStack(list):
                     (self.spots['map_x'] == map_indices[1])
                      & (self.spots['map_y'] == map_indices[0])].copy()
         return pixel_spots
+    
 
+    ########################
+    ### Vectorizing Data ###
+    ########################
 
     def align_maps(self,
                    map_stack,
@@ -1266,10 +1280,10 @@ class XRDMapStack(list):
 
         if plotme:
             ax.scatter(xx_virt,
-                      yy_virt,
-                      s=20,
-                      c='r',
-                      marker='*')
+                       yy_virt,
+                       s=20,
+                       c='r',
+                       marker='*')
 
             # This can probably be done with RegularPolyCollection
             # but this proved finicky
@@ -1317,7 +1331,7 @@ class XRDMapStack(list):
                 raise ValueError(err_str)
         else: # Check to make sure everything is available
 
-            @XRDMap.protect_hdf()
+            @XRDMap._protect_hdf()
             def check_xrdmap_for_vector_map(xrdmap, i):
                 if ('vectorized_map'
                     not in xrdmap.hdf[xrdmap._hdf_type]):
@@ -1326,7 +1340,7 @@ class XRDMapStack(list):
                                    + 'HDF file.')
                         raise RuntimeError(err_str)
             
-            @XRDMap.protect_hdf()
+            @XRDMap._protect_hdf()
             def retrieve_vector_map_from_hdf(xrdmap):
                 vector_dict = _load_xrd_hdf_vectorized_map_data(
                                         xrdmap.hdf[xrdmap._hdf_type])
@@ -1392,6 +1406,18 @@ class XRDMapStack(list):
 
         # Write to hdf
         self.save_map_vectorization(rewrite_data=rewrite_data)
+
+    ################################
+    ### Indexing Vectorized Data ###
+    ################################
+
+    @property
+    def qmask(self):
+        if hasattr(self, '_qmask'):
+            return self._qmask
+        else:
+            self._qmask = QMask.from_XRDRockingScan(self)
+            return self._qmask
 
 
     ##########################

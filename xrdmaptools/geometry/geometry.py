@@ -1,10 +1,14 @@
 import numpy as np
-from scipy.interpolate import griddata
+from scipy.optimize import curve_fit
+from scipy.interpolate import griddata, RegularGridInterpolator
 from scipy.interpolate import RegularGridInterpolator
 from scipy.spatial.transform import Rotation
 
 # Local imports
-from xrdmaptools.utilities.math import vector_angle
+from xrdmaptools.utilities.math import (
+    vector_angle,
+    general_polynomial
+)
 from xrdmaptools.utilities.utilities import delta_array
 
 
@@ -216,7 +220,9 @@ def q_2_polar(q_vect,
 
 
 # Deprecated. Only finds wavelength
-def old_q_2_polar(q_vect, wavelength=None, degrees=False):
+def old_q_2_polar(q_vect,
+                  wavelength=None,
+                  degrees=False):
     q_vect = np.asarray(q_vect)
     q_norm = np.linalg.norm(q_vect, axis=-1)
 
@@ -241,7 +247,9 @@ def old_q_2_polar(q_vect, wavelength=None, degrees=False):
 
 
 # Find nearest q-space position on Ewald sphere within a certain threshold
-def nearest_q_on_ewald(q_vect, wavelength, near_thresh=None):
+def nearest_q_on_ewald(q_vect,
+                       wavelength,
+                       near_thresh=None):
     # Currently no way to bound within surface measured by detector
     
     q_vect = np.asarray(q_vect)
@@ -276,8 +284,10 @@ def nearest_q_on_ewald(q_vect, wavelength, near_thresh=None):
     return np.array([qx_near, qy_near, qz_near]).T, q_dist
 
 
-def nearest_polar_on_ewald(q_vect, wavelength,
-                           near_thresh=None, degrees=False):
+def nearest_polar_on_ewald(q_vect,
+                           wavelength,
+                           near_thresh=None,
+                           degrees=False):
 
     q_near, q_dist = nearest_q_on_ewald(q_vect,
                                         wavelength,
@@ -290,8 +300,13 @@ def nearest_polar_on_ewald(q_vect, wavelength,
     return tth, chi
 
 
-def nearest_pixels_on_ewald(q_vect, wavelength, tth_arr, chi_arr,
-                            near_thresh=None, degrees=False, method='nearest'):
+def nearest_pixels_on_ewald(q_vect,
+                            wavelength,
+                            tth_arr,
+                            chi_arr,
+                            near_thresh=None,
+                            degrees=False,
+                            method='nearest'):
     # degrees bool must match tth_arr and chi_arr input values
     
     tth, chi = nearest_polar_on_ewald(q_vect,
@@ -319,7 +334,10 @@ def nearest_pixels_on_ewald(q_vect, wavelength, tth_arr, chi_arr,
     return est_img_coords[~bound_mask]
     
 
-def estimate_polar_coords(coords, tth_arr, chi_arr, method='linear'):
+def estimate_polar_coords(coords,
+                          tth_arr,
+                          chi_arr,
+                          method='linear'):
     #coords = np.array([[0, 0], [767, 485], [x0, y0], ...])
     # TODO:
     # Check coord values to make sure they are in range
@@ -359,7 +377,10 @@ def estimate_polar_coords(coords, tth_arr, chi_arr, method='linear'):
     return np.array([est_tth, est_chi]).T 
 
 
-def estimate_image_coords(coords, tth_arr, chi_arr, method='nearest'):
+def estimate_image_coords(coords,
+                          tth_arr,
+                          chi_arr,
+                          method='nearest'):
     # Warning: Any method except 'nearest' is fairly slow and not recommended
     #coords = np.array([[tth0, chi0], [tth1, chi1], ...])
     # TODO:
@@ -397,7 +418,9 @@ def estimate_image_coords(coords, tth_arr, chi_arr, method='nearest'):
     return est_img_coords # Given as np.array([[x0, y0], [x1, y1], ...])
 
 
-def modular_azimuthal_shift(arr, max_arr=None, force_shift=None):
+def modular_azimuthal_shift(arr,
+                            max_arr=None,
+                            force_shift=None):
     arr = np.asarray(arr).copy()
     if max_arr is None:
         max_arr = np.max(np.abs(arr))
@@ -424,7 +447,8 @@ def modular_azimuthal_shift(arr, max_arr=None, force_shift=None):
     return arr, new_max_arr, shifted
 
 
-def modular_azimuthal_reshift(arr, max_arr=None):
+def modular_azimuthal_reshift(arr,
+                              max_arr=None):
     arr = np.asarray(arr).copy()
     if max_arr is None:
         max_arr = np.max(np.abs(arr))
@@ -450,7 +474,8 @@ def modular_azimuthal_reshift(arr, max_arr=None):
     return arr
 
 
-def det_plane_from_ai(ai, skip=None):
+def det_plane_from_ai(ai,
+                      skip=None):
 
 
     num_pixels = np.prod(*ai.detector.shape)
@@ -469,3 +494,187 @@ def det_plane_from_ai(ai, skip=None):
 
     # Return plane normal n = (a, b, c) and point (d)
     return svd[0][:, -1], d.squeeze()
+
+
+# Class for bounding reciprocal space volumes mapped by rocking curves
+class QMask():
+
+    def __init__(self,
+                 tth_arr,
+                 chi_arr,
+                 wavelength_vals,
+                 theta_vals=0,
+                 poly_order=6,
+                 degrees=False,
+                 use_stage_rotation=False):
+        
+        # Check for azimuthal discontintuites
+        chi_arr, max_arr, shifted = modular_azimuthal_shift(chi_arr)
+        self.chi_max_arr = max_arr # determines units...
+        self.chi_shifted = shifted # conditional
+
+        # Determine simple extents
+        self.tth_min = np.min(tth_arr)
+        self.tth_max = np.max(tth_arr)
+        self.chi_min = np.min(chi_arr)
+        self.chi_max = np.max(chi_arr)
+        self.wavelength_min = np.min(wavelength_vals)
+        self.wavelength_max = np.max(wavelength_vals)
+        self.theta_min = np.min(theta_vals)
+        self.theta_max = np.max(theta_vals)
+        self.degrees = degrees
+        self.use_stage_rotation = use_stage_rotation
+
+        # Get rocking axis
+        energy_rc = self.wavelength_min != self.wavelength_max
+        angle_rc = self.theta_min != self.theta_max
+
+        if energy_rc and angle_rc:
+            err_str = ('Both energy and angle are changing. '
+                      + '\nOne must be static to generate Qmask.')
+            raise RuntimeError(err_str)
+        elif not energy_rc and not angle_rc:
+            err_str = ('Neither energy nor angle are changing. '
+                      + '\nOne must be rocking to generate Qmask.')
+            raise RuntimeError(err_str)
+        elif energy_rc:
+            self.rocking_axis = 'energy'
+        else:
+            self.rocking_axis = 'angle'
+
+        # Determine edges
+        # Inelegant method of throwing higher
+        # order polynomials at the problem
+        p0 = np.zeros(poly_order + 1)
+        for indexing, poly in zip([(0), # [0, :] 
+                                   (-1), # [-1, :]
+                                   (slice(None), 0), # [:, 0]
+                                   (slice(None), -1)], # [:, -1]
+                                   ['upper_poly',
+                                   'lower_poly',
+                                   'left_poly',
+                                   'right_poly']):
+            
+            # Determine functional direction
+            tth_grad = np.gradient(tth_arr[indexing])
+            if np.all(tth_grad > 0) or np.all(tth_grad < 0):
+                first_arr = tth_arr
+                second_arr = chi_arr
+                setattr(self, f'{poly}_first', 'tth')
+            else:
+                first_arr = chi_arr
+                second_arr = tth_arr
+                setattr(self, f'{poly}_first', 'chi')
+            
+            # Fit edge functions
+            popt, _ = curve_fit(general_polynomial,
+                                first_arr[indexing],
+                                second_arr[indexing],
+                                p0=p0)
+            
+            setattr(self, poly, popt)
+
+    
+    @classmethod
+    def from_XRDRockingScan(cls,
+                            rsm,
+                            **kwargs):
+        # Surprisingly works for both XRDRockingCurve and XRDMapStack
+        
+        inst = cls(rsm.tth_arr,
+                   rsm.chi_arr,
+                   rsm.wavelength,
+                   rsm.theta,
+                   degrees=rsm.polar_units == 'deg',
+                   use_stage_rotation=rsm.use_stage_rotation,
+                   **kwargs)
+        
+        return inst
+
+
+    def generate(self,
+                 q_vectors,
+                 ext=0,
+                 return_sub_masks=False):
+
+        # Convert vectors to polar
+        if self.rocking_axis == 'energy':
+            if self.use_stage_rotation:
+                theta = self.theta_min # should match theta_max
+            else:
+                theta = 0
+
+            tth, chi, wavelength = q_2_polar(q_vectors,
+                                             stage_rotation=theta,
+                                             degrees=self.degrees)
+
+            rocking_mask = np.all([
+                        wavelength >= self.wavelength_min * (1 - ext),
+                        wavelength <= self.wavelength_max * (1 + ext)],
+                        axis=0)
+        
+        else:
+            tth, chi, rotation = q_2_polar(
+                                    q_vectors,
+                                    wavelength=self.wavelength_min,
+                                    degrees=self.degrees)
+
+            rocking_mask = np.all([
+                            rotation >= self.theta_min * (1 - ext),
+                            rotation <= self.theta_max * (1 + ext)],
+                            axis=0)
+
+        # Shift chi values if discontinuiteies
+        chi, _, _ = modular_azimuthal_shift(
+                            chi,
+                            max_arr=self.chi_max_arr,
+                            force_shift=self.chi_shifted)
+
+        # Vertically bounded mask
+        if getattr(self, 'upper_poly_first') == 'tth':
+            first = tth
+            second = chi
+        else:
+            first = chi
+            second = tth
+
+        upper = second - general_polynomial(first, *self.upper_poly)
+        lower = second - general_polynomial(first, *self.lower_poly)
+        vertical_mask = np.sign(upper) != np.sign(lower)
+        
+        # Horizontally bounded mask
+        if getattr(self, 'left_poly_first') == 'tth':
+            first = tth
+            second = chi
+        else:
+            first = chi
+            second = tth
+
+        left = second - general_polynomial(first, *self.left_poly)
+        right = second - general_polynomial(first, *self.right_poly)
+        horizontal_mask = np.sign(left) != np.sign(right)
+        
+        # Extent masks
+        tth_mask = np.all([tth >= self.tth_min * (1 - ext),
+                           tth <= self.tth_max * (1 + ext)],
+                           axis=0)
+        chi_mask = np.all([chi >= self.chi_min * (1 - ext),
+                           chi <= self.chi_max * (1 + ext)],
+                           axis=0)
+        
+        if return_sub_masks:
+            return (vertical_mask,
+                    horizontal_mask,
+                    tth_mask,
+                    chi_mask,
+                    rocking_mask)
+        else:
+            qmask = np.all([
+                vertical_mask,
+                horizontal_mask,
+                tth_mask,
+                chi_mask,
+                rocking_mask
+            ], axis=0)
+
+            return qmask

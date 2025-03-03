@@ -295,6 +295,7 @@ def _display_map(data=None,
                  'title',
                  'vmin',
                  'vmax',
+                 'facecolor',
                  'scale',
                  'x_ticks',
                  'y_ticks',
@@ -353,6 +354,13 @@ def _display_map(data=None,
     # Set label titles
     axes[0].set_xlabel(map_kw['x_label'])
     axes[0].set_ylabel(map_kw['y_label'])
+
+    # Set facecolor
+    if (isinstance(map_kw['facecolor'], str)
+        and map_kw['facecolor'].lower() == 'transparent'):
+        axes[0].set_facecolor((1., 1., 1., 0.))
+    if map_kw['facecolor'] is not None:
+        axes[0].set_facecolor(map_kw['facecolor'])
 
     
 def _set_globals(ax):

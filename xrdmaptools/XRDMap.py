@@ -56,7 +56,11 @@ class XRDMap(XRDBaseScan):
         Flag to indicate if the fast and slow scanning axes are
         swapped. Default is False assuming a fast x-axis and slow y-axis.
     xrf_path : str, optional
-        Path string of associated xrfmap hdf file generate from pyXRF.
+        Path string of associated xrfmap HDF file generate from pyXRF.
+    check_init_sets : bool, optional
+        Flag whether to overwrite data in the HDF file if available. By
+        default this is set to False and should only be True when
+        instantiating from the HDF file.
     xrdbasekwargs : dict, optional
         Dictionary of all other kwargs for parent XRDBaseScan class.
     """
@@ -130,7 +134,7 @@ class XRDMap(XRDBaseScan):
         if wd is None:
             wd = os.getcwd()
         else:
-            if not os.path.exists():
+            if not os.path.exists(wd):
                 err_str = f'Cannot find directory {wd}'
                 raise OSError(err_str)
     
@@ -778,7 +782,7 @@ class XRDMap(XRDBaseScan):
         if update_flag: 
             self._swapped_axes = not self._swapped_axes
 
-        @XRDBaseScan.protect_hdf()
+        @XRDBaseScan._protect_hdf()
         def save_swapped_axes(self):
             overwrite_attr(self.hdf[self._hdf_type].attrs,
                             'swapped_axes',
@@ -1089,7 +1093,7 @@ class XRDMap(XRDBaseScan):
         return pixel_spots
 
     @_check_swapped_axes
-    @XRDBaseScan.protect_hdf(pandas=True)
+    @XRDBaseScan._protect_hdf(pandas=True)
     def save_spots(self, extra_attrs=None):
         print('Saving spots to hdf...', end='', flush=True)
         hdf_str = f'{self._hdf_type}/reflections/spots'
@@ -1109,7 +1113,7 @@ class XRDMap(XRDBaseScan):
     ### Vectorizing Map Data ###
     ############################
 
-    @XRDBaseScan.protect_hdf()
+    @XRDBaseScan._protect_hdf()
     def vectorize_map_data(self,
                            image_data_key='recent',
                            keep_images=False,
@@ -1160,7 +1164,7 @@ class XRDMap(XRDBaseScan):
             self.blob_masks = None       
     
     
-    @XRDBaseScan.protect_hdf()
+    @XRDBaseScan._protect_hdf()
     def save_map_vectorization(self,
                                vector_map=None,
                                edges=None,
@@ -1206,7 +1210,9 @@ class XRDMap(XRDBaseScan):
     def load_xrfmap(self,
                     wd=None,
                     xrf_name=None,
-                    full_data=True):
+                    include_scalers=False,
+                    include_positions=False,
+                    include_full_data=False):
 
         # Look for path if no information is provided
         if (wd is None
@@ -1231,38 +1237,48 @@ class XRDMap(XRDBaseScan):
         # Load the data
         xrf = {}
         with h5py.File(self.xrf_path, 'r') as f:
-            
-            if full_data:
-                xrf['data'] = f['xrfmap/detsum/counts'][:]
-                xrf['energy'] = (np.arange(xrf['data'].shape[-1])
-                                 / 100)
-            
-            if 'xrf_fit_name' in f['xrfmap/detsum'].keys():
+            # Get fit maps  
+            if 'xrf_fit_name' in f['xrfmap/detsum']:
                 xrf_fit_names = [d.decode('utf-8')
                                  for d
                                  in f['xrfmap/detsum/xrf_fit_name'][:]]
                 xrf_fit = f['xrfmap/detsum/xrf_fit'][:]
-
+                
+                for key, value in zip(xrf_fit_names, xrf_fit):
+                    xrf[key] = value
+            
+            elif not include_full_data:
+                warn_str = ('WARNING: XRF fitting not found and '
+                            + 'include full_data flag not indicated. '
+                            + 'No data loaded.')
+                print(warn_str)
+                return
+            
+            # Get scalers
+            if include_scalers and 'scalers' in f['xrfmap']:
                 scaler_names = [d.decode('utf-8')
                                 for d
                                 in f['xrfmap/scalers/name'][:]]
                 scalers = np.moveaxis(f['xrfmap/scalers/val'][:], -1, 0)
-
-                # i0 = f['xrfmap/scalers/val'][..., 0]
-                # xrf_fit = np.concatenate((xrf_fit,
-                #                           np.expand_dims(i0, axis=0)),
-                #                           axis=0)
-                # xrf_fit_names.append('i0')
-
-                for key, value in zip(xrf_fit_names + scaler_names,
-                                      np.vstack([xrf_fit, scalers])):
+                
+                for key, value in zip(scaler_names, scalers):
                     xrf[key] = value
-            elif not full_data:
-                warn_str = ('WARNING: XRF fitting not found and '
-                            + 'full_data flag not indicated. '
-                            + 'No data loaded.')
-                print(warn_str)
-                return
+
+            # Get positions
+            if include_positions and 'positions' in f['xrfmap']:
+                position_names = [d.decode('utf-8')
+                                for d
+                                in f['xrfmap/positions/name'][:]]
+                positions = f['xrfmap/positions/pos'][:]
+                
+                for key, value in zip(position_names, positions):
+                    xrf[key] = value
+
+            # Get full data
+            if include_full_data:
+                xrf['data'] = f['xrfmap/detsum/counts'][:]
+                xrf['energy'] = (np.arange(xrf['data'].shape[-1])
+                                 / 100)
 
             md_key = 'xrfmap/scan_metadata'
             E0_key = 'instrument_mono_incident_energy'
@@ -1271,12 +1287,11 @@ class XRDMap(XRDBaseScan):
         # Track as attribute
         self.xrf = xrf
             
-        @XRDBaseScan.protect_hdf()
+        @XRDBaseScan._protect_hdf()
         def save_xrf_path(self):
             overwrite_attr(self.hdf[self._hdf_type].attrs,
                            'xrf_path',
                            self.xrf_path)
-            # self.hdf[self._hdf_type].attrs['xrf_path'] = self.xrf_path
         save_xrf_path(self)
         
 

@@ -1655,8 +1655,10 @@ def generate_scan_logfile(start_id,
                 
                 if 'scan_input' in start['scan'].keys():
                     scan_input = start['scan']['scan_input']
-                    scan_input = [np.round(x, 3) for x in scan_input] # Cleans up floating point errors?
-                    #print(scan_input)
+                    if not isinstance(scan_input, str):
+                        scan_input = [np.round(x, 3) for x in scan_input ] # Cleans up floating point errors?
+                    # print(scan_id)
+                    # print(scan_input)
                     scan_inputs.append(scan_input)
                 else:
                     scan_inputs.append(str([]))

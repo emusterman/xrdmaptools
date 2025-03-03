@@ -34,7 +34,7 @@ from xrdmaptools.utilities.background_estimators import (
 # Analysis and interpretations are reserved for child classes
 class XRDData:
     """
-    A class for holding and processing raw XRD images with some I/O 
+    A class for holding and processing XRD images with some I/O 
     functionality. Analysis and interpretation are reserved for child 
     classes, but there is some cross-communication.
 
@@ -48,12 +48,12 @@ class XRDData:
         Integration data as a 3D array with XRDMap axes (map_y, map_x,
         intensity), or XRDRockingCurve axes (rocking_axis, 1,
         intensity)
-    map_shape : iterable, optional
+    map_shape : iterable length 2, optional
         Shape of first two axes in image_data and integration_data as
         (map_y, map_x) or (rocking_axis, 1).
-    image_shape : iterable, optional
+    image_shape : iterable length 2, optional
         Shape of last two axes in image_data (image_y, image_x).
-    map_labels : iterable, optional
+    map_labels : iterable length 2, optional
         Labels passed to HDF for map axes. Defaults to 'map_y_ind' and
         'map_x_ind' for XRDMap, and 'rocking_ind' and 'null_ind' for 
         XRDRockingCurve.
@@ -108,6 +108,13 @@ class XRDData:
     Methods
     -------
     __len__
+    __str__
+    __repr__
+
+    Properties
+    ----------
+
+
     """
 
     def __init__(self,
@@ -361,33 +368,34 @@ class XRDData:
                 dtype = None
         self._dtype = dtype
 
-        # 
-        ordered_correction_keys = [
-                'dark_field',
-                'flat_field', 
-                # Can be approximated with background
-                'air_scatter', 
-                'outliers',
-                'pixel_defects', # Just a mask
-                'pixel_distortions', # Unknown
-                'scaler_intensity',
-                'lorentz',
-                'polarization',
-                'solid_angle',
-                'absorption', # Tricky      
-                'background',
-                'polar_calibration', # Bulky
-            ]
+        self.build_correction_dictionary(corrections)
+        # ordered_correction_keys = [
+        #         'dark_field',
+        #         'flat_field', 
+        #         # Can be approximated with background
+        #         'air_scatter', 
+        #         'outliers',
+        #         'pixel_defects', # Just a mask
+        #         'pixel_distortions', # Unknown
+        #         'scaler_intensity',
+        #         'lorentz',
+        #         'polarization',
+        #         'solid_angle',
+        #         'absorption', # Tricky      
+        #         'background',
+        #         'polar_calibration', # Bulky
+        #     ]
 
-        if isinstance(corrections, (dict, OrderedDict)):
-            self.corrections = OrderedDict([
-                (key, corrections[key])
-                for key in ordered_correction_keys
-                ])
-        else:
-            self.corrections = OrderedDict([
-                (key, False) for key in ordered_correction_keys
-                ])
+        # if isinstance(corrections, (dict, OrderedDict)):
+        #     self.corrections = OrderedDict([
+        #         (key, corrections[key])
+        #         for key in ordered_correction_keys
+        #         if key in corrections
+        #         ])
+        # else:
+        #     self.corrections = OrderedDict([
+        #         (key, False) for key in ordered_correction_keys
+        #         ])
 
         self.update_map_title(title=title)
         if isinstance(null_map, list):
@@ -765,8 +773,73 @@ class XRDData:
         self.reset_projections()
 
 
+    def build_correction_dictionary(self, corrections=None):
+        """
+        Build an OrderedDict of booleans for tracking corrections.
+
+        Build an OrderedDict of booleans from dictionary or nothing to
+        keep track of applied corrections. Only certain correction keys
+        considered; all others are ignored. By default this function
+        creates a correction OrderedDict with all values set to False.
+
+        The correction dictionary only considers keys in:
+        - 'dark_field'
+        - 'flat_field'
+        - 'air_scatter'
+        - 'outliers'
+        - 'pixel_defects'
+        - 'pixel_distortions'
+        - 'scaler_intensity'
+        - 'lorentz'
+        - 'polarization'
+        - 'solid_angle'
+        - 'absorption'      
+        - 'background'
+        - 'polar_calibration'
+
+        Parameters
+        ----------
+        corrections : dict or OrderedDict of bools, optional
+            Dictionary of corrections to use to build internal
+            correction dictionary. Default value is None and new
+            correction dictionary will be create with all values set to
+            False.
+        """
+
+        ordered_correction_keys = [
+            'dark_field',
+            'flat_field', 
+            # Can be approximated with background
+            'air_scatter', 
+            'outliers',
+            'pixel_defects', # Just a mask
+            'pixel_distortions', # Unknown
+            'scaler_intensity',
+            'lorentz',
+            'polarization',
+            'solid_angle',
+            'absorption', # Tricky      
+            'background',
+            'polar_calibration', # Bulky
+        ]
+
+        # Rebuild dictionary
+        if isinstance(corrections, (dict, OrderedDict)):
+            self.corrections = OrderedDict([
+                (key, corrections[key])
+                for key in ordered_correction_keys
+                if key in corrections
+                ])
+        # Build new dictionary
+        else:
+            self.corrections = OrderedDict([
+                (key, False)
+                for key in ordered_correction_keys
+                ])
+
+
     # Opens and closes hdf to ensure self.hdf can be used safely
-    def protect_hdf(pandas=False):
+    def _protect_hdf(pandas=False):
         def protect_hdf_inner(func):
             @functools.wraps(func)
             def protector(self, *args, **kwargs):
@@ -800,7 +873,7 @@ class XRDData:
         return protect_hdf_inner
 
     
-    @protect_hdf()
+    @_protect_hdf()
     def load_images_from_hdf(self,
                              image_data_key='recent',
                              dask_enabled=None,
@@ -887,7 +960,9 @@ class XRDData:
             for key, value in img_dset.attrs.items():
                 if key[0] == '_' and key[-11:] == '_correction':
                     image_corrections[key[1:-11]] = value
-            self.corrections = image_corrections
+            # self.corrections = image_corrections
+            self.build_correction_dictionary(
+                                corrections=image_corrections)
 
             # Define/determine chunks and rechunk if necessary
             # This code is from __init__
@@ -945,7 +1020,7 @@ class XRDData:
         self.images = None
 
     
-    @protect_hdf()
+    @_protect_hdf()
     def load_integrations_from_hdf(self,
                                    integration_data_key='recent'):
         """
@@ -994,7 +1069,7 @@ class XRDData:
                 raise RuntimeError(err_str)
             time_stamps = [ttime.mktime(ttime.strptime(x))
                            for x in time_stamps]
-            integration_data_key = imt_keys[np.argmax(time_stamps)]
+            integration_data_key = int_keys[np.argmax(time_stamps)]
 
         # Setting up
         int_dset = int_grp[integration_data_key]
@@ -1021,7 +1096,9 @@ class XRDData:
                                         if x not in ['images',
                                                      'integrations']])
             if self.images is None:
-                self.corrections = integration_corrections
+                # self.corrections = integration_corrections
+                self.build_correction_dictionary(
+                                corrections=integration_corrections)
             else:
                 warn_str = ('WARNING: Checks for matching loaded '
                             + 'integrations with currently loaded '
@@ -1583,6 +1660,97 @@ class XRDData:
                 + f'({perc_corr:.2f} %) outlier pixels.')
         print(ostr)
 
+    
+    def normalize_scaler(self,
+                         scaler_arr=None,
+                         override=False):
+        """
+        Normalize images by their scaler intensity.
+
+        Divide full images by their incident scaler X-ray intensity.
+        Successful execution will then store the scaler intensity map
+        internally and in the HDF file.
+
+        Parameters
+        ----------
+        scaler_arr : 2D array, optional
+            Scaler intensity map used for image normalization. If not
+            provided, a map from the internal scaler dictionary will be
+            used instead. If this fails, the image medians will be used
+            instead. Default is to use internal scaler dictionary.
+        override : bool, optional
+            Override already applied corrections if True. Default is
+            False.
+        
+        Raises
+        ------
+        ValueError if scaler array does not match map shape.
+        """
+
+        if self._check_correction('scaler_intensity',
+                                  override=override):
+            return
+        
+        elif scaler_arr is None:
+            sclr_key = None
+            if (hasattr(self, 'sclr_dict')
+                and self.sclr_dict is not None
+                and self.sclr_dict is not {}):
+                for sclr_key in ['flux_i0',
+                                 'flux_im',
+                                 'energy_corrected_i0',
+                                 'energy_corrected_im',
+                                 'i0',
+                                 'im']:
+                    if sclr_key in self.sclr_dict.keys():
+                        scaler_arr = self.sclr_dict[sclr_key]
+                        break
+                    else:
+                        sclr_key = None
+                if sclr_key is None:
+                    # Hope for the best
+                    sclr_key = list(self.sclr_dict.keys())[0]
+                    scaler_arr = self.sclr_dict[sclr_key]
+                    warn_str = ("WARNING: Unrecognized scaler keys. "
+                                + f"Using '{sclr_key}' instead.")
+                    print(err_str)
+            else:
+                ostr = ('No scaler array given or found. '
+                        + 'Approximating with image medians.')
+                print(ostr)
+                scaler_arr = self.med_map
+                sclr_key = 'med'
+
+        elif scaler_arr.shape != self.map_shape:
+            err_str = (f'Scaler array shape of {scaler_arr.shape} does'
+                      + f' not match map shape of {self.map_shape}.')
+            raise ValueError(err_str)
+        else:
+            sclr_key = 'input'
+
+        # Check shape everytime
+        scaler_arr = np.asarray(scaler_arr)
+        if scaler_arr.shape != self.map_shape:
+            if 1 not in self.map_shape:
+                err_str = (f'Scaler array of shape {scaler_arr.shape}'
+                           + f' does not match the map shape of '
+                           + f'{self.map_shape}.')
+                raise ValueError(err_str)
+   
+        print(f'Normalizing images by {sclr_key} scaler...',
+              end='', flush=True)
+        self.images /= scaler_arr.reshape(*self.map_shape, 1, 1)
+        self.scaler_map = scaler_arr
+        # Trying to catch non-saved values
+        if not hasattr(self, 'sclr_dict'): 
+            self.save_images(images='scaler_map',
+                             units='counts',
+                             labels=self.map_labels) 
+        self.corrections['scaler_intensity'] = True
+        self.update_map_title()
+        self._dask_2_hdf()
+        print('done!')
+
 
     # No correction for defect mask,
     # since it is used whenever mask is called
@@ -1998,97 +2166,6 @@ class XRDData:
             print('done!')
 
 
-    def normalize_scaler(self,
-                         scaler_arr=None,
-                         override=False):
-        """
-        Normalize images by their scaler intensity.
-
-        Divide full images by their incident scaler X-ray intensity.
-        Successful execution will then store the scaler intensity map
-        internally and in the HDF file.
-
-        Parameters
-        ----------
-        scaler_arr : 2D array, optional
-            Scaler intensity map used for image normalization. If not
-            provided, a map from the internal scaler dictionary will be
-            used instead. If this fails, the image medians will be used
-            instead. Default is to use internal scaler dictionary.
-        override : bool, optional
-            Override already applied corrections if True. Default is
-            False.
-        
-        Raises
-        ------
-        ValueError if scaler array does not match map shape.
-        """
-
-        if self._check_correction('scaler_intensity',
-                                  override=override):
-            return
-        
-        elif scaler_arr is None:
-            sclr_key = None
-            if (hasattr(self, 'sclr_dict')
-                and self.sclr_dict is not None
-                and self.sclr_dict is not {}):
-                for sclr_key in ['flux_i0',
-                                 'flux_im',
-                                 'energy_corrected_i0',
-                                 'energy_corrected_im',
-                                 'i0',
-                                 'im']:
-                    if sclr_key in self.sclr_dict.keys():
-                        scaler_arr = sclr_dict[sclr_key]
-                        break
-                    else:
-                        sclr_key = None
-                if sclr_key is None:
-                    # Hope for the best
-                    sclr_key = list(self.sclr_dict.keys())[0]
-                    scaler_arr = self.sclr_dict[sclr_key]
-                    warn_str = ("WARNING: Unrecognized scaler keys. "
-                                + f"Using '{sclr_key}' instead.")
-                    print(err_str)
-            else:
-                ostr = ('No scaler array given or found. '
-                        + 'Approximating with image medians.')
-                print(ostr)
-                scaler_arr = self.med_map
-                sclr_key = 'med'
-
-        elif scaler_arr.shape != self.map_shape:
-            err_str = (f'Scaler array shape of {scaler_arr.shape} does'
-                      + f' not match map shape of {self.map_shape}.')
-            raise ValueError(err_str)
-        else:
-            sclr_key = 'input'
-
-        # Check shape everytime
-        scaler_arr = np.asarray(scaler_arr)
-        if scaler_arr.shape != self.map_shape:
-            if 1 not in self.map_shape:
-                err_str = (f'Scaler array of shape {scaler_arr.shape}'
-                           + f' does not match the map shape of '
-                           + f'{self.map_shape}.')
-                raise ValueError(err_str)
-   
-        print(f'Normalizing images by {sclr_key} scaler...',
-              end='', flush=True)
-        self.images /= scaler_arr.reshape(*self.map_shape, 1, 1)
-        self.scaler_map = scaler_arr
-        # Trying to catch non-saved values
-        if not hasattr(self, 'sclr_dict'): 
-            self.save_images(images='scaler_map',
-                             units='counts',
-                             labels=self.map_labels) 
-        self.corrections['scaler_intensity'] = True
-        self.update_map_title()
-        self._dask_2_hdf()
-        print('done!')
-
-
     # TODO: Not all of these have been enabled with dask arrays
     def estimate_background(self,
                             method=None,
@@ -2151,7 +2228,7 @@ class XRDData:
                             + 'saved in memory.\nOverride background '
                             + 'remove or delete attribute to '
                             + 'release memory.')
-            print(warn_str)
+                print(warn_str)
             return
 
         if background is None:
@@ -2512,7 +2589,7 @@ class XRDData:
         return raw_max_val
 
 
-    @protect_hdf()
+    @_protect_hdf()
     def construct_null_map(self,
                            override=False):
         """
@@ -2536,7 +2613,7 @@ class XRDData:
         if (not override
             and hasattr(self, 'null_map')
             and self.null_map is not None):
-            ostr = ('Null map already exists.'
+            ostr = ('Null map already exists. '
                     + 'Proceeding without changes.')
             print(ostr)
             return
@@ -2553,10 +2630,12 @@ class XRDData:
                     return
 
             else:
+                print('Loading (raw_images) from hdf...')
                 hdf_str = f'{self._hdf_type}/image_data/raw_images'
                 raw_images = self.hdf[hdf_str]
             
             # Try to do this efficiently
+            print('Constructing null_map...')
             null_map = np.ones(self.map_shape, dtype=np.bool_)
             for index in range(self.num_images):
                 indices = np.unravel_index(index, self.map_shape)
@@ -2567,6 +2646,7 @@ class XRDData:
             self.save_images(images='null_map',
                              units='bool',
                              labels=self.map_labels)
+            print('done!')
 
     
     def nullify_images(self):
@@ -2586,7 +2666,7 @@ class XRDData:
             print(note_str)
             return
 
-        self.images[self.null_map] = 0
+        # self.images[self.null_map] = 0
 
         for attr in ['images', 'blob_masks', 'integrations']:
             if hasattr(self, attr) and getattr(self, attr) is not None:
@@ -3068,7 +3148,7 @@ class XRDData:
         return units, labels
 
 
-    @protect_hdf()
+    @_protect_hdf()
     def save_images(self,
                     images=None,
                     title=None,
@@ -3254,7 +3334,7 @@ class XRDData:
                 overwrite_attr(dset.attrs, f'_{key}_correction', value)
 
 
-    @protect_hdf()
+    @_protect_hdf()
     def save_integrations(self,
                           integrations=None,
                           title=None,

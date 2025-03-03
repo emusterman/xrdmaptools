@@ -147,6 +147,10 @@ class XRDBaseScan(XRDData):
         processing of the XRD data.
     xrddatakwargs : dict, optional 
         Dictionary of all other kwargs for parent XRDData class.
+    
+    Raises
+    ------
+    ValueError 
     """
 
     # Class variables
@@ -197,6 +201,7 @@ class XRDBaseScan(XRDData):
             time_stamp = ttime.ctime()
         self.time_stamp = time_stamp
         self.scan_input = scan_input
+        self.dwell = dwell
         if extra_metadata is None:
             extra_metadata = {}
         self.extra_metadata = extra_metadata
@@ -238,7 +243,7 @@ class XRDBaseScan(XRDData):
             print('WARNING: No energy or wavelength provided.')
             self.energy = np.nan
         
-        self.dwell = dwell
+        # self.dwell = dwell
         if theta is None:
             print('WARNING: No theta provided. Assuming 0 degrees.')
             theta = 0
@@ -289,6 +294,14 @@ class XRDBaseScan(XRDData):
     
     # Overwrite parent functions
     def __str__(self):
+        """
+        A simple represenation of the class.
+
+        Returns
+        -------
+        outstring : str
+            A simple representation of the class.
+        """
         ostr = (f'{self._hdf_type}:  scan_id={self.scan_id}, '
                 + f'energy={self.energy}, '
                 + f'shape={self.images.shape}')
@@ -297,6 +310,15 @@ class XRDBaseScan(XRDData):
 
     # Overwrite parent function
     def __repr__(self):
+        """
+        A nice representation of the class with relevant information.
+
+        Returns
+        -------
+        outstring : str
+            A nice representation of the class with relevant
+            information.
+        """
         # Native info
         ostr = f'{self._hdf_type}:'
         ostr += f'\n\tFacility:\t{self.facility}'
@@ -341,19 +363,60 @@ class XRDBaseScan(XRDData):
                  image_data_key='recent',
                  integration_data_key='recent',
                  load_blob_masks=True,
-                 load_vector_maps=False, # Redundant information
+                 load_vector_map=False, # Redundant information
                  map_shape=None,
                  image_shape=None,
                  **kwargs):
+        """
+        Instantiate class from data in HDF file.
+
+        Loads data from HDF file of correct HDF type to instantiate
+        class. This method will work with different child classes.
+
+        Parameters
+        ----------
+        hdf_filename : str
+            Name of HDF file.
+        wd : path str, optional
+            Path to HDF file. Default is current working directory.
+        dask_enabled : bool, optional
+            Flag to indicate whether the image data should be lazily
+            loaded as a Dask array. Default is False.
+        image_data_key : str, optional
+            Dataset title in image_data group within HDF file used to
+            load image data. Defaults to 'recent', which will load the
+            most recently written image data.
+        integration_data_key : str, optional
+            Dataset title in integration_data group within HDF file
+            used to load integration data. Defaults to 'recent',
+            which will load the most recently written integration data.
+        load_blob_masks : bool, optional
+            Flag to load blob_masks from HDF file. Default is True.
+        load_vector_map : bool, optional
+            Flag to load vector_map and edges from HDF file. Default is
+            True.
+        map_shape : iterable length 2, optional
+            Shape of first two axes in image_data and integration_data
+            as (map_y, map_x) or (rocking_axis, 1).
+        image_shape : iterable length 2, optional
+            Shape of last two axes in image_data (image_y, image_x).
+        kwargs : dict, optional
+            Dictionary of keyword arguments passed to instantiate the
+            class. These should not overlap with other keyword
+            arguments read from the HDF file.
+        
+        Returns
+        -------
+        inst : instance of XRDBaseScan, XRDMap, or XRDRockingCurve
+            Returns instance of XRDBaseScan or child classes (XRDMap or
+            XRDRockingCurve) loaded from the HDF file.
+        """
         
         if wd is None:
             wd = os.getcwd()
         
         # Load from previously saved data, including all processed data...
         hdf_path = pathify(wd, hdf_filename, '.h5')
-        if not os.path.exists(hdf_path):
-            # Should be redundant...
-            raise FileNotFoundError(f'No hdf file at {hdf_path}.')
         
         # File exists, attempt to load data
         print('Loading data from hdf file...')
@@ -364,7 +427,7 @@ class XRDBaseScan(XRDData):
                         image_data_key=image_data_key,
                         integration_data_key=integration_data_key,
                         load_blob_masks=load_blob_masks,
-                        load_vector_maps=load_vector_maps,
+                        load_vector_map=load_vector_map,
                         map_shape=map_shape,
                         image_shape=image_shape,
                         dask_enabled=dask_enabled)
@@ -495,7 +558,7 @@ class XRDBaseScan(XRDData):
         print(f'{cls.__name__} loaded!')
         return inst
         
-
+    
     @classmethod 
     def from_image_stack(cls,
                          filename,
@@ -503,6 +566,34 @@ class XRDBaseScan(XRDData):
                          title='raw_images',
                          dask_enabled=False,
                          **kwargs):
+        """
+        Instantiate class from stack of images.
+
+        Load images from stack of images. Only .tif, .tiff, .jpeg, and
+        .png files are accepted.
+
+        Parameters
+        ----------
+        filename : str
+            Name of images file.
+        wd : path str, optional
+            Path to images file. Default is current working directory.
+        title : str, optional
+            Custom title used to title HDF datasets when saving. Will
+            be updated to default value after processing.
+        dask_enabled : bool, optional
+            Flag to indicate whether the image data should be lazily
+            loaded as a Dask array. Default is False.
+        kwargs : dict, optional
+            Dictionary of keyword arguments passed to instantiate the
+            class.
+
+        Returns
+        -------
+        inst : instance of XRDBaseScan, XRDMap, or XRDRockingCurve
+            Returns instance of XRDBaseScan or child classes (XRDMap or
+            XRDRockingCurve) loaded from the HDF file.
+        """
         
         # Load from image stack
         if wd is None:
@@ -531,6 +622,10 @@ class XRDBaseScan(XRDData):
 
     @property
     def energy(self):
+        """
+        Get energy in keV. Setting this value will also change
+        wavelength and write changes to the HDF file if available.
+        """
         return self._energy
 
     @energy.setter
@@ -547,12 +642,9 @@ class XRDBaseScan(XRDData):
             self.ai.energy = self._energy 
             if hasattr(self, '_q_arr'):
                 delattr(self, '_q_arr')
-        if hasattr(self, 'phases'):
-            for key in self.phases.keys():
-                self.phases[key].energy = self._energy
         
         # Re-write hdf values
-        @XRDBaseScan.protect_hdf()
+        @XRDBaseScan._protect_hdf()
         def save_attrs(self): # Not sure if this needs self...
             attrs = self.hdf[self._hdf_type].attrs
             overwrite_attr(attrs, 'energy', self.energy)
@@ -562,7 +654,11 @@ class XRDBaseScan(XRDData):
 
     @property
     def wavelength(self):
-            return self._wavelength
+        """
+        Get wavelength in Angstroms. Setting this value will also
+        change energy and write changes to the HDF file if available.
+        """
+        return self._wavelength
 
     @wavelength.setter
     def wavelength(self, wavelength):
@@ -577,12 +673,9 @@ class XRDBaseScan(XRDData):
             self.ai.energy = self._energy
             if hasattr(self, '_q_arr'):
                 delattr(self, '_q_arr')
-        if hasattr(self, 'phases'):
-            for key in self.phases.keys():
-                self.phases[key].energy = self._energy
 
         # Re-write hdf values
-        @XRDData.protect_hdf()
+        @XRDData._protect_hdf()
         def save_attrs(self): # Not sure if this needs self...
             attrs = self.hdf[self._hdf_type].attrs
             overwrite_attr(attrs, 'energy', self.energy)
@@ -593,6 +686,10 @@ class XRDBaseScan(XRDData):
     # y-axis stage rotation
     @property
     def theta(self):
+        """
+        Get stage rotation, theta, in degrees. Setting this value will
+        write changes to the HDF file if available.
+        """
         return self._theta
     
     @theta.setter
@@ -604,7 +701,7 @@ class XRDBaseScan(XRDData):
                 delattr(self, '_q_arr')
 
         # Re-write hdf values
-        @XRDBaseScan.protect_hdf()
+        @XRDBaseScan._protect_hdf()
         def save_attrs(self): # Not sure if this needs self...
             overwrite_attr(self.hdf[self._hdf_type].attrs,
                            'theta',
@@ -614,6 +711,11 @@ class XRDBaseScan(XRDData):
 
     @property
     def use_stage_rotation(self):
+        """
+        Get flag to indicate whether stage rotation should be used.
+        Setting this value will write changes to the HDF file if
+        available.
+        """
         return self._use_stage_rotation
 
     @use_stage_rotation.setter
@@ -625,7 +727,7 @@ class XRDBaseScan(XRDData):
                 delattr(self, '_q_arr')
 
         # Re-write hdf values
-        @XRDBaseScan.protect_hdf()
+        @XRDBaseScan._protect_hdf()
         def save_attrs(self): # Not sure if this needs self...
             overwrite_attr(self.hdf[self._hdf_type].attrs,
                            'use_stage_rotation',
@@ -635,7 +737,7 @@ class XRDBaseScan(XRDData):
 
     # Flags for units and scales
 
-    def angle_units_factory(property_name, options):
+    def _angle_units_factory(property_name, options):
         def get_angle_units(self):
             return getattr(self, f'_{property_name}')
         
@@ -655,13 +757,13 @@ class XRDBaseScan(XRDData):
         return property(get_angle_units, set_angle_units)
     
 
-    scattering_units = angle_units_factory('scattering_units',
+    scattering_units = _angle_units_factory('scattering_units',
                                     ['rad', 'deg', '1/nm', '1/A'])
-    polar_units = angle_units_factory('polar_units',
+    polar_units = _angle_units_factory('polar_units',
                                     ['rad', 'deg'])
     
 
-    def scale_property_factory(property_name):
+    def _scale_property_factory(property_name):
         def get_scale(self):
             return getattr(self, f'_{property_name}')
 
@@ -675,13 +777,13 @@ class XRDBaseScan(XRDData):
         return property(get_scale, set_scale)
     
 
-    image_scale = scale_property_factory('image_scale')
-    integration_scale = scale_property_factory('integration_scale')
+    image_scale = _scale_property_factory('image_scale')
+    integration_scale = _scale_property_factory('integration_scale')
 
     # Convenience properties for working with the detector arrays
     # These are mostly wrappers for pyFAI functions
 
-    def detector_angle_array_factory(arr_name, ai_arr_name, units):
+    def _detector_angle_array_factory(arr_name, ai_arr_name, units):
         def get_angle_array(self):
             if hasattr(self, f'_{arr_name}'):
                 return getattr(self, f'_{arr_name}')
@@ -747,10 +849,10 @@ class XRDBaseScan(XRDData):
                 property(get_delta_array))
     
 
-    tth_arr, delta_tth = detector_angle_array_factory('tth_arr',
+    tth_arr, delta_tth = _detector_angle_array_factory('tth_arr',
                                            'twoThetaArray',
                                            'polar_units')
-    chi_arr, delta_chi = detector_angle_array_factory('chi_arr',
+    chi_arr, delta_chi = _detector_angle_array_factory('chi_arr',
                                            'chiArray',
                                            'polar_units')
 
@@ -758,6 +860,9 @@ class XRDBaseScan(XRDData):
     # Full q-vector, not just magnitude
     @property
     def q_arr(self):
+        """
+        
+        """
         if hasattr(self, '_q_arr'):
             return self._q_arr
         elif not hasattr(self, 'ai'):
@@ -785,6 +890,9 @@ class XRDBaseScan(XRDData):
     
     # Convenience function
     def _del_arr(self):
+        """
+
+        """
         if hasattr(self, '_tth_arr'):
             delattr(self, '_tth_arr')
         if hasattr(self, '_chi_arr'):
@@ -805,6 +913,9 @@ class XRDBaseScan(XRDData):
                          hdf_path=None,
                          dask_enabled=False,
                          save_current=False):
+        """
+
+        """
         
         # Check for previous iterations
         if ((hasattr(self, 'hdf')
@@ -864,6 +975,9 @@ class XRDBaseScan(XRDData):
     # Saves current major features
     # Calls several other save functions
     def save_current_hdf(self):
+        """
+
+        """
         
         if self.hdf_path is None:
             print('WARNING: Changes cannot be written to hdf without '
@@ -892,16 +1006,14 @@ class XRDBaseScan(XRDData):
         
         # Save phases
         if hasattr(self, 'phases') and self.phases is not None:
-            self.update_phases()
-
-        # # Save spots
-        # # Also only works for XRDMaps...
-        # if hasattr(self, 'spots'):
-        #     self.save_spots()
+            self.save_phases()
 
     
     # Ability to toggle hdf saving and proceed without writing to disk.
     def stop_saving_hdf(self):
+        """
+
+        """
 
         if self._dask_enabled:
             err_str = ('WARNING: Image data is lazy loaded. Stopping '
@@ -920,6 +1032,9 @@ class XRDBaseScan(XRDData):
                    hdf_path=None,
                    hdf_filename=None,
                    dask_enabled=False):
+        """
+
+        """
 
         # Check to make sure the change is appropriate and correct.
         # Not sure if this should raise and error or just print a warning
@@ -963,6 +1078,10 @@ class XRDBaseScan(XRDData):
                         energy=None,
                         wd=None,
                         check_init_sets=False):
+        """
+
+        """
+
         if wd is None:
             wd = self.wd
 
@@ -1054,9 +1173,12 @@ class XRDBaseScan(XRDData):
         self.save_calibration(check_init_sets=check_init_sets)
     
 
-    @XRDData.protect_hdf()
+    @XRDData._protect_hdf()
     def save_calibration(self, 
                          check_init_sets=False):
+        """
+
+        """
         
         if check_init_sets:
             if 'reciprocal_positions' in self.hdf[self._hdf_type]:
@@ -1091,6 +1213,9 @@ class XRDBaseScan(XRDData):
                           tth_num=None,
                           unit='2th_deg',
                           **kwargs):
+        """
+
+        """
 
         if image is None:
             if self.corrections['polar_calibration']:
@@ -1129,6 +1254,9 @@ class XRDBaseScan(XRDData):
                           chi_resolution=None,
                           unit='2th_deg',
                           **kwargs):
+        """
+
+        """
 
         if image is None:
             if self.corrections['polar_calibration']:
@@ -1178,6 +1306,9 @@ class XRDBaseScan(XRDData):
     def estimate_polar_coords(self,
                               coords,
                               method='linear'):
+        """
+
+        """
         return estimate_polar_coords(coords,
                                      self.tth_arr,
                                      self.chi_arr,
@@ -1188,14 +1319,20 @@ class XRDBaseScan(XRDData):
     def estimate_image_coords(self,
                               coords,
                               method='nearest'):
+        """
+
+        """
         return estimate_image_coords(coords,
                                      self.tth_arr,
                                      self.chi_arr,
                                      method=method)
 
     
-    @XRDData.protect_hdf()
+    @XRDData._protect_hdf()
     def save_reciprocal_positions(self):
+        """
+
+        """
                  
         if self.tth is None:
             tth = []
@@ -1211,7 +1348,6 @@ class XRDBaseScan(XRDData):
         curr_grp = self.hdf[self._hdf_type].require_group('reciprocal_positions')
         if hasattr(self, 'extent'):
             overwrite_attr(curr_grp.attrs, 'extent', self.extent)
-            # curr_grp.attrs['extent'] = self.extent
 
         labels = ['tth_pos', 'chi_pos']
         comments = ["'tth', is the two theta scattering angle",
@@ -1241,13 +1377,6 @@ class XRDBaseScan(XRDData):
                            f'{key}_resolution',
                            resolution[i])
             dset.attrs['time_stamp'] = ttime.ctime() # always new
-            
-            # dset.attrs['labels'] = labels[i]
-            # dset.attrs['comments'] = comments[i]
-            # #dset.attrs['units'] = self.calib_unit #'° [deg.]'
-            # dset.attrs['dtype'] = str(data[i].dtype)
-            # dset.attrs['time_stamp'] = ttime.ctime()
-            # dset.attrs[f'{key}_resolution'] = resolution[i]
 
         print('done!')
     
@@ -1259,6 +1388,9 @@ class XRDBaseScan(XRDData):
                     sclr_dict,
                     scaler_units='counts',
                     check_init_sets=False):
+        """
+
+        """
 
         # Store sclr_dict as attribute
         for key, value in list(sclr_dict.items()):
@@ -1274,11 +1406,14 @@ class XRDBaseScan(XRDData):
                             self.scaler_units,
                             check_init_sets=check_init_sets)
     
-    def get_scaler_absorption(self,
+
+    def _get_scaler_absorption(self,
                               scaler_key='i0',
                               chamber_length=None,
                               gas_name=None):
-        
+        """
+
+        """
         
         if (not hasattr(self, 'energy')
             or self.energy is None):
@@ -1342,9 +1477,12 @@ class XRDBaseScan(XRDData):
                                 scaler_key='i0',
                                 chamber_length=None,
                                 gas_name=None):
+        """
+
+        """
 
         # Get absorption and parse inputs
-        absorption, _, _, _ = self.get_scaler_absorption(
+        absorption, _, _, _ = self._get_scaler_absorption(
                                     scaler_key=scaler_key,
                                     chamber_length=chamber_length,
                                     gas_name=gas_name)
@@ -1370,12 +1508,15 @@ class XRDBaseScan(XRDData):
                                 chamber_length=None,
                                 gas_name=None,
                                 ):
+        """
+
+        """
         
         # Get absorption and parse inputs
         (absorption,
          scaler_key,
          chamber_length,
-         gas_name) = self.get_scaler_absorption(
+         gas_name) = self._get_scaler_absorption(
                                     scaler_key=scaler_key,
                                     chamber_length=chamber_length,
                                     gas=gas)
@@ -1401,12 +1542,15 @@ class XRDBaseScan(XRDData):
                            self.scaler_units)
 
 
-    @XRDData.protect_hdf()
+    @XRDData._protect_hdf()
     def save_sclr_pos(self,
                       group_name,
                       map_dict,
                       unit_name,
                       check_init_sets=False):
+        """
+
+        """
 
         if check_init_sets:
             if group_name in self.hdf[self._hdf_type]:
@@ -1447,9 +1591,6 @@ class XRDBaseScan(XRDData):
             overwrite_attr(dset.attrs, 'labels', ['map_x', 'map_y'])
             overwrite_attr(dset.attrs, 'units', unit_name)
             overwrite_attr(dset.attrs, 'dtype', str(value.dtype))
-            # dset.attrs['labels'] = ['map_x', 'map_y']
-            # dset.attrs['units'] = unit_name
-            # dset.attrs['dtype'] = str(value.dtype)
         
     
     #########################################
@@ -1458,6 +1599,10 @@ class XRDBaseScan(XRDData):
 
     # Updating potential phase list
     def add_phase(self, phase):
+        """
+
+        """
+
         if hasattr(phase, 'name'):
             phase_name = phase.name
         elif isinstance(phase, str):
@@ -1474,6 +1619,9 @@ class XRDBaseScan(XRDData):
 
 
     def remove_phase(self, phase):
+        """
+
+        """
         # Allow for phase object or name to work
         if hasattr(phase, 'name'):
             phase_name = phase.name
@@ -1491,6 +1639,10 @@ class XRDBaseScan(XRDData):
         
 
     def load_phase(self, filename, wd=None, phase_name=None):
+        """
+
+        """
+
         if wd is None:
             wd = self.wd
         
@@ -1522,11 +1674,18 @@ class XRDBaseScan(XRDData):
     
 
     def clear_phases(self):
+        """
+
+        """
+
         self.phases = {}
 
 
-    @XRDData.protect_hdf()
-    def update_phases(self):
+    @XRDData._protect_hdf()
+    def save_phases(self):
+        """
+
+        """
         
         if len(self.phases) > 0:
             phase_grp = self.hdf[self._hdf_type].require_group(
@@ -1541,7 +1700,7 @@ class XRDBaseScan(XRDData):
             for phase in self.phases.values():
                 phase.save_to_hdf(phase_grp)
 
-            print('Updated phases saved in hdf.')
+            print('Phases saved in hdf.')
 
 
     def select_phases(self,
@@ -1556,6 +1715,9 @@ class XRDBaseScan(XRDData):
                       title_scan_id=True,
                       update_reflections=True,
                       save_to_hdf=True):
+        """
+
+        """
         
         if not hasattr(self, 'ai') or self.ai is None:
             err_str = ('Must first set calibration '
@@ -1628,11 +1790,15 @@ class XRDBaseScan(XRDData):
         
         # Write phases to disk
         if save_to_hdf:
-            self.update_phases()
+            self.save_phases()
 
     
     # This might be replaced with generate reciprocal lattice
     def _get_all_reflections(self, ignore_less=1):
+        """
+
+        """
+
         for phase in self.phases:
             self.phases[phase].get_hkl_reflections(
                 tth_range=(0, # Limited to zero for large d-spacing
@@ -1652,6 +1818,9 @@ class XRDBaseScan(XRDData):
                                 vector_map,
                                 edges=None,
                                 rewrite_data=False):
+        """
+
+        """
 
         # Write data to hdf
         print('Saving vectorized map data...')
@@ -1690,6 +1859,9 @@ class XRDBaseScan(XRDData):
                                     vectors,
                                     edges=None,
                                     rewrite_data=False):
+        """
+
+        """
         
         print('Saving vectorized image data...')
         # Write data to hdf
@@ -1720,6 +1892,9 @@ class XRDBaseScan(XRDData):
                       vectors,
                       title=None,
                       rewrite_data=False): # required vectors
+        """
+
+        """
         
         if title is None:
             title = 'vectors' # Generic
@@ -1737,16 +1912,14 @@ class XRDBaseScan(XRDData):
                 and dset.dtype == vectors.dtype):
                 dset[...] = vectors
             else:
-                warn_str = 'WARNING:'
-                if dset.shape != attr.shape:
-                    warn_str += (f'{attr_name} shape of'
-                                + f' {attr.shape} does not '
-                                + 'match dataset shape '
+                warn_str = 'WARNING: '
+                if dset.shape != vectors.shape:
+                    warn_str += (f'Vectors shape of {vectors.shape} '
+                                + 'does not match dataset shape '
                                 + f'{dset.shape}. ')
-                if dset.dtype != attr.dtype:
-                    warn_str += (f'{attr_name} dtype of'
-                                + f' {attr.dtype} does not '
-                                + 'match dataset dtype '
+                if dset.dtype != vectors.dtype:
+                    warn_str += (f'Vectors dtype of {vectors.dtype} '
+                                + 'does not match dataset dtype '
                                 + f'{dset.dtype}. ')
                 if rewrite_data:
                         warn_str += (f'\nOvewriting {title}. This '
@@ -1768,6 +1941,9 @@ class XRDBaseScan(XRDData):
     def _save_edges(vector_grp,
                     edges=None,
                     rewrite_data=False):
+        """
+
+        """
 
         # Only save edge information if given. Quiet if not.
         if edges is not None:
@@ -1791,7 +1967,7 @@ class XRDBaseScan(XRDData):
                         and dset.dtype == edge.dtype):
                         dset[...] = edge
                     else:
-                        warn_str = 'WARNING:'
+                        warn_str = 'WARNING: '
                         if dset.shape != edge.shape:
                             warn_str += (f'Edge shape for {edge_title}'
                                         + f' {edge.shape} does not '
@@ -1819,7 +1995,6 @@ class XRDBaseScan(XRDData):
                             print(warn_str)
     
          
-
     ##########################
     ### Plotting Functions ###
     ##########################
@@ -1828,6 +2003,9 @@ class XRDBaseScan(XRDData):
                             title,
                             default_title='',
                             title_scan_id=True):
+        """
+
+        """
         
         if title is None:
             title = default_title
@@ -1853,6 +2031,9 @@ class XRDBaseScan(XRDData):
                    return_plot=False,
                    title_scan_id=True,
                    **kwargs):
+        """
+
+        """
         
         image, indices = _xrdmap_image(self,
                                        image=image,
@@ -1900,6 +2081,9 @@ class XRDBaseScan(XRDData):
                          title_scan_id=True,
                          return_plot=False,
                          **kwargs):
+        """
+
+        """
         
         if tth is None:
             tth = self.tth
@@ -1950,6 +2134,9 @@ class XRDBaseScan(XRDData):
                      ax=None,
                      title_scan_id=True,
                      return_plot=False):
+        """
+
+        """
  
         fig, ax = plot_q_space(self,
                                indices=indices,
@@ -1977,6 +2164,9 @@ class XRDBaseScan(XRDData):
                                ax=None,
                                title_scan_id=True,
                                return_plot=False):
+        """
+
+        """
         
         fig, ax = plot_detector_geometry(self,
                                          skip=skip,

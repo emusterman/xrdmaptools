@@ -253,7 +253,7 @@ def multi_phase_fit(tth, intensity, phases, SpotModel=GaussianFunctions):
 
             p0.append(amp)
             p0.append(tth_i) # tth
-            p0.append(0.2) # fwhm guess
+            p0.append(1.75) # fwhm guess
             if SpotModel.name == 'PseudoVoigt':
                 p0.append(0.2) # other fwhm guess
             peak_identities.extend([f'{phase.name}_{phase.reflections["hkl"][i]}',] * 3)
@@ -373,3 +373,67 @@ def fit_rotation(th, data):
     
     return np.asarray(jitter_list), np.asarray(popt_list)
 
+
+
+def generate_williamson_hall_plot(tth,
+                                  fwhm,
+                                  wavelength,
+                                  hkls=None,
+                                  K=0.9,
+                                  C=4.5,
+                                  degrees=True,
+                                  plotme=True):
+    
+    # Assumptions of units
+    if wavelength > 0.3:
+        wavelength /= 10 # convert to nm
+
+    th = tth / 2
+
+    if degrees:
+        th = np.radians(th)
+        fwhm = np.radians(fwhm)
+
+    x = np.sin(th)
+    y = fwhm * np.cos(th)
+
+    def line(th, slope, intercept):
+        return slope * th + intercept
+    
+    popt, pcov = curve_fit(line, x, y)
+
+    size = K * wavelength / popt[1]
+    strain = popt[0] / C
+
+    if plotme:
+        fig, ax = plt.subplots()
+        ax.scatter(x, y, marker='+', s=50, c='k')
+        if hkls is not None:
+            for i, hkl in enumerate(hkls):
+                ax.annotate(tuple(hkl),
+                            (x[i] + 0.001, y[i] - 0.00005),
+                            c='k')
+
+        ax.plot(x, line(x, *popt), c='r')
+        ax.text(0.01,
+                0.9,
+                f'Size: {size:.0F} nm\nStrain: {strain:.4F}',
+                c='r',
+                transform=ax.transAxes)
+
+        ax.set_xlabel('sinθ')
+        ax.set_ylabel('β$_{tot}$cosθ')
+
+        fig.show()
+
+    return size, strain
+
+
+def plot_multi_plot(x, ys):
+
+    fig, ax = plt.subplots()
+
+    for y in ys:
+        ax.plot(x, y)
+
+    fig.show()

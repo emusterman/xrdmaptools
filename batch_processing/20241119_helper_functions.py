@@ -23,8 +23,9 @@ from xrdmaptools.XRDBaseScan import XRDBaseScan
 from xrdmaptools.utilities.utilities import (
     generate_intensity_mask
 )
-from xrdmaptools.reflections.spot_blob_indexing_3D import QMask, pair_casting_index_full_pattern
-from xrdmaptools.reflections.spot_blob_search_3D import rsm_spot_search
+# from xrdmaptools.reflections.spot_blob_indexing_3D import pair_casting_index_full_pattern
+# from xrdmaptools.reflections.spot_blob_search_3D import rsm_spot_search
+from xrdmaptools.crystal.crystal import are_collinear, are_coplanar
 
 
 def plot_image_gallery(images, titles=None,
@@ -443,17 +444,24 @@ def get_num_vector_map(vector_map):
     return num_map
 
 
-def get_connection_map(xrdmapstack):
+def get_connection_map(xrdmapstack, phase,
+                       verbose=False):
 
     vmap = xdms.xdms_vector_map
-    qmask = QMask.from_XRDRockingCurve(xdms)
-    phase = xrdmapstack.phases['stibnite']
+    # qmask = QMask.from_XRDRockingScan(xdms)
+    # phase = xrdmapstack.phases['stibnite']
 
     spot_map = np.empty(vmap.shape, dtype=object)
     conn_map = np.empty(vmap.shape, dtype=object)
     qofs_map = np.empty(vmap.shape, dtype=object)
+    hkls_map = np.empty(vmap.shape, dtype=object)
 
-    for index in timed_iter(range(np.prod(vmap.shape))):
+    if verbose:
+        iterable = timed_iter(range(np.prod(vmap.shape)))
+    else:
+        iterable = tqdm(range(np.prod(vmap.shape)))
+
+    for index in iterable:
         indices = np.unravel_index(index, vmap.shape)
 
         q_vectors = vmap[indices][:, :-1]
@@ -471,11 +479,11 @@ def get_connection_map(xrdmapstack):
              spots,
              label_ints) = rsm_spot_search(q_vectors[int_mask],
                                            intensity[int_mask],
-                                           nn_dist=0.25,
+                                           nn_dist=0.2,
                                            significance=0.1,
                                            subsample=1)
             
-            print(f'Number of spots is {len(spots)}')
+            # print(f'Number of spots is {len(spots)}')
             if len(spots) > 1:
                 
                 try:
@@ -485,9 +493,10 @@ def get_connection_map(xrdmapstack):
                                                         phase,
                                                         0.1,
                                                         2.5,
-                                                        qmask,
-                                                        degrees=True)
-                    
+                                                        xrdmapstack.qmask,
+                                                        degrees=True,
+                                                        verbose=verbose)
+                    hkls = phase.all_hkls
                     # spots = list(spots)
 
                     # # Not sure where all nan connections are coming from, but reduce them
@@ -498,33 +507,45 @@ def get_connection_map(xrdmapstack):
                     #         best_qofs[i] = np.asarray([])
                     #         break
 
+                    # record hkls
+                    # if len(spots) > 1:            
+                    #     hkls = phase.all_hkls
+
 
                 except IndexError:
                     print('INDEX ERROR')
+                    print(indices)
                     return spots
+                except Exception as e:
+                    print('New Exception')
+                    print(indices)
+                    raise e
             
             else:
                 spots = np.asarray([])
                 best_connections = np.asarray([])
                 best_qofs = np.asarray([])
+                hkls = np.asarray([])
         
         else:
             spots = np.asarray([])
             best_connections = np.asarray([])
             best_qofs = np.asarray([])
+            hkls = np.asarray([])
         
         spot_map[indices] = np.asarray(spots)
         conn_map[indices] = np.asarray(best_connections)
         qofs_map[indices] = np.asarray(best_qofs)
+        hkls_map[indices] = np.asarray(hkls)
 
-    return spot_map, conn_map, qofs_map
+    return spot_map, conn_map, qofs_map, hkls_map
 
 
-def get_hkls_map(xrdmapstack):
+def get_hkls_map(xrdmapstack, phase):
 
-    vmap = xdms.vector_map
+    vmap = xdms.xdms_vector_map
     qmask = QMask.from_XRDRockingCurve(xdms)
-    phase = xrdmapstack.phases['stibnite']
+    # phase = xrdmapstack.phases['stibnite']
 
     hkls_map = np.empty(vmap.shape, dtype=object)
 
@@ -536,7 +557,7 @@ def get_hkls_map(xrdmapstack):
 
         # int_mask = generate_intensity_mask(intensity,
         #                                    intensity_cutoff=0.05)
-        int_mask = intensity > 5
+        int_mask = intensity > 0.25
         
         if np.sum(int_mask) > 0:
 
@@ -550,7 +571,7 @@ def get_hkls_map(xrdmapstack):
                                            significance=0.1,
                                            subsample=1)
             
-            print(f'Number of spots is {len(spots)}')
+            # print(f'Number of spots is {len(spots)}')
             if len(spots) > 1:
 
                 # Find q vector magnitudes and max for spots
@@ -608,15 +629,15 @@ from xrdmaptools.crystal.strain import phase_get_strain_orientation
 from xrdmaptools.reflections.spot_blob_indexing_3D import (
     _get_connection_indices
 )
-# from xrdmaptools.crystal.crystal import are_coplanar, are_collinear
 
 def get_ori_map(conn_map, spot_map, hkls_map, phase):
 
     map_shape = conn_map.shape
     ori_map = np.empty(map_shape, dtype=object)
     e_map = ori_map.copy()
+    strained_map = np.empty(map_shape, dtype=object)
 
-    for index in tqdm(range(np.prod(map_shape))):
+    for index in range(np.prod(map_shape)):
         indices = np.unravel_index(index, map_shape)
 
         hkls = hkls_map[indices]
@@ -627,43 +648,53 @@ def get_ori_map(conn_map, spot_map, hkls_map, phase):
 
         oris = []
         es = []
+        strains = []
         for connection in conn_map[indices]:
             spot_inds, ref_inds = _get_connection_indices(
                                     connection)
-            
-            # if len(spot_inds) > 2 and not are_coplanar(hkls[ref_inds]):
-            #     try:
-            #         e, ori, strained = phase_get_strain_orientation(
-            #                                             spots[spot_inds],
-            #                                             hkls[ref_inds],
-            #                                             phase
-            #                                             )
-            #     except:
-            #         print('Strain orientation fitting failed!')
-            #         return spots[spot_inds], hkls[ref_inds]
 
-            if len(spot_inds) > 1 and not are_collinear(hkls[ref_inds]):
+            # print(indices)
+            # if len(spot_inds) > 2 and not are_coplanar(hkls[ref_inds]):
+            if len(spot_inds) > 2 and not are_coplanar(hkls[ref_inds]):
+                try:
+                    e, ori, strained = phase_get_strain_orientation(
+                                                        spots[spot_inds],
+                                                        hkls[ref_inds],
+                                                        phase
+                                                        )
+                except:
+                    print('Strain orientation fitting failed!')
+                    print(indices)
+                    return spots[spot_inds], hkls[ref_inds]
+
+            
+            elif len(ref_inds) > 1 and not are_collinear(hkls[ref_inds]):
                 # Align vectors if possible
                 ori = Rotation.align_vectors(
                                 spots[spot_inds],
                                 phase.Q(hkls[ref_inds]))[0].as_matrix()
                 e = nan_arr.copy()
+                strained = None
             else:
                 ori = nan_arr.copy()
                 e = nan_arr.copy()
+                strained = None
 
             oris.append(ori)
             es.append(e)
+            strains.append(strained)
         
         # Catch no connections
         if len(conn_map[indices]) == 0:
             oris.append(nan_arr.copy())
             es.append(nan_arr.copy())
+            strains.append(None)
 
         ori_map[indices] = oris
         e_map[indices] = es
+        strained_map[indices] = strains
 
-    return ori_map, e_map
+    return ori_map, e_map, strained_map
 
 
 def restack_map(unstacked_map):
@@ -690,6 +721,7 @@ def plot_derived_map(arr):
     fig.colorbar(im, ax=ax)
 
     ax.set_aspect('equal')
+    ax.set_facecolor('black')
 
     fig.show()
         
@@ -703,3 +735,50 @@ def transform_coords(x, M):
     x = [*x, 1]
 
     return x @ M
+
+
+
+
+def process_maps_with_null():
+
+    scanlist = [
+        # 153442,
+        # 153443,
+        153444,
+        153445,
+        153446,
+        153448,
+        153449,
+        153450,
+        153451,
+        153452,
+        153454,
+        153455,
+        153456,
+        153457,
+        153458,
+        153460,
+        153461,
+        153462,
+        153463,
+        153464
+    ]
+
+    for scan in timed_iter(scanlist):
+        xdm = XRDMap.from_hdf(f'scan{scan}_xrd.h5',
+                              wd=f'{base_wd}processed_xrdmaps/',
+                              image_data_key='raw_images',
+                              integration_data_key=None)
+        
+        xdm.construct_null_map()
+        if not np.any(xdm.null_map):
+            note_str = ('Null map is empty, there are no missing '
+                        + 'pixels. Proceeding without changes')
+            print(note_str)
+        else:
+            xdm.load_images_from_hdf(image_data_key='final_images')
+            xdm.nullify_images()
+            xdm.save_images()
+            xdm.vectorize_map_data(rewrite_data=True)
+            xdm.integrate1d_map()
+            xdm.save_integrations()

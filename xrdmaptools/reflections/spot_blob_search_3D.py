@@ -15,14 +15,16 @@ def rsm_blob_search(q_vectors,
                     max_neighbors=4,
                     subsample=1):
 
-    if (subsample % int(subsample) != 0
+    if (not isinstance(subsample, int)
         or subsample < 1):
         err_str = ("'subsample' kwarg must be whole number "
                    + "greater than zero.")
         raise ValueError(err_str)
 
     if max_neighbors < 4:
-        print('WARNING: max_neighbors < 4 can lead to unexpected behavior.')
+        warn_str = ('WARNING: max_neighbors < 4 can lead to unexpected'
+                    + ' behavior.')
+        print(warn_str)
     
     new_qs = q_vectors[::subsample]
 
@@ -65,9 +67,12 @@ def rsm_blob_search(q_vectors,
             continue
         delayed_list.append(get_nearby_label(new_qs[i]))
 
-    print('Finding blobs...')
-    with TqdmCallback(tqdm_class=tqdm):
-            dask.compute(*delayed_list)
+    if verbose:
+        print('Finding blobs...')
+        with TqdmCallback(tqdm_class=tqdm):
+                dask.compute(*delayed_list)
+    else:
+        dask.compute(*delayed_list)
 
     # Re-label to ordered sequential
     # Could possibly be faster, but not too slow already
@@ -77,17 +82,25 @@ def rsm_blob_search(q_vectors,
         labels[labels == unique_label] = new_label
 
     if subsample > 1:
-        print('Upsampling data...')
+        # Construct iterable
+        if verbose:
+            print('Upsampling data...')
+            iterable = tqdm(range(len(full_labels)))
+        else:
+            iterable = range(len(full_labels))
+
         full_kdtree = KDTree(q_vectors)
         indices = list(range(len(q_vectors)))[::subsample]
         full_labels = np.empty(len(q_vectors))
         full_labels[:] = np.nan
         full_labels[indices] = labels
         
-        for i in tqdm(range(len(full_labels))):
+        for i in iterable:
             if np.isnan(full_labels[i]):
                 dist, nn_idxs = full_kdtree.query(q_vectors[i],
-                                    k=np.max([max_neighbors + 1, subsample, 20]),
+                                    k=np.max([max_neighbors + 1,
+                                              subsample,
+                                              20]),
                                     distance_upper_bound=max_dist)
                 
                 # Remove infinities
@@ -98,7 +111,8 @@ def rsm_blob_search(q_vectors,
                 dist[np.isnan(full_labels[nn_idxs])] = np.nan
 
                 if not all(np.isnan(dist)):
-                    full_labels[i] = full_labels[nn_idxs[np.nanargmin(dist)]]
+                    full_labels[i] = full_labels[
+                                        nn_idxs[np.nanargmin(dist)]]
     else:
         full_labels = labels
     
@@ -115,9 +129,10 @@ def rsm_spot_search(qs,
                     nn_dist=0.025,
                     significance=0.1,
                     subsample=1,
-                    label_int_method='mean'):
+                    label_int_method='mean',
+                    verbose=False):
 
-    if (subsample % int(subsample) != 0
+    if (not isinstance(subsample, int)
         or subsample < 1):
         err_str = ("'subsample' kwarg must be whole number "
                    + "greater than zero.")
@@ -141,10 +156,15 @@ def rsm_spot_search(qs,
 
     mutable_intensity = new_int.copy()
     mutable_intensity[np.argmax(mutable_intensity)] = np.nan
+    
+    # Construct iterable
+    if verbose:
+        print('Finding spots...')
+        iterable = tqdm(range(len(mutable_intensity) - 1))
+    else:
+        iterable = range(len(mutable_intensity) - 1)
 
-    print('Finding spots...')
-    for i in tqdm(range(len(mutable_intensity) - 1)):
-
+    for i in iterable:
         max_index = np.nanargmax(mutable_intensity)
         if not np.isnan(labels[max_index]):
             mutable_intensity[max_index] = np.nan
@@ -167,9 +187,12 @@ def rsm_spot_search(qs,
 
             # Single round conversion of nearby labels' intensities
             for i, nearby_intensity in enumerate(nearby_intensities):
-                if nearby_intensity < significance * np.max(nearby_intensities):
-                    convert_idxs = list(np.nonzero(labels == found_labels[i])[0])
-                    labels[convert_idxs] = found_labels[np.argmax(nearby_intensities)]
+                if (nearby_intensity < significance
+                                        * np.max(nearby_intensities)):
+                    convert_idxs = list(np.nonzero(labels
+                                                == found_labels[i])[0])
+                    labels[convert_idxs] = found_labels[
+                                        np.argmax(nearby_intensities)]
 
             # Re-find nearby intensities
             found_labels = np.unique(labels[nn_idxs])
@@ -202,14 +225,20 @@ def rsm_spot_search(qs,
         labels[labels == unique_label] = new_label
 
     if subsample > 1:
-        print('Upsampling data...')
+        # Construct iterable
+        if verbose:
+            print('Upsampling data...')
+            iterable = tqdm(range(len(full_labels)))
+        else:
+            iterable = range(len(full_labels))
+        
         full_kdtree = KDTree(qs)
         indices = list(range(len(qs)))[::subsample]
         full_labels = np.empty(len(qs))
         full_labels[:] = np.nan
         full_labels[indices] = labels
         
-        for i in tqdm(range(len(full_labels))):
+        for i in iterable:
             if np.isnan(full_labels[i]):
                 dist, nn_idxs = full_kdtree.query(qs[i],
                                     k=np.max([subsample, 20]),
@@ -227,11 +256,16 @@ def rsm_spot_search(qs,
     else:
         full_labels = labels
 
-    # Get q_vectors and intensity. Ignores nans
-    spots = [arbitrary_center_of_mass(intensity[full_labels == val], *qs[full_labels == val].T)
-             for val in np.unique(full_labels)[:-1]]
+    # Disregard nans from spots
+    countable_labels = np.unique(full_labels)
+    countable_labels = countable_labels[~np.isnan(countable_labels)]
+    
+    # Get q_vectors and intensity.
+    spots = [arbitrary_center_of_mass(intensity[full_labels == val],
+                                      *qs[full_labels == val].T)
+             for val in countable_labels]
     label_ints = [label_int_func(intensity[full_labels == val])
-                  for val in np.unique(full_labels)[:-1]]
+                  for val in countable_labels]
 
     # Re-label remaining nans as new blob (without spot info). Downsize datatype
     full_labels[np.isnan(full_labels)] = np.nanmax(full_labels) + 1

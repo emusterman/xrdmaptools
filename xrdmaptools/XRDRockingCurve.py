@@ -24,7 +24,8 @@ from xrdmaptools.utilities.utilities import (
 from xrdmaptools.crystal.rsm import map_2_grid
 from xrdmaptools.geometry.geometry import (
     get_q_vect,
-    q_2_polar
+    q_2_polar,
+    QMask
 )
 from xrdmaptools.io.hdf_utils import (
     check_attr_overwrite,
@@ -45,8 +46,7 @@ from xrdmaptools.reflections.spot_blob_search_3D import (
 )
 from xrdmaptools.reflections.spot_blob_indexing_3D import (
     pair_casting_index_best_grain,
-    pair_casting_index_full_pattern,
-    QMask
+    pair_casting_index_full_pattern
 )
 from xrdmaptools.crystal.crystal import LatticeParameters
 from xrdmaptools.crystal.strain import get_strain_orientation
@@ -171,7 +171,123 @@ class XRDRockingCurve(XRDBaseScan):
                            + 'by varying energy/wavelength or '
                            + 'theta. Given values are constant.')
                 raise ValueError(err_str)
+        
+        # Find rocking axis
+        self._set_rocking_axis(rocking_axis=rocking_axis)
 
+        # # Find rocking axis
+        # if rocking_axis is not None:
+        #     if rocking_axis.lower() in ['energy', 'wavelength']:
+        #         self.rocking_axis = 'energy'
+        #     elif rocking_axis.lower() in ['angle', 'theta']:
+        #         self.rocking_axis = 'angle'
+        #     else:
+        #         warn_str = (f'Rocking axis ({rocking_axis}) is not '
+        #                     + 'supported. Attempting to find '
+        #                     + 'automatically.')
+        #         print(warn_str)
+        #         # kick it back out and find automatically
+        #         rocking_axis = None 
+            
+        # if rocking_axis is None:
+        #     min_en = np.min(self.energy)
+        #     max_en = np.max(self.energy)
+        #     min_ang = np.min(self.theta)
+        #     max_ang = np.max(self.theta)
+
+        #     # Convert to eV
+        #     if max_en < 1000:
+        #         max_en *= 1000
+        #         min_en *= 1000
+
+        #     mov_en = max_en - min_en > 5
+        #     mov_ang = max_ang - min_ang > 0.05
+
+        #     if mov_en and not mov_ang:
+        #         self.rocking_axis = 'energy'
+        #     elif mov_ang and not mov_en:
+        #         self.rocking_axis = 'angle'
+        #     elif mov_en and mov_ang:
+        #         err_str = ('Ambiguous rocking direction. '
+        #                     + 'Energy varies by more than 5 eV and '
+        #                     + 'theta varies by more than 50 mdeg.')
+        #         raise RuntimeError(err_str)
+        #     else:
+        #         err_str = ('Ambiguous rocking direction. '
+        #                     + 'Energy varies by less than 5 eV and '
+        #                     + 'theta varies by less than 50 mdeg.')
+        #         raise RuntimeError(err_str)
+        
+        # Enable features
+        # This enables theta usage, but there are no offset
+        # options to re-zero stage rotation
+        if (not self.use_stage_rotation
+            and self.rocking_axis == 'angle'):
+            self.use_stage_rotation = True
+
+        @XRDBaseScan._protect_hdf()
+        def save_extra_attrs(self): # Not sure if this needs self...
+            attrs = self.hdf[self._hdf_type].attrs
+            overwrite_attr(attrs, 'energy', self.energy)
+            overwrite_attr(attrs, 'wavelength', self.wavelength)
+            overwrite_attr(attrs, 'theta', self.theta)
+            overwrite_attr(attrs, 'rocking_axis', self.rocking_axis)
+        save_extra_attrs(self)
+
+
+    # Overwrite parent function
+    def __str__(self):
+        ostr = (f'{self._hdf_type}:  scan_id={self.scan_id}, '
+                + f'energy_range={min(self.energy):.3f}'
+                + f'-{max(self.energy):.3f}, '
+                + f'shape={self.images.shape}')
+        return ostr
+    
+
+    # Modify parent function
+    def __repr__(self):
+        lines = XRDBaseScan.__repr__(self).splitlines(True)
+        lines[4] = (f'\tEnergy Range:\t\t{min(self.energy):.3f}'
+                    + f'-{max(self.energy):.3f} keV\n')
+        ostr = ''.join(lines)
+        return ostr
+
+    #########################
+    ### Utility Functions ###
+    #########################
+
+    def _parse_subscriptable_value(self, value, name):
+        # Fill placeholders if value is nothing
+        if (np.any(np.array(value) is None)
+            or np.any(np.isnan(value))):
+            setattr(self, f'_{name}', np.array([np.nan,]
+                                               * self.num_images))
+        # Proceed if object is subscriptable and not str or dict
+        elif (hasattr(value, '__len__')
+              and hasattr(value, '__getitem__')
+              and not isinstance(value, (str, dict))):
+            if len(value) == self.num_images:
+                setattr(self, f'_{name}', np.asarray(value))
+            # Assume single value is constant
+            elif len(value) == 1:
+                setattr(self, f'_{name}', np.array([value[0],]
+                                                   * self.num_images))
+            else:
+                err_str = (f'{name} must have length '
+                           + 'equal to number of images.')
+                raise ValueError(err_str)
+        # Assume single value is constant
+        elif isinstance(value, (int, float)):
+            setattr(self, f'_{name}', np.array([value,]
+                                               * self.num_images))
+        else:
+            err_str = (f'Unable to handle {name} input. '
+                       + 'Provide subscriptable or value.')
+            raise TypeError(err_str)
+
+        
+    def _set_rocking_axis(self, rocking_axis=None):
+        
         # Find rocking axis
         if rocking_axis is not None:
             if rocking_axis.lower() in ['energy', 'wavelength']:
@@ -214,73 +330,18 @@ class XRDRockingCurve(XRDBaseScan):
                             + 'Energy varies by less than 5 eV and '
                             + 'theta varies by less than 50 mdeg.')
                 raise RuntimeError(err_str)
-        
-        # Enable features
-        if (not self.use_stage_rotation
-            and self.rocking_axis == 'angle'):
-            self.use_stage_rotation = True
 
-        @XRDBaseScan.protect_hdf()
-        def save_extra_attrs(self): # Not sure if this needs self...
-            attrs = self.hdf[self._hdf_type].attrs
-            overwrite_attr(attrs, 'energy', self.energy)
-            overwrite_attr(attrs, 'wavelength', self.wavelength)
-            overwrite_attr(attrs, 'theta', self.theta)
-            overwrite_attr(attrs, 'rocking_axis', self.rocking_axis)
-        save_extra_attrs(self)
-
-
-    # Overwrite parent function
-    def __str__(self):
-        ostr = (f'{self._hdf_type}:  scan_id={self.scan_id}, '
-                + f'energy_range={min(self.energy):.3f}'
-                + f'-{max(self.energy):.3f}, '
-                + f'shape={self.images.shape}')
-        return ostr
-    
-
-    # Modify parent function
-    def __repr__(self):
-        lines = XRDBaseScan.__repr__(self).splitlines(True)
-        lines[4] = (f'\tEnergy Range:\t\t{min(self.energy):.3f}'
-                    + f'-{max(self.energy):.3f} keV\n')
-        ostr = ''.join(lines)
-        return ostr
+        # Sanity check; should not be triggered
+        if (not hasattr(self, 'rocking_axis')
+            or self.rocking_axis is None):
+            err_str = ('Something seriously failed when setting the '
+                       + 'rocking axis.')
+            raise RuntimeError(err_str) 
 
 
     #############################
     ### Re-Written Properties ###
     #############################
-
-    def _parse_subscriptable_value(self, value, name):
-        # Fill placeholders if value is nothing
-        if (np.any(np.array(value) is None)
-            or np.any(np.isnan(value))):
-            setattr(self, f'_{name}', np.array([np.nan,]
-                                               * self.num_images))
-        # Proceed if object is subscriptable and not str or dict
-        elif (hasattr(value, '__len__')
-              and hasattr(value, '__getitem__')
-              and not isinstance(value, (str, dict))):
-            if len(value) == self.num_images:
-                setattr(self, f'_{name}', np.asarray(value))
-            # Assume single value is constant
-            elif len(value) == 1:
-                setattr(self, f'_{name}', np.array([value[0],]
-                                                   * self.num_images))
-            else:
-                err_str = (f'{name} must have length '
-                           + 'equal to number of images.')
-                raise ValueError(err_str)
-        # Assume single value is constant
-        elif isinstance(value, (int, float)):
-            setattr(self, f'_{name}', np.array([value,]
-                                               * self.num_images))
-        else:
-            err_str = (f'Unable to handle {name} input. '
-                       + 'Provide subscriptable or value.')
-            raise TypeError(err_str)
-
 
     # A lot of parsing inputs
     @XRDBaseScan.energy.setter
@@ -294,7 +355,7 @@ class XRDRockingCurve(XRDBaseScan):
             if hasattr(self, '_q_arr'):
                 delattr(self, '_q_arr')
 
-        @XRDBaseScan.protect_hdf()
+        @XRDBaseScan._protect_hdf()
         def save_attrs(self): # Not sure if this needs self...
             attrs = self.hdf[self._hdf_type].attrs
             overwrite_attr(attrs, 'energy', self.energy)
@@ -314,7 +375,7 @@ class XRDRockingCurve(XRDBaseScan):
             if hasattr(self, '_q_arr'):
                 delattr(self, '_q_arr')
 
-        @XRDBaseScan.protect_hdf()
+        @XRDBaseScan._protect_hdf()
         def save_attrs(self): # Not sure if this needs self...
             attrs = self.hdf[self._hdf_type].attrs
             overwrite_attr(attrs, 'energy', self.energy)
@@ -338,7 +399,7 @@ class XRDRockingCurve(XRDBaseScan):
             if hasattr(self, '_q_arr'):
                 delattr(self, '_q_arr')
             
-        @XRDBaseScan.protect_hdf()
+        @XRDBaseScan._protect_hdf()
         def save_attrs(self): # Not sure if this needs self...
             overwrite_attr(self.hdf[self._hdf_type].attrs,
                            'theta',
@@ -352,7 +413,8 @@ class XRDRockingCurve(XRDBaseScan):
         if hasattr(self, '_q_arr'):
             return self._q_arr
         elif not hasattr(self, 'ai'):
-            raise RuntimeError('Cannot calculate q-space without calibration.')
+            err_str = ('Cannot calculate q-space without calibration.')
+            raise RuntimeError(err_str)
         else:
             self._q_arr = np.empty((self.num_images,
                                     *self.image_shape,
@@ -365,12 +427,13 @@ class XRDRockingCurve(XRDBaseScan):
                 else:
                     theta = None # no rotation!
                 
-                q_arr = get_q_vect(self.tth_arr,
-                                   self.chi_arr,
-                                   wavelength=wavelength,
-                                   stage_rotation=theta,
-                                   degrees=self.polar_units == 'deg',
-                                   rotation_axis='y') # hard-coded for srx
+                q_arr = get_q_vect(
+                            self.tth_arr,
+                            self.chi_arr,
+                            wavelength=wavelength,
+                            stage_rotation=theta,
+                            degrees=self.polar_units == 'deg',
+                            rotation_axis='y') # hard-coded for srx
 
                 self._q_arr[i] = q_arr
             return self._q_arr
@@ -755,7 +818,7 @@ class XRDRockingCurve(XRDBaseScan):
         #                         rewrite_data=rewrite_data)
 
 
-    @XRDBaseScan.protect_hdf()
+    @XRDBaseScan._protect_hdf()
     def save_vectoriation(self,
                           vectors=None,
                           edges=None,
@@ -792,7 +855,7 @@ class XRDRockingCurve(XRDBaseScan):
         del hdf
 
 
-    # @XRDBaseScan.protect_hdf()
+    # @XRDBaseScan._protect_hdf()
     # def save_vectorization(self,
     #                        q_vectors=None,
     #                        intensity=None,
@@ -1097,7 +1160,7 @@ class XRDRockingCurve(XRDBaseScan):
         
     
     # Analog of 2D spots from xrdmap
-    @XRDBaseScan.protect_hdf(pandas=True)
+    @XRDBaseScan._protect_hdf(pandas=True)
     def save_3D_spots(self, extra_attrs=None):
         print('Saving 3D spots to hdf...', end='', flush=True)
         hdf_str = f'{self._hdf_type}/reflections/spots_3D'
@@ -1112,7 +1175,7 @@ class XRDRockingCurve(XRDBaseScan):
         print('done!')
 
 
-    @XRDBaseScan.protect_hdf()
+    @XRDBaseScan._protect_hdf()
     def save_vector_information(self,
                                 data,
                                 title,
@@ -1159,6 +1222,15 @@ class XRDRockingCurve(XRDBaseScan):
     ###########################################
     ### Indexing, Corrections, and Analysis ###
     ###########################################
+
+    @property
+    def qmask(self):
+        if hasattr(self, '_qmask'):
+            return self._qmask
+        else:
+            self._qmask = QMask.from_XRDRockingScan(self)
+            return self._qmask
+
 
     def _parse_indexing_inputs(self,
                                spots=None,
@@ -1211,7 +1283,7 @@ class XRDRockingCurve(XRDBaseScan):
                                     spots,
                                     spot_intensity)
 
-        qmask = QMask.from_XRDRockingCurve(self)
+        # qmask = QMask.from_XRDRockingCurve(self)
 
         if phase is None and len(self.phases) == 1:
             phase = list(self.phases.values())[0]
@@ -1231,7 +1303,7 @@ class XRDRockingCurve(XRDBaseScan):
                             phase,
                             near_q,
                             near_angle,
-                            qmask,
+                            self.qmask,
                             degrees=self.polar_units == 'deg',
                             **kwargs)
         else:

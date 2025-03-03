@@ -11,7 +11,7 @@ from xrdmaptools.utilities.math import (
 )
 from xrdmaptools.geometry.geometry import (
     q_2_polar,
-    modular_azimuthal_shift
+    QMask,
 )
 
 ##########################
@@ -27,7 +27,8 @@ def pair_casting_index_best_grain(
                     degrees=False,
                     max_ori_refine_iter=50,
                     max_ori_decomp_count=20,
-                    keep_initial_pair=False):
+                    keep_initial_pair=False,
+                    verbose=True,):
     
     # Find q vector magnitudes and max for spots
     spot_q_mags = np.linalg.norm(all_spot_qs, axis=1)
@@ -49,7 +50,9 @@ def pair_casting_index_best_grain(
             near_q,
             near_angle,
             min_q,
-            degrees=degrees)
+            degrees=degrees,
+            verbose=verbose)
+
     if len(pairs) > 0:
         # Symmetrically reduce pairs
         red_pairs = reduce_symmetric_equivalents(
@@ -59,20 +62,26 @@ def pair_casting_index_best_grain(
                 phase.all_hkls,
                 near_angle,
                 min_q,
-                dgrees=degrees)
+                dgrees=degrees,
+                verbose=verbose)
         
-        # Index spots
-        connections, qofs, _ = pair_casting_indexing(
-                red_pairs,
-                all_spot_qs,
-                phase.all_qs,
-                phase.all_fs,
-                qmask,
-                near_q,
-                iter_max=max_ori_refine_iter,
-                keep_initial_pair=keep_initial_pair,
-                exclude_found_pairs=False,
-                verbose_iterator=True)
+        if len(red_pairs) > 0:
+            # Index spots
+            connections, qofs, _ = pair_casting_indexing(
+                    red_pairs,
+                    all_spot_qs,
+                    phase.all_qs,
+                    phase.all_fs,
+                    qmask,
+                    near_q,
+                    iter_max=max_ori_refine_iter,
+                    keep_initial_pair=keep_initial_pair,
+                    exclude_found_pairs=False,
+                    verbose=verbose)
+        else:
+            # This is where all nans are coming from!
+            best_connections = [[np.nan,] * len(all_spot_qs)]
+            best_qofs = [np.nan,] * len(all_spot_qs)
     else:
         # This is where all nans are coming from!
         best_connections = [[np.nan,] * len(all_spot_qs)]
@@ -91,7 +100,8 @@ def pair_casting_index_full_pattern(
                     qof_minimum=0.2,
                     max_ori_refine_iter=50,
                     max_ori_decomp_count=20,
-                    keep_initial_pair=False):
+                    keep_initial_pair=False,
+                    verbose=True):
     
     # Find q vector magnitudes and max for spots
     spot_q_mags = np.linalg.norm(all_spot_qs, axis=1)
@@ -113,7 +123,8 @@ def pair_casting_index_full_pattern(
             near_q,
             near_angle,
             min_q,
-            degrees=degrees)
+            degrees=degrees,
+            verbose=verbose)
     
     if len(pairs) > 0:
         # Symmetrically reduce pairs
@@ -124,20 +135,28 @@ def pair_casting_index_full_pattern(
                 phase.all_hkls,
                 near_angle,
                 min_q,
-                degrees=degrees)
+                degrees=degrees,
+                verbose=verbose)
         
-        # Iteratively decompose patterns
-        best_connections, best_qofs = decaying_pattern_decomposition(
-                red_pairs,
-                all_spot_qs,
-                phase.all_qs,
-                phase.all_fs,
-                qmask,
-                near_q,
-                qof_minimum=qof_minimum,
-                keep_initial_pair=keep_initial_pair,
-                max_ori_refine_iter=max_ori_refine_iter,
-                max_ori_decomp_count=max_ori_decomp_count)
+        if len(red_pairs) > 0:
+            # Iteratively decompose patterns
+            (best_connections, 
+             best_qofs) = decaying_pattern_decomposition(
+                    red_pairs,
+                    all_spot_qs,
+                    phase.all_qs,
+                    phase.all_fs,
+                    qmask,
+                    near_q,
+                    qof_minimum=qof_minimum,
+                    keep_initial_pair=keep_initial_pair,
+                    max_ori_refine_iter=max_ori_refine_iter,
+                    max_ori_decomp_count=max_ori_decomp_count,
+                    verbose=verbose)
+        else:
+            # This is where all nans are coming from!
+            best_connections = [[np.nan,] * len(all_spot_qs)]
+            best_qofs = [np.nan,] * len(all_spot_qs)  
     else:
         # This is where all nans are coming from!
         best_connections = [[np.nan,] * len(all_spot_qs)]
@@ -156,7 +175,8 @@ def find_all_valid_pairs(all_spot_qs,
                          near_q,
                          near_angle,
                          min_q,
-                         degrees=False):
+                         degrees=False,
+                         verbose=True):
     
     if near_q > min_q * 0.85:
         err_str = ("'near_q' threshold is greater than 85% of minimum "
@@ -189,9 +209,15 @@ def find_all_valid_pairs(all_spot_qs,
     spot_angles = multi_vector_angles(all_spot_qs, all_spot_qs, degrees=degrees)
     ref_angles = multi_vector_angles(all_ref_qs, all_ref_qs, degrees=degrees)
 
+    # Construct iterable
+    if verbose:
+        iterable = tqdm(spot_pair_indices)
+    else:
+        iterable = spot_pair_indices
+
     blank_connection = np.array([np.nan,] * len(phase_mask))
     connection_pairs = []
-    for pair in tqdm(spot_pair_indices):
+    for pair in iterable:
         ref_combos = list(product(*[np.nonzero(mag_diff_arr[i] < near_q)[0]
                           for i in pair]))
 
@@ -219,18 +245,26 @@ def reduce_symmetric_equivalents(connection_pairs,
                                  all_ref_hkls,
                                  near_angle,
                                  min_q,
-                                 degrees=False):
+                                 degrees=False,
+                                 verbose=True):
 
     # Convert to arrays
     all_spot_qs = np.asarray(all_spot_qs)
     all_ref_qs = np.asarray(all_ref_qs)
     all_ref_hkls = np.asarray(all_ref_hkls)
+
+    # Construct iterator
+    if verbose:
+        iterable = tqdm(enumerate(connection_pairs),
+                        total=len(connection_pairs))
+    else:
+        iterable = enumerate(connection_pairs)
     
     # Evaluating valid pairs
     pair_orientations = []
     pair_mis_mag = []
     pair_rmse = []
-    for pair_connection in tqdm(connection_pairs):
+    for pair_i, pair_connection in iterable:
         (spot_indices,
         ref_indices) = _get_connection_indices(pair_connection)
         pair_ref_hkls = all_ref_hkls[ref_indices]
@@ -253,7 +287,7 @@ def reduce_symmetric_equivalents(connection_pairs,
                                           inverse=False))
 
         if degrees:
-            ori_mag = np.degrees(orientation.magnitude)
+            ori_mag = np.degrees(orientation.magnitude())
         else:
             ori_mag = orientation.magnitude()
 
@@ -267,7 +301,7 @@ def reduce_symmetric_equivalents(connection_pairs,
     # Reducing symmetrically equivalent pairs
     eval_pair_mask = np.array([True,] * len(connection_pairs))
     keep_pair_mask = eval_pair_mask.copy()
-    for pair_i in tqdm(range(len(connection_pairs))):
+    for pair_i, pair_connection in iterable:
         # Immediately kick out already evaluated pairs
         if not eval_pair_mask[pair_i]:
             continue
@@ -303,7 +337,7 @@ def pair_casting_indexing(connection_pairs,
                           iter_max=50,
                           keep_initial_pair=False,
                           exclude_found_pairs=False,
-                          verbose_iterator=True):
+                          verbose=True):
 
     # Modify and set up some values
     connection_pairs = np.asarray(connection_pairs)
@@ -315,17 +349,18 @@ def pair_casting_indexing(connection_pairs,
     first_best = True
     bad_indices = []
 
-    if verbose_iterator:
-        iterated = tqdm(enumerate(connection_pairs),
+    # Construct iterator
+    if verbose:
+        iterable = tqdm(enumerate(connection_pairs),
                         total=len(connection_pairs))
     else:
-        iterated = enumerate(connection_pairs)
+        iterable = enumerate(connection_pairs)
 
     connections = []
     qofs = []
     multi_reflections = []
     evaluated_pairs = 0
-    for i, pair in iterated:
+    for i, pair in iterable:
         
         # Check if the pair has already be included
         if (exclude_found_pairs
@@ -441,14 +476,16 @@ def pair_casting_indexing(connection_pairs,
         if exclude_found_pairs:
             evaluated_pair_mask[i] = True # Should be redundant
             if len(curr_spot_inds) > 2:
-                found_pair_mask = (np.sum([connection_pairs[:, si] == ri
-                                   for si, ri in zip(*_get_connection_indices(connection))],
-                                   axis=0) >= 2)
+                found_pair_mask = (
+                    np.sum([connection_pairs[:, si] == ri
+                    for si, ri in zip(
+                        *_get_connection_indices(connection))],
+                    axis=0) >= 2)
                 # print(evaluated_pair_mask.shape)
                 # print(found_pair_mask.shape)
                 print(f'{len(curr_spot_inds)=}', f'{found_pair_mask.sum()=}')
                 evaluated_pair_mask[found_pair_mask] = True
-            if len(curr_spot_inds) > 9 and first_best:
+            if len(curr_spot_inds) > 9 and first_best: # what is 9??
                 first_best = False
                 bad_indices = np.nonzero(found_pair_mask)[0]
             
@@ -465,7 +502,8 @@ def iterative_pattern_decomposition(connection_pairs,
                                     near_q,
                                     keep_initial_pair=False,
                                     max_ori_refine_iter=50,
-                                    max_ori_decomp_count=20):
+                                    max_ori_decomp_count=20,
+                                    verbose=True):
     
     best_connections = []
     best_qofs = []
@@ -487,7 +525,8 @@ def iterative_pattern_decomposition(connection_pairs,
                                     qmask,
                                     near_q,
                                     iter_max=max_ori_refine_iter,
-                                    keep_initial_pair=keep_initial_pair)
+                                    keep_initial_pair=keep_initial_pair,
+                                    verbose=verbose)
         
         best_connection = connections[np.argmax(qofs)]
 
@@ -528,6 +567,7 @@ def iterative_pattern_decomposition(connection_pairs,
     return best_connections, np.asarray(best_qofs)
 
 
+# More intelligently re-evaluates pairs that formed connections no longer valid
 def decaying_pattern_decomposition(connection_pairs,
                                    all_spot_qs,
                                    all_ref_qs,
@@ -537,7 +577,8 @@ def decaying_pattern_decomposition(connection_pairs,
                                    qof_minimum=0,
                                    keep_initial_pair=False,
                                    max_ori_refine_iter=50,
-                                   max_ori_decomp_count=20):
+                                   max_ori_decomp_count=20,
+                                   verbose=True):
 
     best_connections, best_qofs = [], []
     excluded_spot_indices = []
@@ -545,9 +586,11 @@ def decaying_pattern_decomposition(connection_pairs,
     included_spot_mask = np.asarray([True,] * len(connection_pairs[0]))
     blank_full_connection = np.asarray([np.nan,] * len(included_spot_mask))
 
+    # Internal wrapper for indexing method
+    # Can redefine for other methods as desired
     def _internal_indexing(pairs,
                            spots,
-                           verbose_iterator=True):
+                           verbose=verbose):
         out = pair_casting_indexing(
                     pairs,
                     spots,
@@ -557,7 +600,7 @@ def decaying_pattern_decomposition(connection_pairs,
                     near_q,
                     iter_max=max_ori_refine_iter,
                     keep_initial_pair=keep_initial_pair,
-                    verbose_iterator=verbose_iterator)
+                    verbose=verbose)
         return out
     
     (orig_connections,
@@ -573,9 +616,14 @@ def decaying_pattern_decomposition(connection_pairs,
     iter_count = 0
     ITERATE = True
     while ITERATE:
+        # print(f'Internal iter count : {iter_count}')
+        # print(qofs)
         
         # Find best connection
-        best_ind = np.nanargmax(qofs[included_conn_mask]) # Should not be nan???
+        try:
+            best_ind = np.nanargmax(qofs[included_conn_mask]) # Should not be nan???
+        except:
+            return qofs, included_conn_mask, connections
         best_connection = connections[included_conn_mask][best_ind]
         best_qof = qofs[included_conn_mask][best_ind]
 
@@ -652,7 +700,7 @@ def decaying_pattern_decomposition(connection_pairs,
             new_multi_reflections) = _internal_indexing(
                                         new_pairs,
                                         all_spot_qs[included_spot_mask],
-                                        verbose_iterator=False)
+                                        verbose=False)
             
             # Expand new connections
             full_new_connections = []
@@ -661,6 +709,7 @@ def decaying_pattern_decomposition(connection_pairs,
                 full_new_connection[included_spot_mask] = conn
                 full_new_connections.append(full_new_connection)
             
+            # For debugging
             if np.any(np.array([np.sum(~np.isnan(conn))
                                 for conn in full_new_connections]) < 2):
                 print('Found error.')
@@ -673,13 +722,14 @@ def decaying_pattern_decomposition(connection_pairs,
             
             # Update values
             connections[recalc_mask] = full_new_connections
+            # print(new_qofs)
             qofs[recalc_mask] = new_qofs
             # multi_reflections cannot be converted to array
             for i, idx in enumerate(np.nonzero(recalc_mask)[0]):
                 multi_reflections[idx] = new_multi_reflections[i]
     
-    # Trim bad connections. May be worth keeping since they have 
-    # already been calculated.
+    # Trim bad connections.
+    # May be worth keeping since they have already been calculated.
     best_qofs = np.asarray(best_qofs)
     if len(best_connections) > 1:
         # I don't like this, but I want to keep it as a list
@@ -687,7 +737,7 @@ def decaying_pattern_decomposition(connection_pairs,
         # best_connections = [best_connections[idx] if best_qofs[idx] >= qof_minimum for idx in range(len(best_connections))]
         best_qofs = best_qofs[best_qofs >= qof_minimum]
     else:
-        if best_qofs.squeeze() < qof_minimum:
+        if verbose and best_qofs.squeeze() < qof_minimum:
             warn_str = ('WARNING: Indexing quality '
                         + f'({best_qofs.squeeze():.4f}) below '
                         + f'designated minimum ({qof_minimum:.4f}). '
@@ -715,15 +765,24 @@ def get_quality_of_fit(fit_spot_qs,
     # 2. Do not penalize extra measured reflections which are not indexing (allows for overlapping orientations)
     # 3. Penalize reflections weighted by their distance from expected postions
 
-    # qof = get_rmse(all_spot_qs[fit_spot_inds],
-    #                  all_rot_qs[fit_ref_inds])
-    qof = weighted_distance_qof(fit_spot_qs,
-                                fit_rot_qs,
-                                fit_ref_fs,
-                                all_spot_qs,
-                                all_rot_qs,
-                                all_ref_fs,
-                                **kwargs)
+    # qof = get_rmse(fit_spot_qs,
+    #                fit_rot_qs)
+    # qof = weighted_distance_qof(fit_spot_qs,
+    #                             fit_rot_qs,
+    #                             fit_ref_fs,
+    #                             all_spot_qs,
+    #                             all_rot_qs,
+    #                             all_ref_fs,
+    #                             **kwargs)
+
+    # qof = complete_distance_qof(fit_spot_qs,
+    #                             fit_rot_qs,
+    #                             all_spot_qs,
+    #                             all_rot_qs,
+    #                             sigma=1,
+    #                             int_weight=0.5)
+
+    qof = len(fit_spot_qs) / len(all_spot_qs)
 
     return qof
 
@@ -731,11 +790,11 @@ def get_quality_of_fit(fit_spot_qs,
 def weighted_distance_qof(fit_spot_qs,
                           fit_rot_qs,
                           fit_ref_fs,
-                          all_spot_qs,
+                          all_spot_qs, # unused
                           all_rot_qs,
                           all_ref_fs,
                           sigma=1,
-                          int_weight=0):
+                          int_weight=1):
 
     # # Determine which reflections are indexed
     # found_spot_mask = [tuple(ref) in [tuple(x) for x in ref_qs] for ref in all_ref_qs]
@@ -754,6 +813,11 @@ def weighted_distance_qof(fit_spot_qs,
 
     qof = (int_weight * int_val) + ((1 - int_weight) * norm_dist_val)
 
+    # If not all inputs are given, the whole thing can fail
+    # Return an operable value
+    if np.isnan(qof):
+        qof = 0
+
     return qof
 
 
@@ -764,8 +828,19 @@ def complete_distance_qof(fit_spot_qs,
                           sigma=1,
                           int_weight=0.5): # Gaussian standard deviation to evaluate
 
-    # # Determine which reflections are indexed
-    # found_spot_mask = [tupl                              returns=['xrd_dets'],
+
+    # Determine which reflections are indexed
+    # found_spot_mask = [tuple(ref) in [tuple(x) for x in ref_qs] for ref in all_ref_qs]
+
+    dist = [np.sqrt(np.sum([(p - q)**2 for p, q in zip(v1, v2)]))
+            for v1, v2 in zip(fit_spot_qs, fit_rot_qs)]
+
+    # Gaussian with specified standard deviation
+    # centered at zero sampled at distance
+    qof = np.sum(np.exp(-(np.asarray(dist))**2 / (2 * sigma**2)))
+
+    max_qof = len(all_rot_qs)
+    norm_qof = qof / max_qof
 
     return norm_qof
     
@@ -776,182 +851,6 @@ def get_rmse(fit_spot_qs,
                     for v1, v2 in zip(fit_spot_qs, fit_rot_qs)])
 
     return rmse
-
-
-# Class for bounding reciprocal space volumes mapped by energy rocking curves
-# Angle rocking curves are not currently supported, although they should be simpler
-class QMask():
-
-    def __init__(self,
-                 tth_arr,
-                 chi_arr,
-                 wavelength_vals,
-                 theta_vals=0,
-                 poly_order=6,
-                 degrees=False,
-                 use_stage_rotation=False):
-        
-        # Check for azimuthal discontintuites
-        chi_arr, max_arr, shifted = modular_azimuthal_shift(chi_arr)
-        self.chi_max_arr = max_arr # determines units...
-        self.chi_shifted = shifted # conditional
-
-        # Determine simple extents
-        self.tth_min = np.min(tth_arr)
-        self.tth_max = np.max(tth_arr)
-        self.chi_min = np.min(chi_arr)
-        self.chi_max = np.max(chi_arr)
-        self.wavelength_min = np.min(wavelength_vals)
-        self.wavelength_max = np.max(wavelength_vals)
-        self.theta_min = np.min(theta_vals)
-        self.theta_max = np.max(theta_vals)
-        self.degrees = degrees
-        self.use_stage_rotation = use_stage_rotation
-
-        # Get rocking axis
-        energy_rc = self.wavelength_min != self.wavelength_max
-        angle_rc = self.theta_min != self.theta_max
-
-        if energy_rc and angle_rc:
-            err_str = ('Both energy and angle are changing. '
-                      + '\nOne must be static to generate Qmask.')
-            raise RuntimeError(err_str)
-        elif not energy_rc and not angle_rc:
-            err_str = ('Neither energy or angle are changing. '
-                      + '\nOne must be rock to generate Qmask.')
-            raise RuntimeError(err_str)
-        elif energy_rc:
-            self.rocking_axis = 'energy'
-        else:
-            self.rocking_axis = 'angle'
-
-
-        # Determine edges
-        # Inelegant method of throwing higher
-        # order polynomials at the problem
-        p0 = np.zeros(poly_order + 1)
-        for indexing, poly in zip([(0), # [0, :] 
-                                   (-1), # [-1, :]
-                                   (slice(None), 0), # [:, 0]
-                                   (slice(None), -1)], # [:, -1]
-                                   ['upper_poly',
-                                   'lower_poly',
-                                   'left_poly',
-                                   'right_poly']):
-            
-            # Determine functional direction
-            tth_grad = np.gradient(tth_arr[indexing])
-            if np.all(tth_grad > 0) or np.all(tth_grad < 0):
-                first_arr = tth_arr
-                second_arr = chi_arr
-                setattr(self, f'{poly}_first', 'tth')
-            else:
-                first_arr = chi_arr
-                second_arr = tth_arr
-                setattr(self, f'{poly}_first', 'chi')
-            
-            # Fit edge functions
-            popt, _ = curve_fit(general_polynomial,
-                                first_arr[indexing],
-                                second_arr[indexing],
-                                p0=p0)
-            
-            setattr(self, poly, popt)
-
-    
-    @classmethod
-    def from_XRDRockingCurve(cls,
-                             rsm,
-                             **kwargs):
-        
-        inst = cls(rsm.tth_arr,
-                   rsm.chi_arr,
-                   rsm.wavelength,
-                   rsm.theta,
-                   degrees=rsm.polar_units == 'deg',
-                   use_stage_rotation=rsm.use_stage_rotation,
-                   **kwargs)
-        
-        return inst
-
-
-    def generate(self,
-                 q_vectors,
-                 ext=0):
-
-        # Convert vectors to polar
-        if self.rocking_axis == 'energy':
-            if self.use_stage_rotation:
-                theta = self.theta_min
-            else:
-                theta = 0
-
-            tth, chi, wavelength = q_2_polar(q_vectors,
-                                             stage_rotation=theta,
-                                             degrees=self.degrees)
-
-            rocking_mask = np.all([
-                            wavelength >= self.wavelength_min * (1 - ext),
-                            wavelength <= self.wavelength_max * (1 + ext)],
-                            axis=0)
-        
-        else:
-            tth, chi, rotation = q_2_polar(q_vectors,
-                                           wavelength=self.wavelength_min,
-                                           degrees=self.degrees)
-
-            rocking_mask = np.all([
-                            rotation >= self.theta_min * (1 - ext),
-                            rotation <= self.theta_max * (1 + ext)],
-                            axis=0)
-
-        # Shift chi values if discontinuiteies
-        chi, _, _ = modular_azimuthal_shift(
-                            chi,
-                            max_arr=self.chi_max_arr,
-                            force_shift=self.chi_shifted)
-
-        # Vertically bounded mask
-        if getattr(self, 'upper_poly_first') == 'tth':
-            first = tth
-            second = chi
-        else:
-            first = chi
-            second = tth
-
-        upper = second - general_polynomial(first, *self.upper_poly)
-        lower = second - general_polynomial(first, *self.lower_poly)
-        vertical_mask = np.sign(upper) != np.sign(lower)
-        
-        # Horizontally bounded mask
-        if getattr(self, 'left_poly_first') == 'tth':
-            first = tth
-            second = chi
-        else:
-            first = chi
-            second = tth
-
-        left = second - general_polynomial(first, *self.left_poly)
-        right = second - general_polynomial(first, *self.right_poly)
-        horizontal_mask = np.sign(left) != np.sign(right)
-        
-        # Extent masks
-        tth_mask = np.all([tth >= self.tth_min * (1 - ext),
-                           tth <= self.tth_max * (1 + ext)],
-                           axis=0)
-        chi_mask = np.all([chi >= self.chi_min * (1 - ext),
-                           chi <= self.chi_max * (1 + ext)],
-                           axis=0)
-        
-        qmask = np.all([
-            vertical_mask,
-            horizontal_mask,
-            tth_mask,
-            chi_mask,
-            rocking_mask
-        ], axis=0)
-
-        return qmask
 
 
 def _get_connection_indices(connection):
