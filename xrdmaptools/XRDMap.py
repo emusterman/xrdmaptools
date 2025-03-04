@@ -100,7 +100,8 @@ class XRDMap(XRDBaseScan):
 
         # Interpolate positions
         # Can happen before or after swapped_axes
-        if self.scan_input is not None:
+        if (self.scan_input is not None
+            and len(self.scan_input) != 0):
             self.interpolate_positions(check_init_sets=check_init_sets)
         
         # Swap axes if called. Tranposes major data components

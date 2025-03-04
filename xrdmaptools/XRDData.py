@@ -881,8 +881,8 @@ class XRDData:
         """
         Load images from HDF file.
 
-        Load images from active HDF file according. Defaults to most
-        recent set of images.
+        Load images from active HDF file according while updating
+        corrections and title. Defaults to most recent set of images.
 
         Parameters
         ----------
@@ -909,12 +909,18 @@ class XRDData:
         img_grp = self.hdf[f'{self._hdf_type}/image_data']
 
         # Check valid image_data_key
-        if (str(image_data_key).lower() != 'recent'
-            and image_data_key not in img_grp.keys()):
-            warn_str = (f'WARNING: Requested image_data_key'
+        if str(image_data_key).lower() != 'recent':
+            if image_data_key not in img_grp.keys():
+                if f'{image_data_key}_images' in img_grp.keys():
+                    image_data_key = f'{image_data_key}_images'
+                elif f'_{image_data_key}' in img_grp.keys():
+                    image_data_key = f'_{image_data_key}'
+                else:
+                    warn_str = (f'WARNING: Requested image_data_key'
                         + f'({image_data_key}) not found in hdf. '
                         + 'Proceding without changes...')
-            return
+                    print(warn_str)
+                    return
 
         # Set recent image data key
         if str(image_data_key).lower() == 'recent':
@@ -1048,12 +1054,27 @@ class XRDData:
         int_grp = self.hdf[f'{self._hdf_type}/integration_data']
 
         # Check valid integration_data_key
-        if (str(integration_data_key).lower() != 'recent'
-            and integration_data_key not in int_grp.keys()):
-            warn_str = (f'WARNING: Requested integration_data_key '
-                        + f'({integration_data_key}) not found in hdf.'
-                        + ' Proceding without changes...')
-            return
+        if str(integration_data_key).lower() != 'recent':
+            if integration_data_key not in int_grp.keys():
+                if f'{integration_data_key}_integrations' in int_grp.keys():
+                    integration_data_key = f'{integration_data_key}_integrations'
+                elif f'_{integration_data_key}' in int_grp.keys():
+                    integration_data_key = f'_{integration_data_key}'
+                else:
+                    warn_str = (f'WARNING: Requested integration_data_key'
+                        + f'({integration_data_key}) not found in hdf. '
+                        + 'Proceding without changes...')
+                    print(warn_str)
+                    return
+
+        # # Check valid integration_data_key
+        # if (str(integration_data_key).lower() != 'recent'
+        #     and integration_data_key not in int_grp.keys()):
+        #     warn_str = (f'WARNING: Requested integration_data_key '
+        #                 + f'({integration_data_key}) not found in hdf.'
+        #                 + ' Proceding without changes...')
+        #     print(warn_str)
+        #     return
 
         # Set recent integration data key
         if str(integration_data_key).lower() == 'recent':
@@ -1696,6 +1717,7 @@ class XRDData:
             if (hasattr(self, 'sclr_dict')
                 and self.sclr_dict is not None
                 and self.sclr_dict is not {}):
+                # Hierarchy of best scalers to use
                 for sclr_key in ['flux_i0',
                                  'flux_im',
                                  'energy_corrected_i0',

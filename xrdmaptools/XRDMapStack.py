@@ -135,49 +135,6 @@ class XRDMapStack(list):
 
         # Find rocking axis
         self._set_rocking_axis(rocking_axis=rocking_axis)
-
-        # # Find rocking axis
-        # if rocking_axis is not None:
-        #     if rocking_axis.lower() in ['energy', 'wavelength']:
-        #         self.rocking_axis = 'energy'
-        #     elif rocking_axis.lower() in ['angle', 'theta']:
-        #         self.rocking_axis = 'angle'
-        #     else:
-        #         warn_str = (f'Rocking axis ({rocking_axis}) is not '
-        #                     + 'supported. Attempting to find '
-        #                     + 'automatically.')
-        #         print(warn_str)
-        #         # kick it back out and find automatically
-        #         rocking_axis = None 
-            
-        # if rocking_axis is None:
-        #     min_en = np.min(self.energy)
-        #     max_en = np.max(self.energy)
-        #     min_ang = np.min(self.theta)
-        #     max_ang = np.max(self.theta)
-
-        #     # Convert to eV
-        #     if max_en < 1000:
-        #         max_en *= 1000
-        #         min_en *= 1000
-
-        #     mov_en = max_en - min_en > 5
-        #     mov_ang = max_ang - min_ang > 0.05
-
-        #     if mov_en and not mov_ang:
-        #         self.rocking_axis = 'energy'
-        #     elif mov_ang and not mov_en:
-        #         self.rocking_axis = 'angle'
-        #     elif mov_en and mov_ang:
-        #         err_str = ('Ambiguous rocking direction. '
-        #                     + 'Energy varies by more than 5 eV and '
-        #                     + 'theta varies by more than 50 mdeg.')
-        #         raise RuntimeError(err_str)
-        #     else:
-        #         err_str = ('Ambiguous rocking direction. '
-        #                     + 'Energy varies by less than 5 eV and '
-        #                     + 'theta varies by less than 50 mdeg.')
-        #         raise RuntimeError(err_str)
         
         # Enable features
         # TODO: Fix me!
@@ -510,7 +467,7 @@ class XRDMapStack(list):
                     image_data_key=image_data_key,
                     integration_data_key=integration_data_key,
                     load_blob_masks=load_blob_masks,
-                    load_vector_maps=load_vector_maps,
+                    load_vector_map=load_vector_maps,
                     map_shape=map_shape,
                     image_shape=image_shape,
                     save_hdf=save_hdf,

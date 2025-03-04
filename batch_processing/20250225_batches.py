@@ -182,7 +182,7 @@ def load_xrf():
 
                 all_xrf.append(xrf)
 
-    return all_xrf
+    return {key:np.asarray([xrf[key] for xrf in all_xrf]) for key in all_xrf[0].keys()}
 
 
 def get_coarse_scan_positions():
@@ -524,48 +524,48 @@ Ge_roi = slice(977, 997)
 Fe_roi = slice(631, 651)
 
 
-def generate_rois(scan_id,
-                  data_slice,
-                  data_cutoff,
-                  feature_type,
-                  analysis_args,
-                  move_for_analysis=True,
-                  analysis_motors=[DummyMotor(limits=(-52.5, 52.5)), DummyMotor(limits=(-52.5, 52.5))]):
-    data = _get_processed_data(c[scan_id], data_slice=data_slice)
-    rois = _get_rois(data, data>=data_cutoff, feature_type=feature_type)
+# def generate_rois(scan_id,
+#                   data_slice,
+#                   data_cutoff,
+#                   feature_type,
+#                   analysis_args,
+#                   move_for_analysis=True,
+#                   analysis_motors=[DummyMotor(limits=(-52.5, 52.5)), DummyMotor(limits=(-52.5, 52.5))]):
+#     data = _get_processed_data(c[scan_id], data_slice=data_slice)
+#     rois = _get_rois(data, data>=data_cutoff, feature_type=feature_type)
 
-    #analysis_motors = [DummyMotor(limits=(-52.5, 52.5)), DummyMotor(limits=(-52.5, 52.5))]
-    fast_motor, slow_motor, fast_values, slow_values = _generate_positions_and_motors(c[scan_id])
-    # fast_values += 5
-    # slow_values += 8
+#     #analysis_motors = [DummyMotor(limits=(-52.5, 52.5)), DummyMotor(limits=(-52.5, 52.5))]
+#     fast_motor, slow_motor, fast_values, slow_values = _generate_positions_and_motors(c[scan_id])
+#     # fast_values += 5
+#     # slow_values += 8
 
-    analysis_args_list, new_positions_list, valid_rois, fixed_rois = [], [], [], []
-    for roi in rois:
-        out = _generate_analysis_args(
-            roi,
-            analysis_args,
-            fast_values,
-            slow_values,
-            analysis_motors,
-            move_for_analysis,
-            False,
-            feature_type
-        )
-        analysis_args_list.append(out[0])
-        new_positions_list.append(out[1])
-        valid_rois.append(out[2])
-        fixed_rois.append(out[3])
+#     analysis_args_list, new_positions_list, valid_rois, fixed_rois = [], [], [], []
+#     for roi in rois:
+#         out = _generate_analysis_args(
+#             roi,
+#             analysis_args,
+#             fast_values,
+#             slow_values,
+#             analysis_motors,
+#             move_for_analysis,
+#             False,
+#             feature_type
+#         )
+#         analysis_args_list.append(out[0])
+#         new_positions_list.append(out[1])
+#         valid_rois.append(out[2])
+#         fixed_rois.append(out[3])
 
-    # return analysis_args_list, new_positions_list, valid_rois, fixed_rois
+#     # return analysis_args_list, new_positions_list, valid_rois, fixed_rois
 
-    _plot_analysis_args(c[scan_id].start['scan_id'],
-                        data,
-                        rois,
-                        analysis_args_list,
-                        valid_rois,
-                        fixed_rois,
-                        fast_values,
-                        slow_values,
-                        new_positions_list,
-                        feature_type=feature_type,
-                        analysis_motors=analysis_motors)
+#     _plot_analysis_args(c[scan_id].start['scan_id'],
+#                         data,
+#                         rois,
+#                         analysis_args_list,
+#                         valid_rois,
+#                         fixed_rois,
+#                         fast_values,
+#                         slow_values,
+#                         new_positions_list,
+#                         feature_type=feature_type,
+#                         analysis_motors=analysis_motors)

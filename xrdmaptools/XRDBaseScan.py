@@ -262,6 +262,21 @@ class XRDBaseScan(XRDData):
             self.set_scalers(sclr_dict,
                              check_init_sets=check_init_sets)
         
+        # # Correct default scalers for energy
+        # if (not self.sclr_dict is None # Has a sclr_dict
+        #     and not np.isnan(self.energy) # Has a real energy
+        #     # Not already energy corrected
+        #     not any(['energy' in key for key in self.sclr_dict.keys()])
+        #     # Not already flux corrected
+        #     not any(['flux' in key for key in self.sclr_dict.keys()])
+        #     ):
+        #     self.correct_scaler_energies(
+        #                         scaler_key='i0',
+        #                         check_init_sets=check_init_sets)
+        #     self.correct_scaler_energies(
+        #                         scaler_key='im',
+        #                         check_init_sets=check_init_sets)
+        
         # Default units and flags
         # Not fully implemented
         # 'rad' or 'deg'
@@ -1408,9 +1423,9 @@ class XRDBaseScan(XRDData):
     
 
     def _get_scaler_absorption(self,
-                              scaler_key='i0',
-                              chamber_length=None,
-                              gas_name=None):
+                               scaler_key='i0',
+                               chamber_length=None,
+                               gas_name=None):
         """
 
         """
@@ -1421,7 +1436,7 @@ class XRDBaseScan(XRDData):
             raise AttributeError(err_str)
         if (not hasattr(self, 'sclr_dict')
             or self.energy is None
-            or sclr_dict == {}):
+            or self.sclr_dict == {}):
             err_str = f'Must define scalers in {self._hdf_type}.'
             raise AttributeError(err_str)
         elif scaler_key not in self.sclr_dict.keys():
@@ -1436,7 +1451,7 @@ class XRDBaseScan(XRDData):
                             + f'cm for {scaler_key} scaler.')
                 print(note_str)
             elif scaler_key == 'im':
-                chamber_legnth == 10
+                chamber_length = 10
                 note_str = ('NOTE: Using default chamber length of 10 '
                             + f'cm for {scaler_key} scaler.')
                 print(note_str)
@@ -1476,7 +1491,8 @@ class XRDBaseScan(XRDData):
     def correct_scaler_energies(self,
                                 scaler_key='i0',
                                 chamber_length=None,
-                                gas_name=None):
+                                gas_name=None,
+                                check_init_sets=False):
         """
 
         """
@@ -1490,13 +1506,14 @@ class XRDBaseScan(XRDData):
         # Determine energy independent scaler values
         new_scaler_key = f'energy_corrected_{scaler_key}'
         new_sclr_arr = (self.sclr_dict[scaler_key]
-                        / (absorption * energy))
+                        / (absorption * self.energy))
 
         # Set values and write to hdf
         self.sclr_dict[new_scaler_key] = new_sclr_arr
         self.save_sclr_pos('scalers',
                            self.sclr_dict,
-                           self.scaler_units)
+                           self.scaler_units,
+                           check_init_sets=check_init_sets)
 
 
     # Post-conversion of scaler to real flux values
@@ -1507,7 +1524,7 @@ class XRDBaseScan(XRDData):
                                 scaler_key='i0',
                                 chamber_length=None,
                                 gas_name=None,
-                                ):
+                                check_init_sets=False):
         """
 
         """
@@ -1539,7 +1556,8 @@ class XRDBaseScan(XRDData):
         self.sclr_dict[new_scaler_key] = new_sclr_arr
         self.save_sclr_pos('scalers',
                            self.sclr_dict,
-                           self.scaler_units)
+                           self.scaler_units,
+                           check_init_sets=check_init_sets)
 
 
     @XRDData._protect_hdf()

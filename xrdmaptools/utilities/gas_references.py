@@ -19,7 +19,6 @@ class Gas(Amorphous):
                  name,
                  density=None,
                  atoms=None,
-                 cij=None,
                  pressure=101325, # Room pressure in Pa
                  temperature=293.15 # Room temperature in K
                  ):
@@ -37,7 +36,7 @@ class Gas(Amorphous):
         if density is None:
             density = self.get_ideal_gas_mass_density()
 
-        super().__init__(name, density, atoms=atoms, cij=cij)
+        super().__init__(name, density, atoms=atoms, cij=None)
     
 
     # Wrapper
@@ -152,7 +151,7 @@ class Gas(Amorphous):
     
     def get_absorption(self,
                        energy,
-                       length,):
+                       length):
 
         if energy < 1000:
             energy *= 1000

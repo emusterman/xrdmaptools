@@ -242,11 +242,27 @@ def _load_xrd_hdf_image_data(base_grp,
         img_grp = base_grp['image_data']
 
         if image_data_key is not None:
-            if (str(image_data_key).lower() != 'recent'
-                and image_data_key not in img_grp.keys()):
-                warn_str = (f'WARNING: Requested image_data_key ({image_data_key}) '
-                            + 'not found in hdf. Looking for most recent image_data instead...')
-                image_data_key = 'recent'
+            # Check valid image_data_key
+            if str(image_data_key).lower() != 'recent':
+                if image_data_key not in img_grp.keys():
+                    if f'{image_data_key}_images' in img_grp.keys():
+                        image_data_key = f'{image_data_key}_images'
+                    elif f'_{image_data_key}' in img_grp.keys():
+                        image_data_key = f'_{image_data_key}'
+                    else:
+                        warn_str = ('WARNING: Requested image_data_key'
+                                    + f' ({image_data_key}) not found '
+                                    + 'in hdf. Looking for most recent'
+                                    + ' image_data instead...')
+                        print(warn_str)
+                        image_data_key = 'recent'
+
+            # if (str(image_data_key).lower() != 'recent'
+            #     and image_data_key not in img_grp.keys()):
+            #     warn_str = (f'WARNING: Requested image_data_key ({image_data_key}) '
+            #                 + 'not found in hdf. Looking for most recent image_data instead...')
+            #     print(warn_str)
+            #     image_data_key = 'recent'
             
             # Set recent image data key
             if str(image_data_key).lower() == 'recent':
@@ -384,11 +400,29 @@ def _load_xrd_hdf_integration_data(base_grp,
         int_grp = base_grp['integration_data']
 
         if integration_data_key is not None:
-            # Check integration_data_key in hdf
-            if (str(integration_data_key).lower() != 'recent'
-                and integration_data_key not in int_grp.keys()):
-                warn_str = (f'WARNING: Requested integration_data_key ({integration_data_key}) '
-                            + 'not found in hdf. Looking for most recent integration_data instead...')
+            # Check valid integration_data_key
+            if str(integration_data_key).lower() != 'recent':
+                if integration_data_key not in int_grp.keys():
+                    if f'{integration_data_key}_images' in int_grp.keys():
+                        integration_data_key = f'{integration_data_key}_images'
+                    elif f'_{integration_data_key}' in imt_grp.keys():
+                        integration_data_key = f'_{integration_data_key}'
+                    else:
+                        warn_str = (
+                            'WARNING: Requested integration_data_key '
+                            + f'({integration_data_key}) not found in '
+                            + 'hdf. Looking for most recent '
+                            + 'integration_data instead...')
+                        print(warn_str)
+                        integration_data_key = 'recent'
+
+            # # Check integration_data_key in hdf
+            # if (str(integration_data_key).lower() != 'recent'
+            #     and integration_data_key not in int_grp.keys()):
+            #     warn_str = (f'WARNING: Requested integration_data_key ({integration_data_key}) '
+            #                 + 'not found in hdf. Looking for most recent integration_data instead...')
+            #     print(warn_str)
+            #     integration_data_key = 'recent'
             
             # Determine image_data key in 
             if str(integration_data_key).lower() == 'recent':
