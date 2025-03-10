@@ -1062,9 +1062,14 @@ class XRDRockingCurve(XRDBaseScan):
     
         # Cleanup images as necessary
         self._dask_2_numpy()
-        if not override_rescale and np.max(self.images) != 100:
-            print('Rescaling images to max of 100 and min around 0.')
-            self.rescale_images(arr_min=0, upper=100, lower=0)
+        if not self.corrections['rescaled'] and not override_rescale:
+            warn_str = ("Finding blobs assumes images scaled between 0"
+                        + " and around 100. Current images have not "
+                        + "been rescaled. Apply this correction or "
+                        + "set 'override_rescale' to True in order to"
+                        + " continue. Proceeding without changes.")
+            print(warn_str)
+            return
 
         # Search each image for significant spots
         blob_mask_list = find_blobs(

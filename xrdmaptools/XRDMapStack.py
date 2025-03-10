@@ -494,7 +494,7 @@ class XRDMapStack(list):
                  image_data_key=None,
                  integration_data_key=None,
                  load_blob_masks=False,
-                 load_vector_map=False,
+                 load_vector_maps=False,
                  map_shape=None,
                  image_shape=None,
                  **kwargs
@@ -539,7 +539,7 @@ class XRDMapStack(list):
                     image_data_key=image_data_key,
                     integration_data_key=integration_data_key,
                     load_blob_masks=load_blob_masks,
-                    load_vector_map=load_vector_map,
+                    load_vector_map=load_vector_maps,
                     map_shape=map_shape,
                     image_shape=image_shape,
                     save_hdf=save_hdf,
@@ -1286,8 +1286,8 @@ class XRDMapStack(list):
                         + f'of {len(virutal_masks)} does not match '
                         + f'XRDMapStack length of {len(self)}.')
                 raise ValueError(err_str)
-        else: # Check to make sure everything is available
-
+        # Check everything is available before loading        
+        else: 
             @XRDMap._protect_hdf()
             def check_xrdmap_for_vector_map(xrdmap, i):
                 if ('vectorized_map'
@@ -1334,7 +1334,7 @@ class XRDMapStack(list):
 
             virt_index = 0
             for indices in self[0].indices:
-                #skip if not in virtual_mask
+                # Skip if not in virtual_mask
                 if not virtual_masks[i][indices]:
                     continue
                 
@@ -1354,7 +1354,7 @@ class XRDMapStack(list):
             del vector_map
         
         
-        # Save internally
+        # Store internally
         self.xdms_vector_map = full_vector_map
         print('done!')
         
@@ -1375,6 +1375,10 @@ class XRDMapStack(list):
         else:
             self._qmask = QMask.from_XRDRockingScan(self)
             return self._qmask
+    
+    @qmask.deleter
+    def qmask(self):
+        del self._qmask
 
 
     ##########################
@@ -1434,8 +1438,10 @@ class XRDMapStack(list):
                                 )
         
         if return_plot:
-            self.__slider = slider
+            # matplotlib likes to keep a reference
+            self.__slider = slider 
             return fig, ax
         else:
+            # matplotlib likes to keep a reference
             self.__slider = slider
             fig.show()

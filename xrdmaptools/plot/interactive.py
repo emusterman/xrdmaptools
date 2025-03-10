@@ -715,8 +715,188 @@ def _find_image_extent(x_ticks, y_ticks):
 
 from matplotlib.widgets import SpanSelector
 
-def integrateable_static_1D_plot():
-    raise NotImplementedError()
+def integrateable_static_1D_plot(dyn_kw={},
+                                 map_kw={},
+                                 cmap='viridis',
+                                 marker_color='red'):
+    '''
+    
+    '''
+
+    # Check axes range
+    if _check_missing_key(dyn_kw, 'x_ticks'):
+        dyn_kw['x_ticks'] = range(dyn_kw['data'].shape[-1])
+
+    # Generate plot
+    fig, ax = plt.subplots(1, 2, figsize=(10, 5), dpi=200)
+    
+    # Fill and save set values
+    map_kw = _fill_kwargs(map_kw,
+            ['vmin',
+             'vmax'])
+    map_vmin = map_kw['vmin']
+    map_vmax = map_kw['vmax']
+
+    dyn_kw['axes'] = ax
+    _display_map(dyn_kw['data'],
+                 map_kw=map_kw,
+                 axes=ax,
+                 cmap=cmap)
+    
+    _set_globals(ax)
+
+    def update_axes(event):
+        if _update_coordinates(event,
+                               map_kw):
+            _update_axes(dyn_kw,
+                         dimensions=1,
+                         fig=fig,
+                         cmap=cmap,
+                         marker_color=marker_color)
+
+
+    def onselect(xmin, xmax):
+        indmin, indmax = np.searchsorted(dyn_kw['x_ticks'],
+                                         (xmin, xmax))
+        indmax = min(len(dyn_kw['x_ticks']) - 1, indmax)
+
+        if indmax - indmin >= 1:
+            new_map = np.sum(dyn_kw['data'][..., indmin : indmax], axis=(-1))
+            
+            map_kw['map'] = new_map
+            # map_kw['title'] = 'Selected ROI'
+            map_kw['title'] = f'Sum from {xmin:.2f}-{xmax:.2f}'
+            map_kw['vmin'] = map_vmin
+            map_kw['vmax'] = map_vmax
+
+            _display_map(
+                # dyn_kw['data'],
+                map_kw=map_kw,
+                axes=ax,
+                cmap=cmap,
+                update=True)
+            fig.canvas.draw_idle()
+
+    global row, col, dynamic_toggle
+    row, col = 0, 0
+    dynamic_toggle = not dynamic_toggle
+    _update_axes(dyn_kw,
+                 dimensions=1,
+                 fig=fig,
+                 cmap=cmap,
+                 marker_color=marker_color)
+    
+    # Quick hack!
+    axi = dyn_kw['axes'][1].lines[0]
+    axi.set_data(dyn_kw['x_ticks'], np.max(dyn_kw['data'], axis=(0, 1)))
+    dyn_kw['axes'][1].set_title('Max Integration')
+
+    span = SpanSelector(
+        ax[1],
+        onselect,
+        "horizontal",
+        useblit=True,
+        props=dict(alpha=0.5, facecolor="tab:red"),
+        interactive=True,
+        drag_from_anywhere=True
+    )
+
+    fig.show()
+    return fig, ax, span
+
+
+def com_static_1D_plot(dyn_kw={},
+                       map_kw={},
+                       cmap='viridis',
+                       marker_color='red'):
+    '''
+    
+    '''
+
+    # Check axes range
+    if _check_missing_key(dyn_kw, 'x_ticks'):
+        dyn_kw['x_ticks'] = range(dyn_kw['data'].shape[-1])
+
+    # Generate plot
+    fig, ax = plt.subplots(1, 2, figsize=(10, 5), dpi=200)
+    
+    # Fill and save set values
+    map_kw = _fill_kwargs(map_kw,
+            ['vmin',
+             'vmax'])
+    map_vmin = map_kw['vmin']
+    map_vmax = map_kw['vmax']
+
+    dyn_kw['axes'] = ax
+    _display_map(dyn_kw['data'],
+                 map_kw=map_kw,
+                 axes=ax,
+                 cmap=cmap)
+    
+    _set_globals(ax)
+
+    def update_axes(event):
+        if _update_coordinates(event,
+                               map_kw):
+            _update_axes(dyn_kw,
+                         dimensions=1,
+                         fig=fig,
+                         cmap=cmap,
+                         marker_color=marker_color)
+
+
+    def onselect(xmin, xmax):
+        indmin, indmax = np.searchsorted(dyn_kw['x_ticks'],
+                                         (xmin, xmax))
+        indmax = min(len(dyn_kw['x_ticks']) - 1, indmax)
+
+        if indmax - indmin >= 1:
+
+            new_map = (np.sum(dyn_kw['data'][..., indmin : indmax]
+                              * dyn_kw['x_ticks'][indmin : indmax], axis=-1)
+                       / np.sum(dyn_kw['data'][..., indmin : indmax], axis=-1))
+            
+            map_kw['map'] = new_map
+            map_kw['title'] = f'Center of Mass from {xmin:.2f}-{xmax:.2f}'
+            map_kw['vmin'] = map_vmin
+            map_kw['vmax'] = map_vmax
+
+            _display_map(
+                # dyn_kw['data'],
+                map_kw=map_kw,
+                axes=ax,
+                cmap=cmap,
+                update=True)
+            fig.canvas.draw_idle()
+    
+    # Quick hack!
+    global row, col, dynamic_toggle
+    row, col = 0, 0
+    dynamic_toggle = not dynamic_toggle
+    _update_axes(dyn_kw,
+                 dimensions=1,
+                 fig=fig,
+                 cmap=cmap,
+                 marker_color=marker_color)
+    
+    axi = dyn_kw['axes'][1].lines[0]
+    axi.set_data(dyn_kw['x_ticks'], np.max(dyn_kw['data'], axis=(0, 1)))
+    dyn_kw['axes'][1].set_title('Max Integration')
+
+    span = SpanSelector(
+        ax[1],
+        onselect,
+        "horizontal",
+        useblit=True,
+        props=dict(alpha=0.5, facecolor="tab:red"),
+        interactive=True,
+        drag_from_anywhere=True
+    )
+
+    fig.show()
+    return fig, ax, span
+    
+
 
 def integrateable_dynamic_1D_plot(dyn_kw={},
                                   map_kw={},
@@ -765,8 +945,12 @@ def integrateable_dynamic_1D_plot(dyn_kw={},
         indmax = min(len(dyn_kw['x_ticks']) - 1, indmax)
 
         if indmax - indmin >= 1:
-            new_map = np.sum(dyn_kw['data'][:, :, indmin : indmax],
-                         axis=(-1))
+            # new_map = np.sum(dyn_kw['data'][:, :, indmin : indmax],
+            #              axis=(-1))
+
+            new_map = (np.sum(dyn_kw['data'][..., indmin : indmax]
+                              * dyn_kw['x_ticks'][indmin : indmax], axis=-1)
+                       / np.sum(dyn_kw['data'][..., indmin : indmax], axis=-1))
             
             map_kw['map'] = new_map
             # map_kw['title'] = 'Selected ROI'

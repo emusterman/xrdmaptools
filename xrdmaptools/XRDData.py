@@ -796,6 +796,7 @@ class XRDData:
         - 'absorption'      
         - 'background'
         - 'polar_calibration'
+        - 'rescaled'
 
         Parameters
         ----------
@@ -809,8 +810,7 @@ class XRDData:
         ordered_correction_keys = [
             'dark_field',
             'flat_field', 
-            # Can be approximated with background
-            'air_scatter', 
+            'air_scatter', # Can be approximated with background
             'outliers',
             'pixel_defects', # Just a mask
             'pixel_distortions', # Unknown
@@ -821,14 +821,16 @@ class XRDData:
             'absorption', # Tricky      
             'background',
             'polar_calibration', # Bulky
+            'rescaled',
         ]
 
         # Rebuild dictionary
         if isinstance(corrections, (dict, OrderedDict)):
             self.corrections = OrderedDict([
                 (key, corrections[key])
-                for key in ordered_correction_keys
                 if key in corrections
+                else (key, False)
+                for key in ordered_correction_keys
                 ])
         # Build new dictionary
         else:
@@ -1765,6 +1767,8 @@ class XRDData:
         self.scaler_map = scaler_arr
         # Trying to catch non-saved values
         if not hasattr(self, 'sclr_dict'): 
+            # This could cause inconsistencies if this code ever 
+            # differs from estimate_saturated_pixel
             self.save_images(images='scaler_map',
                              units='counts',
                              labels=self.map_labels) 
@@ -2077,6 +2081,7 @@ class XRDData:
 
 
     # TODO: Add user-provided absorption correction!
+    # WIP: This one has some issues
     def apply_absorption_correction(self,
                                     exp_dict,
                                     apply=True,
@@ -2375,7 +2380,7 @@ class XRDData:
             if background is None and hasattr(self, 'background'):
                 warn_str = ('WARNING: background attribute still '
                             + 'saved in memory.\nOverride background '
-                            + 'remove or delete attribute to '
+                            + 'to still remove or delete attribute to '
                             + 'release memory.')
             print(warn_str)
             return
@@ -2477,7 +2482,8 @@ class XRDData:
                        upper=100,
                        arr_min=0,
                        arr_max=None,
-                       mask=None):
+                       mask=None,
+                       override=False):
         """
         Rescale images inplace.
 
@@ -2506,9 +2512,37 @@ class XRDData:
             provided.
         """
 
+        if (arr_max is not None
+            and self._check_correction('rescaled',
+                                       override=override)):
+            warn_str = ('WARNING: Explicitly setting arr_max for '
+                        + 'already rescaled images could lead to '
+                        + 'nonsensical results. Set override to True '
+                        + 'to rescale images anyway.'
+                        + '\nProceeding without changes.')
+            print(warn_str)
+            return
+
         if mask is None and np.any(self.mask != 1):
             mask = np.empty_like(self.images, dtype=np.bool_)
             mask[:, :] = self.mask
+        
+        # Write original values to disk
+        # These might be useful for undoing this operation
+        if not self.corrections['rescaled']:
+            if mask is None:
+                arr_min = np.nanmin(self.images)
+                arr_max = np.nanmax(self.images)
+            else:
+                arr_min = np.nanmin(self.images[~mask])
+                arr_max = np.nanmax(self.images[~mask])
+
+            @_protect_hdf()
+            def save_attrs(self): # Not sure if this needs self...
+                attrs = self.hdf[f'{self._hdf_type}/extra_metadata'].attrs
+                overwrite_attr(attrs, 'processed_images_min', arr_min)
+                overwrite_attr(attrs, 'processed_images_max', arr_max)
+            save_attrs(self)
         
         rescale_array(
             self.images,
@@ -2518,9 +2552,9 @@ class XRDData:
             arr_max=arr_max,
             mask=mask)
         
-        # Update _temp images
+        self.corrections['rescaled'] = True
+        self.update_map_title()
         self._dask_2_hdf()
-        self.reset_projections()
 
 
     # For estimating maximum saturated pixel
@@ -2617,8 +2651,9 @@ class XRDData:
         """
         Determine null map if not already provided.
 
-        Determine which map pixels should not considered in subsequent
-        analysis if a null map is not already stored intenally.
+        Determine which map pixels should not be considered in
+        subsequent analysis if a null map is not already stored 
+        intenally.
         
         This method requires data from the 'raw_images' dataset and
         will access the HDF file if necessary and allowed. This can
@@ -2671,7 +2706,7 @@ class XRDData:
             print('done!')
 
     
-    def nullify_images(self):
+    def nullify_images(self, verbose=True):
         """
         Nullify images based on null map attribute.
 
@@ -2679,16 +2714,19 @@ class XRDData:
         internal 'null_map' attribute. This allows entire images to be
         discounted from later analysis.
         """
-        if not hasattr(self, 'null_map'):
-            err_str = 'XRDData does not have null_map attribute.'
-            raise AttributeError(err_str)
-        elif not np.any(self.null_map):
-            note_str = ('Null map is empty, there are no missing '
-                        + 'pixels. Proceeding without changes')
-            print(note_str)
-            return
 
-        # self.images[self.null_map] = 0
+        if not hasattr(self, 'null_map') and self.null_map is not None:
+            if verbose:
+                err_str = 'XRDData does not have null_map attribute.'
+                raise AttributeError(err_str)
+            else:
+                return
+        elif not np.any(self.null_map):
+            if verbose:
+                note_str = ('Null map is empty, there are no missing '
+                            + 'pixels. Proceeding without changes')
+                print(note_str)
+            return
 
         for attr in ['images', 'blob_masks', 'integrations']:
             if hasattr(self, attr) and getattr(self, attr) is not None:
@@ -2710,8 +2748,8 @@ class XRDData:
         to the HDF if 'save images' is True. If dask is enabled, the
         temporary dataset in the HDF file is renamed to the final
         images while still acting as the temporary storage location.
-        Finally, any not applied corrections are called and the dataset
-        size is called.
+        Finally, any not applied corrections and the dataset size are
+        called.
 
         Parameters
         ----------
@@ -2729,6 +2767,7 @@ class XRDData:
 
         # Some cleanup
         print('Cleaning and updating image information...')
+        self.nullify_images(verbose=False)
         self._dask_2_hdf()
         self.update_map_title(title='final')
         self.disk_size()
@@ -2758,7 +2797,6 @@ class XRDData:
                         overwrite_attr(temp_dset.attrs,
                                        f'_{key}_correction',
                                        value)
-                        # temp_dset.attrs[f'_{key}_correction'] = value
 
                     # Relabel to final images and del temp dataset
                     hdf_str = (f'{self._hdf_type}/image_data'
@@ -2907,6 +2945,7 @@ class XRDData:
         estimating background: 'rolling_ball', 'spline',
         'polynomial', 'gaussian', and 'bruckner'.
         """
+
         method = str(method).lower()
 
         if background is None:
@@ -3005,6 +3044,7 @@ class XRDData:
             background. None by default and will use internal
             integration backgrounds.
         """
+
         raise NotImplementedError()
         if background is None:
             if hasattr(self, 'integration_background'):
@@ -3494,11 +3534,9 @@ class XRDData:
         if extra_attrs is not None:
             for key, value in extra_attrs.items():
                 overwrite_attr(dset.attrs, key, value)
-                # dset.attrs[key] = value
 
         # Add correction information to each dataset
         if title[0] != '_':
             for key, value in self.corrections.items():
                 overwrite_attr(dset.attrs, f'_{key}_correction', value)
-                # dset.attrs[f'_{key}_correction'] = value
     

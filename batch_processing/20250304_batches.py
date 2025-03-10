@@ -75,4 +75,52 @@ def reprocess_xdms():
         xdm.vectorize_map_data(rewrite_data=True)
         xdm.dump_images()
         del xdm.blob_masks
-        xdm.blob_masks = None 
+        xdm.blob_masks = None
+
+
+def re_reprocess_xdms():
+
+    base_wd = '/nsls2/data/srx/proposals/2024-1/pass-314118/processed_xrdmaps/'
+
+    xdms = XRDMapStack.from_hdf('scan153253-153297_xrdmapstack.h5', wd=base_wd, load_xdms_vector_map=False)
+
+    for xdm in timed_iter(xdms):
+        print(f'Processing scan {xdm.scan_id}...')
+
+        if not np.any(xdm.null_map):
+            print(f'Null map empty for scan {xdm.scan_id}. Proceeding to next...')
+            continue
+        
+        # xdm.load_images_from_hdf() # Should be final images!
+        # xdm.load_images_from_hdf('blob_masks')
+        
+        # # Nullify loaded values. Is this necessary??
+        # for attr in ['images', 'blob_masks', 'integrations']:
+        #     if hasattr(xdm, attr) and getattr(xdm, attr) is not None:
+        #         # This should all be done in place
+        #         getattr(xdm, attr)[xdm.null_map] = 0
+        
+        # if hasattr(xdm, 'vector_map'):
+        #     xdm.vector_map[xdm.null_map] = np.empty((0, 4), dtype=np.float32)
+
+        xdm.open_hdf()
+        
+
+        for indices in xdm.indices:
+            if not xdm.null_map[indices]:
+                continue
+            
+            xdm.hdf['xrdmap/image_data/final_images'][indices] = 0
+            xdm.hdf['xrdmap/image_data/_blob_masks'][indices] = 0
+
+            # e.g., '1,2'
+            title = ','.join([str(ind) for ind in indices])
+
+            del xdm.hdf['xrdmap/vectorized_map'][title]
+            xdm.hdf['xrdmap/vectorized_map'].require_dataset(
+                title,
+                data=np.empty((0, 4), dtype=np.float32),
+                shape=(0, 4),
+                dtype=np.float32)
+        
+        xdm.close_hdf()

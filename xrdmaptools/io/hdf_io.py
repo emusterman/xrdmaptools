@@ -415,14 +415,6 @@ def _load_xrd_hdf_integration_data(base_grp,
                             + 'integration_data instead...')
                         print(warn_str)
                         integration_data_key = 'recent'
-
-            # # Check integration_data_key in hdf
-            # if (str(integration_data_key).lower() != 'recent'
-            #     and integration_data_key not in int_grp.keys()):
-            #     warn_str = (f'WARNING: Requested integration_data_key ({integration_data_key}) '
-            #                 + 'not found in hdf. Looking for most recent integration_data instead...')
-            #     print(warn_str)
-            #     integration_data_key = 'recent'
             
             # Determine image_data key in 
             if str(integration_data_key).lower() == 'recent':

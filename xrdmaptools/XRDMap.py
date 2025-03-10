@@ -454,12 +454,7 @@ class XRDMap(XRDBaseScan):
         
         # Fill array!
         print('Integrating images to 1D...')
-        # TODO: Parallelize this
-        # for i, pixel in tqdm(enumerate(self.images.reshape(
-        #                                self.num_images,
-        #                                *self.image_shape)),
-        #                                total=self.num_images):
-        
+        # TODO: Parallelize this       
         for indices in tqdm(self.indices):
             
             image = self.images[indices].copy()
@@ -484,9 +479,6 @@ class XRDMap(XRDBaseScan):
                     tth_resolution)
 
         # Reshape into (map_x, map_y, tth)
-        # Does not explicitly match the same shape as 2d integration
-        # integrated_map1d = integrated_map1d.reshape(
-        #                         *self.map_shape, tth_num)
         self.integrations = integrated_map1d
         
         # Save a few potentially useful parameters
@@ -710,13 +702,7 @@ class XRDMap(XRDBaseScan):
     def swap_axes(self,
                   # only_images=False,
                   update_flag=True,
-                  ):
-        # This will break if images are loaded with dask.
-        # _temp_images will be of the wrong shape...
-        # could be called before _temp_images dataset is instantiated??
-        # exclude_images included to swap axes upon instantiation
-        # Only save flag
-        
+                  ):        
 
         if self._dask_enabled and self.title != 'final':
             warn_str = ('WARNING: Dask is enabled and saving to a '
@@ -846,15 +832,19 @@ class XRDMap(XRDBaseScan):
                    multiplier=5,
                    size=3,
                    expansion=10,
-                   override_rescale=True):
+                   override_rescale=False):
     
         # Cleanup images as necessary
         self._dask_2_numpy()
-        if not override_rescale and np.max(self.images) != 100:
-            print('Rescaling images to max of 100 and min around 0.')
-            self.rescale_images(arr_min=0, upper=100, lower=0)
+        if not self.corrections['rescaled'] and not override_rescale:
+            warn_str = ("Finding blobs assumes images scaled between 0"
+                        + " and around 100. Current images have not "
+                        + "been rescaled. Apply this correction or "
+                        + "set 'override_rescale' to True in order to"
+                        + " continue.\nProceeding without changes.")
+            print(warn_str)
+            return
 
-            #         sclr_dict[key] = value.reshape(self.map_shape)
         # Search each image for significant spots
         blob_mask_list = find_blobs(
                             self.images,
@@ -885,7 +875,7 @@ class XRDMap(XRDBaseScan):
                    expansion=10,
                    min_distance=3,
                    radius=10,
-                   override_rescale=True):
+                   override_rescale=False):
         
         if (hasattr(self, 'blob_masks')
             and self.blob_masks is not None):
@@ -896,9 +886,14 @@ class XRDMap(XRDBaseScan):
             
         # Cleanup images as necessary
         self._dask_2_numpy()
-        if not override_rescale and np.max(self.images) != 100:
-            print('Rescaling images to max of 100 and min around 0.')
-            self.rescale_images(arr_min=0, upper=100, lower=0)
+        if not self.corrections['rescaled'] and not override_rescale:
+            warn_str = ("Finding spots assumes images scaled between 0"
+                        + " and around 100. Current images have not "
+                        + "been rescaled. Apply this correction or "
+                        + "set 'override_rescale' to True in order to"
+                        + " continue.\nProceeding without changes.")
+            print(warn_str)
+            return
         
         # Search each image for significant blobs and spots
         spot_list, blob_mask_list = find_blobs_spots(
