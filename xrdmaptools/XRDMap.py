@@ -35,7 +35,9 @@ from xrdmaptools.reflections.spot_blob_search import (
     )
 from xrdmaptools.plot.interactive import (
     interactive_2D_plot,
-    interactive_1D_plot
+    interactive_1D_plot,
+    static_window_sum_1D_plot,
+    static_window_com_1D_plot
     )
 from xrdmaptools.plot.general import (
     plot_map,
@@ -1413,7 +1415,7 @@ class XRDMap(XRDBaseScan):
         if return_plot:
             return fig, ax
         else:
-            fig.show()
+            fig.show()  
 
 
     def plot_interactive_integration_map(self,
@@ -1422,6 +1424,77 @@ class XRDMap(XRDBaseScan):
                                          title_scan_id=True,
                                          return_plot=False,
                                          **kwargs):
+        
+        dyn_kw, map_kw = self._prepare_interactive_integrations(
+                                        dyn_kw=dyn_kw,
+                                        map_kw=map_kw,
+                                        title_scan_id=title_scan_id
+                                        )
+    
+        fig, ax = interactive_1D_plot(dyn_kw,
+                                      map_kw,
+                                      **kwargs)
+        if return_plot:
+            return fig, ax
+        else:
+            fig.show()
+
+
+    def plot_window_sum_map(self,
+                            dyn_kw=None,
+                            map_kw=None,
+                            title_scan_id=True,
+                            return_plot=False,
+                            **kwargs):
+        
+        dyn_kw, map_kw = self._prepare_interactive_integrations(
+                                        dyn_kw=dyn_kw,
+                                        map_kw=map_kw,
+                                        title_scan_id=title_scan_id
+                                        )
+        
+        fig, ax, span = static_window_sum_1D_plot(dyn_kw,
+                                                  map_kw,
+                                                  **kwargs)
+        # Save internally for reference.
+        self.__span = span
+
+        if return_plot:
+            return fig, ax
+        else:
+            fig.show()
+        
+
+    def plot_window_com_map(self,
+                            dyn_kw=None,
+                            map_kw=None,
+                            title_scan_id=True,
+                            return_plot=False,
+                            **kwargs):
+
+        dyn_kw, map_kw = self._prepare_interactive_integrations(
+                                        dyn_kw=dyn_kw,
+                                        map_kw=map_kw,
+                                        title_scan_id=title_scan_id
+                                        )
+        
+        fig, ax, span = static_window_com_1D_plot(dyn_kw,
+                                                  map_kw,
+                                                  **kwargs)
+        
+        # Save internally for reference.
+        self.__span = span
+
+        if return_plot:
+            return fig, ax
+        else:
+            fig.show()
+
+
+    def _prepare_interactive_integrations(self,
+                                          dyn_kw=None,
+                                          map_kw=None,
+                                          title_scan_id=True):
         
         # Python doesn't play well with mutable default kwargs
         if dyn_kw is None:
@@ -1435,7 +1508,7 @@ class XRDMap(XRDBaseScan):
             err_str = 'Could not find integrations to plot data!'
             raise ValueError(err_str)
         elif self.integrations.ndim != 3:
-            err_str = ('Integration data shape is not 4D, '
+            err_str = ('Integration data shape is not 3D, '
                        + f'but {self.integrations.ndim}.')
             raise ValueError(err_str)
         else:
@@ -1475,11 +1548,5 @@ class XRDMap(XRDBaseScan):
                             map_kw['title'],
                             default_title='Custom Map',
                             title_scan_id=title_scan_id)
-    
-        fig, ax = interactive_1D_plot(dyn_kw,
-                                      map_kw,
-                                      **kwargs)
-        if return_plot:
-            return fig, ax
-        else:
-            fig.show()
+        
+        return dyn_kw, map_kw

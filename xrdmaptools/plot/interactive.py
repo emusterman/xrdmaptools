@@ -480,6 +480,58 @@ def interactive_2D_plot(dyn_kw={},
     return fig, ax
 
 
+def interactive_3D_plot(dyn_kw={},
+                        map_kw={},
+                        cmap='viridis',
+                        marker_color='red'):
+    '''
+    
+    '''
+
+    # Generate plot
+    # fig, ax = plt.subplots(1, 2, figsize=(10, 5), dpi=200)
+    fig = plt.figure(figsize=(10, 5), dpi=200)
+    ax = [fig.add_axes(121), fig.add_axes(122, projection='3d')]
+    dyn_kw['axes'] = ax
+    _display_map(dyn_kw['data'],
+                 map_kw=map_kw,
+                 axes=ax,
+                 cmap=cmap)
+
+    _set_globals(ax)
+
+    def update_axes(event):
+        if _update_coordinates(event,
+                               map_kw):
+            _update_axes(dyn_kw=dyn_kw,
+                         dimensions=3,
+                         fig=fig,
+                         cmap=cmap,
+                         marker_color=marker_color)
+
+    # Make interactive
+    def onclick(event):
+        if event.inaxes == ax[0]:
+            global dynamic_toggle, marker
+            dynamic_toggle = not dynamic_toggle
+            update_axes(event)
+    
+    # Make dynamic
+    def onmove(event):
+        global dynamic_toggle
+        if dynamic_toggle:
+            if event.inaxes == ax[0]:
+                update_axes(event)
+    
+    cid = fig.canvas.mpl_connect('button_press_event', onclick)
+    binding_id = plt.connect('motion_notify_event', onmove)
+    return fig, ax
+
+
+
+
+### Not fully implemented into dataset classes
+
 def interactive_2D_1D_plot(dyn_2D_kw={},
                            dyn_1D_kw={},
                            map_kw={},
@@ -715,10 +767,10 @@ def _find_image_extent(x_ticks, y_ticks):
 
 from matplotlib.widgets import SpanSelector
 
-def integrateable_static_1D_plot(dyn_kw={},
-                                 map_kw={},
-                                 cmap='viridis',
-                                 marker_color='red'):
+def static_window_sum_1D_plot(dyn_kw={},
+                              map_kw={},
+                              cmap='viridis',
+                              marker_color='red'):
     '''
     
     '''
@@ -777,6 +829,7 @@ def integrateable_static_1D_plot(dyn_kw={},
                 update=True)
             fig.canvas.draw_idle()
 
+    # Quick hack! Plot dummy image then replace
     global row, col, dynamic_toggle
     row, col = 0, 0
     dynamic_toggle = not dynamic_toggle
@@ -786,7 +839,6 @@ def integrateable_static_1D_plot(dyn_kw={},
                  cmap=cmap,
                  marker_color=marker_color)
     
-    # Quick hack!
     axi = dyn_kw['axes'][1].lines[0]
     axi.set_data(dyn_kw['x_ticks'], np.max(dyn_kw['data'], axis=(0, 1)))
     dyn_kw['axes'][1].set_title('Max Integration')
@@ -805,10 +857,10 @@ def integrateable_static_1D_plot(dyn_kw={},
     return fig, ax, span
 
 
-def com_static_1D_plot(dyn_kw={},
-                       map_kw={},
-                       cmap='viridis',
-                       marker_color='red'):
+def static_window_com_1D_plot(dyn_kw={},
+                              map_kw={},
+                              cmap='viridis',
+                              marker_color='red'):
     '''
     
     '''
@@ -869,7 +921,7 @@ def com_static_1D_plot(dyn_kw={},
                 update=True)
             fig.canvas.draw_idle()
     
-    # Quick hack!
+    # Quick hack! Plot dummy image then replace
     global row, col, dynamic_toggle
     row, col = 0, 0
     dynamic_toggle = not dynamic_toggle
@@ -897,7 +949,7 @@ def com_static_1D_plot(dyn_kw={},
     return fig, ax, span
     
 
-
+# The dynamic nature of the 1D plots makes this function finicky
 def integrateable_dynamic_1D_plot(dyn_kw={},
                                   map_kw={},
                                   cmap='viridis',
@@ -1002,51 +1054,3 @@ def integrateable_dynamic_1D_plot(dyn_kw={},
     cid = fig.canvas.mpl_connect('button_press_event', onclick)
     binding_id = plt.connect('motion_notify_event', onmove)
     return fig, ax, span
-
-
-def interactive_3D_plot(dyn_kw={},
-                        map_kw={},
-                        cmap='viridis',
-                        marker_color='red'):
-    '''
-    
-    '''
-
-    # Generate plot
-    # fig, ax = plt.subplots(1, 2, figsize=(10, 5), dpi=200)
-    fig = plt.figure(figsize=(10, 5), dpi=200)
-    ax = [fig.add_axes(121), fig.add_axes(122, projection='3d')]
-    dyn_kw['axes'] = ax
-    _display_map(dyn_kw['data'],
-                 map_kw=map_kw,
-                 axes=ax,
-                 cmap=cmap)
-
-    _set_globals(ax)
-
-    def update_axes(event):
-        if _update_coordinates(event,
-                               map_kw):
-            _update_axes(dyn_kw=dyn_kw,
-                         dimensions=3,
-                         fig=fig,
-                         cmap=cmap,
-                         marker_color=marker_color)
-
-    # Make interactive
-    def onclick(event):
-        if event.inaxes == ax[0]:
-            global dynamic_toggle, marker
-            dynamic_toggle = not dynamic_toggle
-            update_axes(event)
-    
-    # Make dynamic
-    def onmove(event):
-        global dynamic_toggle
-        if dynamic_toggle:
-            if event.inaxes == ax[0]:
-                update_axes(event)
-    
-    cid = fig.canvas.mpl_connect('button_press_event', onclick)
-    binding_id = plt.connect('motion_notify_event', onmove)
-    return fig, ax

@@ -1445,3 +1445,12 @@ class XRDMapStack(list):
             # matplotlib likes to keep a reference
             self.__slider = slider
             fig.show()
+    
+    
+    def plot_interactive_map(self,
+                             dyn_kw=None,
+                             map_kw=None,
+                             title_scan_id=True,
+                             return_plot=False,
+                             **kwargs):
+        raise NotImplementedError()
