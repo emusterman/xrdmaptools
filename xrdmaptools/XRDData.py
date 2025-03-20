@@ -1501,10 +1501,11 @@ class XRDData:
 
         Parameters
         ----------
-        air_scatter : 2D array, optional
-            2D array matching the image shape to be subtracted from
-            images. Internal air_scatter attribute is used unless
-            specified.
+        air_scatter : 2D or 4D array, optional
+            2D or 4D array matching the image shape or dataset shape to
+            be subtracted from images. Internal air_scatter attribute
+            is used unless specified. A median image of 4D air_scatter
+            will be and stored interanally and written to HDF.
         applied_corrections : dict, optional
             A dictionary with keys included in the internal correction
             dictionary of any corrections already applied to the
@@ -1538,10 +1539,11 @@ class XRDData:
                 air_scatter = self.air_scatter
             else:
                 print('No air_scatter given for correction.')
-        elif air_scatter.shape != self.image_shape:
+        elif (air_scatter.shape != self.image_shape
+              and air_scatter.shape != self.shape):
             err_str = (f'air_scatter shape of {air_scatter.shape} does'
-                       + ' not match image shape of '
-                       + f'{self.image_shape}.')
+                       + ' not match image or full dataset shape of '
+                       + f'{self.shape}.')
             raise ValueError(err_str)
         
         if applied_corrections is None:
@@ -1612,11 +1614,23 @@ class XRDData:
         if (self.corrections['solid_angle']
             and not applied_corrections['solid_angle']):
             air_scatter /= self.solidangle_correction
+        
+        # Check shape
+        if air_scatter.ndim != 2:
+            static = False
+            # Save median for estimate_saturated_pixel
+            # This might use a lot of memory! Mean might be safer
+            med_air_scatter = np.median(air_scatter, axis=(0, 1)) 
+            self.air_scatter = med_air_scatter
+            self.images -= air_scatter
+            del air_scatter
+        else:
+            static = True
+            self.air_scatter = air_scatter
+            self.images -= air_scatter
 
-        self.air_scatter = air_scatter
-        self.images -= self.air_scatter
-
-        self.save_images(images='air_scatter')
+        self.save_images(images='air_scatter',
+                         extra_attrs={'static' : static})
         
         self.corrections['air_scatter'] = True
         self.update_map_title()
@@ -2531,17 +2545,18 @@ class XRDData:
         # These might be useful for undoing this operation
         if not self.corrections['rescaled']:
             if mask is None:
-                arr_min = np.nanmin(self.images)
-                arr_max = np.nanmax(self.images)
+                proc_min = np.nanmin(self.images)
+                proc_max = np.nanmax(self.images)
             else:
-                arr_min = np.nanmin(self.images[~mask])
-                arr_max = np.nanmax(self.images[~mask])
+                proc_min = np.nanmin(self.images[~mask])
+                proc_max = np.nanmax(self.images[~mask])
 
-            @_protect_hdf()
+            @XRDData._protect_hdf()
             def save_attrs(self): # Not sure if this needs self...
+                # print(type(self.hdf))
                 attrs = self.hdf[f'{self._hdf_type}/extra_metadata'].attrs
-                overwrite_attr(attrs, 'processed_images_min', arr_min)
-                overwrite_attr(attrs, 'processed_images_max', arr_max)
+                overwrite_attr(attrs, 'processed_images_min', proc_min)
+                overwrite_attr(attrs, 'processed_images_max', proc_max)
             save_attrs(self)
         
         rescale_array(
@@ -2601,8 +2616,8 @@ class XRDData:
             raw_max_val -= np.median(self.dark_field)
         if self.corrections['flat_field']:
             raw_max_val /= np.median(self.flat_field)
-        # if self.corrections['air_scatter']:
-        #     raw_max_val -= np.min(self.air_scatter)
+        if self.corrections['air_scatter']:
+            raw_max_val -= np.median(self.air_scatter)
         
         if self.corrections['scaler_intensity']:
             if (hasattr(self, 'scaler_map')
