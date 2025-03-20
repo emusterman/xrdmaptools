@@ -158,7 +158,7 @@ def get_large_map_slices(datamap,
         # From numpy.array_split
         Neach_section, extras = divmod(data_shape[axis], num_chunk)
         section_sizes = ([0]
-                        + extras * [Neach_section+1]
+                        + extras * [Neach_section + 1]
                         + (num_chunk - extras) * [Neach_section])
         div_points = _nx.array(section_sizes, dtype=_nx.intp).cumsum()
 

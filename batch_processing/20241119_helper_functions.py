@@ -23,8 +23,8 @@ from xrdmaptools.XRDBaseScan import XRDBaseScan
 from xrdmaptools.utilities.utilities import (
     generate_intensity_mask
 )
-# from xrdmaptools.reflections.spot_blob_indexing_3D import pair_casting_index_full_pattern
-# from xrdmaptools.reflections.spot_blob_search_3D import rsm_spot_search
+from xrdmaptools.reflections.spot_blob_indexing_3D import pair_casting_index_full_pattern
+from xrdmaptools.reflections.spot_blob_search_3D import rsm_spot_search
 from xrdmaptools.crystal.crystal import are_collinear, are_coplanar
 
 
@@ -447,14 +447,15 @@ def get_num_vector_map(vector_map):
 def get_connection_map(xrdmapstack, phase,
                        verbose=False):
 
-    vmap = xdms.xdms_vector_map
+    vmap = xrdmapstack.xdms_vector_map
+    phase.generate_reciprocal_lattice(1.15 * np.linalg.norm(xrdmapstack.q_arr, axis=-1).max())
     # qmask = QMask.from_XRDRockingScan(xdms)
     # phase = xrdmapstack.phases['stibnite']
 
     spot_map = np.empty(vmap.shape, dtype=object)
     conn_map = np.empty(vmap.shape, dtype=object)
     qofs_map = np.empty(vmap.shape, dtype=object)
-    hkls_map = np.empty(vmap.shape, dtype=object)
+     #hkls_map = np.empty(vmap.shape, dtype=object)
 
     if verbose:
         iterable = timed_iter(range(np.prod(vmap.shape)))
@@ -496,7 +497,7 @@ def get_connection_map(xrdmapstack, phase,
                                                         xrdmapstack.qmask,
                                                         degrees=True,
                                                         verbose=verbose)
-                    hkls = phase.all_hkls
+                    # hkls = phase.all_hkls
                     # spots = list(spots)
 
                     # # Not sure where all nan connections are coming from, but reduce them
@@ -525,20 +526,20 @@ def get_connection_map(xrdmapstack, phase,
                 spots = np.asarray([])
                 best_connections = np.asarray([])
                 best_qofs = np.asarray([])
-                hkls = np.asarray([])
+                # hkls = np.asarray([])
         
         else:
             spots = np.asarray([])
             best_connections = np.asarray([])
             best_qofs = np.asarray([])
-            hkls = np.asarray([])
+            # hkls = np.asarray([])
         
         spot_map[indices] = np.asarray(spots)
         conn_map[indices] = np.asarray(best_connections)
         qofs_map[indices] = np.asarray(best_qofs)
-        hkls_map[indices] = np.asarray(hkls)
+        # hkls_map[indices] = np.asarray(hkls)
 
-    return spot_map, conn_map, qofs_map, hkls_map
+    return spot_map, conn_map, qofs_map, # hkls_map
 
 
 def get_hkls_map(xrdmapstack, phase):

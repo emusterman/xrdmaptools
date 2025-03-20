@@ -40,9 +40,10 @@ from xrdmaptools.plot.image_stack import base_slider_plot
 class XRDMapStack(list): 
     """
     Class for combining XRDMaps acquired along either an
-    energy/wavelength or angle rocking axis for analyzing and processing
-    the XRD data. Many XRDMap methods are included to work verbatim,
-    iterably though the full stack, or modified with this class.
+    energy/wavelength or angle rocking axis for analyzing and
+    processing the XRD data. Many XRDMap methods are included to work
+    verbatim, iterably though the full stack, or modified with this
+    class.
 
     Parameters
     ----------
@@ -165,6 +166,7 @@ class XRDMapStack(list):
                 setattr(self, key, value)
 
         # Define several methods
+        # Probably not the Pythonic way to do this...
         self._construct_iterable_methods()
         self._construct_verbatim_methods()
 
@@ -890,7 +892,7 @@ class XRDMapStack(list):
         # Check to make sure the change is appropriate and correct.
         # Not sure if this should raise and error or just print a warning
         if xdms_hdf is None and xdms_hdf_path is None:
-            ostr = ('Neither xdm_hdf nor xdms_hdf_path were provided. '
+            ostr = ('Neither xdms_hdf nor xdms_hdf_path were provided. '
                      + '\nCannot switch hdf save locations without '
                      + 'providing alternative.')
             print(ostr)
@@ -1243,7 +1245,7 @@ class XRDMapStack(list):
                        marker='*')
 
             # This can probably be done with RegularPolyCollection
-            # but this proved finicky
+            # but that proved finicky
             rect_list = []
             for xi, yi in zip(xx_virt, yy_virt):
                 # Create a Rectangle patch
@@ -1446,7 +1448,7 @@ class XRDMapStack(list):
             self.__slider = slider
             fig.show()
     
-    
+
     def plot_interactive_map(self,
                              dyn_kw=None,
                              map_kw=None,
