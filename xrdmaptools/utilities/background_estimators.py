@@ -481,7 +481,7 @@ def spline_image_bkg(image, mask, tth, chi, sparsity=0.5, s=5000):
     return overlap
 
 
-def masked_bruckner_image_background(image, size, iterations, mask):
+def masked_bruckner_image_background(image, size, iterations, mask, min_prominence=5e-4):
 
     # Divisor image for ignoring mask contributions
     div_image = np.ones_like(image)
@@ -515,11 +515,13 @@ def masked_bruckner_image_background(image, size, iterations, mask):
 
         min_image = np.min(np.array([old_image, avg_image]), axis=0)
         
-        if np.max(np.abs(old_image - min_image)) > 5e-4:
+        if np.max(np.abs(old_image - min_image)) > min_prominence:
             old_image = np.copy(min_image)
         else:
-            print(f'Background converged after {i + 1} iterations!')
+            # print(f'Background converged after {i + 1} iterations!')
             break
+    else:
+        print(f'Background fialed to converge after {iterations} iterations!')
 
     return min_image
 
