@@ -17,6 +17,7 @@ from xrdmaptools.utilities.utilities import (
     pathify,
     _check_dict_key
 )
+from xrdmaptools.io.hdf_io import _load_xrd_hdf_vectorized_map_data
 from xrdmaptools.io.hdf_utils import (
     check_attr_overwrite,
     overwrite_attr,
@@ -132,7 +133,8 @@ class XRDMap(XRDBaseScan):
                 data_keys=None,
                 save_hdf=True,
                 dask_enabled=False,
-                repair_method='fill'):
+                repair_method='fill',
+                **kwargs):
         
         if wd is None:
             wd = os.getcwd()
@@ -213,6 +215,7 @@ class XRDMap(XRDBaseScan):
                          extra_metadata=extra_md,
                          save_hdf=save_hdf,
                          dask_enabled=dask_enabled,
+                         **kwargs
                          )
             
             xrdmaps.append(xrdmap)
@@ -378,8 +381,8 @@ class XRDMap(XRDBaseScan):
                             XRDBaseScan.save_sclr_pos)
 
     
-    def save_current_hdf(self):
-        super().save_current_hdf() # no inputs!
+    def save_current_hdf(self, verbose=False):
+        super().save_current_hdf(verbose=verbose)
 
         # Save positions
         if (hasattr(self, 'pos_dict')
@@ -393,6 +396,13 @@ class XRDMap(XRDBaseScan):
         if (hasattr(self, 'spots')
             and self.spots is not None):
             self.save_spots()
+        
+        # Save vector_map
+        if ((hasattr(self, 'vector_map')
+             and self.vectors is not None)
+            and (hasattr(self, 'edges')
+             and self.edges is not None)):
+            self.save_vector_map(rewrite_data=True)
 
     
     
@@ -753,12 +763,15 @@ class XRDMap(XRDBaseScan):
         if (hasattr(self, 'scaler_map')
             and self.scaler_map is not None):
             self.scaler_map = self.scaler_map.swapaxes(0, 1)
+        if (hasattr(self, 'vector_map')
+            and self.vector_map is not None):
+            self.vector_map = self.vector_map.swapaxes(0, 1)
 
         # Modify other attributes as needed
-        if hasattr(self, 'pos_dict'):
+        if hasattr(self, 'pos_dict') and self.pos_dict is not None:
             for key in list(self.pos_dict.keys()):
                 self.pos_dict[key] = self.pos_dict[key].swapaxes(0, 1)  
-        if hasattr(self, 'sclr_dict'):
+        if hasattr(self, 'sclr_dict') and self.sclr_dict is not None:
             for key in list(self.sclr_dict.keys()):
                 self.sclr_dict[key] = self.sclr_dict[key].swapaxes(0, 1)
         # Update spot map_indices
@@ -809,20 +822,23 @@ class XRDMap(XRDBaseScan):
         if hasattr(self, 'pos_dict') and self.pos_dict is not None:
             self.pos_dict['interp_x'] = interp_x
             self.pos_dict['interp_y'] = interp_y
+        
+            # Write to hdf file
+            self.save_sclr_pos('positions',
+                               self.pos_dict,
+                               self.position_units,
+                               check_init_sets=check_init_sets)
         else:
             warn_str = ('WARNING: No pos_dict found. '
                         + 'Generating from interpolated positions.')
             print(warn_str)
-            self.pos_dict = {
+            pos_dict = {
                 'interp_x' : interp_x,
                 'interp_y' : interp_y
             }
-        
-        # Write to hdf file
-        self.save_sclr_pos('positions',
-                            self.pos_dict,
-                            self.position_units,
-                            check_init_sets=check_init_sets)
+            # Store internally and save    
+            self.set_positions(pos_dict,
+                               check_init_sets=check_init_sets)
     
     
     #######################
@@ -1115,7 +1131,8 @@ class XRDMap(XRDBaseScan):
     def vectorize_map_data(self,
                            image_data_key='recent',
                            keep_images=False,
-                           rewrite_data=False):
+                           rewrite_data=False,
+                           verbose=False):
 
         # Check required data
         remove_blob_masks_after = False
@@ -1152,7 +1169,8 @@ class XRDMap(XRDBaseScan):
         # Record values
         self.vector_map = vector_map
         # Write to hdf
-        self.save_map_vectorization(rewrite_data=rewrite_data)
+        self.save_vector_map(rewrite_data=rewrite_data,
+                                    verbose=verbose)
         
         # Cleaning up XRDMap state
         if not keep_images and remove_images_after:
@@ -1161,12 +1179,14 @@ class XRDMap(XRDBaseScan):
             del self.blob_masks
             self.blob_masks = None       
     
-    
+
+    @_check_swapped_axes
     @XRDBaseScan._protect_hdf()
-    def save_map_vectorization(self,
+    def save_vector_map(self,
                                vector_map=None,
                                edges=None,
-                               rewrite_data=False):
+                               rewrite_data=False,
+                               verbose=False):
 
         # Allows for more customizability with other functions
         hdf = getattr(self, 'hdf')
@@ -1187,13 +1207,23 @@ class XRDMap(XRDBaseScan):
             if hasattr(self, 'edges'):
                 edges = self.edges
     
-        self._save_map_vectorization(hdf,
+        self._save_vector_map(hdf,
                                      vector_map=vector_map,
                                      edges=edges,
-                                     rewrite_data=rewrite_data)
+                                     rewrite_data=rewrite_data,
+                                     verbose=verbose)
         
         # Remove secondary reference
         del hdf
+    
+
+    @_check_swapped_axes
+    @XRDBaseScan._protect_hdf()
+    def load_vector_map(self):
+        vector_dict = _load_xrd_hdf_vectorized_map_data(
+                                        self.hdf[self._hdf_type])
+        self.vector_map = vector_dict['vector_map']
+
 
     #################################
     ### Analysis of Selected Data ###
@@ -1381,19 +1411,17 @@ class XRDMap(XRDBaseScan):
 
         # Add default map_kw information if not already included
         if not _check_dict_key(map_kw, 'map'):
-            map_kw['map'] = self.sum_map
-            map_kw['title'] = 'Summed Intensity'
-        if (hasattr(self, 'map')
-            and hasattr(self, 'map_extent')):
-            if not _check_dict_key(map_kw, 'x_ticks'):
-                map_kw['x_ticks'] = np.round(np.linspace(
-                    *self.map_extent()[:2],
-                    self.map_shape[1]), 2)
-            if not _check_dict_key(map_kw, 'y_ticks'):
-                map_kw['y_ticks'] = np.round(np.linspace(
-                    *self.map_extent()[2:],
-                    self.map_shape[0]), 2)
-        if hasattr(self, 'positions_units'):
+            map_kw['map'] = self.max_map
+            map_kw['title'] = 'Max Detector Intensity'
+        if not _check_dict_key(map_kw, 'x_ticks'):
+            map_kw['x_ticks'] = np.round(np.linspace(
+                *self.map_extent()[:2],
+                self.map_shape[1]), 2)
+        if not _check_dict_key(map_kw, 'y_ticks'):
+            map_kw['y_ticks'] = np.round(np.linspace(
+                *self.map_extent()[2:],
+                self.map_shape[0]), 2)
+        if hasattr(self, 'position_units'):
             if not _check_dict_key(map_kw, 'x_label'):
                 map_kw['x_label'] = ('x position '
                                      + f'[{self.position_units}]')
@@ -1522,19 +1550,17 @@ class XRDMap(XRDBaseScan):
     
         # Add default map_kw information if not already included
         if not _check_dict_key(map_kw, 'map'):
-            map_kw['map'] = self.sum_map
-            map_kw['title'] = 'Summed Intensity'
-        if (hasattr(self, 'map')
-            and hasattr(self, 'map_extent')):
-            if not _check_dict_key(map_kw, 'x_ticks'):
-                map_kw['x_ticks'] = np.round(np.linspace(
-                    *self.map_extent()[:2],
-                    self.map_shape[1]), 2)
-            if not _check_dict_key(map_kw, 'y_ticks'):
-                map_kw['y_ticks'] = np.round(np.linspace(
-                    *self.map_extent()[2:],
-                    self.map_shape[0]), 2)
-        if hasattr(self, 'positions_units'):
+            map_kw['map'] = self.max_map
+            map_kw['title'] = 'Max Detector Intensity'
+        if not _check_dict_key(map_kw, 'x_ticks'):
+            map_kw['x_ticks'] = np.round(np.linspace(
+                *self.map_extent()[:2],
+                self.map_shape[1]), 2)
+        if not _check_dict_key(map_kw, 'y_ticks'):
+            map_kw['y_ticks'] = np.round(np.linspace(
+                *self.map_extent()[2:],
+                self.map_shape[0]), 2)
+        if hasattr(self, 'position_units'):
             if not _check_dict_key(map_kw, 'x_label'):
                 map_kw['x_label'] = ('x position '
                                      + f'[{self.position_units}]')

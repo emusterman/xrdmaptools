@@ -313,6 +313,33 @@ class Iterable2D:
         return self.len
 
 
+def get_vector_map_feature(vector_map,
+                           feature_function=len,
+                           dtype=float):
+
+    feature_map = np.empty(vector_map.shape, dtype=dtype)
+
+    for indices in Iterable2D(feature_map.shape):
+        feature_map[indices] = feature_function(vector_map[indices])
+    
+    return feature_map
+
+# def get_vector_map_feature(vector_map,
+#                            feature_function=len,
+#                            dtype=float):
+#     feature_map = np.empty(vector_map.shape, dtype=dtype)
+
+#     for index in range(np.prod(vector_map.shape)):
+#         indices = np.unravel_index(index, vector_map.shape)
+#         feature_map[indices] = feature_function(vector_map[indices])
+
+#     return feature_map
+
+get_int_vector_map = lambda vm : get_vector_map_feature(vm, feature_function=np.sum)
+get_max_vector_map = lambda vm : get_vector_map_feature(vm, feature_function=np.max)
+get_num_vector_map = lambda vm : get_vector_map_feature(vm, dtype=int)
+
+
 # Class for timing large for loops with lots of print statements that do not play nicely with tqdm
 # There probably is a way to do this with tqdm, but I have used variations of this method several times
 # Example:

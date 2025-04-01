@@ -35,9 +35,9 @@ from xrdmaptools.io.hdf_utils import (
     overwrite_attr,
 )
 from xrdmaptools.plot.general import (
-    _plot_parse_xrdmap,
-    _xrdmap_image,
-    _xrdmap_integration,
+    _plot_parse_xrdbasescan,
+    _xrdbasescan_image,
+    _xrdbasescan_integration,
     plot_image,
     plot_integration
     )
@@ -262,21 +262,6 @@ class XRDBaseScan(XRDData):
             self.set_scalers(sclr_dict,
                              check_init_sets=check_init_sets)
         
-        # # Correct default scalers for energy
-        # if (not self.sclr_dict is None # Has a sclr_dict
-        #     and not np.isnan(self.energy) # Has a real energy
-        #     # Not already energy corrected
-        #     not any(['energy' in key for key in self.sclr_dict.keys()])
-        #     # Not already flux corrected
-        #     not any(['flux' in key for key in self.sclr_dict.keys()])
-        #     ):
-        #     self.correct_scaler_energies(
-        #                         scaler_key='i0',
-        #                         check_init_sets=check_init_sets)
-        #     self.correct_scaler_energies(
-        #                         scaler_key='im',
-        #                         check_init_sets=check_init_sets)
-        
         # Default units and flags
         # Not fully implemented
         # 'rad' or 'deg'
@@ -478,14 +463,14 @@ class XRDBaseScan(XRDData):
                                     if x not in ['images',
                                                     'integrations']])
         else:
-            image_title = None
+            image_title = 'empty'
         if integration_data_key is not None:
             integration_title = '_'.join([x for x in
                                     integration_data_key.split('_')
                                     if x not in ['images',
                                                     'integrations']])
         else:
-            integration_title = None
+            integration_title = 'empty'
 
         # Compare image and integration data
         title = image_title
@@ -901,7 +886,7 @@ class XRDBaseScan(XRDData):
 
     @q_arr.deleter
     def q_arr(self):
-        self._del_arr()
+        del self._q_arr
     
     # Convenience function
     def _del_arr(self):
@@ -927,7 +912,8 @@ class XRDBaseScan(XRDData):
                          hdf_filename=None,
                          hdf_path=None,
                          dask_enabled=False,
-                         save_current=False):
+                         save_current=False,
+                         verbose=True):
         """
 
         """
@@ -984,12 +970,12 @@ class XRDBaseScan(XRDData):
             self.hdf = None
 
         if save_current:
-            self.save_current_hdf()
+            self.save_current_hdf(verbose=verbose)
 
 
     # Saves current major features
     # Calls several other save functions
-    def save_current_hdf(self):
+    def save_current_hdf(self, verbose=False):
         """
 
         """
@@ -1000,11 +986,12 @@ class XRDBaseScan(XRDData):
                   + 'without changes.')
             return # Hard-coded even though all should pass
 
-        if hasattr(self, 'images'):
+        if hasattr(self, 'images') and self.images is not None:
             if self._dask_enabled:
                 self.dask_2_hdf()
             else:
                 self.save_images()
+
         # Save integrations
         if (hasattr(self, 'integrations')
             and self.integrations is not None):
@@ -1021,7 +1008,7 @@ class XRDBaseScan(XRDData):
         
         # Save phases
         if hasattr(self, 'phases') and self.phases is not None:
-            self.save_phases()
+            self.save_phases(verbose=verbose)
 
     
     # Ability to toggle hdf saving and proceed without writing to disk.
@@ -1042,11 +1029,14 @@ class XRDBaseScan(XRDData):
         self.hdf_path = None
     
 
+    @XRDData._protect_hdf()
     def switch_hdf(self,
                    hdf=None,
                    hdf_path=None,
                    hdf_filename=None,
-                   dask_enabled=False):
+                   dask_enabled=False,
+                   save_current=False,
+                   verbose=True):
         """
 
         """
@@ -1077,11 +1067,27 @@ class XRDBaseScan(XRDData):
         else:
             # Success actually changes the write location
             # And likely initializes a new hdf
+
+            old_base_attrs = dict(self.hdf[self._hdf_type].attrs)
+            # old_extra_metadata = dict(self.hdf[f'{self._hdf_type}/extra_metadata'].attrs)
+
             self.stop_saving_hdf()
             self.start_saving_hdf(hdf=hdf,
                                   hdf_path=hdf_path,
                                   hdf_filename=hdf_filename,
-                                  dask_enabled=dask_enabled)
+                                  dask_enabled=dask_enabled,
+                                  save_current=save_current,
+                                  verbose=verbose)
+            self.open_hdf()
+            
+            # Overwrite from old values
+            for key, value in old_base_attrs.items():
+                self.hdf[self._hdf_type].attrs[key] = value
+            # for key, value in old_extra_metadata.items():
+                # self.hdf[f'{self._hdf_type}/extra_metadata'].attrs[key] = value
+
+            
+            
             
 
     ##############################
@@ -1506,7 +1512,8 @@ class XRDBaseScan(XRDData):
         # Determine energy independent scaler values
         new_scaler_key = f'energy_corrected_{scaler_key}'
         new_sclr_arr = (self.sclr_dict[scaler_key]
-                        / (absorption * self.energy))
+                        / (absorption * self.energy).reshape(
+                                                    self.map_shape))
 
         # Set values and write to hdf
         self.sclr_dict[new_scaler_key] = new_sclr_arr
@@ -1700,7 +1707,7 @@ class XRDBaseScan(XRDData):
 
 
     @XRDData._protect_hdf()
-    def save_phases(self):
+    def save_phases(self, verbose=True):
         """
 
         """
@@ -1718,11 +1725,11 @@ class XRDBaseScan(XRDData):
             for phase in self.phases.values():
                 phase.save_to_hdf(phase_grp)
 
-            print('Phases saved in hdf.')
+            if verbose:
+                print('Phases saved in hdf.')
 
 
     def select_phases(self,
-                      remove_less_than=-1,
                       xrd=None,
                       energy=None,
                       tth_resolution=None,
@@ -1731,8 +1738,7 @@ class XRDBaseScan(XRDData):
                       ignore_less=1,
                       title=None,
                       title_scan_id=True,
-                      update_reflections=True,
-                      save_to_hdf=True):
+                      save_to_hdf=False):
         """
 
         """
@@ -1798,16 +1804,14 @@ class XRDBaseScan(XRDData):
                                     tth,
                                     ignore_less=ignore_less,
                                     title=title,
-                                    update_reflections=update_reflections)
+                                    update_reflections=save_to_hdf)
 
-        if update_reflections:
+        # Update reflections and write to hdf
+        if save_to_hdf:
             old_phases = list(self.phases.keys())
             for phase in old_phases:
-                if phase_vals[phase] <= remove_less_than:
+                if phase_vals[phase] <= 0:
                     self.remove_phase(phase)
-        
-        # Write phases to disk
-        if save_to_hdf:
             self.save_phases()
 
     
@@ -1831,11 +1835,12 @@ class XRDBaseScan(XRDData):
 
 
     # Called in other functions. Not protected.
-    def _save_map_vectorization(self,
-                                hdf,
-                                vector_map,
-                                edges=None,
-                                rewrite_data=False):
+    def _save_vector_map(self,
+                         hdf,
+                         vector_map,
+                         edges=None,
+                         rewrite_data=False,
+                         verbose=False):
         """
 
         """
@@ -1857,7 +1862,8 @@ class XRDBaseScan(XRDData):
             XRDBaseScan._save_vectors(vector_grp,
                                       vector_map[indices],
                                       title=title,
-                                      rewrite_data=rewrite_data)
+                                      rewrite_data=rewrite_data,
+                                      verbose=verbose)
     
         # In case virtual shape changed; remove extra datasets
         for dset_key in vector_grp.keys():
@@ -1867,7 +1873,8 @@ class XRDBaseScan(XRDData):
         # Save edges if available. Only useful for XRDMapStack
         XRDBaseScan._save_edges(vector_grp,
                                 edges=edges,
-                                rewrite_data=rewrite_data)
+                                rewrite_data=rewrite_data,
+                                verbose=verbose)
         print('done!')
     
 
@@ -1876,7 +1883,8 @@ class XRDBaseScan(XRDData):
                                     hdf,
                                     vectors,
                                     edges=None,
-                                    rewrite_data=False):
+                                    rewrite_data=False,
+                                    verbose=False):
         """
 
         """
@@ -1890,17 +1898,20 @@ class XRDBaseScan(XRDData):
         # Save vectors
         XRDBaseScan._save_vectors(vector_grp,
                                   vectors,
-                                  rewrite_data=rewrite_data)
-
-        # Scrub old tags for backwards compatibility
-        for dset_key in vector_grp.keys():
-            if dset_key not in ['vectors, edges']:
-                del vector_grp[dset_key]
+                                  rewrite_data=rewrite_data,
+                                  verbose=verbose)
 
         # Save edges which should be available
         XRDBaseScan._save_edges(vector_grp,
                                 edges=edges,
-                                rewrite_data=rewrite_data)
+                                rewrite_data=rewrite_data,
+                                verbose=verbose)
+        
+        # Scrub old tags for backwards compatibility
+        for dset_key in vector_grp.keys():
+            if dset_key not in ['vectors', 'edges']:
+                del vector_grp[dset_key]
+
         print('done!')
     
 
@@ -1909,7 +1920,8 @@ class XRDBaseScan(XRDData):
     def _save_vectors(vector_grp,
                       vectors,
                       title=None,
-                      rewrite_data=False): # required vectors
+                      rewrite_data=False,
+                      verbose=False): # required vectors
         """
 
         """
@@ -1942,7 +1954,8 @@ class XRDBaseScan(XRDData):
                 if rewrite_data:
                         warn_str += (f'\nOvewriting {title}. This '
                                     + 'may bloat the total file size.')
-                        print(warn_str)
+                        if verbose:
+                            print(warn_str)
                         del vector_grp[title]
                         dset = vector_grp.require_dataset(
                             title,
@@ -1951,14 +1964,16 @@ class XRDBaseScan(XRDData):
                             dtype=vectors.dtype)
                 else:
                     warn_str += '\nProceeding without changes.'
-                    print(warn_str)
+                    if verbose:
+                        print(warn_str)
     
 
     # Called in other functions. Not protected.
     @staticmethod # For XRDMapStack
     def _save_edges(vector_grp,
                     edges=None,
-                    rewrite_data=False):
+                    rewrite_data=False,
+                    verbose=False):
         """
 
         """
@@ -2001,7 +2016,8 @@ class XRDBaseScan(XRDData):
                                         + 'bloat the total file size.')
                             # Shape changes should not happen
                             # except from q_arr changes
-                            print(warn_str)
+                            if verbose:
+                                print(warn_str)
                             del edge_grp[edge_title]
                             edge_grp.require_dataset(
                                     edge_title,
@@ -2010,7 +2026,8 @@ class XRDBaseScan(XRDData):
                                     dtype=edge.dtype)
                         else:
                             warn_str += '\nProceeding without changes.'
-                            print(warn_str)
+                            if verbose:
+                                print(warn_str)
     
          
     ##########################
@@ -2053,11 +2070,11 @@ class XRDBaseScan(XRDData):
 
         """
         
-        image, indices = _xrdmap_image(self,
+        image, indices = _xrdbasescan_image(self,
                                        image=image,
                                        indices=indices)
         
-        out = _plot_parse_xrdmap(self,
+        out = _plot_parse_xrdbasescan(self,
                                  indices,
                                  mask=mask,
                                  spots=spots,
@@ -2109,7 +2126,7 @@ class XRDBaseScan(XRDData):
         if units is None:
             units = self.scattering_units
         
-        integration, indices = _xrdmap_integration(self,
+        integration, indices = _xrdbasescan_integration(self,
                                        integration=integration,
                                        indices=indices)
 

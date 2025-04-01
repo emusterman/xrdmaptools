@@ -506,7 +506,8 @@ class QMask():
                  theta_vals=0,
                  poly_order=6,
                  degrees=False,
-                 use_stage_rotation=False):
+                 use_stage_rotation=False,
+                 rocking_axis=None):
         
         # Check for azimuthal discontintuites
         chi_arr, max_arr, shifted = modular_azimuthal_shift(chi_arr)
@@ -526,8 +527,11 @@ class QMask():
         self.use_stage_rotation = use_stage_rotation
 
         # Get rocking axis
-        energy_rc = self.wavelength_min != self.wavelength_max
-        angle_rc = self.theta_min != self.theta_max
+        energy_rc = np.abs(self.wavelength_min - self.wavelength_max) > 0.001 # Angstroms I guess...
+        min_angle = 0.05 # in degrees
+        if not self.degrees:
+            min_angle = np.radians(min_angle)
+        angle_rc = np.abs(self.theta_min - self.theta_max) > min_angle
 
         if energy_rc and angle_rc:
             err_str = ('Both energy and angle are changing. '
@@ -587,6 +591,7 @@ class QMask():
                    rsm.theta,
                    degrees=rsm.polar_units == 'deg',
                    use_stage_rotation=rsm.use_stage_rotation,
+                   rocking_axis=rsm.rocking_axis,
                    **kwargs)
         
         return inst

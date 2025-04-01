@@ -23,7 +23,7 @@ from xrdmaptools.XRDBaseScan import XRDBaseScan
 from xrdmaptools.utilities.utilities import (
     generate_intensity_mask
 )
-from xrdmaptools.reflections.spot_blob_indexing_3D import pair_casting_index_full_pattern
+# from xrdmaptools.reflections.spot_blob_indexing_3D import pair_casting_index_full_pattern
 from xrdmaptools.reflections.spot_blob_search_3D import rsm_spot_search
 from xrdmaptools.crystal.crystal import are_collinear, are_coplanar
 
@@ -202,6 +202,7 @@ def interactive_rotation_plot(data,
                               fig=None,
                               ax=None,
                               qmask=None,
+                              edges=None,
                               **kwargs):
 
     if fig is not None and ax is not None:
@@ -225,6 +226,10 @@ def interactive_rotation_plot(data,
         colors = b_colors
 
     scatter = ax.scatter(*data.T, c=colors, **kwargs)
+
+    if edges is not None:
+        for edge in edges:
+            ax.plot(*edge.T, c='gray', lw=1)
 
     slider_lst, update_lst = [], []
     rot_vec = [0, 0, 0]
@@ -424,24 +429,39 @@ def transpose_dictionaries(self):
     self.close_hdf()
 
 
-def get_int_vector_map(vector_map):
-    int_map = np.empty(vector_map.shape, dtype=float)
+def get_vector_map_feature(vector_map,
+                           feature_function=len,
+                           dtype=float):
+    feature_map = np.empty(vector_map.shape, dtype=dtype)
 
     for index in range(np.prod(vector_map.shape)):
         indices = np.unravel_index(index, vector_map.shape)
-        int_map[indices] = float(np.sum(vector_map[indices]))
+        feature_map[indices] = feature_function(vector_map[indices])
 
-    return int_map
+    return feature_map
+
+get_int_vector_map = lambda vm : get_vector_feature_map(vm, feature_function=np.sum)
+fet_num_vector_map = lambda vm : get_vector_feature_map(vm, dtype=int)
 
 
-def get_num_vector_map(vector_map):
-    num_map = np.empty(vector_map.shape, dtype=int)
+# def get_int_vector_map(vector_map):
+#     int_map = np.empty(vector_map.shape, dtype=float)
 
-    for index in range(np.prod(vector_map.shape)):
-        indices = np.unravel_index(index, vector_map.shape)
-        num_map[indices] = len(vector_map[indices])
+#     for index in range(np.prod(vector_map.shape)):
+#         indices = np.unravel_index(index, vector_map.shape)
+#         int_map[indices] = float(np.sum(vector_map[indices]))
 
-    return num_map
+#     return int_map
+
+
+# def get_num_vector_map(vector_map):
+#     num_map = np.empty(vector_map.shape, dtype=int)
+
+#     for index in range(np.prod(vector_map.shape)):
+#         indices = np.unravel_index(index, vector_map.shape)
+#         num_map[indices] = len(vector_map[indices])
+
+#     return num_map
 
 
 def get_connection_map(xrdmapstack, phase,
@@ -455,7 +475,7 @@ def get_connection_map(xrdmapstack, phase,
     spot_map = np.empty(vmap.shape, dtype=object)
     conn_map = np.empty(vmap.shape, dtype=object)
     qofs_map = np.empty(vmap.shape, dtype=object)
-     #hkls_map = np.empty(vmap.shape, dtype=object)
+    hkls_map = np.empty(vmap.shape, dtype=object)
 
     if verbose:
         iterable = timed_iter(range(np.prod(vmap.shape)))
@@ -470,7 +490,7 @@ def get_connection_map(xrdmapstack, phase,
 
         # int_mask = generate_intensity_mask(intensity,
         #                                    intensity_cutoff=0.05)
-        int_mask = intensity > 5
+        int_mask = intensity > 1
         
         if np.sum(int_mask) > 0:
 
@@ -480,7 +500,7 @@ def get_connection_map(xrdmapstack, phase,
              spots,
              label_ints) = rsm_spot_search(q_vectors[int_mask],
                                            intensity[int_mask],
-                                           nn_dist=0.2,
+                                           nn_dist=0.05,
                                            significance=0.1,
                                            subsample=1)
             
@@ -492,12 +512,12 @@ def get_connection_map(xrdmapstack, phase,
                     best_qofs
                     ) = pair_casting_index_full_pattern(spots,
                                                         phase,
-                                                        0.1,
-                                                        2.5,
+                                                        0.05,
+                                                        5,
                                                         xrdmapstack.qmask,
                                                         degrees=True,
                                                         verbose=verbose)
-                    # hkls = phase.all_hkls
+                    hkls = phase.all_hkls
                     # spots = list(spots)
 
                     # # Not sure where all nan connections are coming from, but reduce them
@@ -526,72 +546,72 @@ def get_connection_map(xrdmapstack, phase,
                 spots = np.asarray([])
                 best_connections = np.asarray([])
                 best_qofs = np.asarray([])
-                # hkls = np.asarray([])
+                hkls = np.asarray([])
         
         else:
             spots = np.asarray([])
             best_connections = np.asarray([])
             best_qofs = np.asarray([])
-            # hkls = np.asarray([])
+            hkls = np.asarray([])
         
         spot_map[indices] = np.asarray(spots)
         conn_map[indices] = np.asarray(best_connections)
         qofs_map[indices] = np.asarray(best_qofs)
-        # hkls_map[indices] = np.asarray(hkls)
-
-    return spot_map, conn_map, qofs_map, # hkls_map
-
-
-def get_hkls_map(xrdmapstack, phase):
-
-    vmap = xdms.xdms_vector_map
-    qmask = QMask.from_XRDRockingCurve(xdms)
-    # phase = xrdmapstack.phases['stibnite']
-
-    hkls_map = np.empty(vmap.shape, dtype=object)
-
-    for index in tqdm(range(np.prod(vmap.shape))):
-        indices = np.unravel_index(index, vmap.shape)
-
-        q_vectors = vmap[indices][:, :-1]
-        intensity = vmap[indices][:, -1]
-
-        # int_mask = generate_intensity_mask(intensity,
-        #                                    intensity_cutoff=0.05)
-        int_mask = intensity > 0.25
-        
-        if np.sum(int_mask) > 0:
-
-            # return q_vectors, intensity, int_mask
-
-            (spot_labels,
-             spots,
-             label_ints) = rsm_spot_search(q_vectors[int_mask],
-                                           intensity[int_mask],
-                                           nn_dist=0.25,
-                                           significance=0.1,
-                                           subsample=1)
-            
-            # print(f'Number of spots is {len(spots)}')
-            if len(spots) > 1:
-
-                # Find q vector magnitudes and max for spots
-                spot_q_mags = np.linalg.norm(spots, axis=1)
-                max_q = np.max(spot_q_mags)
-
-                # Find phase reciprocal lattice
-                phase.generate_reciprocal_lattice(1.15 * max_q)                
-                hkls = phase.all_hkls
-            
-            else:
-                hkls = np.asarray([])
-        
-        else:
-            hkls = np.asarray([])
-        
         hkls_map[indices] = np.asarray(hkls)
 
-    return hkls_map
+    return spot_map, conn_map, qofs_map, hkls_map
+
+
+# def get_hkls_map(xrdmapstack, phase):
+
+#     vmap = xdms.xdms_vector_map
+#     qmask = QMask.from_XRDRockingCurve(xdms)
+#     # phase = xrdmapstack.phases['stibnite']
+
+#     hkls_map = np.empty(vmap.shape, dtype=object)
+
+#     for index in tqdm(range(np.prod(vmap.shape))):
+#         indices = np.unravel_index(index, vmap.shape)
+
+#         q_vectors = vmap[indices][:, :-1]
+#         intensity = vmap[indices][:, -1]
+
+#         # int_mask = generate_intensity_mask(intensity,
+#         #                                    intensity_cutoff=0.05)
+#         int_mask = intensity > 0.25
+        
+#         if np.sum(int_mask) > 0:
+
+#             # return q_vectors, intensity, int_mask
+
+#             (spot_labels,
+#              spots,
+#              label_ints) = rsm_spot_search(q_vectors[int_mask],
+#                                            intensity[int_mask],
+#                                            nn_dist=0.25,
+#                                            significance=0.1,
+#                                            subsample=1)
+            
+#             # print(f'Number of spots is {len(spots)}')
+#             if len(spots) > 1:
+
+#                 # Find q vector magnitudes and max for spots
+#                 spot_q_mags = np.linalg.norm(spots, axis=1)
+#                 max_q = np.max(spot_q_mags)
+
+#                 # Find phase reciprocal lattice
+#                 phase.generate_reciprocal_lattice(1.15 * max_q)                
+#                 hkls = phase.all_hkls
+            
+#             else:
+#                 hkls = np.asarray([])
+        
+#         else:
+#             hkls = np.asarray([])
+        
+#         hkls_map[indices] = np.asarray(hkls)
+
+#     return hkls_map
 
 
 def construct_map(base_map,
@@ -674,11 +694,14 @@ def get_ori_map(conn_map, spot_map, hkls_map, phase):
                 ori = Rotation.align_vectors(
                                 spots[spot_inds],
                                 phase.Q(hkls[ref_inds]))[0].as_matrix()
-                e = nan_arr.copy()
+                # e = nan_arr.copy()
+                e = None
                 strained = None
             else:
-                ori = nan_arr.copy()
-                e = nan_arr.copy()
+                # ori = nan_arr.copy()
+                # e = nan_arr.copy()
+                ori = None
+                e = None
                 strained = None
 
             oris.append(ori)
@@ -687,8 +710,10 @@ def get_ori_map(conn_map, spot_map, hkls_map, phase):
         
         # Catch no connections
         if len(conn_map[indices]) == 0:
-            oris.append(nan_arr.copy())
-            es.append(nan_arr.copy())
+            # oris.append(nan_arr.copy())
+            # es.append(nan_arr.copy())
+            oris.append(None)
+            es.append(None)
             strains.append(None)
 
         ori_map[indices] = oris
@@ -696,6 +721,141 @@ def get_ori_map(conn_map, spot_map, hkls_map, phase):
         strained_map[indices] = strains
 
     return ori_map, e_map, strained_map
+
+
+def fit_single_connection(spots, hkls, phase):
+
+    # Full 3D lattice fitting - orientation and strain
+    if len(spots) > 2 and not are_coplanar(hkls):
+        try:
+            e, ori, strained = phase_get_strain_orientation(
+                                    spots,
+                                    hkls,
+                                    phase)
+        except:
+            print('Strain orientation fitting failed!')
+            return spots, hkls
+    
+    # Alignment of two reflections for orientation only
+    elif len(spots) > 1 and not are_collinear(hkls):
+        ori = Rotation.align_vectors(spots,
+                                     phase.Q(hkls))[0].as_matrix()
+        e, strained = None, None
+    
+    # Insufficient information
+    else:
+        ori, e, strained = None, None, None
+    
+    return ori, e, strained
+
+
+def find_spots_and_index_full_map(xdms, phase, verbose=False):
+
+    # Setup container objects. Hard to estimate memory usage
+    map_shape = xdms.xdms_vector_map.shape
+    ori_map = np.empty(map_shape, dtype=object)
+    e_map = ori_map.copy()
+    strained_map = ori_map.copy()
+    qofs_map = ori_map.copy()
+
+    # Setup major iterable with verbosity
+    if verbose:
+        iterable = timed_iter(range(np.prod(xdms.xdms_vector_map.shape)))
+    else:
+        iterable = tqdm(range(np.prod(xdms.xdms_vector_map.shape)))
+
+    # Iterate through each spatial pixel of map
+    for index in iterable:
+        indices = np.unravel_index(index, xdms.xdms_vector_map.shape)
+        oris, es, strains = [], [], []
+
+        # Break down individual vectors
+        q_vectors = xdms.xdms_vector_map[indices][:, :-1]
+        intensity = xdms.xdms_vector_map[indices][:, -1]
+
+        # Some level of assigning significance
+        int_mask = intensity > 0.1
+        
+        # Find spots if there are vectors to index
+        if np.sum(int_mask) > 0:
+
+            (spot_labels,
+             spots,
+             label_ints) = rsm_spot_search(q_vectors[int_mask],
+                                           intensity[int_mask],
+                                           nn_dist=0.05,
+                                           significance=0.1,
+                                           subsample=1)
+            
+
+            # Try to index if sufficient spots found
+            if len(spots) > 1:
+                try:
+                    (best_connections,
+                    best_qofs
+                    ) = pair_casting_index_full_pattern(spots,
+                                                        phase,
+                                                        0.05,
+                                                        5,
+                                                        xdms.qmask,
+                                                        degrees=True,
+                                                        verbose=verbose)
+
+                # Catch a few errors. Should have been solved...
+                except IndexError:
+                    print('INDEX ERROR')
+                    print(indices)
+                    return spots
+                except Exception as e:
+                    print('New Exception')
+                    print(indices)
+                    raise e
+                
+                # Trim bad connections that should not have happened...
+                bad_conn_mask = np.array([np.sum(np.isnan(conn)) < 2 for conn in best_connections])
+                best_connections = list(np.array(best_connections)[~bad_conn_mask])
+                best_qofs = list(np.array(best_qofs)[~bad_conn_mask])
+                if np.any(bad_conn_mask) and verbose:
+                    print(f'Bad connection found at {indices}.')
+                
+                # Fit connections
+                for conn in best_connections:
+                    spot_inds, ref_inds = _get_connection_indices(conn)
+                    
+                    ori, e, strained = fit_single_connection(
+                                            spots[spot_inds],
+                                            phase.all_hkls[ref_inds],
+                                            phase)
+                    
+                    # Record values
+                    oris.append(ori)
+                    es.append(e)
+                    strains.append(strained)
+
+            
+            else:
+                # Fill with None placeholder
+                oris.append(None)
+                es.append(None)
+                strains.append(None)
+                best_qofs = [None]
+        
+        else:
+            # Fill with None placeholder
+            oris.append(None)
+            es.append(None)
+            strains.append(None)
+            best_qofs = [None]
+        
+        # Fill map pixel
+        ori_map[indices] = oris
+        e_map[indices] = es
+        strained_map[indices] = strains
+        qofs_map[indices] = best_qofs
+
+    return ori_map, e_map, strained_map, qofs_map
+
+
 
 
 def restack_map(unstacked_map):
@@ -740,46 +900,46 @@ def transform_coords(x, M):
 
 
 
-def process_maps_with_null():
+# def process_maps_with_null():
 
-    scanlist = [
-        # 153442,
-        # 153443,
-        153444,
-        153445,
-        153446,
-        153448,
-        153449,
-        153450,
-        153451,
-        153452,
-        153454,
-        153455,
-        153456,
-        153457,
-        153458,
-        153460,
-        153461,
-        153462,
-        153463,
-        153464
-    ]
+#     scanlist = [
+#         # 153442,
+#         # 153443,
+#         153444,
+#         153445,
+#         153446,
+#         153448,
+#         153449,
+#         153450,
+#         153451,
+#         153452,
+#         153454,
+#         153455,
+#         153456,
+#         153457,
+#         153458,
+#         153460,
+#         153461,
+#         153462,
+#         153463,
+#         153464
+#     ]
 
-    for scan in timed_iter(scanlist):
-        xdm = XRDMap.from_hdf(f'scan{scan}_xrd.h5',
-                              wd=f'{base_wd}processed_xrdmaps/',
-                              image_data_key='raw_images',
-                              integration_data_key=None)
+#     for scan in timed_iter(scanlist):
+#         xdm = XRDMap.from_hdf(f'scan{scan}_xrd.h5',
+#                               wd=f'{base_wd}processed_xrdmaps/',
+#                               image_data_key='raw_images',
+#                               integration_data_key=None)
         
-        xdm.construct_null_map()
-        if not np.any(xdm.null_map):
-            note_str = ('Null map is empty, there are no missing '
-                        + 'pixels. Proceeding without changes')
-            print(note_str)
-        else:
-            xdm.load_images_from_hdf(image_data_key='final_images')
-            xdm.nullify_images()
-            xdm.save_images()
-            xdm.vectorize_map_data(rewrite_data=True)
-            xdm.integrate1d_map()
-            xdm.save_integrations()
+#         xdm.construct_null_map()
+#         if not np.any(xdm.null_map):
+#             note_str = ('Null map is empty, there are no missing '
+#                         + 'pixels. Proceeding without changes')
+#             print(note_str)
+#         else:
+#             xdm.load_images_from_hdf(image_data_key='final_images')
+#             xdm.nullify_images()
+#             xdm.save_images()
+#             xdm.vectorize_map_data(rewrite_data=True)
+#             xdm.integrate1d_map()
+#             xdm.save_integrations()

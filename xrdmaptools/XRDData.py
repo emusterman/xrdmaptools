@@ -368,34 +368,8 @@ class XRDData:
                 dtype = None
         self._dtype = dtype
 
+        # Get corrections
         self.build_correction_dictionary(corrections)
-        # ordered_correction_keys = [
-        #         'dark_field',
-        #         'flat_field', 
-        #         # Can be approximated with background
-        #         'air_scatter', 
-        #         'outliers',
-        #         'pixel_defects', # Just a mask
-        #         'pixel_distortions', # Unknown
-        #         'scaler_intensity',
-        #         'lorentz',
-        #         'polarization',
-        #         'solid_angle',
-        #         'absorption', # Tricky      
-        #         'background',
-        #         'polar_calibration', # Bulky
-        #     ]
-
-        # if isinstance(corrections, (dict, OrderedDict)):
-        #     self.corrections = OrderedDict([
-        #         (key, corrections[key])
-        #         for key in ordered_correction_keys
-        #         if key in corrections
-        #         ])
-        # else:
-        #     self.corrections = OrderedDict([
-        #         (key, False) for key in ordered_correction_keys
-        #         ])
 
         self.update_map_title(title=title)
         if isinstance(null_map, list):
@@ -827,7 +801,7 @@ class XRDData:
         # Rebuild dictionary
         if isinstance(corrections, (dict, OrderedDict)):
             self.corrections = OrderedDict([
-                (key, corrections[key])
+                (key, bool(corrections[key]))
                 if key in corrections
                 else (key, False)
                 for key in ordered_correction_keys
@@ -1068,15 +1042,6 @@ class XRDData:
                         + 'Proceding without changes...')
                     print(warn_str)
                     return
-
-        # # Check valid integration_data_key
-        # if (str(integration_data_key).lower() != 'recent'
-        #     and integration_data_key not in int_grp.keys()):
-        #     warn_str = (f'WARNING: Requested integration_data_key '
-        #                 + f'({integration_data_key}) not found in hdf.'
-        #                 + ' Proceding without changes...')
-        #     print(warn_str)
-        #     return
 
         # Set recent integration data key
         if str(integration_data_key).lower() == 'recent':
@@ -3282,15 +3247,20 @@ class XRDData:
         # Save all images
         if images is None:
             if not hasattr(self, 'images') or self.images is None:
-                err_str = 'Must provide images to write to hdf.'
-                raise AttributeError(err_str)
-            images = self.images
-            if title is None:
-                title = f'{self.title}_images'
+                if title in ['empty', 'empty_images']:
+                    title = 'empty_images'
+                    images = None
+                else:
+                    err_str = 'Must provide images to write to hdf.'
+                    raise AttributeError(err_str)
+            else:
+                images = self.images
+                if title is None:
+                    title = f'{self.title}_images'
         
         # Save particular attribute of XRDData
         elif isinstance(images, str):
-            # Can directly grap attributes.
+            # Can directly grab attributes.
             # This is for overwriting this function
             if (hasattr(self, images)
                 and getattr(self, images) is not None):
@@ -3303,23 +3273,39 @@ class XRDData:
                 raise AttributeError(err_str)
 
         # Save custom images
-        else:
+        elif isinstance(images, np.ndarray):
             # This conditional is for single images mostly
             # (e.g., dark-field)
-            images = np.asarray(images)
             if title is None:
                 err_str = 'Must define title to save custom images.'
                 raise ValueError(err_str)
+        
+        else:
+            err_str = f'Could not parse images of type {type(images)}'
+            raise ValueError(err_str)
+
+        # Grab some metadata
+        if images is None:
+            # For empty datasets
+            image_shape = self.shape
+            image_dtype = self.dtype
+        else:
+            # Otherwise whatever is being saved
+            image_shape = images.shape
+            image_dtype = images.dtype
 
         # Get labels
-        _units, _labels = self._get_save_labels(images.shape)
+        _units, _labels = self._get_save_labels(image_shape)
         if units is None:
             units = _units
         if labels is None:
             labels = _labels
         
         # Massage title based on shape
-        if images.ndim == 2:
+        if images is None:
+            compression = None
+            compression_opts = None
+        elif images.ndim == 2:
             if title[0] != '_':
                 title = f'_{title}'
         elif images.ndim != 4:
@@ -3330,7 +3316,7 @@ class XRDData:
             compression = 'gzip'
             compression_opts = 4
         else:
-            raise TypeError('Unknown image type detected!')
+            raise TypeError('Unknown image shape detected!')
         
         # Get chunks
         # For images. Saving map
@@ -3340,12 +3326,10 @@ class XRDData:
             chunks = self._chunks
         
         # Maps and images will not be chunked
-        if images.ndim != 4:
+        if images is None or images.ndim != 4:
             chunks = None
 
-        # Grab some metadata
-        image_shape = images.shape
-        image_dtype = images.dtype
+
 
         dask_flag=False
         if isinstance(images, da.core.Array):

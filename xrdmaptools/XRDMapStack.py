@@ -14,7 +14,11 @@ from xrdmaptools.XRDMap import XRDMap
 from xrdmaptools.XRDRockingCurve import XRDRockingCurve
 from xrdmaptools.utilities.utilities import (
     timed_iter,
-    pathify
+    pathify,
+    _check_dict_key,
+    get_int_vector_map,
+    get_max_vector_map,
+    get_num_vector_map
 )
 from xrdmaptools.io.hdf_io import (
     initialize_xrdmapstack_hdf,
@@ -33,6 +37,9 @@ from xrdmaptools.crystal.map_alignment import (
     manual_alignment
 )
 from xrdmaptools.plot.image_stack import base_slider_plot
+from xrdmaptools.plot.interactive import (
+    interactive_3D_plot
+    )
 
 
 # Class for working with PROCESSED XRDMaps
@@ -417,6 +424,20 @@ class XRDMapStack(list):
     @shifts.deleter
     def shifts(self):
         del self._shifts
+    
+
+    @property
+    def _swapped_axes(self):
+        return [xdm._swapped_axes for xdm in self]
+    
+    @_swapped_axes.setter
+    def _swapped_axes(self, val):
+        if not isinstance(val, bool):
+            raise TypeError('Swapped axes flag must be boolean.')
+        
+        for xdm in self:
+            if xdm._swapped_axes != val:
+                xdm.swap_axes()
 
 
     #####################################
@@ -518,7 +539,10 @@ class XRDMapStack(list):
                             load_xdms_vector_map=load_xdms_vector_map)
         
         hdf_path = input_dict['base_md'].pop('hdf_path')
-        shifts = input_dict['base_md'].pop('shifts')
+        if 'shifts' in input_dict['base_md']:
+            shifts = input_dict['base_md'].pop('shifts')
+        else:
+            shifts = None
         rocking_axis = input_dict['base_md'].pop('rocking_axis')
         xdms_extra_metadata = input_dict.pop('xdms_extra_metadata')
         # xdms_hdf = input_dict.pop('xdms_hdf')
@@ -562,13 +586,6 @@ class XRDMapStack(list):
         
         print(f'{cls.__name__} loaded!')
         return inst
-
-
-
-    #########################
-    ### Utility Functions ###
-    #########################
-
 
 
     #####################################
@@ -741,7 +758,7 @@ class XRDMapStack(list):
         'load_phase',
         'clear_phases',
         # Plotting functions
-        '_title_with_scan_id',
+        # '_title_with_scan_id',
         'plot_detector_geometry',
         'plot_map' # May break on extent
     )
@@ -875,7 +892,11 @@ class XRDMapStack(list):
                   + 'without changes.')
             return
 
-        # No smaller save functions yet...
+        # Save stacked vector_map
+        if ((hasattr(self, 'xdms_vector_map')
+             and self.xdms_vector_map is not None)
+            and (hasattr(self, 'edges') and self.edges is not None)):
+            self.save_xdms_vector_map()
 
     
     # Ability to toggle hdf saving and proceed without writing to disk.
@@ -884,10 +905,12 @@ class XRDMapStack(list):
         self.xdms_hdf_path = None
     
 
-    def switch_xrdmstack_hdf(self,
+    @_protect_xdms_hdf()
+    def switch_xrdmapstack_hdf(self,
                              xdms_hdf=None,
                              xdms_hdf_path=None,
-                             xdms_hdf_filename=None):
+                             xdms_hdf_filename=None,
+                             save_current=False):
 
         # Check to make sure the change is appropriate and correct.
         # Not sure if this should raise and error or just print a warning
@@ -914,22 +937,56 @@ class XRDMapStack(list):
         
         else:
             # Success actually changes the write location
-            # And likely initializes a new hdf
-            self.stop_saving_hdf()
+            old_base_attrs = dict(self.xdms_hdf[self._hdf_type].attrs)
+
+            self.stop_saving_xrdmapstack_hdf()
             self.start_saving_xrdmapstack_hdf(
                             xdms_hdf=xdms_hdf,
                             xdms_hdf_path=xdms_hdf_path,
-                            xmds_hdf_filename=xdms_hdf_filename)
+                            xdms_hdf_filename=xdms_hdf_filename,
+                            save_current=save_current)
+            self.open_xdms_hdf()
+
+            # Overwrite from old values
+            for key, value in old_base_attrs.items():
+                self.xdms_hdf[self._hdf_type].attrs[key] = value
+    
+
+    def repackage_without_images(self):
+
+        # Checks
+        if not hasattr(self, 'xdms_vector_map') or self.xdms_vector_map is None:
+            raise AttributeError()
+
+        # Make folder for new information.
+        # Odd formatting to allow for correct file/folder names
+        new_xdms_wd = os.path.join(self.xdms_wd, f'{self.xdms_filename}_repackaged')
+        os.mkdir(new_xdms_wd)
+
+        # Move over each xrdmap first
+        for xdm in self:
+            xdm.wd = new_xdms_wd
+            xdm.switch_hdf(hdf_path=new_xdms_wd,
+                           save_current=True,
+                           verbose=False)
+            xdm.save_images(title='empty')
+
+        # Move xrdmapstack and start new
+        self.xdms_wd = new_xdms_wd
+        self.switch_xrdmapstack_hdf(xdms_hdf_path=new_xdms_wd,
+                                    save_current=True)
+
+
 
     ##########################
     ### Modified Functions ###
     ##########################
 
     @_protect_xdms_hdf()
-    def save_map_vectorization(self,
-                               xdms_vector_map=None,
-                               edges=None,
-                               rewrite_data=False):
+    def save_xdms_vector_map(self,
+                             xdms_vector_map=None,
+                             edges=None,
+                             rewrite_data=False):
 
         # Allows for more customizability with other functions
         hdf = getattr(self, 'xdms_hdf')
@@ -954,16 +1011,32 @@ class XRDMapStack(list):
                         + ' attribute.')
                 raise AttributeError(err_str)
     
-        XRDMap._save_map_vectorization(self, # this might break
-                                       hdf,
-                                       vector_map=xdms_vector_map,
-                                       edges=edges,
-                                       rewrite_data=rewrite_data)
+        XRDMap._save_vector_map(self, # this might break
+                                hdf,
+                                vector_map=xdms_vector_map,
+                                edges=edges,
+                                rewrite_data=rewrite_data)
         # Remove secondary reference
         del hdf
     
 
-    # Pull functions from XRDRockingCurve
+    # Mostly verbatim
+    @_protect_xdms_hdf()
+    def load_xdms_vector_map(self):
+        vector_dict = _load_xrd_hdf_vectorized_map_data(
+                                        self.xdms_hdf[self._hdf_type])
+        self.vector_map = vector_dict['vector_map']
+        self.edges = vector_dict['edges']
+
+
+    # Need to modify to not look for a random image
+    def plot_image(self, *args, **kwargs):
+        raise NotImplementedError()
+
+    ##################################
+    ### Pseudo Inherited Functions ###
+    ##################################
+
     def get_sampled_edges(self,
                           q_arr=None):
         XRDRockingCurve.get_sampled_edges(self,
@@ -973,17 +1046,23 @@ class XRDMapStack(list):
     def _set_rocking_axis(self,
                           rocking_axis=None):
         XRDRockingCurve._set_rocking_axis(self,
-                                          rocking_axis=rocking_axis)         
-
-
-    # Need to modify to not look for a random image
-    def plot_image(self, *args, **kwargs):
-        raise NotImplementedError()
+                                          rocking_axis=rocking_axis)
 
     
-    # May redefine based on differing map extents
-    # def plot_map():
-        # raise NotImplementedError()
+    def _title_with_scan_id(self,
+                            *args,
+                            **kwargs):
+        XRDRockingCurve._title_with_scan_id(self,
+                                            *args,
+                                            **kwargs)  
+
+
+    def plot_sampled_volume_outline(self,
+                                    *args,
+                                    **kwargs):
+        XRDRockingCurve.plot_sampled_volume_outline(self,
+                                                    *args,
+                                                    **kwargs)      
 
 
     #####################################
@@ -1038,7 +1117,6 @@ class XRDMapStack(list):
                 'hdf_path',
                 'dwell'
             ]
-            # hdf_attrs = self.xdms_hdf[self._hdf_type].attrs
             for attr in sorted_attrs:
                 overwrite_attr(self.xdms_hdf[self._hdf_type].attrs,
                                attr,
@@ -1203,7 +1281,6 @@ class XRDMapStack(list):
         xx_virt = xx_virt[mask]
         yy_virt = yy_virt[mask]
         virt_shape = (len(np.unique(yy_virt)), len(np.unique(xx_virt)))
-        # print(virt_shape)
 
         if plotme:
             fig, ax = plt.subplots()
@@ -1298,12 +1375,6 @@ class XRDMapStack(list):
                                    + f'XRDMap[{i}] internally or in '
                                    + 'HDF file.')
                         raise RuntimeError(err_str)
-            
-            @XRDMap._protect_hdf()
-            def retrieve_vector_map_from_hdf(xrdmap):
-                vector_dict = _load_xrd_hdf_vectorized_map_data(
-                                        xrdmap.hdf[xrdmap._hdf_type])
-                xrdmap.vector_map = vector_dict['vector_map']
 
             for i, xrdmap in enumerate(self):
                 if (not hasattr(xrdmap, 'vector_map')
@@ -1325,7 +1396,8 @@ class XRDMapStack(list):
                     # Remove reference to save on memory later
                     del xrdmap.vector_map
                 else:
-                    retrieve_vector_map_from_hdf(xrdmap)
+                    # retrieve_vector_map_from_hdf(xrdmap)
+                    xrdmap.load_vector_map()
                     vector_map = xrdmap.vector_map
                     # Remove reference to save on memory later
                     del xrdmap.vector_map 
@@ -1355,7 +1427,6 @@ class XRDMapStack(list):
             # Release memory
             del vector_map
         
-        
         # Store internally
         self.xdms_vector_map = full_vector_map
         print('done!')
@@ -1364,7 +1435,7 @@ class XRDMapStack(list):
         self.get_sampled_edges()
 
         # Write to hdf
-        self.save_map_vectorization(rewrite_data=rewrite_data)
+        self.save_xdms_vector_map(rewrite_data=rewrite_data)
 
     ################################
     ### Indexing Vectorized Data ###
@@ -1420,7 +1491,10 @@ class XRDMapStack(list):
 
         if (shifts is None
             and hasattr(self, 'shifts')):
-            shifts = self.shifts
+            if np.any(np.isnan(self.shifts)):
+                shifts = None
+            else:
+                shifts = self.shifts
 
         if title is None:
             title = 'Map Stack'
@@ -1455,4 +1529,84 @@ class XRDMapStack(list):
                              title_scan_id=True,
                              return_plot=False,
                              **kwargs):
-        raise NotImplementedError()
+        
+        # Python doesn't play well with mutable default kwargs
+        if dyn_kw is None:
+            dyn_kw = {}
+        if map_kw is None:
+            map_kw = {}
+
+        if _check_dict_key(dyn_kw, 'data'):
+            pass
+        elif not hasattr(self, 'xdms_vector_map'):
+            err_str = ('Could not find stacked vector map to plot '
+                       + 'data!')
+            raise ValueError(err_str)
+        else:
+            dyn_kw['data'] = self.xdms_vector_map
+        
+        # Add edges
+        if not _check_dict_key(dyn_kw, 'edges'):
+            if hasattr(self, 'edges') and self.edges is not None:
+                dyn_kw['edges'] = self.edges
+
+        # Add default map_kw information if not already included
+        if _check_dict_key(map_kw, 'map'):
+            if map_kw['map'].shape != dyn_kw['data'].shape:
+                warn_str = ("WARNING: Provided map of shape "
+                            + f"{map_kw['map'].shape} does not match "
+                            + f"data of shape {dyn_kw['data'].shape}. "
+                            + "Using default map instead.")
+                print(warn_str)
+                del map_kw['map']
+
+        # Construct default map
+        if not _check_dict_key(map_kw, 'map'):
+            map_kw['map'] = get_max_vector_map(dyn_kw['data'])
+            map_kw['title'] = 'Max Vector Intensity'
+
+        # Construct default x ticks
+        if not _check_dict_key(map_kw, 'x_ticks'):
+            x_step = np.max([np.mean(np.diff(self[0].pos_dict['interp_x'], axis=i)) for i in range(2)])
+            x_ext = map_kw['map'].shape[1]
+            map_kw['x_ticks'] = np.linspace(-x_ext / 2, x_ext / 2, int(np.round(x_ext / x_step)))
+
+            if not _check_dict_key(map_kw, 'x_label'):
+                map_kw['x_label'] = ('relative x position '
+                                     + f'[{self[0].position_units}]')
+        
+        # Construct default y ticks
+        if not _check_dict_key(map_kw, 'y_ticks'):
+            y_step = np.max([np.mean(np.diff(self[0].pos_dict['interp_y'], axis=i)) for i in range(2)])
+            y_ext = map_kw['map'].shape[0]
+            map_kw['y_ticks'] = np.linspace(-y_ext / 2, y_ext / 2, int(np.round(y_ext / y_step)))
+
+            if not _check_dict_key(map_kw, 'y_label'):
+                map_kw['y_label'] = ('relative y position '
+                                     + f'[{self[0].position_units}]')
+
+        # Construct default labels 
+        if not _check_dict_key(map_kw, 'x_label'):
+            map_kw['x_label'] = ('x position '
+                                    + f'[{self[0].position_units}]')
+        if not _check_dict_key(map_kw, 'y_label'):
+            map_kw['y_label'] = ('y position '
+                                    + f'[{self[0].position_units}]')
+        
+        # Construct / append title
+        if 'title' not in map_kw:
+            map_kw['title'] = None
+        map_kw['title'] = self._title_with_scan_id(
+                            map_kw['title'],
+                            default_title='Custom Map',
+                            title_scan_id=title_scan_id)
+
+        # Plot!
+        fig, ax = interactive_3D_plot(dyn_kw,
+                                      map_kw,
+                                      **kwargs)
+
+        if return_plot:
+            return fig, ax
+        else:
+            fig.show()  

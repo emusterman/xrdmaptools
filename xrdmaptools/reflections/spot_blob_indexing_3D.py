@@ -36,29 +36,30 @@ def pair_casting_index_best_grain(
     max_q = np.max(spot_q_mags)
 
     # Find phase reciprocal lattice
-    if (not hasattr(phase, 'all_qs')
-        or not hasattr(phase, 'all_hkls')
-        or not hasattr(phase, 'all_fs')):
-        if generate_reciprocal_lattice:
-            phase.generate_reciprocal_lattice(1.15 * max_q)
-        else:
-            err_str = (f'Phase {phase.name} must have an already '
-                       + 'generated reference reciprocal lattice to '
-                       + 'index spots!')
-            raise AttributeError(err_str)
-    elif np.linalg.norm(phase.all_qs, axis=1).max() < max_q:
-        ostr = (f"Reciprocal lattice found for phase {phase_name}, but"
-                + " it's maximum q-vector magnitude falls below that "
-                + "of the spots to index.")
-        if generate_reciprocal_lattice:
-            warn_str = ("WARNING: " + ostr + "Generating a new "
-                        + "reciprocal lattice, but these values could "
-                        + "lead to uncertainty for other patterns "
-                        + f"indexed to this phase {phase.name}.")
-            print(warn_str)
-            phase.generate_reciprocal_lattice(1.15 * max_q)
-        else:
-            raise ValueError(ostr)
+    # if (not hasattr(phase, 'all_qs')
+    #     or not hasattr(phase, 'all_hkls')
+    #     or not hasattr(phase, 'all_fs')):
+    #     if generate_reciprocal_lattice:
+    #         phase.generate_reciprocal_lattice(1.15 * max_q)
+    #     else:
+    #         err_str = (f'Phase {phase.name} must have an already '
+    #                    + 'generated reference reciprocal lattice to '
+    #                    + 'index spots!')
+    #         raise AttributeError(err_str)
+    # elif np.linalg.norm(phase.all_qs, axis=1).max() < max_q:
+    #     ostr = (f"Reciprocal lattice found for phase {phase_name}, but"
+    #             + " it's maximum q-vector magnitude falls below that "
+    #             + "of the spots to index.")
+    #     if generate_reciprocal_lattice:
+    #         warn_str = ("WARNING: " + ostr + "Generating a new "
+    #                     + "reciprocal lattice, but these values could "
+    #                     + "lead to uncertainty for other patterns "
+    #                     + f"indexed to this phase {phase.name}.")
+    #         print(warn_str)
+    #         phase.generate_reciprocal_lattice(1.15 * max_q)
+    #     else:
+    #         raise ValueError(ostr)
+    phase.generate_reciprocal_lattice(1.15 * max_q)
 
     # Find minimum q vector step size from reference phase
     min_q = np.min(np.linalg.norm(phase.Q([[1, 0, 0],
@@ -85,7 +86,7 @@ def pair_casting_index_best_grain(
                 phase.all_hkls,
                 near_angle,
                 min_q,
-                dgrees=degrees,
+                degrees=degrees,
                 verbose=verbose)
         
         if len(red_pairs) > 0:
@@ -132,30 +133,31 @@ def pair_casting_index_full_pattern(
     max_q = np.max(spot_q_mags)
 
     # Find phase reciprocal lattice
-    if (not hasattr(phase, 'all_qs')
-        or not hasattr(phase, 'all_hkls')
-        or not hasattr(phase, 'all_fs')):
-        if generate_reciprocal_lattice:
-            phase.generate_reciprocal_lattice(1.15 * max_q)
-        else:
-            err_str = (f'Phase {phase.name} must have an already '
-                       + 'generated reference reciprocal lattice to '
-                       + 'index spots!')
-            raise AttributeError(err_str)
-    # Check values, but within a tighter window than generated.
-    elif np.linalg.norm(phase.all_qs, axis=1).max() < 1.05 * max_q:
-        ostr = (f"Reciprocal lattice found for phase {phase_name}, but"
-                + " it's maximum q-vector magnitude falls below that "
-                + "of the spots to index.")
-        if generate_reciprocal_lattice:
-            warn_str = ("WARNING: " + ostr + "Generating a new "
-                        + "reciprocal lattice, but these values could "
-                        + "lead to uncertainty for other patterns "
-                        + f"indexed to this phase {phase.name}.")
-            print(warn_str)
-            phase.generate_reciprocal_lattice(1.15 * max_q)
-        else:
-            raise ValueError(ostr)
+    # if (not hasattr(phase, 'all_qs')
+    #     or not hasattr(phase, 'all_hkls')
+    #     or not hasattr(phase, 'all_fs')):
+    #     if generate_reciprocal_lattice:
+    #         phase.generate_reciprocal_lattice(1.15 * max_q)
+    #     else:
+    #         err_str = (f'Phase {phase.name} must have an already '
+    #                    + 'generated reference reciprocal lattice to '
+    #                    + 'index spots!')
+    #         raise AttributeError(err_str)
+    # # Check values, but within a tighter window than generated.
+    # elif np.linalg.norm(phase.all_qs, axis=1).max() < 1.05 * max_q:
+    #     ostr = (f"Reciprocal lattice found for phase {phase_name}, but"
+    #             + " it's maximum q-vector magnitude falls below that "
+    #             + "of the spots to index.")
+    #     if generate_reciprocal_lattice:
+    #         warn_str = ("WARNING: " + ostr + "Generating a new "
+    #                     + "reciprocal lattice, but these values could "
+    #                     + "lead to uncertainty for other patterns "
+    #                     + f"indexed to this phase {phase.name}.")
+    #         print(warn_str)
+    #         phase.generate_reciprocal_lattice(1.15 * max_q)
+    #     else:
+    #         raise ValueError(ostr)
+    phase.generate_reciprocal_lattice(1.15 * max_q)
 
     # Find minimum q vector step size from reference phase
     min_q = np.min(np.linalg.norm(phase.Q([[1, 0, 0],
@@ -203,11 +205,11 @@ def pair_casting_index_full_pattern(
         else:
             # This is where all nans are coming from!
             best_connections = [[np.nan,] * len(all_spot_qs)]
-            best_qofs = [np.nan,] * len(all_spot_qs)  
+            best_qofs = [np.nan]
     else:
         # This is where all nans are coming from!
         best_connections = [[np.nan,] * len(all_spot_qs)]
-        best_qofs = [np.nan,] * len(all_spot_qs)
+        best_qofs = [np.nan]
 
     return best_connections, best_qofs
 

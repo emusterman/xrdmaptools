@@ -181,9 +181,9 @@ def reprocess_xdms_3():
 
     for i, xdm in timed_iter(enumerate(xdms), total=len(xdms)):
         print(f'Processing scan {xdm.scan_id}...')
-        print(f'Processing index {i}.')
+        print(f'Processing index {i}...')
 
-        if i <= 3:
+        if i < 20:
             continue
 
         xdm.load_images_from_hdf(image_data_key='raw')
@@ -258,3 +258,57 @@ def estimate_map_air_scatter(xdm):
         air_scatter[indices] = inverse_function(xdm.tth_arr, *popt)
     
     return air_scatter
+def reprocess_xdms_3():
+
+    base_wd = '/nsls2/data/srx/proposals/2024-1/pass-314118/processed_xrdmaps/'
+
+    xdms = XRDMapStack.from_hdf('scan153102-153145_xrdmapstack.h5', wd=base_wd, load_xdms_vector_map=False)
+
+    for i, xdm in timed_iter(enumerate(xdms), total=len(xdms)):
+        print(f'Processing scan {xdm.scan_id}...')
+        print(f'Processing index {i}...')
+
+        if i < 20:
+            continue
+
+        xdm.load_images_from_hdf(image_data_key='raw')
+        xdm.load_images_from_hdf(image_data_key='dark_field')
+        
+        # Basic corrections
+        xdm.correct_dark_field()
+        xdm.correct_scaler_energies(scaler_key='i0')
+        xdm.correct_scaler_energies(scaler_key='im')
+
+        air_scatter = estimate_map_air_scatter(xdm)
+        xdm.correct_air_scatter(air_scatter,
+                                applied_corrections=xdm.corrections)
+        del air_scatter
+
+        xdm.normalize_scaler()
+        xdm.correct_outliers(tolerance=10)
+
+        # Geometric corrections
+        xdm.apply_polarization_correction()
+        xdm.apply_solidangle_correction()
+
+        # Background corrections
+        xdm.estimate_background(method='bruckner',
+                                binning=8,
+                                min_prominence=0.1)
+
+        # Rescale and saving
+        xdm.rescale_images(arr_max=xdm.estimate_saturated_pixel())
+        xdm.finalize_images()
+
+        # Find blobs
+        xdm.find_blobs(threshold_method='minimum',
+                       multiplier=5,
+                       size=3,
+                       expansion=10)
+        
+        # Vectorize data and then dump it
+        xdm.vectorize_map_data(rewrite_data=True)
+        xdm.dump_images()
+        del xdm.blob_masks
+        xdm.blob_masks = None
+        del xdm.vector_map

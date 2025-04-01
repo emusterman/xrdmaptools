@@ -1666,9 +1666,9 @@ def generate_scan_logfile(start_id,
                 if 'detectors' in start['scan'].keys():
                     detectors = start['scan']['detectors']
                     # Remove common detectors that are almost always included
-                    # detectors = [det for det in detectors
-                    #              if det not in ['nanoZebra', 'sclr1']]
-                    scan_detectors.append(str(detectors))
+                    detectors = [det for det in detectors
+                                 if det not in ['nanoZebra', 'sclr1']]
+                    scan_detectors.append(f"[{', '.join(detectors)}]")
                 else:
                     scan_detectors.append(str([]))
             else:
@@ -1698,3 +1698,4 @@ def generate_scan_logfile(start_id,
                                 scan_detectors,
                                 scan_inputs):
             log.write(f'{scan_id}\t{scan_type}\t{scan_status}\t{scan_detector}\t{scan_input}\n')
+            # log.write(f'{scan_id}\t{scan_type}\t{scan_status}\t{scan_detector}\n')

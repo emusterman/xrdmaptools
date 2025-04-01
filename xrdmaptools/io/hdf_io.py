@@ -256,13 +256,6 @@ def _load_xrd_hdf_image_data(base_grp,
                                     + ' image_data instead...')
                         print(warn_str)
                         image_data_key = 'recent'
-
-            # if (str(image_data_key).lower() != 'recent'
-            #     and image_data_key not in img_grp.keys()):
-            #     warn_str = (f'WARNING: Requested image_data_key ({image_data_key}) '
-            #                 + 'not found in hdf. Looking for most recent image_data instead...')
-            #     print(warn_str)
-            #     image_data_key = 'recent'
             
             # Set recent image data key
             if str(image_data_key).lower() == 'recent':
@@ -289,7 +282,7 @@ def _load_xrd_hdf_image_data(base_grp,
             image_corrections = {}
             for key, value in img_grp[image_data_key].attrs.items():
                 if key[0] == '_' and key[-11:] == '_correction':
-                    image_corrections[key[1:-11]] = value
+                    image_corrections[key[1:-11]] = bool(value)
 
             # Collect XRDData attributes that are not instantiated...
             image_attrs = {}
@@ -446,7 +439,7 @@ def _load_xrd_hdf_integration_data(base_grp,
             integration_corrections = {}
             for key, value in int_grp[integration_data_key].attrs.items():
                 if key[0] == '_' and key[-11:] == '_correction':
-                    integration_corrections[key[1:-11]] = value
+                    integration_corrections[key[1:-11]] = bool(value)
             print('done!')
             
             # No current integration attributes. This may change

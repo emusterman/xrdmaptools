@@ -152,9 +152,11 @@ class Gas(Amorphous):
     def get_absorption(self,
                        energy,
                        length):
-
-        if energy < 1000:
-            energy *= 1000
+        
+        energy = np.asarray(energy).astype(float)
+        # Convert energy eV
+        if np.any(energy < 1e3):
+            energy *= 1e3
         
         wavelength = energy_2_wavelength(energy) # in A
 

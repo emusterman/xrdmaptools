@@ -12,22 +12,20 @@ from ..reflections.spot_blob_search import find_blob_contours
 ### Image Plotting ###
 ######################
 
-# Grabs and formats data from xrdmap if requested
-def _plot_parse_xrdmap(xrdmap, indices, mask=False, spots=False, contours=False):
+# Grabs and formats data from xrdbasescan if requested
+def _plot_parse_xrdbasescan(xrdbasescan, indices, mask=False, spots=False, contours=False):
 
     # Extract mask
     out_mask = None
-    if mask and hasattr(xrdmap, 'mask'):
-        out_mask = xrdmap.mask
-    elif mask and not hasattr(xrdmap, 'mask'):
-        print('WARNING: Mask requested, but xrdmap does not have a mask!')
+    if mask and hasattr(xrdbasescan, 'mask'):
+        out_mask = xrdbasescan.mask
+    elif mask and not hasattr(xrdbasescan, 'mask'):
+        print('WARNING: Mask requested, but xrdbasescan does not have a mask!')
 
     # Extract spots
     out_spots = None
-    if spots and hasattr(xrdmap, 'spots'):
-        pixel_df = xrdmap.pixel_spots(indices)
-        #pixel_df = xrdmap.spots[(xrdmap.spots['map_x'] == indices[1])
-        #                        & (xrdmap.spots['map_y'] == indices[0])].copy()
+    if spots and hasattr(xrdbasescan, 'spots'):
+        pixel_df = xrdbasescan.pixel_spots(indices)
         
         if any([x[:3] == 'fit' for x in pixel_df.keys()]):
             pixel_df.dropna(axis=0, inplace=True)
@@ -37,35 +35,35 @@ def _plot_parse_xrdmap(xrdmap, indices, mask=False, spots=False, contours=False)
         
         if len(out_spots) < 1:
             out_spots = None
-        elif not xrdmap.corrections['polar_calibration']:
+        elif not xrdbasescan.corrections['polar_calibration']:
             out_spots = estimate_image_coords(out_spots[:, ::-1],
-                                              xrdmap.tth_arr,
-                                              xrdmap.chi_arr)[:, ::-1]
+                                              xrdbasescan.tth_arr,
+                                              xrdbasescan.chi_arr)[:, ::-1]
 
-    elif spots and not hasattr(xrdmap, 'spots'):
-        print('WARNING: Spots requested, but xrdmap does not have any spots!')
+    elif spots and not hasattr(xrdbasescan, 'spots'):
+        print('WARNING: Spots requested, but xrdbasescan does not have any spots!')
 
     # Extract contours
     out_contour_list = None
-    if contours and hasattr(xrdmap, 'blob_masks'):
-        blob_img = label(xrdmap.blob_masks[tuple(indices)])
+    if contours and hasattr(xrdbasescan, 'blob_masks'):
+        blob_img = label(xrdbasescan.blob_masks[tuple(indices)])
         blob_contours = find_blob_contours(blob_img)
         out_contour_list = []
         for blob_contour in blob_contours:
-            if xrdmap.corrections['polar_calibration']:
+            if xrdbasescan.corrections['polar_calibration']:
                 out_contour_list.append(estimate_polar_coords(blob_contour.T,
-                                                              xrdmap.tth_arr,
-                                                              xrdmap.chi_arr).T)
+                                                              xrdbasescan.tth_arr,
+                                                              xrdbasescan.chi_arr).T)
         else:
             out_contour_list = blob_contours
 
-    elif contours and hasattr(xrdmap, 'blob_masks'):
-        print('WARNING: Contours requested, but xrdmap does not have any spot masks to draw contours!')
+    elif contours and hasattr(xrdbasescan, 'blob_masks'):
+        print('WARNING: Contours requested, but xrdbasescan does not have any spot masks to draw contours!')
 
     return tuple([out_mask, out_spots, out_contour_list])
 
 
-def _xrdmap_image(xrdmap,
+def _xrdbasescan_image(xrdbasescan,
                   image=None,
                   indices=None):
     # Check image type
@@ -73,31 +71,28 @@ def _xrdmap_image(xrdmap,
         image = np.asarray(image)
         if len(image.shape) == 1 and len(image) == 2:
             indices = tuple(iter(image))
-            image = xrdmap.images[indices]
+            image = xrdbasescan.images[indices]
         elif len(image.shape) == 2:
             if indices is not None:
                 indices = tuple(indices)
         else:
             raise ValueError(f"Incorrect image shape of {image.shape}. Should be two-dimensional.")
     else:
-        # Evaluate images
-        # xrdmap._dask_2_dask() # Too expensive, just evaluate the one
-
         if indices is not None:
             indices = tuple(indices)
-            image = xrdmap.images[indices]
+            image = xrdbasescan.images[indices]
             image = np.asarray(image)
         else:
-            i = np.random.randint(xrdmap.map_shape[0])
-            j = np.random.randint(xrdmap.map_shape[1])
+            i = np.random.randint(xrdbasescan.map_shape[0])
+            j = np.random.randint(xrdbasescan.map_shape[1])
             indices = (i, j)
-            image = xrdmap.images[indices]
+            image = xrdbasescan.images[indices]
             image = np.asarray(image)
 
     return image, indices
 
 
-def _xrdmap_integration(xrdmap,
+def _xrdbasescan_integration(xrdbasescan,
                         integration=None,
                         indices=None):
 
@@ -106,25 +101,25 @@ def _xrdmap_integration(xrdmap,
         integration = np.asarray(integration)
         if len(integration.shape) == 1 and len(integration) == 2:
             indices = tuple(iter(integration))
-            integration = xrdmap.integrations[indices]
+            integration = xrdbasescan.integrations[indices]
         elif len(integration.shape) == 1:
             if indices is not None:
                 indices = tuple(indices)
         else:
             raise ValueError(f"Incorrect image shape of {integration.shape}. Should be one-dimensional.")
     else:
-        if not hasattr(xrdmap, 'integrations'):
-            raise ValueError("Integration has not been specified and XRDMap does not have any integrations calculated!")
+        if not hasattr(xrdbasescan, 'integrations'):
+            raise ValueError("Integration has not been specified and xrdbasescan does not have any integrations calculated!")
 
         if indices is not None:
             indices = tuple(indices)
-            integration = xrdmap.integrations[indices]
+            integration = xrdbasescan.integrations[indices]
             integration = np.asarray(integration)
         else:
-            i = np.random.randint(xrdmap.map_shape[0])
-            j = np.random.randint(xrdmap.map_shape[1])
+            i = np.random.randint(xrdbasescan.map_shape[0])
+            j = np.random.randint(xrdbasescan.map_shape[1])
             indices = (i, j)
-            integration = xrdmap.integrations[indices]
+            integration = xrdbasescan.integrations[indices]
             integration = np.asarray(integration)
 
     return integration, indices
@@ -197,7 +192,7 @@ def plot_reconstruction(self,
                         **kwargs):
     raise NotImplementedError()
     if not hasattr(self, 'spots'):
-        raise RuntimeError('xrdmap does not have any spots!')
+        raise RuntimeError('xrdbasescan does not have any spots!')
 
     if indices is None:
         i = np.random.randint(self.map_shape[0])
@@ -216,7 +211,7 @@ def plot_reconstruction(self,
         print('WARNING: No spot model saved. Defaulting to Gaussian.')
         spot_model = GaussianFunctions
     
-    pixel_df = xrdmap.pixel_spots(indices)
+    pixel_df = xrdbasescan.pixel_spots(indices)
     #pixel_df = self.spots[(self.spots['map_x'] == indices[0]) & (self.spots['map_y'] == indices[1])].copy()
 
     if any([x[:3] == 'fit' for x in pixel_df.keys()]):
