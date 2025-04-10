@@ -182,7 +182,7 @@ def get_alignment_maps():
     
     base_wd = '/nsls2/data/srx/proposals/2025-1/pass-316224/'
 
-    scanlist = np.arange(166799, 166871)
+    scanlist = np.arange(166795, 166798)
 
     for i, scan_id in timed_iter(enumerate(scanlist), total=len(scanlist)):
 
@@ -249,6 +249,18 @@ def setup_batch3_xdms():
         # xdm.load_vector_map()
         # if xdm.vector_map != xdm.map_shape:
         #     xdm.save_vector_map(rewrite_data=True)
+
+    return xdms
+
+
+def setup_batch4_xdms():
+
+    hdf_filenames = []
+    for scan_id in np.arange(167198, 167287 + 1):
+        hdf_filenames.extend([fname for fname in os.listdir(f'{base_wd}xrdmaps/')
+                              if str(scan_id) in fname and 'stack' not in fname])
+
+    xdms = XRDMapStack.from_XRDMap_hdfs(hdf_filenames, wd=f'{base_wd}xrdmaps/')
 
     return xdms
 
@@ -370,3 +382,20 @@ def batch4():
             print('Waiting 5 min to check for next scan...')
             ttime.sleep(600)
             scan_id += 1
+
+
+def setup_half_batch1_xdms():
+
+    hdf_filenames = []
+    for scan_id in np.arange(166795, 166813 + 1):
+        hdf_filenames.extend([fname for fname in os.listdir(f'{base_wd}xrdmaps/')
+                              if str(scan_id) in fname and 'stack' not in fname])
+
+    xdms = XRDMapStack.from_XRDMap_hdfs(hdf_filenames, wd=f'{base_wd}xrdmaps/')
+
+    hdf_filenames = []
+    for scan_id in np.arange(166815, 166883 + 1):
+        hdf_filenames.extend([fname for fname in os.listdir(f'{base_wd}xrdmaps/')
+                              if str(scan_id) in fname and 'stack' not in fname])
+
+    xdms = XRDMapStack.from_XRDMap_hdfs(hdf_filenames, wd=f'{base_wd}xrdmaps/')

@@ -1511,9 +1511,15 @@ class XRDBaseScan(XRDData):
 
         # Determine energy independent scaler values
         new_scaler_key = f'energy_corrected_{scaler_key}'
+
+        # Considerations for singular and list of energies
+        energy = np.asarray([self.energy]).squeeze()
+        if energy.ndim > 0:
+            energy = energy.reshape(self.map_shape)
+            absorption = absorption.reshape(self.map_shape)
+        
         new_sclr_arr = (self.sclr_dict[scaler_key]
-                        / (absorption * self.energy).reshape(
-                                                    self.map_shape))
+                        / (absorption * energy))
 
         # Set values and write to hdf
         self.sclr_dict[new_scaler_key] = new_sclr_arr

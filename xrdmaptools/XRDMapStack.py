@@ -1052,9 +1052,9 @@ class XRDMapStack(list):
     def _title_with_scan_id(self,
                             *args,
                             **kwargs):
-        XRDRockingCurve._title_with_scan_id(self,
-                                            *args,
-                                            **kwargs)  
+        return XRDRockingCurve._title_with_scan_id(self,
+                                                   *args,
+                                                   **kwargs)  
 
 
     def plot_sampled_volume_outline(self,

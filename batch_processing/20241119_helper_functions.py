@@ -1,5 +1,6 @@
 import numpy as np
 import os
+import dask
 from tqdm import tqdm
 from skimage import io
 import h5py
@@ -11,6 +12,8 @@ from matplotlib.collections import PatchCollection
 import matplotlib
 from matplotlib import cm
 from scipy.spatial.transform import Rotation
+from tqdm.dask import TqdmCallback
+import gc
 
 from sklearn.decomposition import PCA, NMF
 
@@ -444,25 +447,6 @@ get_int_vector_map = lambda vm : get_vector_feature_map(vm, feature_function=np.
 fet_num_vector_map = lambda vm : get_vector_feature_map(vm, dtype=int)
 
 
-# def get_int_vector_map(vector_map):
-#     int_map = np.empty(vector_map.shape, dtype=float)
-
-#     for index in range(np.prod(vector_map.shape)):
-#         indices = np.unravel_index(index, vector_map.shape)
-#         int_map[indices] = float(np.sum(vector_map[indices]))
-
-#     return int_map
-
-
-# def get_num_vector_map(vector_map):
-#     num_map = np.empty(vector_map.shape, dtype=int)
-
-#     for index in range(np.prod(vector_map.shape)):
-#         indices = np.unravel_index(index, vector_map.shape)
-#         num_map[indices] = len(vector_map[indices])
-
-#     return num_map
-
 
 def get_connection_map(xrdmapstack, phase,
                        verbose=False):
@@ -561,57 +545,6 @@ def get_connection_map(xrdmapstack, phase,
 
     return spot_map, conn_map, qofs_map, hkls_map
 
-
-# def get_hkls_map(xrdmapstack, phase):
-
-#     vmap = xdms.xdms_vector_map
-#     qmask = QMask.from_XRDRockingCurve(xdms)
-#     # phase = xrdmapstack.phases['stibnite']
-
-#     hkls_map = np.empty(vmap.shape, dtype=object)
-
-#     for index in tqdm(range(np.prod(vmap.shape))):
-#         indices = np.unravel_index(index, vmap.shape)
-
-#         q_vectors = vmap[indices][:, :-1]
-#         intensity = vmap[indices][:, -1]
-
-#         # int_mask = generate_intensity_mask(intensity,
-#         #                                    intensity_cutoff=0.05)
-#         int_mask = intensity > 0.25
-        
-#         if np.sum(int_mask) > 0:
-
-#             # return q_vectors, intensity, int_mask
-
-#             (spot_labels,
-#              spots,
-#              label_ints) = rsm_spot_search(q_vectors[int_mask],
-#                                            intensity[int_mask],
-#                                            nn_dist=0.25,
-#                                            significance=0.1,
-#                                            subsample=1)
-            
-#             # print(f'Number of spots is {len(spots)}')
-#             if len(spots) > 1:
-
-#                 # Find q vector magnitudes and max for spots
-#                 spot_q_mags = np.linalg.norm(spots, axis=1)
-#                 max_q = np.max(spot_q_mags)
-
-#                 # Find phase reciprocal lattice
-#                 phase.generate_reciprocal_lattice(1.15 * max_q)                
-#                 hkls = phase.all_hkls
-            
-#             else:
-#                 hkls = np.asarray([])
-        
-#         else:
-#             hkls = np.asarray([])
-        
-#         hkls_map[indices] = np.asarray(hkls)
-
-#     return hkls_map
 
 
 def construct_map(base_map,
@@ -753,20 +686,26 @@ def find_spots_and_index_full_map(xdms, phase, verbose=False):
 
     # Setup container objects. Hard to estimate memory usage
     map_shape = xdms.xdms_vector_map.shape
-    ori_map = np.empty(map_shape, dtype=object)
-    e_map = ori_map.copy()
-    strained_map = ori_map.copy()
-    qofs_map = ori_map.copy()
+    # ori_map = np.empty(map_shape, dtype=object)
+    # e_map = ori_map.copy()
+    # strained_map = ori_map.copy()
+    # qofs_map = ori_map.copy()
 
     # Setup major iterable with verbosity
     if verbose:
         iterable = timed_iter(range(np.prod(xdms.xdms_vector_map.shape)))
     else:
-        iterable = tqdm(range(np.prod(xdms.xdms_vector_map.shape)))
+        # iterable = tqdm(range(np.prod(xdms.xdms_vector_map.shape)))
+        iterable = range(np.prod(xdms.xdms_vector_map.shape))
 
     # Iterate through each spatial pixel of map
     for index in iterable:
+        gc.collect()
         indices = np.unravel_index(index, xdms.xdms_vector_map.shape)
+        if verbose:
+            print(f'Indexing for map indices {indices}.')
+        print(f'Indexing for map indices {indices}.')
+
         oris, es, strains = [], [], []
 
         # Break down individual vectors
@@ -774,7 +713,7 @@ def find_spots_and_index_full_map(xdms, phase, verbose=False):
         intensity = xdms.xdms_vector_map[indices][:, -1]
 
         # Some level of assigning significance
-        int_mask = intensity > 0.1
+        int_mask = intensity > 0.25
         
         # Find spots if there are vectors to index
         if np.sum(int_mask) > 0:
@@ -783,7 +722,7 @@ def find_spots_and_index_full_map(xdms, phase, verbose=False):
              spots,
              label_ints) = rsm_spot_search(q_vectors[int_mask],
                                            intensity[int_mask],
-                                           nn_dist=0.05,
+                                           nn_dist=0.1,
                                            significance=0.1,
                                            subsample=1)
             
@@ -795,7 +734,7 @@ def find_spots_and_index_full_map(xdms, phase, verbose=False):
                     best_qofs
                     ) = pair_casting_index_full_pattern(spots,
                                                         phase,
-                                                        0.05,
+                                                        0.1,
                                                         5,
                                                         xdms.qmask,
                                                         degrees=True,
@@ -831,8 +770,11 @@ def find_spots_and_index_full_map(xdms, phase, verbose=False):
                     oris.append(ori)
                     es.append(e)
                     strains.append(strained)
+                
+                    del spot_inds, ref_inds
+                
+                del best_connections, bad_conn_mask
 
-            
             else:
                 # Fill with None placeholder
                 oris.append(None)
@@ -847,11 +789,149 @@ def find_spots_and_index_full_map(xdms, phase, verbose=False):
             strains.append(None)
             best_qofs = [None]
         
+        del spot_labels, spots, label_ints
+        
+        # Fill map pixel
+        # ori_map[indices] = oris
+        # e_map[indices] = es
+        # strained_map[indices] = strains
+        # qofs_map[indices] = best_qofs
+
+        del oris, es, strains, best_qofs
+        del int_mask, indices, q_vectors, intensity
+
+    return ori_map, e_map, strained_map, qofs_map
+
+
+def dask_fit_full_map(xdms, phase, verbose=False):
+
+    # Setup container objects. Hard to estimate memory usage
+    map_shape = xdms.xdms_vector_map.shape
+    ori_map = np.empty(map_shape, dtype=object)
+    e_map = ori_map.copy()
+    strained_map = ori_map.copy()
+    qofs_map = ori_map.copy()
+
+    @dask.delayed
+    def dask_search_and_fit(indices,
+                            int_cutoff=5,
+                            q_mask=xdms.qmask,
+                            phase=phase,
+                            near_q=0.05,
+                            near_angle=5,
+                            significance=0.1,
+                            subsample=1,
+                            degrees=True,
+                            verbose=verbose):
+
+        if verbose:
+            print(f'Indexing for map indices {indices}.')
+
+        oris, es, strains = [], [], []
+
+        # Break down individual vectors
+        q_vectors = xdms.xdms_vector_map[indices][:, :-1]
+        intensity = xdms.xdms_vector_map[indices][:, -1]
+
+        # Some level of assigning significance
+        int_mask = intensity > int_cutoff
+
+        oris, es, strains = [], [], []
+
+        if np.sum(int_mask) > 0:
+
+            (spot_labels,
+             spots,
+             label_ints) = rsm_spot_search(q_vectors[int_mask],
+                                           intensity[int_mask],
+                                           nn_dist=near_q,
+                                           significance=significance,
+                                           subsample=1)
+
+            # Try to index if sufficient spots found
+            if len(spots) > 1:
+                if len(spots) > 100:
+                    print(f'Number of spots is {len(spots)}')
+
+                try:
+                    (best_connections,
+                    best_qofs
+                    ) = pair_casting_index_full_pattern(spots,
+                                                        phase,
+                                                        near_q,
+                                                        near_angle,
+                                                        xdms.qmask,
+                                                        degrees=degrees,
+                                                        verbose=verbose)
+
+                # Catch a few errors. Should have been solved...
+                except IndexError:
+                    print('INDEX ERROR')
+                    print(indices)
+                    return spots
+                except Exception as e:
+                    print('New Exception')
+                    print(indices)
+                    raise e
+                
+                # Trim bad connections that should not have happened...
+                bad_conn_mask = np.array([np.sum(np.isnan(conn)) < 2 for conn in best_connections])
+                best_connections = list(np.array(best_connections)[~bad_conn_mask])
+                best_qofs = list(np.array(best_qofs)[~bad_conn_mask])
+                if np.any(bad_conn_mask) and verbose:
+                    print(f'Bad connection found at {indices}.')
+                
+                # Fit connections
+                for conn in best_connections:
+                    spot_inds, ref_inds = _get_connection_indices(conn)
+                    
+                    ori, e, strained = fit_single_connection(
+                                            spots[spot_inds],
+                                            phase.all_hkls[ref_inds],
+                                            phase)
+                    
+                    # Record values
+                    oris.append(ori)
+                    es.append(e)
+                    strains.append(strained)
+
+            else:
+                # Fill with None placeholder
+                oris.append(None)
+                es.append(None)
+                strains.append(None)
+                best_qofs = [None]
+        
+        else:
+            # Fill with None placeholder
+            oris.append(None)
+            es.append(None)
+            strains.append(None)
+            best_qofs = [None]
+
         # Fill map pixel
         ori_map[indices] = oris
         e_map[indices] = es
         strained_map[indices] = strains
         qofs_map[indices] = best_qofs
+
+    # Setup major iterable with verbosity
+    if verbose:
+        iterable = timed_iter(range(np.prod(xdms.xdms_vector_map.shape)))
+    else:
+        iterable = tqdm(range(np.prod(xdms.xdms_vector_map.shape)))
+
+    # Iterate through each spatial pixel of map
+    delayed_list = []
+    for index in iterable:
+        indices = np.unravel_index(index, xdms.xdms_vector_map.shape)
+        delayed_list.append(dask_search_and_fit(indices))
+
+    # Computation
+    print('Spot search and indexing full map...')
+    with TqdmCallback(tqdm_class=tqdm):
+            dask.compute(*delayed_list)
+        
 
     return ori_map, e_map, strained_map, qofs_map
 

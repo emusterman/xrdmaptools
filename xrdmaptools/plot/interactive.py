@@ -13,6 +13,10 @@ This will keep them all in one place to ease access later.
 '''
 
 
+# Default parameters
+_figsize = (12, 5)
+_dpi = 200
+
 
 ### Support Functions ###
 
@@ -286,11 +290,11 @@ def _update_marker(axi=None,
         marker.set_visible(False)
 
 
-def _display_map(data=None,
-                 map_kw={},
-                 axes=None,
-                 cmap='viridis',
-                 update=False):
+def _update_map(data=None,
+                map_kw={},
+                axes=None,
+                cmap='viridis',
+                update=False):
     '''
         
     '''
@@ -307,69 +311,75 @@ def _display_map(data=None,
                  'x_label',
                  'y_label'])
 
-    # Estimate map if not given
-    if map_kw['map'] is None:
-        map_kw['title'] = 'Summed Intensity'
-        if len(data.shape) == 3:
-            map_kw['map'] = np.sum(data, axis=2)
-        elif len(data.shape) == 4:   
-            map_kw['map'] = np.sum(data, axis=(2, 3))
+    if not axes[0].has_data():
+        # Estimate map if not given
+        if map_kw['map'] is None:
+            map_kw['title'] = 'Summed Intensity'
+            if len(data.shape) == 3:
+                map_kw['map'] = np.sum(data, axis=2)
+            elif len(data.shape) == 4:   
+                map_kw['map'] = np.sum(data, axis=(2, 3))
+            
+        # Check axes range
+        if (map_kw['x_ticks'] is None
+            or len(map_kw['x_ticks']) != map_kw['map'].shape[1]):
+            map_kw['x_ticks'] = list(range(map_kw['map'].shape[1]))
         
-    # Check axes range
-    if (map_kw['x_ticks'] is None
-        or len(map_kw['x_ticks']) != map_kw['map'].shape[1]):
-        map_kw['x_ticks'] = list(range(map_kw['map'].shape[1]))
-    
-    if (map_kw['y_ticks'] is None
-        or len(map_kw['y_ticks']) != map_kw['map'].shape[0]):
-        # Reverse order to acquiesce to matplotlib
-        map_kw['y_ticks'] = list(range(map_kw['map'].shape[0]))[::-1]
-    
-    map_extent = _find_image_extent(map_kw['x_ticks'], map_kw['y_ticks'])    
+        if (map_kw['y_ticks'] is None
+            or len(map_kw['y_ticks']) != map_kw['map'].shape[0]):
+            # Reverse order to acquiesce to matplotlib
+            map_kw['y_ticks'] = list(range(map_kw['map'].shape[0]))[::-1]
+        
+        map_extent = _find_image_extent(map_kw['x_ticks'], map_kw['y_ticks'])    
 
-    # Set color depth
-    if map_kw['vmin'] is None:
-        map_kw['vmin'] = np.min(map_kw['map'])
-    if map_kw['vmax'] is None:
-        map_kw['vmax'] = np.max(map_kw['map'])
+        # Set color depth
+        if map_kw['vmin'] is None:
+            map_kw['vmin'] = np.min(map_kw['map'])
+        if map_kw['vmax'] is None:
+            map_kw['vmax'] = np.max(map_kw['map'])
 
-    if map_kw['scale'] in [Normalize, LogNorm]:
-        pass
-    elif map_kw['scale'] in [None, 'linear']:
-        map_kw['scale'] = Normalize
-    elif map_kw['scale'] in ['log', 'logrithmic']:
-        map_kw['scale'] = LogNorm
+        if map_kw['scale'] in [Normalize, LogNorm]:
+            pass
+        elif map_kw['scale'] in [None, 'linear']:
+            map_kw['scale'] = Normalize
+        elif map_kw['scale'] in ['log', 'logrithmic']:
+            map_kw['scale'] = LogNorm
 
+        
+        # Plot Image!
+        im = axes[0].imshow(map_kw['map'],
+                            cmap=cmap,
+                            extent=map_extent,
+                            norm=map_kw['scale'](
+                                vmin=map_kw['vmin'],
+                                vmax=map_kw['vmax']
+                                ))
+        
+        # Add colorbar
+        if map_kw['map'].ndim == 2:
+            axes[0].figure.colorbar(im, ax=axes[0])
+        
+        # Set map title
+        if map_kw['title'] != None:
+            axes[0].set_title(map_kw['title'])
+        else:
+            axes[0].set_title('Custom Map')
+
+        # Set label titles
+        axes[0].set_xlabel(map_kw['x_label'])
+        axes[0].set_ylabel(map_kw['y_label'])
+
+        # Set facecolor
+        if (isinstance(map_kw['facecolor'], str)
+            and map_kw['facecolor'].lower() == 'transparent'):
+            axes[0].set_facecolor((1., 1., 1., 0.))
+        if map_kw['facecolor'] is not None:
+            axes[0].set_facecolor(map_kw['facecolor'])
     
-    # Plot Image!
-    im = axes[0].imshow(map_kw['map'],
-                        cmap=cmap,
-                        extent=map_extent,
-                        norm=map_kw['scale'](
-                            vmin=map_kw['vmin'],
-                            vmax=map_kw['vmax']
-                            ))
-    
-    # Add colorbar
-    if map_kw['map'].ndim == 2:
-        axes[0].figure.colorbar(im, ax=axes[0])
-    
-    # Set map title
-    if map_kw['title'] != None:
-        axes[0].set_title(map_kw['title'])
     else:
-        axes[0].set_title('Custom Map')
-
-    # Set label titles
-    axes[0].set_xlabel(map_kw['x_label'])
-    axes[0].set_ylabel(map_kw['y_label'])
-
-    # Set facecolor
-    if (isinstance(map_kw['facecolor'], str)
-        and map_kw['facecolor'].lower() == 'transparent'):
-        axes[0].set_facecolor((1., 1., 1., 0.))
-    if map_kw['facecolor'] is not None:
-        axes[0].set_facecolor(map_kw['facecolor'])
+        axi = axes[0].get_images()[0]
+        axi.set_data(map_kw['map'])
+        axes[0].set_title(map_kw['title'])
 
     
 def _set_globals(ax, map_kw):
@@ -398,9 +408,9 @@ def interactive_1D_plot(dyn_kw={},
         dyn_kw['x_ticks'] = range(dyn_kw['data'].shape[-1])
 
     # Generate plot
-    fig, ax = plt.subplots(1, 2, figsize=(10, 5), dpi=200)
+    fig, ax = plt.subplots(1, 2, figsize=_figsize, dpi=_dpi)
     dyn_kw['axes'] = ax
-    _display_map(dyn_kw['data'],
+    _update_map(dyn_kw['data'],
                  map_kw=map_kw,
                  axes=ax,
                  cmap=cmap)
@@ -456,9 +466,9 @@ def interactive_2D_plot(dyn_kw={},
         dyn_kw['y_ticks'] = range(dyn_kw['data'].shape[-2])
 
     # Generate plot
-    fig, ax = plt.subplots(1, 2, figsize=(10, 5), dpi=200)
+    fig, ax = plt.subplots(1, 2, figsize=_figsize, dpi=_dpi)
     dyn_kw['axes'] = ax
-    _display_map(dyn_kw['data'],
+    _update_map(dyn_kw['data'],
                  map_kw=map_kw,
                  axes=ax,
                  cmap=cmap)
@@ -508,11 +518,10 @@ def interactive_3D_plot(dyn_kw={},
     '''
 
     # Generate plot
-    # fig, ax = plt.subplots(1, 2, figsize=(10, 5), dpi=200)
-    fig = plt.figure(figsize=(10, 5), dpi=200)
+    fig = plt.figure(figsize=_figsize, dpi=_dpi)
     ax = [fig.add_axes(121), fig.add_axes(122, projection='3d')]
     dyn_kw['axes'] = ax
-    _display_map(dyn_kw['data'],
+    _update_map(dyn_kw['data'],
                  map_kw=map_kw,
                  axes=ax,
                  cmap=cmap)
@@ -576,7 +585,7 @@ def interactive_2D_1D_plot(dyn_2D_kw={},
         dyn_1D_kw['x_ticks'] = range(dyn_1D_kw['data'].shape[-1])
 
     # Generate plot
-    fig = plt.figure(figsize=(10, 5), dpi=200)
+    fig = plt.figure(figsize=_figsize, dpi=_dpi)
     subfigs = fig.subfigures(1, 2)
     ax = [subfigs[0].subplots(1, 1),
           *subfigs[1].subplots(2, 1, gridspec_kw={'height_ratios': [3, 1]})]
@@ -584,7 +593,7 @@ def interactive_2D_1D_plot(dyn_2D_kw={},
     dyn_2D_kw['axes'] = [ax[0], ax[1]]
     dyn_1D_kw['axes'] = [ax[0], ax[2]]
 
-    _display_map(dyn_1D_kw['data'],
+    _update_map(dyn_1D_kw['data'],
                  map_kw=map_kw,
                  axes=ax,
                  cmap=cmap)
@@ -652,7 +661,7 @@ def interactive_1D_1D_plot(dyn_kw1={},
             dyn_kw['x_ticks'] = range(dyn_kw['data'].shape[-1])
 
     # Generate plot
-    fig = plt.figure(figsize=(10, 5), dpi=200)
+    fig = plt.figure(figsize=_figsize, dpi=_dpi)
     subfigs = fig.subfigures(1, 2)
     ax = [subfigs[0].subplots(1, 1),
           *subfigs[1].subplots(2, 1)]
@@ -660,7 +669,7 @@ def interactive_1D_1D_plot(dyn_kw1={},
     dyn_kw1['axes'] = [ax[0], ax[1]]
     dyn_kw2['axes'] = [ax[0], ax[2]]
 
-    _display_map(dyn_kw1['data'],
+    _update_map(dyn_kw1['data'],
                  map_kw=map_kw,
                  axes=ax,
                  cmap=cmap)
@@ -724,7 +733,7 @@ def interactive_shared_2D_1D_plot(dyn_2D_kw={},
         dyn_1D_kw['x_ticks'] = range(dyn_1D_kw['data'].shape[-1])
 
     # Generate plot
-    fig = plt.figure(figsize=(10, 5), dpi=200)
+    fig = plt.figure(figsize=_figsize, dpi=_dpi)
     subfigs = fig.subfigures(1, 2, wspace=0.1)
     ax = [subfigs[0].subplots(1, 1),
           *subfigs[1].subplots(2, 1, gridspec_kw={'height_ratios': [3, 1]}, sharex=True)]
@@ -732,7 +741,7 @@ def interactive_shared_2D_1D_plot(dyn_2D_kw={},
     dyn_2D_kw['axes'] = [ax[0], ax[1]]
     dyn_1D_kw['axes'] = [ax[0], ax[2]]
 
-    _display_map(dyn_1D_kw['data'],
+    _update_map(dyn_1D_kw['data'],
                  map_kw=map_kw,
                  axes=ax,
                  cmap=cmap)
@@ -834,7 +843,7 @@ def static_window_sum_1D_plot(dyn_kw={},
         dyn_kw['x_ticks'] = range(dyn_kw['data'].shape[-1])
 
     # Generate plot
-    fig, ax = plt.subplots(1, 2, figsize=(10, 5), dpi=200)
+    fig, ax = plt.subplots(1, 2, figsize=_figsize, dpi=_dpi)
     
     # Fill and save set values
     map_kw = _fill_kwargs(map_kw,
@@ -844,7 +853,7 @@ def static_window_sum_1D_plot(dyn_kw={},
     map_vmax = map_kw['vmax']
 
     dyn_kw['axes'] = ax
-    _display_map(dyn_kw['data'],
+    _update_map(dyn_kw['data'],
                  map_kw=map_kw,
                  axes=ax,
                  cmap=cmap)
@@ -880,7 +889,7 @@ def static_window_sum_1D_plot(dyn_kw={},
             map_kw['vmin'] = map_vmin
             map_kw['vmax'] = map_vmax
 
-            _display_map(
+            _update_map(
                 # dyn_kw['data'],
                 map_kw=map_kw,
                 axes=ax,
@@ -929,7 +938,7 @@ def static_window_com_1D_plot(dyn_kw={},
         dyn_kw['x_ticks'] = range(dyn_kw['data'].shape[-1])
 
     # Generate plot
-    fig, ax = plt.subplots(1, 2, figsize=(10, 5), dpi=200)
+    fig, ax = plt.subplots(1, 2, figsize=_figsize, dpi=_dpi)
     
     # Fill and save set values
     map_kw = _fill_kwargs(map_kw,
@@ -939,7 +948,7 @@ def static_window_com_1D_plot(dyn_kw={},
     map_vmax = map_kw['vmax']
 
     dyn_kw['axes'] = ax
-    _display_map(dyn_kw['data'],
+    _update_map(dyn_kw['data'],
                  map_kw=map_kw,
                  axes=ax,
                  cmap=cmap)
@@ -977,19 +986,12 @@ def static_window_com_1D_plot(dyn_kw={},
             map_kw['vmin'] = map_vmin
             map_kw['vmax'] = map_vmax
 
-            _display_map(
-                # dyn_kw['data'],
+            _update_map(
                 map_kw=map_kw,
                 axes=ax,
                 cmap=cmap,
                 update=True)
             fig.canvas.draw_idle()
-    
-    # _update_axes(dyn_kw,
-    #              dimensions=1,
-    #              fig=fig,
-    #              cmap=cmap,
-    #              marker_color=marker_color)
     
     axi = dyn_kw['axes'][1].lines[0]
     axi.set_data(dyn_kw['x_ticks'], np.max(dyn_kw['data'], axis=(0, 1)))
@@ -1023,7 +1025,7 @@ def integrateable_dynamic_1D_plot(dyn_kw={},
         dyn_kw['x_ticks'] = range(dyn_kw['data'].shape[-1])
 
     # Generate plot
-    fig, ax = plt.subplots(1, 2, figsize=(10, 5), dpi=200)
+    fig, ax = plt.subplots(1, 2, figsize=_figsize, dpi=_dpi)
     
 
     # Fill and save set values
@@ -1034,7 +1036,7 @@ def integrateable_dynamic_1D_plot(dyn_kw={},
     map_vmax = map_kw['vmax']
 
     dyn_kw['axes'] = ax
-    _display_map(dyn_kw['data'],
+    _update_map(dyn_kw['data'],
                  map_kw=map_kw,
                  axes=ax,
                  cmap=cmap)
@@ -1075,7 +1077,7 @@ def integrateable_dynamic_1D_plot(dyn_kw={},
             map_kw['vmin'] = map_vmin
             map_kw['vmax'] = map_vmax
 
-            _display_map(
+            _update_map(
                 # dyn_kw['data'],
                 map_kw=map_kw,
                 axes=ax,
@@ -1096,15 +1098,6 @@ def integrateable_dynamic_1D_plot(dyn_kw={},
         if dynamic_toggle:
             if event.inaxes == ax[0]:
                 update_axes(event)
-
-    # global row, col, dynamic_toggle
-    # row, col = 0, 0
-    # dynamic_toggle = not dynamic_toggle
-    # _update_axes(dyn_kw,
-    #              dimensions=1,
-    #              fig=fig,
-    #              cmap=cmap,
-    #              marker_color=marker_color)
 
     span = SpanSelector(
         ax[1],

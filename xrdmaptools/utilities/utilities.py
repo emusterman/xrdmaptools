@@ -448,3 +448,60 @@ class timed_iter(object):
                                                              + dt))
             
         return p_t_time, p_t_fin
+
+
+# class memory_iter(object):
+#     import time
+#     import psutil
+#     import matplotlib.pyplot as plt
+
+#     def __init__(self, iterable=None, iter_name=None, total=None):
+#         object.__init__(self)
+
+#         if total is None and iterable is not None:
+#             total = len(iterable)
+
+#         if iter_name is None:
+#             iter_name = 'iteration'
+
+#         self.iterable = iterable
+#         self.total = total
+#         self.iter_name = iter_name
+
+
+#     def __iter__(self):
+#         self.t_start = self.time.monotonic()
+#         self.index = 0
+        
+#         # Generate plot
+#         self.mems = psutil.virtual_memory()
+#         self.x = []
+#         self.y = []
+        
+#         self.fig, self.ax = plt.subplots()
+#         self.scatter = self.ax.scatter(x, y)
+
+#         self.set_xlim(0 len(self) * 1.05)
+#         self.set_ylim(0, self.mems[0] * 1.05)
+
+#         for obj in self.iterable:
+#             self.mems = psutil.virtual_memory()
+
+#             self.x.append(self.index)
+#             self.y.append(self.mems[1] / 2**20)
+
+#             self.scatter.set_offsets(np.c_[self.x, self.y])
+#             self.fig.canvas.draw_idle()
+
+#             yield obj
+
+#             self.index += 1
+
+
+#     def __len__(self):
+#         if self.total is not None:
+#             out_len = self.total
+#         else:
+#             out_len = len(self.iterable)
+
+#         return out_len

@@ -81,129 +81,138 @@ def load_xrdbase_hdf(filename,
         hdf = h5py.File(hdf_path, 'r')
     else:
         hdf = h5py.File(hdf_path, 'a')
-    base_grp = hdf[hdf_type]
 
-    # Load reflection first
-    # Built-in pandas hdf support needs this
-    spots = None
-    spots_3D = None
-    spot_model = None
-    if 'reflections' in base_grp.keys():
-        print('Loading reflection spots...', end='', flush=True)
-        # I really dislike that pandas cannot handle an already open file
-        has_spots, has_spots_3D = False, False
-        if 'spots' in base_grp['reflections'].keys():
-            has_spots = True
-        if 'spots_3D' in base_grp['reflections'].keys():
-            has_spots_3D = True
+    # Protect hdf
+    try:
+        base_grp = hdf[hdf_type]
 
-        hdf.close()
-        if has_spots:
-            spots = pd.read_hdf(hdf_path,
-                                key=f'{hdf_type}/reflections/spots')
-        
-        if has_spots_3D:
-            spots_3D = pd.read_hdf(hdf_path,
-                                key=f'{hdf_type}/reflections/spots_3D')
+        # Load reflection first
+        # Built-in pandas hdf support needs this
+        spots = None
+        spots_3D = None
+        spot_model = None
+        if 'reflections' in base_grp.keys():
+            print('Loading reflection spots...', end='', flush=True)
+            # I really dislike that pandas cannot handle an already open file
+            has_spots, has_spots_3D = False, False
+            if 'spots' in base_grp['reflections'].keys():
+                has_spots = True
+            if 'spots_3D' in base_grp['reflections'].keys():
+                has_spots_3D = True
 
+            hdf.close()
+            if has_spots:
+                spots = pd.read_hdf(hdf_path,
+                                    key=f'{hdf_type}/reflections/spots')
+            
+            if has_spots_3D:
+                spots_3D = pd.read_hdf(hdf_path,
+                                    key=f'{hdf_type}/reflections/spots_3D')
+
+            if not dask_enabled:
+                hdf = h5py.File(hdf_path, 'r')
+                base_grp = hdf[hdf_type]
+            else:
+                hdf = h5py.File(hdf_path, 'a')
+                base_grp = hdf[hdf_type]
+
+            # Load spot model
+            if (has_spots
+                and 'spot_model' in base_grp['reflections/spots'].attrs.keys()):
+                spot_model_name = base_grp['reflections/spots'].attrs['spot_model']
+                spot_model = _load_peak_function(spot_model_name)
+            print('done!')
+
+        # Load base metadata
+        base_md = dict(base_grp.attrs.items())
+
+        # Backwards compatability
+        if 'scanid' in base_md:
+            # Change dictionary
+            base_md['scan_id'] = base_md['scanid']
+            del base_md['scanid']
+            # Overwrite hdf values
+            write_flag = (hdf.mode == 'a')
+            if not write_flag:
+                hdf.close()
+                hdf = h5py.File(hdf_path, 'a')
+                base_grp = hdf[hdf_type]
+            base_grp.attrs['scan_id'] = base_md['scan_id']
+            del base_grp.attrs['scanid']
+            if not write_flag:
+                hdf.close()
+                hdf = h5py.File(hdf_path, 'r')
+                base_grp = hdf[hdf_type]
+
+        # Load extra metadata
+        extra_md = {}
+        if 'extra_metadata' in base_grp.keys(): # Check for backwards compatibility
+            for key, value in base_grp['extra_metadata'].attrs.items():
+                extra_md[key] = value
+
+        # Load image data
+        (image_data,
+        image_attrs,
+        image_corrections,
+        image_data_key,
+        map_shape,
+        image_shape) = _load_xrd_hdf_image_data(
+                                    base_grp,
+                                    image_data_key=image_data_key,
+                                    load_blob_masks=load_blob_masks,
+                                    map_shape=map_shape,
+                                    image_shape=image_shape,
+                                    dask_enabled=dask_enabled)
+
+        # Load integration data
+        (integration_data,
+        integration_attrs,
+        integration_corrections,
+        integration_data_key,
+        map_shape) = _load_xrd_hdf_integration_data(
+                                    base_grp,
+                                    integration_data_key=integration_data_key,
+                                    map_shape=map_shape)
+
+        # Load recipricol positions
+        recip_pos, poni_od = _load_xrd_hdf_reciprocal_positions(base_grp)
+
+        # Load phases
+        phase_dict = _load_xrd_hdf_phases(base_grp)
+
+        # Load scalers
+        sclr_dict = _load_xrd_hdf_scalers(base_grp)
+
+        # Load pixel positions
+        pos_dict = _load_xrd_hdf_positions(base_grp) 
+
+        # Vector data is mutually exclusive between rsm and xrdmap
+        # Load vectorized data
+        vector_dict = _load_xrd_hdf_vectorized_data(base_grp)
+
+        # Load vectorized map data
+        if load_vector_map:
+            _vector_dict = _load_xrd_hdf_vectorized_map_data(base_grp)
+            if vector_dict is not None and _vector_dict is not None:
+                err_str = ('Vectorized data found in both rocking curve '
+                        + 'and mapped format! Something is very wrong!')
+                raise RuntimeError(err_str)
+            else:
+                # Replace with real values
+                if vector_dict is None:
+                    vector_dict = _vector_dict
+
+        # Final hdf considerations
         if not dask_enabled:
-            hdf = h5py.File(hdf_path, 'r')
-            base_grp = hdf[hdf_type]
-        else:
-            hdf = h5py.File(hdf_path, 'a')
-            base_grp = hdf[hdf_type]
-
-        # Load spot model
-        if (has_spots
-            and 'spot_model' in base_grp['reflections/spots'].attrs.keys()):
-            spot_model_name = base_grp['reflections/spots'].attrs['spot_model']
-            spot_model = _load_peak_function(spot_model_name)
-        print('done!')
-
-    # Load base metadata
-    base_md = dict(base_grp.attrs.items())
-
-    # Backwards compatability
-    if 'scanid' in base_md:
-        # Change dictionary
-        base_md['scan_id'] = base_md['scanid']
-        del base_md['scanid']
-        # Overwrite hdf values
-        write_flag = (hdf.mode == 'a')
-        if not write_flag:
             hdf.close()
-            hdf = h5py.File(hdf_path, 'a')
-            base_grp = hdf[hdf_type]
-        base_grp.attrs['scan_id'] = base_md['scan_id']
-        del base_grp.attrs['scanid']
-        if not write_flag:
+            hdf = None
+
+    # Catch errors and close hdf
+    except Exception as e:
+        if hdf is not None:
             hdf.close()
-            hdf = h5py.File(hdf_path, 'r')
-            base_grp = hdf[hdf_type]
+        raise e
 
-    # Load extra metadata
-    extra_md = {}
-    if 'extra_metadata' in base_grp.keys(): # Check for backwards compatibility
-        for key, value in base_grp['extra_metadata'].attrs.items():
-            extra_md[key] = value
-
-    # Load image data
-    (image_data,
-     image_attrs,
-     image_corrections,
-     image_data_key,
-     map_shape,
-     image_shape) = _load_xrd_hdf_image_data(
-                                base_grp,
-                                image_data_key=image_data_key,
-                                load_blob_masks=load_blob_masks,
-                                map_shape=map_shape,
-                                image_shape=image_shape,
-                                dask_enabled=dask_enabled)
-
-    # Load integration data
-    (integration_data,
-     integration_attrs,
-     integration_corrections,
-     integration_data_key,
-     map_shape) = _load_xrd_hdf_integration_data(
-                                base_grp,
-                                integration_data_key=integration_data_key,
-                                map_shape=map_shape)
-
-    # Load recipricol positions
-    recip_pos, poni_od = _load_xrd_hdf_reciprocal_positions(base_grp)
-
-    # Load phases
-    phase_dict = _load_xrd_hdf_phases(base_grp)
-
-    # Load scalers
-    sclr_dict = _load_xrd_hdf_scalers(base_grp)
-
-    # Load pixel positions
-    pos_dict = _load_xrd_hdf_positions(base_grp) 
-
-    # Vector data is mutually exclusive between rsm and xrdmap
-    # Load vectorized data
-    vector_dict = _load_xrd_hdf_vectorized_data(base_grp)
-
-    # Load vectorized map data
-    if load_vector_map:
-        _vector_dict = _load_xrd_hdf_vectorized_map_data(base_grp)
-        if vector_dict is not None and _vector_dict is not None:
-            err_str = ('Vectorized data found in both rocking curve '
-                       + 'and mapped format! Something is very wrong!')
-            raise RuntimeError(err_str)
-        else:
-            # Replace with real values
-            if vector_dict is None:
-                vector_dict = _vector_dict
-
-    # Final hdf considerations
-    if not dask_enabled:
-        hdf.close()
-        hdf = None
-    
     # Return dictionary of useful values
     ouput_dict = {'base_md' : base_md,
                   'extra_metadata' : extra_md,
@@ -711,58 +720,67 @@ def load_xrdmapstack_hdf(filename,
     hdf_path = pathify(wd, filename, '.h5')
 
     hdf = h5py.File(hdf_path, 'r')
-    base_grp = hdf[hdf_type]
 
-    # Load base metadata
-    base_md = dict(base_grp.attrs.items())
+    # Protect hdf
+    try:
+        base_grp = hdf[hdf_type]
 
-    # Backwards compatability
-    if 'scanid' in base_md:
-        # Change dictionary
-        base_md['scan_id'] = base_md['scanid']
-        del base_md['scanid']
-        # Overwrite hdf values
-        write_flag = (hdf.mode == 'a')
-        if not write_flag:
-            hdf.close()
-            hdf = h5py.File(hdf_path, 'a')
-            base_grp = hdf[hdf_type]
-        base_grp.attrs['scan_id'] = base_md['scan_id']
-        del base_grp.attrs['scanid']
-        if not write_flag:
-            hdf.close()
-            hdf = h5py.File(hdf_path, 'r')
-            base_grp = hdf[hdf_type]
+        # Load base metadata
+        base_md = dict(base_grp.attrs.items())
 
-    # Load extra metadata
-    extra_md = {}
-    # Check for backwards compatibility
-    if 'extra_metadata' in base_grp.keys(): 
-        for key, value in base_grp['extra_metadata'].attrs.items():
-            extra_md[key] = value
+        # Backwards compatability
+        if 'scanid' in base_md:
+            # Change dictionary
+            base_md['scan_id'] = base_md['scanid']
+            del base_md['scanid']
+            # Overwrite hdf values
+            write_flag = (hdf.mode == 'a')
+            if not write_flag:
+                hdf.close()
+                hdf = h5py.File(hdf_path, 'a')
+                base_grp = hdf[hdf_type]
+            base_grp.attrs['scan_id'] = base_md['scan_id']
+            del base_grp.attrs['scanid']
+            if not write_flag:
+                hdf.close()
+                hdf = h5py.File(hdf_path, 'r')
+                base_grp = hdf[hdf_type]
 
-    # Backwards compatibility
-    if ('vectorized_map' in base_grp
-        and 'virtual_shape' in base_grp['vectorized_map'].attrs):
-        map_shape = base_grp['vectorized_map'].attrs['virtual_shape']
-        write_flag = (hdf.mode == 'a')
-        if not write_flag:
+        # Load extra metadata
+        extra_md = {}
+        # Check for backwards compatibility
+        if 'extra_metadata' in base_grp.keys(): 
+            for key, value in base_grp['extra_metadata'].attrs.items():
+                extra_md[key] = value
+
+        # Backwards compatibility
+        if ('vectorized_map' in base_grp
+            and 'virtual_shape' in base_grp['vectorized_map'].attrs):
+            map_shape = base_grp['vectorized_map'].attrs['virtual_shape']
+            write_flag = (hdf.mode == 'a')
+            if not write_flag:
+                hdf.close()
+                hdf = h5py.File(hdf_path, 'a')
+                base_grp = hdf[hdf_type]
+            del base_grp['vectorized_map'].attrs['virtual_shape']
+            hdf[f'{hdf_type}/vectorized_map'].attrs[
+                                    'vectorized_map_shape'] = map_shape
+            if not write_flag:
+                hdf.close()
+                hdf = h5py.File(hdf_path, 'r')
+                base_grp = hdf[hdf_type]
+            
+        if load_xdms_vector_map:
+            # Same functions works for XRDMaps and XRDMapStacks
+            vector_dict = _load_xrd_hdf_vectorized_map_data(base_grp)
+        else:
+            vector_dict = None
+    
+    # Catch error, close hdf, re-raise
+    except Exception as e:
+        if hdf is not None:
             hdf.close()
-            hdf = h5py.File(hdf_path, 'a')
-            base_grp = hdf[hdf_type]
-        del base_grp['vectorized_map'].attrs['virtual_shape']
-        hdf[f'{hdf_type}/vectorized_map'].attrs[
-                                'vectorized_map_shape'] = map_shape
-        if not write_flag:
-            hdf.close()
-            hdf = h5py.File(hdf_path, 'r')
-            base_grp = hdf[hdf_type]
-        
-    if load_xdms_vector_map:
-        # Same functions works for XRDMaps and XRDMapStacks
-        vector_dict = _load_xrd_hdf_vectorized_map_data(base_grp)
-    else:
-        vector_dict = None
+        raise e
 
     # Return dictionary of useful values
     ouput_dict = {'base_md' : base_md,

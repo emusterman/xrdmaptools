@@ -2713,6 +2713,8 @@ class XRDData:
                 # This should all be done in place
                 getattr(self, attr)[self.null_map] = 0
         
+        self.reset_projections()
+        
 
     # Formalized function to declare no further image processing.
     def finalize_images(self,

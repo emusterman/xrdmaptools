@@ -26,7 +26,8 @@ def load_data(scan_id=-1,
               detectors=None,
               data_keys=None,
               returns=None,
-              repair_method='replace'):
+              repair_method='replace',
+              verbose=True):
 
     # Load data from tiled
     if str(broker).lower() in ['tiled']:
@@ -35,7 +36,8 @@ def load_data(scan_id=-1,
         out = load_tiled_data(scan_id=scan_id,
                               detectors=detectors,
                               data_keys=data_keys,
-                              returns=returns)
+                              returns=returns,
+                              verbose=verbose)
 
     # Load data from databroker
     elif str(broker).lower() in ['db', 'databroker', 'broker']:
@@ -44,7 +46,8 @@ def load_data(scan_id=-1,
         out = load_db_data(scan_id=scan_id, 
                            detectors=detectors,
                            data_keys=data_keys,
-                           returns=returns)
+                           returns=returns,
+                           verbose=verbose)
     
     # Load data manually
     elif str(broker).lower() in ['manual']:
@@ -60,7 +63,8 @@ def load_data(scan_id=-1,
                                detectors=detectors,
                                data_keys=data_keys,
                                returns=returns,
-                               repair_method=repair_method)
+                               repair_method=repair_method,
+                               verbose=verbose)
 
     return out
 
@@ -69,7 +73,8 @@ def load_data(scan_id=-1,
 def load_tiled_data(scan_id=-1,
                     detectors=None,
                     data_keys=None,
-                    returns=None):
+                    returns=None,
+                    verbose=True):
     
     bs_run = c[int(scan_id)]
 
@@ -112,7 +117,8 @@ def load_tiled_data(scan_id=-1,
 def load_db_data(scan_id=-1,
                  detectors=None,
                  data_keys=None,
-                 returns=None):
+                 returns=None,
+                 verbose=True):
 
     bs_run = db[int(scan_id)]
 
@@ -157,7 +163,11 @@ def manual_load_data(scan_id=-1,
                      data_keys=None,
                      detectors=None,
                      returns=None,
-                     repair_method='replace'):
+                     repair_method='replace',
+                     verbose=True):
+    
+    # Setup verbosity
+    vprint = print if verbose else lambda *a, **k: None
 
     if str(broker).lower() in ['tiled']:
         bs_run = c[int(scan_id)]
@@ -165,7 +175,7 @@ def manual_load_data(scan_id=-1,
         bs_run = db[int(scan_id)]
 
     scan_md = _load_scan_metadata(bs_run)
-    print(f'Manually loading data for scan {scan_md["scan_id"]}...')
+    vprint(f'Manually loading data for scan {scan_md["scan_id"]}...')
 
     # Get relevant hdf information
     data_keys, resource_keys, xrd_dets = _get_resource_keys(bs_run,
@@ -173,6 +183,11 @@ def manual_load_data(scan_id=-1,
                                                   detectors=detectors,
                                                   returns=['xrd_dets'])                             
     r_paths = _get_resource_paths(bs_run, resource_keys)
+
+    # Do not search for empty data
+    for key in list(r_paths.keys()):
+        if len(r_paths[key]) == 0:
+            del r_paths[key]
 
     # Load data
     _empty_lists = [[] for _ in range(len(data_keys))]
@@ -182,7 +197,7 @@ def manual_load_data(scan_id=-1,
     # These are all essentially handlers with more conditionals for fixing data
     r_key = 'ZEBRA_HDF51'
     if r_key in r_paths.keys():
-        print('Loading encoders...')
+        vprint('Loading encoders...')
         enc_keys = [value for value in data_keys if value in ['enc1', 'enc2', 'enc3', 'zebra_time']]
         for r_path in r_paths[r_key]:
             with h5py.File(r_path, 'r') as f:
@@ -190,14 +205,13 @@ def manual_load_data(scan_id=-1,
                     data_dict[key].append(np.array(f[key]))
         # Stack data into array
         for key in enc_keys:
-            #data_dict[key] = np.stack(data_dict[key])
             dr_rows, br_rows = _flag_broken_rows(data_dict[key], key)
             dropped_rows += dr_rows
             broken_rows += br_rows
 
     r_key = 'SIS_HDF51'
     if r_key in r_paths.keys():
-        print('Loading scalers...')
+        vprint('Loading scalers...')
         sclr_keys = [value for value in data_keys if value in ['i0', 'im', 'it', 'sis_time']]
         if 'i0_time' in data_keys and 'sis_time' not in sclr_keys:
             sclr_keys.append('sis_time')
@@ -207,10 +221,7 @@ def manual_load_data(scan_id=-1,
                 for key in sclr_keys:
                     data_dict[key].append(np.array(f[key]))
         # Stack data into array
-        #for key in sclr_keys:
-            #data_dict[key] = np.stack(data_dict[key])
         if 'i0_time' in data_keys:
-            #data_dict['i0_time'] = data_dict['sis_time'] / 50e6 # 50 MHz clock
             data_dict['i0_time'] = [d / 50e6 for d in data_dict['sis_time']] # 50 MHz clock
         if 'sis_time' not in data_keys and 'sis_time' in data_dict.keys():
             del data_dict['sis_time']
@@ -223,29 +234,24 @@ def manual_load_data(scan_id=-1,
 
     r_key = 'XSP3_FLY'
     if r_key in r_paths.keys():
-        print('Loading xspress3...')
+        vprint('Loading xspress3...')
         key = 'xs_fluor'
         for r_path in r_paths[r_key]:
             with h5py.File(r_path, 'r') as f:
                 data_dict[key].append(np.array(f['entry/data/data']))
         # Stack data into array
-        #data_dict[key] = np.stack(data_dict[key])
         dr_rows, br_rows = _flag_broken_rows(data_dict[key], key)
         dropped_rows += dr_rows
         broken_rows += br_rows
 
     r_key = 'DEXELA_FLY_V1'
     if r_key in r_paths.keys():
-        print('Loading dexela...')
+        vprint('Loading dexela...')
         key = 'dexela_image'
         for r_path in r_paths[r_key]:
             f = h5py.File(r_path, 'r')
             data_dict[key].append(f['entry/data/data'])
-            #with h5py.File(r_path, 'r') as f:
-            #    data_dict[key].append(np.array(f['entry/data/data']))
         # Stack data into array
-        #data_dict[key] = _check_xrd_data_shape(data_dict[key],
-        #                                       repair_method=repair_method)
         dr_rows, br_rows = _flag_broken_rows(data_dict[key], key)
         dropped_rows += dr_rows
         broken_rows += br_rows
@@ -253,14 +259,12 @@ def manual_load_data(scan_id=-1,
     # Not tested!!!
     r_key = 'MERLIN_FLY_V1'
     if r_key in r_paths.keys():
-        print('Loading merlin...')
+        vprint('Loading merlin...')
         key = 'merlin_image'
         for r_path in r_paths[r_key]:
             with h5py.File(r_path, 'r') as f:
                 data_dict[key].append(np.array(f['entry/data/data']))
         # Stack data into array
-        #data_dict[key] = _check_xrd_data_shape(data_dict[key],
-        #                                       repair_method=repair_method)
         dr_rows, br_rows = _flag_broken_rows(data_dict[key], key)
         dropped_rows += dr_rows
         broken_rows += br_rows
@@ -268,8 +272,6 @@ def manual_load_data(scan_id=-1,
     # Repair data
     dropped_rows = sorted(list(np.unique(dropped_rows)))
     broken_rows = sorted(list(np.unique(broken_rows)))
-    #print(dropped_rows)
-    #print(broken_rows)
     data_dict = _repair_data_dict(data_dict,
                                   dropped_rows,
                                   broken_rows,
@@ -283,14 +285,14 @@ def manual_load_data(scan_id=-1,
         if 'xrd_dets' in returns:
             out.append(xrd_dets)
 
-    print(f'Data loaded for scan {scan_md["scan_id"]}!')
+    vprint(f'Data loaded for scan {scan_md["scan_id"]}!')
     return out
 
 
 # Helper function
 def get_scantype(scan_id=-1,
                  broker='tiled'):
-        # Load data from tiled
+    # Load data from tiled
     if str(broker).lower() in ['tiled']:
         bs_run = c[int(scan_id)]
 
@@ -472,7 +474,6 @@ def _repair_data_dict(data_dict,
                                 zero_row = np.zeros_like(np.asarray(
                                                             data_dict[key][last_good_row]
                                                             ))
-                                #print(f'{zero_row.shape=}')
 
                                 data_dict['null_map'][q_row][-filled_pts:] = (
                                                             [True,] * filled_pts)
@@ -945,7 +946,11 @@ def save_full_scan(scan_id=-1,
 
 def load_step_rc_data(scan_id=-1,
                       extra_data_keys=None,
-                      returns=None):
+                      returns=None,
+                      verbose=True):
+
+    # Setup verbosity
+    vprint = print if verbose else lambda *a, **k: None
     
     bs_run = c[int(scan_id)]
 
@@ -992,14 +997,14 @@ def load_step_rc_data(scan_id=-1,
     for key in xrd_data_keys:
         data_keys.append(key)
     
-    print(f'Loading data for {scantype} scan {scan_md["scan_id"]}...')
+    vprint(f'Loading data for {scantype} scan {scan_md["scan_id"]}...')
     
     # Load data
     _empty_lists = [[] for _ in range(len(data_keys))]
     data_dict = dict(zip(data_keys, _empty_lists))
     docs = bs_run.documents()
     
-    print('Loading scalers and rocking data...')
+    vprint('Loading scalers and rocking data...')
     for doc in docs:
         if doc[0] == 'event_page':
             if 'dexela_image' in doc[1]['filled'].keys():
@@ -1042,7 +1047,7 @@ def load_step_rc_data(scan_id=-1,
     
     key = 'dexela_image'
     if key in data_keys:
-        print('Loading dexela...')
+        vprint('Loading dexela...')
         for r_path in r_paths['TPX_HDF5']:
             with h5py.File(r_path, 'r') as f:
                 data_dict[key].append(np.asarray(f['entry/data/data']))
@@ -1050,12 +1055,12 @@ def load_step_rc_data(scan_id=-1,
     key = 'xs_fluor'
     if 'xs_fluor' in data_keys:
         if len(r_paths['XSP3_FLY']) > 0:
-            print('Loading xspress3...')
+            vprint('Loading xspress3...')
             for r_path in r_paths['XSP3_FLY']:
                 with h5py.File(r_path, 'r') as f:
                     data_dict[key].append(np.asarray(f['entry/data/data']))
         else:
-            print('WARNING: xspress3 data requested, but none found.')
+            vprint('WARNING: xspress3 data requested, but none found.')
             del data_dict['xs_fluor']
 
     # No Merlin support...
@@ -1071,7 +1076,7 @@ def load_step_rc_data(scan_id=-1,
         if 'xrd_dets' in returns:
             out.append(xrd_dets)
 
-    print(f'Data loaded for {scantype} scan {scan_md["scan_id"]}!')
+    vprint(f'Data loaded for {scantype} scan {scan_md["scan_id"]}!')
     return out
 
 
@@ -1145,110 +1150,7 @@ def save_step_rc_data(scan_id=-1,
         print(f'Saved XRF data for scan {scan_id}!')
 
 
-### Energy Rocking Curve Scans ###
-
-# def load_energy_rc_data(scan_id=-1,
-#                         data_keys=None,
-#                         returns=None):
-
-#     bs_run = c[int(scan_id)]
-
-#     scan_md = {
-#         'scan_id' : bs_run.start['scan_id'],
-#         'scan_uid' : bs_run.start['uid'],
-#         'beamline' : bs_run.start['beamline_id'],
-#         'scantype' : bs_run.start['scan']['type'],
-#         'detectors' : bs_run.start['scan']['detectors'],
-#         'energy' : bs_run.start['scan']['energy'],
-#         'theta' : bs_run.start['scan']['theta']
-#         'dwell' : bs_run.start['scan']['dwell'],
-#         'start_time' : bs_run.start['time_str']
-#     }
-
-#     docs = bs_run.documents()
-
-#     data_keys = [
-#         'sclr_i0',
-#         'sclr_im',
-#         'sclr_it',    if 'xs_fluor' in data_keys:
-#         'energy_energy',
-#         'nano_stage_th'
-#     ]
-
-#     # Load data
-#     _empty_lists = [[] for _ in range(len(data_keys))]
-#     data_dict = dict(zip(data_keys, _empty_lists))
-
-#             if 'dexela_image' in doc[1]['filled'].keys():
-#                 for key in data_keys:
-#                     data_dict[key].append(doc[1]['data'][key][0])
-
-#     # Fix keys
-#     data_dict['energy'] = np.array(data_dict['energy_energy'])
-#     data_dict['theta'] = np.asarray(data_dict['nano_stage_th'])
-#     data_dict['i0'] = np.array(data_dict['sclr_i0'])
-#     data_dict['im'] = np.array(data_dict['sclr_im'])
-#     data_dict['it'] = np.array(data_dict['sclr_it'])
-#     del (data_dict['energy_energy'],
-#          data_dict['nano_stage_th']
-#          data_dict['sclr_i0'],
-#          data_dict['sclr_im'],
-#          data_dict['sclr_it'])
-#     data_keys = list(data_dict.keys())
-#     #print(data_keys)
-
-#     # Dexela images saved differently with count...
-#     r_paths = _get_resource_paths(bs_run, ['TPX_HDF5'])
-
-#     print('Loading dexela...')
-#     key = 'dexela_image'
-#     data_dict[key] = []
-#     for r_path in r_paths['TPX_HDF5']:
-#         with h5py.File(r_path, 'r') as f:
-#             data_dict[key].append(np.array(f['entry/data/
-
-#     out = [data_dict, scan_md]
-
-#     if returns is not None:
-#         if 'data_keys' in returns:
-#             out.append(data_keys)
-#         if 'xrd_dets' in returns:
-#             xrd_dets = [det for det in scan_md['detectors']
-#                         if det in ['merlin', 'dexela']]
-#             out.append(xrd_dets)
-
-#     return out
-
-
-# def save_energy_rc_data(scan_id=-1,
-#                         wd=None,
-
-#      ) = load_step_rc_data(scan_id=scan_id,
-#                            returns=['data_keys',
-#                                     'xrd_dets'])
-    
-#     xrd_data = [data_dict[f'{xrd_det}_image']
-#                 for xrd_det in xrd_dets]
-
-#     if filenames is None:
-#         filenames = []
-#         for detector in xrd_dets:
-#             filenames.append(f'scan{scan_id}_{detector}_energy_rc.tif')
-    
-#     _save_xrd_tifs(xrd_data,
-#                    xrd_dets=xrd_dets,
-#                    scan_id=scan_md['scan_id'], # Will return the correct value
-#                    wd=wd,
-#                    filenames=filenames)
-
-#     param_filename = f'scan{scan_id}_energy_rc_parameters.txt'
-#     _save_map_parameters(data_dict, scan_id, data_keys=data_keys,
-#                          wd=wd, filename=param_filename)
-    
-#     md_filename = f'scan{scan_id}_energy_rc_metadata.txt'                  
-#     _save_scan_md(scan_md, scan_id,
-#                   wd=wd, filename=md_filename)
-    
+### Energy Rocking Curve Scans ###    
 
 def load_extended_energy_rc_data(start_id,
                                  end_id,
@@ -1383,116 +1285,7 @@ def save_extended_energy_rc_data(start_id,
                    xrf_data)
         print(f'Saved XRF data for scans {scan_range_str}!')
 
-### Angle Rocking Curve Scans ###
-
-# def load_angle_rc_data(scan_id=-1,
-#                        detectors=None,
-#                        data_keys=None,
-#                        returns=None):
-
-#     bs_run = c[int(scan_id)]
-
-#     scan_md = {
-#         'scan_id' : bs_run.start['scan_id'],
-#         'scan_uid' : bs_run.start['uid'],
-#         'beamline' : bs_run.start['beamline_id'],
-#         'scantype' : bs_run.start['scan']['type'],
-#         'detectors' : bs_run.start['scan']['detectors'],
-#         'energy' : bs_run.start['scan']['energy'],
-#         'dwell' : bs_run.start['scan']['dwell'],
-#         'start_time' : bs_run.start['time_str']
-#     }
-
-#     docs = bs_run.documents()
-
-#     data_keys = [
-#         'sclr_i0',
-#         'sclr_im',
-#         'sclr_it',
-#         'nano_stage_th'
-#     ]
-
-#     # Load data
-#     _empty_lists = [[] for _ in range(len(data_keys))]
-#     data_dict = dict(zip(data_keys, _empty_lists))
-
-#     print('Loading scalers and energies...', end='', flush=True)
-#     for doc in docs:
-#         if doc[0] == 'event_page':
-#             if 'dexela_image' in doc[1]['filled'].keys():
-#                 for key in data_keys:
-#                     data_dict[key].append(doc[1]['data'][key][0])
-#     print('done!')
-
-#     # Fix keys
-#     data_dict['theta'] = np.array(data_dict['nano_stage_th'])
-#     data_dict['i0'] = np.array(data_dict['sclr_i0'])
-#     data_dict['im'] = np.array(data_dict['sclr_im'])
-#     data_dict['it'] = np.array(data_dict['sclr_it'])
-#     del (data_dict['nano_stage_th'],
-#          data_dict['sclr_i0'],
-#          data_dict['sclr_im'],
-#          data_dict['sclr_it'])
-#     data_keys = list(data_dict.keys())
-#     #print(data_keys)
-
-#     # Dexela images saved differently with count...
-#     r_paths = _get_resource_paths(bs_run, ['TPX_HDF5'])
-
-#     print('Loading dexela...', end='', flush='True')
-#     key = 'dexela_image'
-#     data_dict[key] = []
-#     for r_path in r_paths['TPX_HDF5']:
-#         with h5py.File(r_path, 'r') as f:
-#             data_dict[key].append(np.array(f['entry/data/data']))
-#     # Stack data into array
-#     print('')
-#     #data_dict[key] = _check_xrd_data_shape(data_dict[key])
-#     print('done!')
-
-#     out = [data_dict, scan_md]
-
-#     if returns is not None:
-#         if 'data_keys' in returns:
-#             out.append(data_keys)
-#         if 'xrd_dets' in returns:
-#             xrd_dets = [det for det in scan_md['detectors']
-#                         if det in ['merlin', 'dexela']]
-#             out.append(xrd_dets)
-
-#     return out
-
-
-# def save_angle_rc_data(scan_id=-1,
-#                        wd=None,
-#                        filenames=None):
-
-#     (data_dict,
-#      scan_md,
-#      data_keys,
-#      xrd_dets
-#      ) = load_step_rc_data(scan_id=scan_id,
-#                            returns=['data_keys',
-#                                     'xrd_dets'])
-    
-#     xrd_data = [data_dict[f'{xrd_det}_image']
-#                 for xrd_det in xrd_dets]
-
-#     if filenames is None:
-#         filenames = []
-#         for detector in xrd_dets:
-#             filenames.append(f'scan{scan_id}_{detector}_angle_rc.tif')
-    
-#     _save_xrd_tifs(xrd_data,
-#                    xrd_dets=xrd_dets,
-#                    scan_id=scan_md['scan_id'], # Will return the correct value
-#                    wd=wd,
-#                    filenames=filenames)
-
-#     param_filename = f'scan{scan_id}_angle_rc_parameters.txt'
-#     _save_map_parameters(data_dict, scan_id, data_keys=data_keys,
-#                          wd=wd, filename=param_filename)
-    
+### Angle Rocking Curve Scans ###  
 
 def load_flying_angle_rc_data(scan_id=-1,
                               broker='manual',
@@ -1698,4 +1491,3 @@ def generate_scan_logfile(start_id,
                                 scan_detectors,
                                 scan_inputs):
             log.write(f'{scan_id}\t{scan_type}\t{scan_status}\t{scan_detector}\t{scan_input}\n')
-            # log.write(f'{scan_id}\t{scan_type}\t{scan_status}\t{scan_detector}\n')

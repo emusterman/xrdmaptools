@@ -433,9 +433,11 @@ def modular_azimuthal_shift(arr,
     if force_shift:
         shifted=True
         # Degrees
-        if max_arr > np.pi: shift_value = 2 * 180
+        if max_arr > np.pi:
+            shift_value = 2 * 180
         # Radians
-        else: shift_value = 2 * np.pi
+        else:
+            shift_value = 2 * np.pi
         # Shift and recalculate
         arr[arr < 0] += shift_value
 

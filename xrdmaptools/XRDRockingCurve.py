@@ -732,14 +732,14 @@ class XRDRockingCurve(XRDBaseScan):
                 raise AttributeError(err_str)
 
         edges = ([[] for _ in range(12)])
-        for i, qi in tqdm(enumerate(q_arr), total=self.num_images):
+        for i, qi in tqdm(enumerate(q_arr), total=len(self.energy)):
             # Find edges
             if i == 0:
                 edges[4] = qi[0]
                 edges[5] = qi[-1]
                 edges[6] = qi[:, 0]
                 edges[7] = qi[:, -1]
-            elif i == self.num_images - 1:
+            elif i == len(self.energy)- 1:
                 edges[8] = qi[0]
                 edges[9] = qi[-1]
                 edges[10] = qi[:, 0]
@@ -968,7 +968,8 @@ class XRDRockingCurve(XRDBaseScan):
                       subsample=1,
                       intensity_cutoff=0,
                       label_int_method='mean',
-                      save_to_hdf=True):
+                      save_to_hdf=True,
+                      verbose=False):
 
         if (not hasattr(self, 'vectors')
             or self.vectors is None):
@@ -985,7 +986,8 @@ class XRDRockingCurve(XRDBaseScan):
                                        self.vectors[:, -1][int_mask],
                                        nn_dist=nn_dist,
                                        significance=significance,
-                                       subsample=subsample)
+                                       subsample=subsample,
+                                       verbose=verbose)
 
         tth, chi, wavelength = q_2_polar(spots,
                                          stage_rotation=0,
