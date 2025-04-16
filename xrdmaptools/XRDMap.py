@@ -1064,7 +1064,7 @@ class XRDMap(XRDBaseScan):
                 raise ValueError('Unknown metric specification.')
 
         # Find relative indices where conditional is true
-        mask = np.where(significance.values < remove_less)[0]
+        mask = np.nonzero(significance.values < remove_less)[0]
 
         # Convert relative indices into dataframe index
         drop_indices = self.spots.iloc[mask].index.values # awful call
@@ -1106,6 +1106,7 @@ class XRDMap(XRDBaseScan):
         
         return pixel_spots
 
+
     @_check_swapped_axes
     @XRDBaseScan._protect_hdf(pandas=True)
     def save_spots(self, extra_attrs=None):
@@ -1120,7 +1121,6 @@ class XRDMap(XRDBaseScan):
             self.open_hdf()
             for key, value in extra_attrs.items():
                 overwrite_attr(self.hdf[hdf_str].attrs, key, value)
-                #self.hdf[hdf_str].attrs[key] = value        
         print('done!')
 
     ############################

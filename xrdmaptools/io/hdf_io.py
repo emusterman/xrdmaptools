@@ -84,7 +84,22 @@ def load_xrdbase_hdf(filename,
 
     # Protect hdf
     try:
-        base_grp = hdf[hdf_type]
+        if hdf_type in hdf:
+            base_grp = hdf[hdf_type]
+        else:
+            if len(hdf.keys()) == 1:
+                found_hdf_type = hdf.keys()[0]
+                err_str = ('Found HDF of incorrect type. Expected '
+                           + f'{hdf_type}, but found {found_hdf_type}'
+                           + 'instead.')
+                if found_hdf_type == 'xrfmap':
+                    err_str += ('\nXRF maps should be handled with '
+                                + 'pyxrf or similar packages.')
+            else:
+                err_str = ('Found HDF of incorrect type. Expected '
+                           + f'{hdf_type}, but found unknown type '
+                           + 'instead.')
+            raise TypeError(err_str)
 
         # Load reflection first
         # Built-in pandas hdf support needs this
@@ -723,7 +738,40 @@ def load_xrdmapstack_hdf(filename,
 
     # Protect hdf
     try:
-        base_grp = hdf[hdf_type]
+        if hdf_type in hdf:
+            base_grp = hdf[hdf_type]
+        else:
+            if len(hdf.keys()) == 1:
+                found_hdf_type = hdf.keys()[0]
+                err_str = ('Found HDF of incorrect type. Expected '
+                           + f'{hdf_type}, but found {found_hdf_type}'
+                           + 'instead.')
+                if found_hdf_type == 'xrfmap':
+                    err_str += ('\nXRF maps should be handled with '
+                                + 'pyxrf or similar packages.')
+            else:
+                err_str = ('Found HDF of incorrect type. Expected '
+                           + f'{hdf_type}, but found unknown type '
+                           + 'instead.')
+            raise TypeError(err_str)
+        
+        # Load reflections first
+        # Built-in pandas hdf support needs this
+        spots_3D = None
+        if 'reflections' in base_grp.keys():
+            print('Loading reflection spots...', end='', flush=True)
+
+            if 'spots_3D' in base_grp['reflections'].keys():
+                has_spots_3D = True
+
+            hdf.close()
+            if 'spots_3D' in base_grp['reflections'].keys():
+                spots_3D = pd.read_hdf(hdf_path,
+                                    key=f'{hdf_type}/reflections/spots_3D')
+
+            hdf = h5py.File(hdf_path, 'a')  
+            base_grp = hdf[hdf_type]
+            print('done!')
 
         # Load base metadata
         base_md = dict(base_grp.attrs.items())
@@ -785,8 +833,7 @@ def load_xrdmapstack_hdf(filename,
     # Return dictionary of useful values
     ouput_dict = {'base_md' : base_md,
                   'xdms_extra_metadata' : extra_md,
-                  # 'spots' : spots,
-                  # 'spots_3D' : spots_3D,
+                  'spots_3D' : spots_3D,
                   'vector_dict' : vector_dict
                   }
 

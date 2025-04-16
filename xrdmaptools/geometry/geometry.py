@@ -118,7 +118,7 @@ def q_2_polar(q_vect,
                     + 'are indicated. Assuming stage rotation is '
                     + '0 deg and finding wavelength.')
         print(warn_str)
-        stage_rotation = Rotation.from_array(np.eye(3))
+        stage_rotation = Rotation.from_matrix(np.eye(3))
     
     # stage rotation is rotation OUT of sample reference frame
     if stage_rotation is not None:

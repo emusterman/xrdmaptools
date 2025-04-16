@@ -720,7 +720,8 @@ def find_spots_and_index_full_map(xdms, phase, verbose=False):
 
             (spot_labels,
              spots,
-             label_ints) = rsm_spot_search(q_vectors[int_mask],
+             label_ints,
+             label_maxs) = rsm_spot_search(q_vectors[int_mask],
                                            intensity[int_mask],
                                            nn_dist=0.1,
                                            significance=0.1,

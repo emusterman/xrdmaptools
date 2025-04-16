@@ -129,7 +129,7 @@ def rsm_spot_search(qs,
                     nn_dist=0.025,
                     significance=0.1,
                     subsample=1,
-                    label_int_method='mean',
+                    label_int_method='sum',
                     verbose=False):
 
     if (not isinstance(subsample, int)
@@ -155,14 +155,19 @@ def rsm_spot_search(qs,
     kdtree = KDTree(new_qs)
 
     mutable_intensity = new_int.copy()
-    mutable_intensity[np.argmax(mutable_intensity)] = np.nan
+    # mutable_intensity[np.argmax(mutable_intensity)] = np.nan
     
     # Construct iterable
+    # if verbose:
+    #     print('Finding spots...')
+    #     iterable = tqdm(range(len(mutable_intensity) - 1))
+    # else:
+    #     iterable = range(len(mutable_intensity) - 1)
     if verbose:
         print('Finding spots...')
-        iterable = tqdm(range(len(mutable_intensity) - 1))
+        iterable = tqdm(range(len(mutable_intensity)))
     else:
-        iterable = range(len(mutable_intensity) - 1)
+        iterable = range(len(mutable_intensity))
 
     for i in iterable:
         max_index = np.nanargmax(mutable_intensity)
@@ -266,12 +271,14 @@ def rsm_spot_search(qs,
              for val in countable_labels]
     label_ints = [label_int_func(intensity[full_labels == val])
                   for val in countable_labels]
+    label_maxs = [np.max(intensity[full_labels == val])
+                  for val in countable_labels]
 
     # Re-label remaining nans as new blob (without spot info). Downsize datatype
     full_labels[np.isnan(full_labels)] = np.nanmax(full_labels) + 1
     full_labels = full_labels.astype(np.uint16)           
 
-    return full_labels, np.asarray(spots), np.asarray(label_ints)
+    return full_labels, np.asarray(spots), np.asarray(label_ints), np.asarray(label_maxs)
 
 
 def rsm_characterize_spots():

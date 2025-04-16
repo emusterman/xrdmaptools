@@ -982,7 +982,8 @@ class XRDRockingCurve(XRDBaseScan):
         
         (spot_labels,
          spots,
-         label_ints) = rsm_spot_search(self.vectors[:, :3][int_mask],
+         label_ints,
+         label_maxs) = rsm_spot_search(self.vectors[:, :3][int_mask],
                                        self.vectors[:, -1][int_mask],
                                        nn_dist=nn_dist,
                                        significance=significance,

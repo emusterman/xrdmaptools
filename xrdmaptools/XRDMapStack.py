@@ -6,9 +6,11 @@ import os
 import h5py
 import numpy as np
 import pandas as pd
+import gc
 import functools
 from matplotlib import patches
 from matplotlib.collections import PatchCollection
+from tqdm import tqdm
 
 from xrdmaptools.XRDMap import XRDMap
 from xrdmaptools.XRDRockingCurve import XRDRockingCurve
@@ -29,7 +31,13 @@ from xrdmaptools.io.hdf_utils import (
     check_attr_overwrite,
     overwrite_attr
 )
-from xrdmaptools.geometry.geometry import QMask
+from xrdmaptools.geometry.geometry import (
+    q_2_polar,
+    QMask
+)
+from xrdmaptools.reflections.spot_blob_search_3D import (
+    rsm_spot_search
+)
 from xrdmaptools.crystal.rsm import map_2_grid
 from xrdmaptools.crystal.map_alignment import (
     relative_correlation_auto_alignment,
@@ -172,10 +180,13 @@ class XRDMapStack(list):
             for key, value in xdms_extra_attrs.items():
                 setattr(self, key, value)
 
+        if self._swapped_xdms_axes:
+            self._swap_xdms_axes()
+
         # Define several methods
         # Probably not the Pythonic way to do this...
-        self._construct_iterable_methods()
-        self._construct_verbatim_methods()
+        # self._construct_iterable_methods()
+        # self._construct_verbatim_methods()
 
 
     ################################################
@@ -218,7 +229,7 @@ class XRDMapStack(list):
                                         include_set=False,
                                         include_del=False):
         # Uses first xrdmap in list as container object
-        # Sets and deletes from all list elements though
+        # Sets and deletes from all list elements
         def get_property(self):
             if hasattr(self[0], property_name):
                 return getattr(self[0], property_name)
@@ -249,9 +260,6 @@ class XRDMapStack(list):
     wavelength = _list_property_constructor(
                                 'wavelength',
                                 include_set=True)
-    # q_arr = _list_property_constructor(
-    #                             'q_arr',
-    #                             include_del=True)
     tth_arr = _universal_property_constructor(
                                 'tth_arr',
                                 include_del=True)
@@ -315,9 +323,6 @@ class XRDMapStack(list):
                                                 include_set=True)
     chi_resolution = _list_property_constructor('chi_resolution',
                                                 include_set=True)
-
-    # Not guaranteed attributes. May throw errors
-    # blob_masks = _list_property_constructor('blob_masks')
 
     ##############################
     ### XRDMapStack Properties ###
@@ -553,6 +558,10 @@ class XRDMapStack(list):
              ) = input_dict['vector_dict'].pop('vector_map')
             xdms_extra_attrs.update(input_dict['vector_dict'])
         
+        if input_dict['spots_3D'] is not None:
+            xdms_extra_attrs['spots_3D'] = input_dict.pop('spots_3D')
+
+        
         xrdmap_list = []
         for hdf_path_i in timed_iter(hdf_path, iter_name='xrdmap'):
             hdf_filename_i = os.path.basename(hdf_path_i)
@@ -593,35 +602,34 @@ class XRDMapStack(list):
     #####################################
 
     # List wrapper to allow kwarg inputs
-    def _blank_iterator(self, iterable, **kwargs):
+    def _blank_iterator(iterable, **kwargs):
         return list(iterable)
 
 
     # This is currently called during __init__,
     # but may work as a decorator within the class
-    def _get_iterable_method(self,
-                             method,
+    def _get_iterated_method(method,
                              variable_inputs=False,
                              timed_iterator=False):
 
-        flags = (variable_inputs, timed_iterator)
+        # flags = (variable_inputs, timed_iterator)
         
         # Check that method exists in all xrdmaps
-        for i, xrdmap in enumerate(self):
-            if not hasattr(xrdmap, method):
-                err_str = (f'XRDMap [{i}] does not '
-                           + f'have {method} method.')
-                raise AttributeError(err_str)
+        # for i, xrdmap in enumerate(self):
+        #     if not hasattr(xrdmap, method):
+        #         err_str = (f'XRDMap [{i}] does not '
+        #                    + f'have {method} method.')
+        #         raise AttributeError(err_str)
 
         # Select iterator
         if timed_iterator:
             iterator = timed_iter
         else:
-            iterator = self._blank_iterator
+            iterator = XRDMapStack._blank_iterator
 
         if variable_inputs:
             # Lists of inputs
-            def iterated_method(*arglists, **kwarglists):
+            def iterated_method(self, *arglists, **kwarglists):
 
                 # Check and fix arglists
                 for i, arg in enumerate(arglists):
@@ -665,87 +673,224 @@ class XRDMapStack(list):
 
         else:
             # Constant inputs
-            def iterated_method(*args, **kwargs):
+            def iterated_method(self, *args, **kwargs):
                 for i, xrdmap in iterator(enumerate(self),
                                           total=len(self),
                                           iter_name='XRDMap'):
                     getattr(xrdmap, method)(*args, **kwargs)
         
         return iterated_method
+
     
 
-    def _construct_iterable_methods(self):
-        for (method, var, timed) in self.iterable_methods:
-            setattr(self, method,
-                    self._get_iterable_method(
-                        method,
-                        variable_inputs=var,
-                        timed_iterator=timed
-                    ))
+    # def _construct_iterable_methods(self):
+    #     for (method, var, timed) in self.iterable_methods:
+    #         setattr(self, method,
+    #                 self._get_iterable_method(
+    #                     method,
+    #                     variable_inputs=var,
+    #                     timed_iterator=timed
+    #                 ))               
+
 
 
     # List of iterable methods
-    iterable_methods = ( # function, variable_inputs, timed_iterator
+    iterated_methods = (
+        # (XRDMapStack function, XRDMap function,
+        #  variable_inputs, timed_iterator)
         # hdf functions
-        ('start_saving_hdf', False, False),
-        ('save_current_hdf', False, True),
-        ('stop_saving_hdf', False, False),
+        ('start_saving_hdf', 'start_saving_hdf',
+         False, False),
+        ('save_current_hdf', 'save_current_hdf',
+         False, True),
+        ('stop_saving_hdf', 'stop_saving_hdf',
+         False, False),
         # Light image manipulation
-        ('load_images_from_hdf', True, True),
-        ('dump_images', False, False),
+        ('load_images_from_hdf', 'load_images_from_hdf',
+         True, True),
+        ('dump_images', 'dump_images',
+         False, False),
         # Working with calibration
         # Do not accept variable calibrations
-        ('set_calibration', False, False), 
-        ('save_calibration', False, True),
-        ('integrate1d_map', False, True),
-        ('integrate2d_map', False, True),
-        ('save_reciprocal_positions', False, True),
+        ('set_calibration', 'set_calibration',
+         False, False), 
+        ('save_calibration', 'save_calibration',
+         False, True),
+        ('integrate1d_map', 'integrate1d_map',
+         False, True),
+        ('integrate2d_map', 'integrate2d_map',
+         False, True),
+        ('save_reciprocal_positions', 'save_reciprocal_positions',
+         False, True),
         # Working with positions only
-        ('set_positions', True, False), 
-        ('save_sclr_pos', False, False),
-        ('swap_axes', False, False),
-        ('map_extent', False, False),
+        ('set_positions', 'set_positions',
+         True, False), 
+        ('save_sclr_pos', 'save_sclr_pos',
+         False, False),
+        ('swap_axes', 'swap_axes',
+         False, False),
+        ('map_extent', 'map_extent',
+         False, False),
         # Working with phases
         # This one saves to individual hdfs
-        ('save_phases', False, False), 
+        ('save_phases', 'save_phases',
+         False, False), 
         # Working with spots
-        ('find_blobs', False, True),
-        ('find_spots', False, True),
-        ('recharacterize_spots', False, True),
-        ('fit_spots', False, True),
-        ('initial_spot_analysis', False, True),
-        ('trim_spots', False, False),
-        ('remove_spot_guesses', False, False),
-        ('remove_spot_fits', False, False),
-        ('save_spots', False, True),
-        ('vectorize_map_data', False, True),
+        ('find_2D_blobs', 'find_blobs',
+         False, True),
+        ('find_2D_spots', 'find_spots',
+         False, True),
+        ('recharacterize_2D_spots', 'recharacterize_spots',
+         False, True),
+        ('fit_2D_spots', 'fit_spots',
+         False, True),
+        ('initial_2D_spot_analysis', 'initial_spot_analysis',
+         False, True),
+        ('trim_2D_spots', 'trim_spots',
+         False, False),
+        ('remove_2D_spot_guesses', 'remove_spot_guesses',
+         False, False),
+        ('remove_2D_spot_fits', 'remove_spot_fits',
+         False, False),
+        ('save_2D_spots', 'save_spots',
+         False, True),
+        ('vectorize_map_data', 'vectorize_map_data',
+         False, True),
         # Working with xrfmap
         # Multiple inputs may be crucial here
-        ('load_xrfmap', True, False) 
+        ('load_xrfmap', 'load_xrfmap',
+         True, False) 
     )
+
+    # Define iterated methods
+    for vals in iterated_methods:
+        # vars() directly adds to __dict__. This could overwrite values?
+        vars()[vals[0]] = _get_iterated_method(*vals[1:])
+
+    # # HDF functions
+    # start_saving_hdf = _get_iterated_method('start_saving_hdf',
+    #                                         variable_inputs=False,
+    #                                         timed_iterator=False)
+    # save_current_hdf = _get_iterated_method('save_current_hdf',
+    #                                         variable_inputs=False,
+    #                                         timed_iterator=True)
+    # stop_saving_hdf = _get_iterated_method('stop_saving_hdf',
+    #                                        variable_inputs=False,
+    #                                        timed_iterator=False)
+
+    # # Light image manipulation
+    # load_images_from_hdf = _get_iterated_method('load_images_from_hdf',
+    #                                             variable_inputs=True,
+    #                                             timed_iterator=True)
+    # dump_images = _get_iterated_method('dump_images',
+    #                                    variable_inputs=False,
+    #                                    timed_iterator=False)
+
+    # # Working with calibration
+    # # Do not accept variable calibrations
+    # set_calibration = _get_iterated_method('set_calibration',
+    #                                        variable_inputs=False,
+    #                                        timed_iterator=False)
+    # save_calibration = _get_iterated_method('save_calibration',
+    #                                         variable_inputs=False,
+    #                                         timed_iterator=False)
+    # integrate1d_map = _get_iterated_method('integrate1d_map',
+    #                                        variable_inputs=False,
+    #                                        timed_iterator=True)
+    # integrate2d_map = _get_iterated_method('integrate2d_map',
+    #                                        variable_inputs=False,
+    #                                        timed_iterator=True)
+    # save_reciprocal_positions = _get_iterated_method(
+    #                                     'save_recirpocal_positions',
+    #                                     variable_inputs=False,
+    #                                     timed_iterator=True)
+
+    # # Working with positions only
+    # set_positions = _get_iterated_method('set_positions',
+    #                                      variable_inputs=True,
+    #                                      timed_iterator=False)
+    # save_sclr_pos = _get_iterated_method('save_sclr_pos',
+    #                                      variable_inputs=False,
+    #                                      timed_iterator=False)
+    # swap_axes = _get_iterated_method('swap_axes',
+    #                                  variable_inputs=False,
+    #                                  timed_iterator=False)
+    # map_extent = _get_iterated_method('map_extent',
+    #                                   variable_inputs=False,
+    #                                   timed_iterator=False)
+
+    # # Working with phases
+    # # This one saves to individual hdfs
+    # save_phases = _get_iterated_method('save_phases',
+    #                                    variable_inputs=False,
+    #                                    timed_iterator=False)
+
+    # # Working with 2D spots
+    # find_2D_blobs = _get_iterated_method('find_blobs',
+    #                                      variable_inputs=False,
+    #                                      timed_iterator=True)
+    # find_2D_spots = _get_iterated_method('find_spots',
+    #                                      variable_inputs=False,
+    #                                      timed_iterator=True)
+    # recharacterize_2D_spots = _get_iterated_method(
+    #                                     'recharacterize_spots',
+    #                                     variable_inputs=False,
+    #                                     timed_iterator=True)
+    # fit_2D_spots = _get_iterated_method('fit_spots',
+    #                                      variable_inputs=False,
+    #                                      timed_iterator=True)
+    # initial_2D_spot_analysis = _get_iterated_method(
+    #                                     'initial_spot_analysis',
+    #                                     variable_inputs=False,
+    #                                     timed_iterator=True)
+    # trim_2D_spots = _get_iterated_method('trim_spots',
+    #                                      variable_inputs=False,
+    #                                      timed_iterato=False)
+    # remove_2D_spot_guesses = _get_iterated_method(
+    #                                     'remove_spot_guesses',
+    #                                     variable_inputs=False,
+    #                                     timed_iterator=False)
+    # remove_2D_spot_fits = _get_iterated_method('remove_spot_fits',
+    #                                            variable_inputs=False,
+    #                                            timed_iterator=False)
+    # save_2D_spots = _get_iterated_method('save_spots',
+    #                                      variable_inputs=False,
+    #                                      timed_iterator=True)
+    # vectorize_map_data = _get_iterated_method('vectorize_map_data',
+    #                                           variable_inputs=False,
+    #                                           timed_iterator=True)
+
+    # # Working with xrfmap
+    # # Multiple inputs may be crucial here
+    # load_xrfmap = _get_iterated_method('load_xrfmap',
+    #                                    variable_inputs=True,
+    #                                    timed_iterator=False)
+
+
+
         
     
-    ##########################
-    ### Verbatim Functions ###
-    ##########################
+    ########################################################
+    ### Verbatim Functions, Pseudo-inherited from XRDMap ###
+    ########################################################
     
-    def _get_verbatim_method(self, method):
+    def _get_verbatim_method(method):
 
-        def verbatim_method(*args, **kwargs):
+        def verbatim_method(self, *args, **kwargs):
             getattr(self[0], method)(*args, **kwargs)
         
         return verbatim_method
 
 
-    # Convenience function to call within __init__
-    def _construct_verbatim_methods(self):
+    # # Convenience function to call within __init__
+    # def _construct_verbatim_methods(self):
         
-        for method in self.verbatim_methods:
-            setattr(self,
-                    method,
-                    self._get_verbatim_method(method))
+    #     for method in self.verbatim_methods:
+    #         setattr(self,
+    #                 method,
+    #                 self._get_verbatim_method(method))
             
-    # List of verbatim methods
+    List of verbatim methods
     verbatim_methods = (
         'estimate_polar_coords',
         'estimate_image_coords',
@@ -756,12 +901,123 @@ class XRDMapStack(list):
         'add_phase',
         'remove_phase',
         'load_phase',
-        'clear_phases',
-        # Plotting functions
-        # '_title_with_scan_id',
-        'plot_detector_geometry',
-        'plot_map' # May break on extent
+        'clear_phases'
     )
+    
+    # Define verbatim methods
+    for method in verbatim_methods:
+        # vars() directly adds to __dict__. This could overwrite values?
+        vars()[method] = _get_verbatim_method(method)
+
+    # estimate_polar_coords = _get_verbatim_method(
+    #                                     'estimate_polar_coords')
+    # estimate_image_coords = _get_verbatim_method(
+    #                                     'estimate_image_coords')
+    # integrate1d_image = _get_verbatim_method('integrate1d_image')
+    # integrate2d_image = _get_verbatim_method('integrate2d_image')
+    # add_phase = _get_verbatim_method('add_phase')
+    # remove_phase = _get_verbatim_method('remove_phase')
+    # load_phase = _get_verbatim_method('load_phase')
+    # clear_phases = _get_verbatim_method('clear_phases')
+
+
+
+
+    def _modify_pseudo_inherited_plot(func, verbatim=True):
+
+        def modified_plot(self, *args, **kwargs):
+            xdms_return_plot = None
+            if 'return_plot' in kwargs:
+                xdms_return_plot = kwargs.pop('return_plot')
+            xdms_title = None
+            if 'title' in kwargs:
+                xdms_title = kwargs.pop('title')
+            title_scan_id = True
+            if 'title_scan_id' in kwargs:
+                title_scan_id = kwargs.pop('title_scan_id')
+
+            if verbatim:
+                internal_self = self[0]
+            else:
+                internal_self = self
+            
+            fig, ax = func(internal_self,
+                           *args,
+                           **kwargs,
+                           return_plot=True)
+
+            title = self._title_with_scan_id(
+                                    xdms_title,
+                                    default_title='Custom Map',
+                                    title_scan_id=title_scan_id)
+            
+            ax.set_title(title)
+
+            if xdms_return_plot:
+                return fig, ax
+            else:
+                fig.show()
+        
+        return modified_plot
+
+    # Define modified plots
+    plot_map = _modify_pseudo_inherited_plot(XRDMap.plot_map)
+    plot_detector_geometry = _modify_pseudo_inherited_plot(
+                                    XRDMap.plot_detector_geometry)
+
+
+    # def plot_map(self, *args, **kwargs):
+    #     xdms_return_plot = None
+    #     if 'return_plot' in kwargs:
+    #         xdms_return_plot = kwargs.pop('return_plot')
+    #     xdms_title = None
+    #     if 'title' in kwargs:
+    #         xdms_title = kwargs.pop('title')
+    #     title_scan_id = True
+    #     if 'title_scan_id' in kwargs:
+    #         title_scan_id = kwargs.pop('title_scan_id')
+
+    #     fig, ax = XRDMap.plot_map(self,
+    #                               *args,
+    #                               **kwargs,
+    #                               return_plot=True)
+
+    #     title = self._title_with_scan_id(
+    #                             xdms_title,
+    #                             default_title='Custom Map',
+    #                             title_scan_id=title_scan_id)
+        
+    #     ax.set_title(title)
+
+    #     if xdms_return_plot:
+    #         return fig, ax
+    #     else:
+    #         fig.show()
+        
+        
+
+
+    ##################################################
+    ### Pseudo-inherited XRDRockingCurve Functions ###
+    ##################################################
+
+    def get_sampled_edges(self, *args, **kwargs):
+        return XRDRockingCurve.get_sampled_edges(self, *args, **kwargs)
+
+
+    def _set_rocking_axis(self, *args, **kwargs):
+        return XRDRockingCurve._set_rocking_axis(self, *args, **kwargs)
+
+    
+    def _title_with_scan_id(self, *args, **kwargs):
+        return XRDRockingCurve._title_with_scan_id(self,
+                                                   *args,
+                                                   **kwargs)  
+
+    def plot_sampled_volume_outline(self, *args, **kwargs):
+        return XRDRockingCurve.plot_sampled_volume_outline(self,
+                                                    *args,
+                                                    **kwargs)
 
     ################################
     ### XRDMapStack HDF Methods  ###
@@ -982,6 +1238,66 @@ class XRDMapStack(list):
     ### Modified Functions ###
     ##########################
 
+    @property
+    def _swapped_xdms_axes(self):
+        # Check if all axes are the same
+        if (not (all(self._swapped_axes)
+                 or all([not _ for _ in self._swapped_axes]))):
+            warn_str = ('WARNING: Inconsistent swapped axes across '
+                        + 'XRDMaps! Axes checks will be disabled until '
+                        + 'fixed, which may cause further '
+                        + 'inconsistencies!\nRe-instantiating '
+                        + 'XRDMapStack from consistent XRDMaps is '
+                        + 'suggested.')
+            print(warn_str)
+            return False
+
+        # Determine swapped axes
+        return self._swapped_axes[0]
+
+
+    # Internal function for swapping XRDMapStack-specific mapped attributes
+    # Does not interact with individual maps; use swap_axes instead
+    def _swap_xdms_axes(self):   
+
+       # Update vector map
+        if (hasattr(self, 'xdms_vector_map')
+            and self.xdms_vector_map is not None):
+            self.xdms_vector_map = self.xdms_vector_map.swapaxes(0, 1)
+
+        # Update spot map_indices
+        if hasattr(self, 'spots'):
+            map_x_ind = self.spots_3D['map_x'].values
+            map_y_ind = self.spots_3D['map_y'].values
+            self.spots_3D['map_x'] = map_y_ind
+            self.spots_3D['map_y'] = map_x_ind
+
+    
+    # Wrapper for XRDMapStack swapped axes for consistency
+    def _check_xdms_swapped_axes(func):
+        @functools.wraps(func)
+        def wrapped(self, *args, **kwargs):
+
+            if self._swapped_xdms_axes:
+                self._swap_xdms_axes()
+            
+            try:
+                func(self, *args, **kwargs)
+                err = None
+            except Exception as e:
+                err = e
+            
+            if self._swapped_xdms_axes:
+                self.swap_xdms_axes()
+
+            # Re-raise any exceptions
+            if err is not None:
+                raise(err)
+
+        return wrapped
+
+
+    @_check_xdms_swapped_axes
     @_protect_xdms_hdf()
     def save_xdms_vector_map(self,
                              xdms_vector_map=None,
@@ -1021,6 +1337,7 @@ class XRDMapStack(list):
     
 
     # Mostly verbatim
+    @_check_xdms_swapped_axes
     @_protect_xdms_hdf()
     def load_xdms_vector_map(self):
         vector_dict = _load_xrd_hdf_vectorized_map_data(
@@ -1029,45 +1346,17 @@ class XRDMapStack(list):
         self.edges = vector_dict['edges']
 
 
+
+
+
     # Need to modify to not look for a random image
     def plot_image(self, *args, **kwargs):
-        raise NotImplementedError()
-
-    ##################################
-    ### Pseudo Inherited Functions ###
-    ##################################
-
-    def get_sampled_edges(self,
-                          q_arr=None):
-        XRDRockingCurve.get_sampled_edges(self,
-                                          q_arr=q_arr)
+        raise NotImplementedError()    
 
 
-    def _set_rocking_axis(self,
-                          rocking_axis=None):
-        XRDRockingCurve._set_rocking_axis(self,
-                                          rocking_axis=rocking_axis)
-
-    
-    def _title_with_scan_id(self,
-                            *args,
-                            **kwargs):
-        return XRDRockingCurve._title_with_scan_id(self,
-                                                   *args,
-                                                   **kwargs)  
-
-
-    def plot_sampled_volume_outline(self,
-                                    *args,
-                                    **kwargs):
-        XRDRockingCurve.plot_sampled_volume_outline(self,
-                                                    *args,
-                                                    **kwargs)      
-
-
-    #####################################
-    ### XRDMapStack Specific Methods  ###
-    #####################################                               
+    ############################################
+    ### XRDMapStack Specific Utility Methods ###
+    ############################################                           
 
     def sort_by_attr(self,
                      attr,
@@ -1153,7 +1442,7 @@ class XRDMapStack(list):
 
 
     # Invalid with shifts??
-    def stack_spots(self):
+    def stack_2D_spots(self):
     
         all_spots_list = []
         for xrdmap in self:
@@ -1192,7 +1481,7 @@ class XRDMapStack(list):
         self.spots = pd.concat(all_spots_list, ignore_index=True)
 
     
-    def pixel_spots(self, map_indices):
+    def pixel_2D_spots(self, map_indices):
         pixel_spots = self.spots[
                     (self.spots['map_x'] == map_indices[1])
                      & (self.spots['map_y'] == map_indices[0])].copy()
@@ -1396,7 +1685,6 @@ class XRDMapStack(list):
                     # Remove reference to save on memory later
                     del xrdmap.vector_map
                 else:
-                    # retrieve_vector_map_from_hdf(xrdmap)
                     xrdmap.load_vector_map()
                     vector_map = xrdmap.vector_map
                     # Remove reference to save on memory later
@@ -1437,9 +1725,9 @@ class XRDMapStack(list):
         # Write to hdf
         self.save_xdms_vector_map(rewrite_data=rewrite_data)
 
-    ################################
-    ### Indexing Vectorized Data ###
-    ################################
+    ################################################
+    ### Spot Search and Indexing Vectorized Data ###
+    ################################################
 
     @property
     def qmask(self):
@@ -1452,6 +1740,204 @@ class XRDMapStack(list):
     @qmask.deleter
     def qmask(self):
         del self._qmask
+
+
+    def find_3D_spots(self,
+                      abs_int_cutoff=None,
+                      nn_dist=0.1,
+                      significance=0.1,
+                      subsample=1,
+                      label_int_method='sum',
+                      verbose=False,
+                      save_to_hdf=True):
+
+        if not hasattr(self, 'xdms_vector_map'):
+            err_str = ("Vectors maps have not yet been combined for "
+                       + "XRDMapStack. Call 'stack_vector_maps' to "
+                       + "combine vector maps from each XRDMap with "
+                       + "after determining appropriate shifts.")
+            raise AttributeError(err_str)
+        
+        if hasattr(self, 'spots_3D'):
+            warn_str = ('WARNING: 3D spots already determined. '
+                        + 'Rewriting with new spots.')
+            print(warn_str)
+
+        map_shape = self.xdms_vector_map.shape
+
+        # Setup major iterable with verbosity
+        if verbose:
+            iterable = timed_iter(range(np.prod(self.xdms_vector_map.shape)))
+        else:
+            iterable = tqdm(range(np.prod(self.xdms_vector_map.shape)))
+            # iterable = range(np.prod(self.xdms_vector_map.shape))
+
+        # Creating a holder for dictionaries of each map pixel
+        df_keys = ['map_x',
+                   'map_y',
+                   'height',
+                   'intensity',
+                   'qx',
+                   'qy',
+                   'qz',
+                   'tth',
+                   'chi',
+                   'wavelength',
+                   'theta']
+        df_data = [[] for _ in df_keys]
+        
+        # Iterate through each spatial pixel of map
+        for index in iterable:
+            gc.collect() # Force some memory cleanup
+            indices = np.unravel_index(index, self.xdms_vector_map.shape)
+            if verbose:
+                print(f'Indexing for map indices {indices}.')
+
+            # Break down individual vectors
+            q_vectors = self.xdms_vector_map[indices][:, :-1]
+            intensity = self.xdms_vector_map[indices][:, -1]
+
+            # Some level of assigning significance
+            if abs_int_cutoff is not None:
+                int_mask = intensity > abs_int_cutoff
+                q_vectors = q_vectors[int_mask]
+                intensity = intensity[int_mask]
+            
+            # Find spots if there are vectors to index
+            if len(intensity) > 0:
+                (spot_labels,
+                 spots,
+                 label_ints,
+                 label_maxs) = rsm_spot_search(
+                                    q_vectors,
+                                    intensity,
+                                    nn_dist=nn_dist,
+                                    significance=significance,
+                                    subsample=subsample,
+                                    label_int_method=label_int_method,
+                                    verbose=verbose)
+                
+                # Convert reciprocal positions to polar units
+                if self.rocking_axis == 'energy':
+                    if self.use_stage_rotation:
+                        stage_rotation = self.theta[0]
+                    else:
+                        stage_rotation = 0
+                    tth, chi, wavelength = q_2_polar(spots,
+                                        stage_rotation=stage_rotation,
+                                        degrees=(
+                                        self.polar_units == 'deg'))
+                    theta = [self.theta[0],] * len(spots)
+                else: # angle
+                    tth, chi, theta = q_2_polar(spots,
+                                        wavelength=self.wavelength[0],
+                                        degrees=(
+                                        self.polar_units == 'deg'))
+                    wavelength = [self.wavelength[0],] * len(wavelength)
+            
+                # Create temporary dictionary to store information
+                temp_lists = [[indices[1],]*len(spots), # map_x
+                              [indices[0],]*len(spots),  # map_y
+                              label_maxs, # height
+                              label_ints, # intensity
+                              *spots.T, # qx, qy, qz
+                              tth,
+                              chi, 
+                              wavelength,
+                              theta
+                              ]
+                
+                # return df_keys, temp_lists
+
+                for i in range(len(df_keys)):
+                    df_data[i].extend(temp_lists[i])
+        
+        # return df_keys, df_data
+
+        # Compile spots
+        full_dict = dict(zip(df_keys, df_data))
+        self.spots_3D = pd.DataFrame.from_dict(full_dict)
+
+        # Write to hdf
+        if save_to_hdf:
+            self.save_3D_spots(
+                    extra_attrs={'abs_int_cutoff' : abs_int_cutoff})
+
+    
+    def trim_3D_spots(self):
+        raise NotImplementedError()
+
+    
+    def index_all_3D_spots(self):
+        raise NotImplementedError()
+
+
+    def pixel_3D_spots(self, map_indices, copied=True):
+        pixel_spots = self.spots_3D[
+                        (self.spots_3D['map_x'] == map_indices[1])
+                        & (self.spots_3D['map_y'] == map_indices[0])]
+        
+        # Copies to protect orginal spots from changes
+        if copied:
+            pixel_spots = pixel_spots.copy()
+        
+        return pixel_spots
+
+    @_check_xdms_swapped_axes
+    @_protect_xdms_hdf(pandas=True)
+    def save_3D_spots(self, extra_attrs=None):
+        print('Saving 3D spots to hdf...', end='', flush=True)
+        hdf_str = f'{self._hdf_type}/reflections/spots_3D'
+        self.spots_3D.to_hdf(self.hdf_path,
+                             key=hdf_str,
+                             format='table')
+
+        if extra_attrs is not None:
+            self.open_hdf()
+            for key, value in extra_attrs.items():
+                overwrite_attr(self.hdf[hdf_str].attrs, key, value)      
+        print('done!')
+
+    
+    def _spots_3D_to_vectors(self,
+                             spots_3D=None,
+                             map_shape=None):
+        """
+        Construct vector map from 3D spots pandas dataframe.
+        """
+        raise NotImplementedError()
+
+        if (spots_3D is None
+            and (not hasattr(self, 'spots_3D')
+                 or self.spots_3D is None)):
+            err_str = ("XRDMapStack must have 'spots_3D' attribute or "
+                       + "they must be provided.")
+            raise AttributeError(err_str)
+
+        if map_shape is None:
+            if (hasattr(self, 'xdms_vector_map')
+                and self.xdms_vector_map is not None):
+                map_shape = self.xdms_vector_map.shape
+            else:
+                warn_str = ('WARNING: Ambiguous map shape when '
+                            + 'converting from 3D spots to vectors. '
+                            + 'Using shape estimated from spot map '
+                            + 'extents.')
+                print(warn_str)
+                map_shape = (np.max(self.spots_3D['map_y']),
+                            np.max(self.spots_3D['map_x']))
+        
+        vector_map = np.empty(map_shape, dtyp=object)
+
+        for index in range(np.prod(vector_map.shape)):
+            indices = np.unravel_index(index, vector_map.shape)
+            df = self.pixel_3D_spots(indices)
+            vector_map[indices] = df[['qx', 'qy', 'qz', 'intensity']].values
+
+        return vector_map
+
+
+
 
 
     ##########################
@@ -1567,9 +2053,14 @@ class XRDMapStack(list):
 
         # Construct default x ticks
         if not _check_dict_key(map_kw, 'x_ticks'):
-            x_step = np.max([np.mean(np.diff(self[0].pos_dict['interp_x'], axis=i)) for i in range(2)])
+            x_step = np.max([np.mean(np.diff(self[0].pos_dict['interp_x'],
+                                             axis=i))
+                             for i in range(2)])
             x_ext = map_kw['map'].shape[1]
-            map_kw['x_ticks'] = np.linspace(-x_ext / 2, x_ext / 2, int(np.round(x_ext / x_step)))
+            map_kw['x_ticks'] = np.linspace(-x_ext / 2,
+                                            x_ext / 2,
+                                            int(np.round(x_ext
+                                                         / x_step)))
 
             if not _check_dict_key(map_kw, 'x_label'):
                 map_kw['x_label'] = ('relative x position '
@@ -1577,9 +2068,14 @@ class XRDMapStack(list):
         
         # Construct default y ticks
         if not _check_dict_key(map_kw, 'y_ticks'):
-            y_step = np.max([np.mean(np.diff(self[0].pos_dict['interp_y'], axis=i)) for i in range(2)])
+            y_step = np.max([np.mean(np.diff(self[0].pos_dict['interp_y'],
+                                             axis=i))
+                             for i in range(2)])
             y_ext = map_kw['map'].shape[0]
-            map_kw['y_ticks'] = np.linspace(-y_ext / 2, y_ext / 2, int(np.round(y_ext / y_step)))
+            map_kw['y_ticks'] = np.linspace(-y_ext / 2,
+                                            y_ext / 2,
+                                            int(np.round(y_ext
+                                                         / y_step)))
 
             if not _check_dict_key(map_kw, 'y_label'):
                 map_kw['y_label'] = ('relative y position '
