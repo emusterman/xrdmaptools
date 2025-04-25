@@ -765,7 +765,7 @@ def load_xrdmapstack_hdf(filename,
                 has_spots_3D = True
 
             hdf.close()
-            if 'spots_3D' in base_grp['reflections'].keys():
+            if has_spots_3D:
                 spots_3D = pd.read_hdf(hdf_path,
                                     key=f'{hdf_type}/reflections/spots_3D')
 

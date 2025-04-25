@@ -14,6 +14,7 @@ from matplotlib import cm
 from scipy.spatial.transform import Rotation
 from tqdm.dask import TqdmCallback
 import gc
+from functools import reduce
 
 from sklearn.decomposition import PCA, NMF
 
@@ -31,31 +32,66 @@ from xrdmaptools.reflections.spot_blob_search_3D import rsm_spot_search
 from xrdmaptools.crystal.crystal import are_collinear, are_coplanar
 
 
-def plot_image_gallery(images, titles=None,
-                       vmin=None, vmax=None):
+def _factors(n):
+    i = 2
+    factors = [1]
+    while i * i <= n:
+        if n % i:
+            i += 1
+        else:
+            n //= i
+            factors.append(i)
+    return factors
+
+def _all_factors(n):
+    return set(reduce(
+        list.__add__,
+        ([i, n//i] for i in range(1, int(n**0.5) + 1) if n % i == 0)))
+
+
+def get_factor_pairs(n):
+    
+    if not isinstance(n, int) or n < 1:
+        raise ValueError('n must be positive whole number')
+    i = 2
+    factors = [(1, n), (n, 1)]
+    last_factor = n
+    while i < last_factor:
+        if n % i:
+            i += 1
+        else:
+            last_factor = n // i
+            factors.append((i, last_factor))
+            factors.append((last_factor, i))
+            i += 1
+
+    return factors
+
+def plot_image_gallery(images,
+                       titles=None,
+                       vmin=None,
+                       vmax=None):
 
 
     num_images = len(images)
-    img_y, img_x = images[0].shape
+    img_y, img_x = images[0].shape[:2]
+    ndim = images[0].ndim
 
     if titles is None:
         titles = range(num_images)
 
-    ncols = int(np.round(np.sqrt(num_images * (img_y / img_x))))
-    nrows = int(np.ceil(num_images / ncols))
+    factors = get_factor_pairs(num_images)
+    sizes = [np.array(f) * np.array((img_y, img_x)) for f in factors]
+    best_factors = factors[np.argmin(np.abs(np.diff(sizes, axis=1)))]
 
-    fig, axes = plt.subplots(nrows, ncols, sharex=True, sharey=True)
+    fig, axes = plt.subplots(best_factors[1], best_factors[0], sharex=True, sharey=True)
     ax = axes.ravel()
-
-    # if vmin is None:
-    #     vmin = np.min(images)
-    # if vmax is None:
-    #     vmax = np.max(images)
 
     for i  in range(num_images):
         im = ax[i].imshow(images[i], vmin=vmin, vmax=vmax)
         ax[i].set_title(titles[i])
-        fig.colorbar(im, ax=ax[i])
+        if ndim == 2:
+            fig.colorbar(im, ax=ax[i])
 
     fig.show()
 
@@ -686,25 +722,22 @@ def find_spots_and_index_full_map(xdms, phase, verbose=False):
 
     # Setup container objects. Hard to estimate memory usage
     map_shape = xdms.xdms_vector_map.shape
-    # ori_map = np.empty(map_shape, dtype=object)
-    # e_map = ori_map.copy()
-    # strained_map = ori_map.copy()
-    # qofs_map = ori_map.copy()
+    ori_map = np.empty(map_shape, dtype=object)
+    e_map = ori_map.copy()
+    strained_map = ori_map.copy()
+    qofs_map = ori_map.copy()
 
     # Setup major iterable with verbosity
     if verbose:
         iterable = timed_iter(range(np.prod(xdms.xdms_vector_map.shape)))
     else:
         # iterable = tqdm(range(np.prod(xdms.xdms_vector_map.shape)))
-        iterable = range(np.prod(xdms.xdms_vector_map.shape))
+        iterable = tqdm(memory_iter(range(np.prod(xdms.xdms_vector_map.shape))))
 
     # Iterate through each spatial pixel of map
     for index in iterable:
         gc.collect()
         indices = np.unravel_index(index, xdms.xdms_vector_map.shape)
-        if verbose:
-            print(f'Indexing for map indices {indices}.')
-        print(f'Indexing for map indices {indices}.')
 
         oris, es, strains = [], [], []
 
@@ -713,7 +746,7 @@ def find_spots_and_index_full_map(xdms, phase, verbose=False):
         intensity = xdms.xdms_vector_map[indices][:, -1]
 
         # Some level of assigning significance
-        int_mask = intensity > 0.25
+        int_mask = intensity > 1
         
         # Find spots if there are vectors to index
         if np.sum(int_mask) > 0:
@@ -732,7 +765,8 @@ def find_spots_and_index_full_map(xdms, phase, verbose=False):
             if len(spots) > 1:
                 try:
                     (best_connections,
-                    best_qofs
+                    best_qofs,
+                    hkls
                     ) = pair_casting_index_full_pattern(spots,
                                                         phase,
                                                         0.1,
@@ -793,10 +827,10 @@ def find_spots_and_index_full_map(xdms, phase, verbose=False):
         del spot_labels, spots, label_ints
         
         # Fill map pixel
-        # ori_map[indices] = oris
-        # e_map[indices] = es
-        # strained_map[indices] = strains
-        # qofs_map[indices] = best_qofs
+        ori_map[indices] = oris
+        e_map[indices] = es
+        strained_map[indices] = strains
+        qofs_map[indices] = best_qofs
 
         del oris, es, strains, best_qofs
         del int_mask, indices, q_vectors, intensity
@@ -1022,5 +1056,5 @@ def transform_coords(x, M):
 #             xdm.nullify_images()
 #             xdm.save_images()
 #             xdm.vectorize_map_data(rewrite_data=True)
-#             xdm.integrate1d_map()
+#             xdm.integrate1D_map()
 #             xdm.save_integrations()

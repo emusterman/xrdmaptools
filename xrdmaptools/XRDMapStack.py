@@ -8,10 +8,14 @@ import numpy as np
 import pandas as pd
 import gc
 import functools
+import dask
+import itertools
 from matplotlib import patches
 from matplotlib.collections import PatchCollection
 from tqdm import tqdm
+from tqdm.dask import TqdmCallback
 
+from xrdmaptools.XRDBaseScan import XRDBaseScan
 from xrdmaptools.XRDMap import XRDMap
 from xrdmaptools.XRDRockingCurve import XRDRockingCurve
 from xrdmaptools.utilities.utilities import (
@@ -37,6 +41,14 @@ from xrdmaptools.geometry.geometry import (
 )
 from xrdmaptools.reflections.spot_blob_search_3D import (
     rsm_spot_search
+)
+from xrdmaptools.reflections.spot_blob_indexing_3D import (
+    pair_casting_index_full_pattern,
+    _get_connection_indices
+)
+from xrdmaptools.crystal.crystal import (
+    are_collinear,
+    are_coplanar
 )
 from xrdmaptools.crystal.rsm import map_2_grid
 from xrdmaptools.crystal.map_alignment import (
@@ -182,11 +194,6 @@ class XRDMapStack(list):
 
         if self._swapped_xdms_axes:
             self._swap_xdms_axes()
-
-        # Define several methods
-        # Probably not the Pythonic way to do this...
-        # self._construct_iterable_methods()
-        # self._construct_verbatim_methods()
 
 
     ################################################
@@ -601,31 +608,17 @@ class XRDMapStack(list):
     ### Iteratively Wrapped Functions ###
     #####################################
 
-    # List wrapper to allow kwarg inputs
-    def _blank_iterator(iterable, **kwargs):
-        return list(iterable)
-
-
     # This is currently called during __init__,
     # but may work as a decorator within the class
     def _get_iterated_method(method,
                              variable_inputs=False,
                              timed_iterator=False):
 
-        # flags = (variable_inputs, timed_iterator)
-        
-        # Check that method exists in all xrdmaps
-        # for i, xrdmap in enumerate(self):
-        #     if not hasattr(xrdmap, method):
-        #         err_str = (f'XRDMap [{i}] does not '
-        #                    + f'have {method} method.')
-        #         raise AttributeError(err_str)
-
         # Select iterator
         if timed_iterator:
             iterator = timed_iter
         else:
-            iterator = XRDMapStack._blank_iterator
+            iterator = lambda iterable, **k : list(iterable)
 
         if variable_inputs:
             # Lists of inputs
@@ -682,84 +675,50 @@ class XRDMapStack(list):
         return iterated_method
 
     
-
-    # def _construct_iterable_methods(self):
-    #     for (method, var, timed) in self.iterable_methods:
-    #         setattr(self, method,
-    #                 self._get_iterable_method(
-    #                     method,
-    #                     variable_inputs=var,
-    #                     timed_iterator=timed
-    #                 ))               
-
-
-
     # List of iterable methods
     iterated_methods = (
         # (XRDMapStack function, XRDMap function,
         #  variable_inputs, timed_iterator)
         # hdf functions
-        ('start_saving_hdf', 'start_saving_hdf',
-         False, False),
-        ('save_current_hdf', 'save_current_hdf',
-         False, True),
-        ('stop_saving_hdf', 'stop_saving_hdf',
-         False, False),
+        ('start_saving_hdf', 'start_saving_hdf', False, False),
+        ('save_current_hdf', 'save_current_hdf', False, True),
+        ('stop_saving_hdf', 'stop_saving_hdf', False, False),
         # Light image manipulation
-        ('load_images_from_hdf', 'load_images_from_hdf',
-         True, True),
-        ('dump_images', 'dump_images',
-         False, False),
+        ('load_images_from_hdf', 'load_images_from_hdf', True, True),
+        ('dump_images', 'dump_images', False, False),
         # Working with calibration
         # Do not accept variable calibrations
-        ('set_calibration', 'set_calibration',
-         False, False), 
-        ('save_calibration', 'save_calibration',
-         False, True),
-        ('integrate1d_map', 'integrate1d_map',
-         False, True),
-        ('integrate2d_map', 'integrate2d_map',
-         False, True),
+        ('set_calibration', 'set_calibration', False, False), 
+        ('save_calibration', 'save_calibration', False, True),
+        ('integrate1D_map', 'integrate1D_map', False, True),
+        ('integrate2D_map', 'integrate2D_map', False, True),
         ('save_reciprocal_positions', 'save_reciprocal_positions',
          False, True),
         # Working with positions only
-        ('set_positions', 'set_positions',
-         True, False), 
-        ('save_sclr_pos', 'save_sclr_pos',
-         False, False),
-        ('swap_axes', 'swap_axes',
-         False, False),
-        ('map_extent', 'map_extent',
-         False, False),
+        ('set_positions', 'set_positions', True, False), 
+        ('save_sclr_pos', 'save_sclr_pos', False, False),
+        ('swap_axes', 'swap_axes', False, False),
+        ('map_extent', 'map_extent', False, False),
         # Working with phases
         # This one saves to individual hdfs
-        ('save_phases', 'save_phases',
-         False, False), 
+        ('save_phases', 'save_phases', False, False), 
         # Working with spots
-        ('find_2D_blobs', 'find_blobs',
-         False, True),
-        ('find_2D_spots', 'find_spots',
-         False, True),
+        ('find_2D_blobs', 'find_blobs', False, True),
+        ('find_2D_spots', 'find_spots', False, True),
         ('recharacterize_2D_spots', 'recharacterize_spots',
          False, True),
-        ('fit_2D_spots', 'fit_spots',
-         False, True),
+        ('fit_2D_spots', 'fit_spots', False, True),
         ('initial_2D_spot_analysis', 'initial_spot_analysis',
          False, True),
-        ('trim_2D_spots', 'trim_spots',
-         False, False),
+        ('trim_2D_spots', 'trim_spots', False, False),
         ('remove_2D_spot_guesses', 'remove_spot_guesses',
          False, False),
-        ('remove_2D_spot_fits', 'remove_spot_fits',
-         False, False),
-        ('save_2D_spots', 'save_spots',
-         False, True),
-        ('vectorize_map_data', 'vectorize_map_data',
-         False, True),
+        ('remove_2D_spot_fits', 'remove_spot_fits', False, False),
+        ('save_2D_spots', 'save_spots', False, True),
+        ('vectorize_map_data', 'vectorize_map_data', False, True),
         # Working with xrfmap
         # Multiple inputs may be crucial here
-        ('load_xrfmap', 'load_xrfmap',
-         True, False) 
+        ('load_xrfmap', 'load_xrfmap', True, False) 
     )
 
     # Define iterated methods
@@ -767,108 +726,6 @@ class XRDMapStack(list):
         # vars() directly adds to __dict__. This could overwrite values?
         vars()[vals[0]] = _get_iterated_method(*vals[1:])
 
-    # # HDF functions
-    # start_saving_hdf = _get_iterated_method('start_saving_hdf',
-    #                                         variable_inputs=False,
-    #                                         timed_iterator=False)
-    # save_current_hdf = _get_iterated_method('save_current_hdf',
-    #                                         variable_inputs=False,
-    #                                         timed_iterator=True)
-    # stop_saving_hdf = _get_iterated_method('stop_saving_hdf',
-    #                                        variable_inputs=False,
-    #                                        timed_iterator=False)
-
-    # # Light image manipulation
-    # load_images_from_hdf = _get_iterated_method('load_images_from_hdf',
-    #                                             variable_inputs=True,
-    #                                             timed_iterator=True)
-    # dump_images = _get_iterated_method('dump_images',
-    #                                    variable_inputs=False,
-    #                                    timed_iterator=False)
-
-    # # Working with calibration
-    # # Do not accept variable calibrations
-    # set_calibration = _get_iterated_method('set_calibration',
-    #                                        variable_inputs=False,
-    #                                        timed_iterator=False)
-    # save_calibration = _get_iterated_method('save_calibration',
-    #                                         variable_inputs=False,
-    #                                         timed_iterator=False)
-    # integrate1d_map = _get_iterated_method('integrate1d_map',
-    #                                        variable_inputs=False,
-    #                                        timed_iterator=True)
-    # integrate2d_map = _get_iterated_method('integrate2d_map',
-    #                                        variable_inputs=False,
-    #                                        timed_iterator=True)
-    # save_reciprocal_positions = _get_iterated_method(
-    #                                     'save_recirpocal_positions',
-    #                                     variable_inputs=False,
-    #                                     timed_iterator=True)
-
-    # # Working with positions only
-    # set_positions = _get_iterated_method('set_positions',
-    #                                      variable_inputs=True,
-    #                                      timed_iterator=False)
-    # save_sclr_pos = _get_iterated_method('save_sclr_pos',
-    #                                      variable_inputs=False,
-    #                                      timed_iterator=False)
-    # swap_axes = _get_iterated_method('swap_axes',
-    #                                  variable_inputs=False,
-    #                                  timed_iterator=False)
-    # map_extent = _get_iterated_method('map_extent',
-    #                                   variable_inputs=False,
-    #                                   timed_iterator=False)
-
-    # # Working with phases
-    # # This one saves to individual hdfs
-    # save_phases = _get_iterated_method('save_phases',
-    #                                    variable_inputs=False,
-    #                                    timed_iterator=False)
-
-    # # Working with 2D spots
-    # find_2D_blobs = _get_iterated_method('find_blobs',
-    #                                      variable_inputs=False,
-    #                                      timed_iterator=True)
-    # find_2D_spots = _get_iterated_method('find_spots',
-    #                                      variable_inputs=False,
-    #                                      timed_iterator=True)
-    # recharacterize_2D_spots = _get_iterated_method(
-    #                                     'recharacterize_spots',
-    #                                     variable_inputs=False,
-    #                                     timed_iterator=True)
-    # fit_2D_spots = _get_iterated_method('fit_spots',
-    #                                      variable_inputs=False,
-    #                                      timed_iterator=True)
-    # initial_2D_spot_analysis = _get_iterated_method(
-    #                                     'initial_spot_analysis',
-    #                                     variable_inputs=False,
-    #                                     timed_iterator=True)
-    # trim_2D_spots = _get_iterated_method('trim_spots',
-    #                                      variable_inputs=False,
-    #                                      timed_iterato=False)
-    # remove_2D_spot_guesses = _get_iterated_method(
-    #                                     'remove_spot_guesses',
-    #                                     variable_inputs=False,
-    #                                     timed_iterator=False)
-    # remove_2D_spot_fits = _get_iterated_method('remove_spot_fits',
-    #                                            variable_inputs=False,
-    #                                            timed_iterator=False)
-    # save_2D_spots = _get_iterated_method('save_spots',
-    #                                      variable_inputs=False,
-    #                                      timed_iterator=True)
-    # vectorize_map_data = _get_iterated_method('vectorize_map_data',
-    #                                           variable_inputs=False,
-    #                                           timed_iterator=True)
-
-    # # Working with xrfmap
-    # # Multiple inputs may be crucial here
-    # load_xrfmap = _get_iterated_method('load_xrfmap',
-    #                                    variable_inputs=True,
-    #                                    timed_iterator=False)
-
-
-
-        
     
     ########################################################
     ### Verbatim Functions, Pseudo-inherited from XRDMap ###
@@ -881,21 +738,13 @@ class XRDMapStack(list):
         
         return verbatim_method
 
-
-    # # Convenience function to call within __init__
-    # def _construct_verbatim_methods(self):
-        
-    #     for method in self.verbatim_methods:
-    #         setattr(self,
-    #                 method,
-    #                 self._get_verbatim_method(method))
             
-    List of verbatim methods
+    # List of verbatim methods
     verbatim_methods = (
         'estimate_polar_coords',
         'estimate_image_coords',
-        'integrate1d_image',
-        'integrate2d_image',
+        'integrate1D_image',
+        'integrate2D_image',
         # This will modify first xrdmap.phases
         # This is just a reference to self.phases
         'add_phase',
@@ -908,19 +757,6 @@ class XRDMapStack(list):
     for method in verbatim_methods:
         # vars() directly adds to __dict__. This could overwrite values?
         vars()[method] = _get_verbatim_method(method)
-
-    # estimate_polar_coords = _get_verbatim_method(
-    #                                     'estimate_polar_coords')
-    # estimate_image_coords = _get_verbatim_method(
-    #                                     'estimate_image_coords')
-    # integrate1d_image = _get_verbatim_method('integrate1d_image')
-    # integrate2d_image = _get_verbatim_method('integrate2d_image')
-    # add_phase = _get_verbatim_method('add_phase')
-    # remove_phase = _get_verbatim_method('remove_phase')
-    # load_phase = _get_verbatim_method('load_phase')
-    # clear_phases = _get_verbatim_method('clear_phases')
-
-
 
 
     def _modify_pseudo_inherited_plot(func, verbatim=True):
@@ -963,39 +799,7 @@ class XRDMapStack(list):
     # Define modified plots
     plot_map = _modify_pseudo_inherited_plot(XRDMap.plot_map)
     plot_detector_geometry = _modify_pseudo_inherited_plot(
-                                    XRDMap.plot_detector_geometry)
-
-
-    # def plot_map(self, *args, **kwargs):
-    #     xdms_return_plot = None
-    #     if 'return_plot' in kwargs:
-    #         xdms_return_plot = kwargs.pop('return_plot')
-    #     xdms_title = None
-    #     if 'title' in kwargs:
-    #         xdms_title = kwargs.pop('title')
-    #     title_scan_id = True
-    #     if 'title_scan_id' in kwargs:
-    #         title_scan_id = kwargs.pop('title_scan_id')
-
-    #     fig, ax = XRDMap.plot_map(self,
-    #                               *args,
-    #                               **kwargs,
-    #                               return_plot=True)
-
-    #     title = self._title_with_scan_id(
-    #                             xdms_title,
-    #                             default_title='Custom Map',
-    #                             title_scan_id=title_scan_id)
-        
-    #     ax.set_title(title)
-
-    #     if xdms_return_plot:
-    #         return fig, ax
-    #     else:
-    #         fig.show()
-        
-        
-
+                                    XRDMap.plot_detector_geometry)       
 
     ##################################################
     ### Pseudo-inherited XRDRockingCurve Functions ###
@@ -1288,7 +1092,7 @@ class XRDMapStack(list):
                 err = e
             
             if self._swapped_xdms_axes:
-                self.swap_xdms_axes()
+                self._swap_xdms_axes()
 
             # Re-raise any exceptions
             if err is not None:
@@ -1765,13 +1569,6 @@ class XRDMapStack(list):
 
         map_shape = self.xdms_vector_map.shape
 
-        # Setup major iterable with verbosity
-        if verbose:
-            iterable = timed_iter(range(np.prod(self.xdms_vector_map.shape)))
-        else:
-            iterable = tqdm(range(np.prod(self.xdms_vector_map.shape)))
-            # iterable = range(np.prod(self.xdms_vector_map.shape))
-
         # Creating a holder for dictionaries of each map pixel
         df_keys = ['map_x',
                    'map_y',
@@ -1780,18 +1577,15 @@ class XRDMapStack(list):
                    'qx',
                    'qy',
                    'qz',
+                   'q_mag',
                    'tth',
                    'chi',
                    'wavelength',
                    'theta']
-        df_data = [[] for _ in df_keys]
-        
-        # Iterate through each spatial pixel of map
-        for index in iterable:
-            gc.collect() # Force some memory cleanup
-            indices = np.unravel_index(index, self.xdms_vector_map.shape)
-            if verbose:
-                print(f'Indexing for map indices {indices}.')
+
+        # Setup search function. Breaking down individually might be fast
+        @dask.delayed()
+        def delayed_spot_search(indices):
 
             # Break down individual vectors
             q_vectors = self.xdms_vector_map[indices][:, :-1]
@@ -1802,7 +1596,7 @@ class XRDMapStack(list):
                 int_mask = intensity > abs_int_cutoff
                 q_vectors = q_vectors[int_mask]
                 intensity = intensity[int_mask]
-            
+
             # Find spots if there are vectors to index
             if len(intensity) > 0:
                 (spot_labels,
@@ -1841,16 +1635,36 @@ class XRDMapStack(list):
                               label_maxs, # height
                               label_ints, # intensity
                               *spots.T, # qx, qy, qz
+                              np.linalg.norm(spots, axis=1), # q_mag
                               tth,
                               chi, 
                               wavelength,
                               theta
                               ]
-                
-                # return df_keys, temp_lists
+            else:
+                temp_lists = [[] for _ in range(len(df_keys))]
 
-                for i in range(len(df_keys)):
-                    df_data[i].extend(temp_lists[i])
+            return temp_lists
+
+        # Iterate through each spatial pixel of map
+        delayed_list = []
+        for index in range(np.prod(self.xdms_vector_map.shape)):
+            indices = np.unravel_index(index, self.xdms_vector_map.shape)
+            
+            # Collect scheduled calls
+            delayed_list.append(delayed_spot_search(indices))
+
+        # Compute scheduled operations
+        if not verbose:
+            with TqdmCallback(tqdm_class=tqdm):
+                proc_list = dask.compute(*delayed_list)
+        else:
+            proc_list = dask.compute(*delayed_list)
+
+        # Unpack data into useable format
+        df_data = []
+        for i in range(len(df_keys)):
+            df_data.append(list(itertools.chain(*[res[i] for res in proc_list])))
         
         # return df_keys, df_data
 
@@ -1861,42 +1675,271 @@ class XRDMapStack(list):
         # Write to hdf
         if save_to_hdf:
             self.save_3D_spots(
-                    extra_attrs={'abs_int_cutoff' : abs_int_cutoff})
+                    extra_attrs={
+                            'abs_int_cutoff' : abs_int_cutoff,
+                            'nn_dist' : nn_dist,
+                            'significance' : significance,
+                            'subsample' : subsample,
+                            'label_int_method' : label_int_method})
 
-    
-    def trim_3D_spots(self):
-        raise NotImplementedError()
 
+    def index_all_3D_spots(self,
+                           near_q,
+                           near_angle,
+                           phase=None,
+                           degrees=None,
+                           save_to_hdf=True,
+                           verbose=False):
+
+        if not hasattr(self, 'spots_3D') or self.spots_3D is None:
+            err_str = 'Spots must be found before they can be indexed.'
+            raise AttributeError(err_str)
+        
+        if phase is None:
+            if len(self.phases) == 1:
+                phase = list(self.phases.values())[0]
+            else:
+                err_str = 'Phase must be provided for indexing.'
+                raise ValueError(err_str)
+        
+        map_shape = (np.max(self.spots_3D['map_y']),
+                     np.max(self.spots_3D['map_x']))
+
+        # Get phase information
+        max_q = np.max(self.spots_3D['q_mag'])
+
+        phase.generate_reciprocal_lattice(1.15 * max_q)
+        all_ref_qs = phase.all_qs.copy()
+        all_ref_hkls = phase.all_hkls.copy()
+        all_ref_fs = phase.all_fs.copy()
+        ref_mags = np.linalg.norm(all_ref_qs, axis=1)
+
+        # Find minimum q vector step size from reference phase
+        min_q = phase.min_q
+        
+        # Update spots dataframe with new columns
+        self.spots_3D['phase'] = ''
+        self.spots_3D[['grain_id', 'h', 'k', 'l', 'qof']] = np.nan
+
+        # Construct iterable
+        if verbose:
+            iterable = timed_iter(range(np.prod(map_shape)))
+        else:
+            iterable = tqdm(range(np.prod(map_shape)))
+
+        # Iterate through each spatial pixel of map
+        for index in iterable:
+            indices = np.unravel_index(index, map_shape)
+            if verbose:
+                print(f'Indexing for map indices {indices}.')
+            
+            pixel_df = self.pixel_3D_spots(indices, copied=False)
+            spots = pixel_df[['qx', 'qy', 'qz']].values
+            
+            if len(spots) > 1 and not are_collinear(spots):
+                spot_mags = pixel_df['q_mag'].values
+                spot_ints = pixel_df['intensity'].values
+                ext = 0.15
+                ref_mask = ((ref_mags > spot_mags.min() * (1 - ext))
+                            & (ref_mags < spot_mags.max() * (1 + ext)))
+
+                (conns,
+                 qofs) = pair_casting_index_full_pattern(
+                                            all_ref_qs[ref_mask],
+                                            all_ref_hkls[ref_mask],
+                                            all_ref_fs[ref_mask],
+                                            min_q,
+                                            spots,
+                                            spot_ints,
+                                            near_q,
+                                            near_angle,
+                                            self.qmask,
+                                            degrees=degrees,
+                                            verbose=verbose)
+                
+                for grain_id, (conn, qof) in enumerate(zip(conns, qofs)):
+                    # Get values
+                    (spot_inds,
+                     hkl_inds) = _get_connection_indices(conn)
+                    hkls = all_ref_hkls[ref_mask][hkl_inds]
+
+                    # Assign values
+                    rel_ind = pixel_df.index[spot_inds]
+                    self.spots_3D.loc[rel_ind, 'phase'] = phase.name
+                    self.spots_3D.loc[rel_ind, 'grain_id'] = grain_id
+                    self.spots_3D.loc[rel_ind, 'qof'] = qof
+                    self.spots_3D.loc[rel_ind, ['h', 'k', 'l']] = hkls
+
+        # Write to hdf
+        if save_to_hdf:
+            self.save_3D_spots(
+                    extra_attrs={'near_q' : near_q,
+                                 'near_angle' : near_angle,
+                                 'degrees' : int(degrees)})
     
-    def index_all_3D_spots(self):
-        raise NotImplementedError()
+
+    def dask_index_all_3D_spots(self,
+                           near_q,
+                           near_angle,
+                           phase=None,
+                           degrees=None,
+                           save_to_hdf=True,
+                           verbose=False):
+
+        if not hasattr(self, 'spots_3D') or self.spots_3D is None:
+            err_str = 'Spots must be found before they can be indexed.'
+            raise AttributeError(err_str)
+        
+        if phase is None:
+            if len(self.phases) == 1:
+                phase = list(self.phases.values())[0]
+            else:
+                err_str = 'Phase must be provided for indexing.'
+                raise ValueError(err_str)
+
+        # Get phase information
+        all_q_mags = np.linalg.norm(self.spots_3D[['qx',
+                                                   'qy',
+                                                   'qz']], axis=1)
+        max_q = np.max(all_q_mags)
+
+        phase.generate_reciprocal_lattice(1.15 * max_q)
+        all_ref_qs = phase.all_qs.copy()
+        all_ref_hkls = phase.all_hkls.copy()
+        all_ref_fs = phase.all_fs.copy()
+        all_ref_mags = np.linalg.norm(all_ref_qs, axis=1)
+
+        # Find minimum q vector step size from reference phase
+        min_q = np.min(np.linalg.norm(phase.Q([[1, 0, 0],
+                                                    [0, 1, 0],
+                                                    [0, 0, 1]]),
+                                                   axis=0))
+
+        # Function for scheduled indexing
+        # Removed all external references in hopes of increased speed...
+        @dask.delayed
+        def delayed_indexing(spot_indices, spot_qs, spot_ints,):
+            # pixel_df = self.pixel_3D_spots(indices, copied=False)
+            # spots = pixel_df[['qx', 'qy', 'qz']].values
+            
+            all_rel_inds = []
+            all_grain_ids = []
+            all_qofs = []
+            all_hkls = []
+
+            if len(spot_indices) > 1 and not are_collinear(spot_qs):
+
+                spot_q_mags = np.linalg.norm(spot_qs, axis=1)
+                max_spot_q = np.max(spot_q_mags)
+                min_spot_q = np.min(spot_q_mags)
+
+                ext = 0.15
+                ref_mask = ((min_spot_q * (1 - ext) < all_ref_mags)
+                            & (all_ref_mags < max_spot_q * (1 + ext)))
+
+                (conns,
+                 qofs,
+                 hkls) = pair_casting_index_full_pattern(
+                                            all_ref_qs[ref_mask],
+                                            all_ref_hkls[ref_mask],
+                                            all_ref_fs[ref_mask],
+                                            min_q,
+                                            spot_qs,
+                                            spot_ints,
+                                            near_q,
+                                            near_angle,
+                                            self.qmask,
+                                            degrees=degrees,
+                                            verbose=verbose)
+
+                for grain_id, (conn, qof) in enumerate(zip(conns, qofs)):
+                    # Get values
+                    (spot_inds,
+                     hkl_inds) = _get_connection_indices(conn)
+
+                    # Collect results
+                    rel_ind = spot_indices[spot_inds]
+                    all_rel_inds.extend(rel_ind)
+                    all_grain_ids.extend([grain_id,] * len(spot_inds))
+                    all_qofs.extend([qof,] * len(spot_inds))
+                    all_hkls.extend(hkls[hkl_inds])
+
+            return all_rel_inds, all_grain_ids, all_qofs, all_hkls
+                
+        
+        # Update spots dataframe with new columns
+        self.spots_3D['phase'] = ''
+        self.spots_3D[['grain_id', 'h', 'k', 'l', 'qof']] = np.nan
+
+        # Iterate through each spatial pixel of map
+        delayed_list = []
+        for index in range(np.prod(self.xdms_vector_map.shape)):
+            indices = np.unravel_index(index, self.xdms_vector_map.shape)
+            pixel_df = self.pixel_3D_spots(indices)
+            spot_indices = pixel_df.index.values
+            spot_qs = pixel_df[['qx', 'qy', 'qz']].values
+            spot_ints = pixel_df['intensity'].values
+            if verbose:
+                print(f'Indexing for map indices {indices}.')
+            
+            # Collect scheduled calls
+            delayed_list.append(delayed_indexing(spot_indices, spot_qs, spot_ints))
+
+        # Compute scheduled operations
+        if not verbose:
+            with TqdmCallback(tqdm_class=tqdm):
+                proc_list = dask.compute(*delayed_list)
+        else:
+            proc_list = dask.compute(*delayed_list)
+        
+        # Unpack data into useable format
+        all_inds = list(itertools.chain(*[res[0] for res in proc_list]))
+        self.spots_3D.loc[all_inds, 'phase'] = phase.name
+        self.spots_3D.loc[all_inds, 'grain_id'] = list(itertools.chain(*[res[1] for res in proc_list]))
+        self.spots_3D.loc[all_inds, 'qof'] = list(itertools.chain(*[res[2] for res in proc_list]))
+        self.spots_3D.loc[all_inds, ['h', 'k', 'l']] = list(itertools.chain(*[res[3] for res in proc_list]))
+
+        # Write to hdf
+        if save_to_hdf:
+            self.save_3D_spots(
+                    extra_attrs={'near_q' : near_q,
+                                 'near_angle' : near_angle,
+                                 'degrees' : degrees})
 
 
     def pixel_3D_spots(self, map_indices, copied=True):
-        pixel_spots = self.spots_3D[
-                        (self.spots_3D['map_x'] == map_indices[1])
-                        & (self.spots_3D['map_y'] == map_indices[0])]
-        
-        # Copies to protect orginal spots from changes
-        if copied:
-            pixel_spots = pixel_spots.copy()
-        
-        return pixel_spots
+        return XRDMap._pixel_spots(self.spots_3D,
+                                   map_indices,
+                                   copied=copied)
+
 
     @_check_xdms_swapped_axes
     @_protect_xdms_hdf(pandas=True)
     def save_3D_spots(self, extra_attrs=None):
         print('Saving 3D spots to hdf...', end='', flush=True)
         hdf_str = f'{self._hdf_type}/reflections/spots_3D'
-        self.spots_3D.to_hdf(self.hdf_path,
+        self.spots_3D.to_hdf(self.xdms_hdf_path,
                              key=hdf_str,
                              format='table')
 
         if extra_attrs is not None:
-            self.open_hdf()
+            self.open_xdms_hdf()
             for key, value in extra_attrs.items():
-                overwrite_attr(self.hdf[hdf_str].attrs, key, value)      
+                overwrite_attr(self.xdms_hdf[hdf_str].attrs, key, value)      
         print('done!')
+
+
+    def trim_3D_spots(self,
+                      remove_less=0.01,
+                      key='intensity',
+                      save_spots=False):
+        
+        XRDBaseScan._trim_spots(self.spots_3D,
+                                remove_less=remove_less,
+                                key=key)
+
+        if save_spots:
+            self.save_spots()
 
     
     def _spots_3D_to_vectors(self,
@@ -1905,7 +1948,6 @@ class XRDMapStack(list):
         """
         Construct vector map from 3D spots pandas dataframe.
         """
-        raise NotImplementedError()
 
         if (spots_3D is None
             and (not hasattr(self, 'spots_3D')
@@ -1927,7 +1969,7 @@ class XRDMapStack(list):
                 map_shape = (np.max(self.spots_3D['map_y']),
                             np.max(self.spots_3D['map_x']))
         
-        vector_map = np.empty(map_shape, dtyp=object)
+        vector_map = np.empty(map_shape, dtype=object)
 
         for index in range(np.prod(vector_map.shape)):
             indices = np.unravel_index(index, vector_map.shape)
@@ -1935,9 +1977,6 @@ class XRDMapStack(list):
             vector_map[indices] = df[['qx', 'qy', 'qz', 'intensity']].values
 
         return vector_map
-
-
-
 
 
     ##########################
@@ -2010,6 +2049,7 @@ class XRDMapStack(list):
     
 
     def plot_interactive_map(self,
+                             spots_3D=False,
                              dyn_kw=None,
                              map_kw=None,
                              title_scan_id=True,
@@ -2021,7 +2061,17 @@ class XRDMapStack(list):
             dyn_kw = {}
         if map_kw is None:
             map_kw = {}
+        default_map_title = None
 
+        # Try for spots first
+        if _check_dict_key(dyn_kw, 'data'):
+            pass
+        elif spots_3D:
+            if hasattr(self, 'spots_3D') and self.spots_3D is not None:
+                dyn_kw['data'] = self._spots_3D_to_vectors()
+                default_map_title = 'Max Spot Intensity'
+        
+        # Try vectors if still no data
         if _check_dict_key(dyn_kw, 'data'):
             pass
         elif not hasattr(self, 'xdms_vector_map'):
@@ -2030,6 +2080,7 @@ class XRDMapStack(list):
             raise ValueError(err_str)
         else:
             dyn_kw['data'] = self.xdms_vector_map
+            default_map_title = 'Max Vector Intensity'
         
         # Add edges
         if not _check_dict_key(dyn_kw, 'edges'):
@@ -2049,7 +2100,9 @@ class XRDMapStack(list):
         # Construct default map
         if not _check_dict_key(map_kw, 'map'):
             map_kw['map'] = get_max_vector_map(dyn_kw['data'])
-            map_kw['title'] = 'Max Vector Intensity'
+            if default_map_title is None:
+                default_map_title = 'Max Vector Intensity'
+            map_kw['title'] = default_map_title
 
         # Construct default x ticks
         if not _check_dict_key(map_kw, 'x_ticks'):

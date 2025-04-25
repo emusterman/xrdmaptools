@@ -99,7 +99,7 @@ def xmt_batch1():
         # Integrations for good measure
         xrdmap.tth_resolution = 0.01
         xrdmap.chi_resolution = 0.05
-        xrdmap.integrate1d_map()
+        xrdmap.integrate1D_map()
 
         # Find blobs and spots while were at it
         xrdmap.find_spots(threshold_method='minimum',
@@ -183,7 +183,7 @@ def xmt_batch2():
         # Integrations for good measure
         xrdmap.tth_resolution = 0.01
         xrdmap.chi_resolution = 0.05
-        xrdmap.integrate1d_map()
+        xrdmap.integrate1D_map()
 
         # Find blobs and spots while were at it
         xrdmap.find_spots(threshold_method='minimum',
@@ -259,7 +259,7 @@ def xmt_batch3():
         # Integrations for good measure
         xrdmap.tth_resolution = 0.01
         xrdmap.chi_resolution = 0.05
-        xrdmap.integrate1d_map()
+        xrdmap.integrate1D_map()
 
         # Find blobs and spots while were at it
         xrdmap.find_spots(threshold_method='minimum',
@@ -322,7 +322,7 @@ def xmt_batch4():
         # Integrations for good measure
         xrdmap.tth_resolution = 0.01
         xrdmap.chi_resolution = 0.05
-        xrdmap.integrate1d_map()
+        xrdmap.integrate1D_map()
 
         # Find blobs and spots while were at it
         xrdmap.find_spots(threshold_method='minimum',
@@ -396,7 +396,7 @@ def xmt_batch5():
         # Integrations for good measure
         xrdmap.tth_resolution = 0.01
         xrdmap.chi_resolution = 0.05
-        xrdmap.integrate1d_map()
+        xrdmap.integrate1D_map()
 
         # Find blobs and spots while were at it
         #test.map.images[0, 0, 0, 0] = 100 # to trick the scaled image check
@@ -487,7 +487,7 @@ def xmt_batch6():
         # Integrations for good measure
         xrdmap.tth_resolution = 0.01
         xrdmap.chi_resolution = 0.05
-        xrdmap.integrate1d_map()
+        xrdmap.integrate1D_map()
 
         # Find blobs and spots while were at it
         #test.map.images[0, 0, 0, 0] = 100 # to trick the scaled image check
@@ -561,7 +561,7 @@ def xmt_batch7():
             # Integrations for good measure
             xrdmap.tth_resolution = 0.01
             xrdmap.chi_resolution = 0.05
-            xrdmap.integrate1d_map()
+            xrdmap.integrate1D_map()
 
             # Find blobs and spots while were at it
             #test.map.images[0, 0, 0, 0] = 100 # to trick the scaled image check
@@ -660,7 +660,7 @@ def xmt_batch8():
         # Integrations for good measure
         xrdmap.tth_resolution = 0.01
         xrdmap.chi_resolution = 0.05
-        xrdmap.integrate1d_map()
+        xrdmap.integrate1D_map()
 
         # Find blobs and spots while were at it
         #test.map.images[0, 0, 0, 0] = 100 # to trick the scaled image check
@@ -766,7 +766,7 @@ def xmt_batch9():
         # Integrations for good measure
         xrdmap.tth_resolution = 0.01
         xrdmap.chi_resolution = 0.05
-        xrdmap.integrate1d_map()
+        xrdmap.integrate1D_map()
 
         # Find blobs and spots while were at it
         #test.map.images[0, 0, 0, 0] = 100 # to trick the scaled image check
@@ -865,7 +865,7 @@ def xmt_batch10():
         # Integrations for good measure
         xrdmap.tth_resolution = 0.01
         xrdmap.chi_resolution = 0.05
-        xrdmap.integrate1d_map()
+        xrdmap.integrate1D_map()
 
         # Find blobs and spots while were at it
         #test.map.images[0, 0, 0, 0] = 100 # to trick the scaled image check

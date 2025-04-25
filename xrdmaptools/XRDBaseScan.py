@@ -861,8 +861,12 @@ class XRDBaseScan(XRDData):
     @property
     def q_arr(self):
         """
-        
+        Get 3D vector coordinates is reciprocal space (q-space) for 
+        every pixel in image with shape (image_shape, 3). These values
+        are detemined from tth_arr, chi_arr, and wavelength parameters.
+        This array is cached and can be cleared by deleting.
         """
+
         if hasattr(self, '_q_arr'):
             return self._q_arr
         elif not hasattr(self, 'ai'):
@@ -891,8 +895,12 @@ class XRDBaseScan(XRDData):
     # Convenience function
     def _del_arr(self):
         """
-
+        Internal function for deleting chached arrays related to
+        detector calibration. Useful when changing incident X-ray
+        energy/wavelength, sample rotation (theta) or detector
+        calibration parameters.
         """
+
         if hasattr(self, '_tth_arr'):
             delattr(self, '_tth_arr')
         if hasattr(self, '_chi_arr'):
@@ -915,6 +923,20 @@ class XRDBaseScan(XRDData):
                          save_current=False,
                          verbose=True):
         """
+        Start saving data to HDF.
+
+        If HDF does not already exist, a new version will be 
+        initialized from current scan parameters.
+
+        Parameters
+        ----------
+        hdf : 
+
+        hdf_filename : 
+        hdf_path : path str, 
+        dask_enabled : bool, optional
+        save_current : bool, optional 
+        verbose : bool, optional
 
         """
         
@@ -1228,7 +1250,7 @@ class XRDBaseScan(XRDData):
 
 
     # One off 1D integration
-    def integrate1d_image(self,
+    def integrate1D_image(self,
                           image=None,
                           tth_resolution=None,
                           tth_num=None,
@@ -1258,7 +1280,7 @@ class XRDBaseScan(XRDData):
             err_str = 'Must define either tth_num or tth_resolution.'
             raise ValueError(err_str)
         
-        return self.ai.integrate1d_ng(image,
+        return self.ai.integrate1D_ng(image,
                                       tth_num,
                                       unit=unit,
                                       correctSolidAngle=False,
@@ -1267,7 +1289,7 @@ class XRDBaseScan(XRDData):
     
 
     # One off 2D integration
-    def integrate2d_image(self,
+    def integrate2D_image(self,
                           image,
                           tth_num=None,
                           tth_resolution=None,
@@ -1316,11 +1338,15 @@ class XRDBaseScan(XRDData):
             err_str = 'Must define either chi_num or chi_resolution.'
             raise ValueError(err_str)
        
-        return self.ai.integrate2d_ng(image, tth_num, chi_num,
+        return self.ai.integrate2D_ng(image, tth_num, chi_num,
                                       unit=unit,
                                       correctSolidAngle=False,
                                       polarization_factor=None,
                                       **kwargs)
+
+    # Backwards compatibility
+    integrate1d_image = integrate1D_image
+    integrate2d_image = integrate2D_image
 
 
     # Convenience function for image to polar coordinate transformation (estimate!)
@@ -1781,12 +1807,12 @@ class XRDBaseScan(XRDData):
                 energy = self.energy
         
         if xrd.ndim == 2:
-            tth, xrd = self.integrate1d_image(image=xrd,
+            tth, xrd = self.integrate1D_image(image=xrd,
                                               tth_num=tth_num,
                                               unit=unit)
         elif xrd.ndim == 1:
             if not hasattr(self, 'tth') or self.tth is None:
-                tth, _ = self.integrate1d_image(
+                tth, _ = self.integrate1D_image(
                                 image=np.zeros(xdm.image_shape),
                                 tth_num=len(xrd.ndim),
                                 unit=unit)
@@ -1838,7 +1864,6 @@ class XRDBaseScan(XRDData):
     ###########################
     ### Vectorized Data I/O ###
     ###########################
-
 
     # Called in other functions. Not protected.
     def _save_vector_map(self,
@@ -2034,6 +2059,50 @@ class XRDBaseScan(XRDData):
                             warn_str += '\nProceeding without changes.'
                             if verbose:
                                 print(warn_str)
+
+
+    #################################
+    ### Generalized Spot Analysis ###
+    #################################
+
+    # # Called in other function, not protected
+    # def _save_spots(self, spots, hdf, hdf_path, extra_attrs, dset_name='spots'):
+    #     print('Saving spots to hdf...', end='', flush=True)
+    #     hdf_str = f'{self._hdf_type}/reflections/{dset_name}'
+    #     spots.to_hdf(hdf_path, key=hdf_str, format='table')
+
+    #     if extra_attrs is not None:
+    #         self.open_hdf()
+    #         for key, value in extra_attrs.items():
+    #             overwrite_attr(self.hdf[hdf_str].attrs, key, value)
+
+    #     print('done!')
+
+    
+    # Wrapped for child classes
+    @staticmethod
+    def _trim_spots(spots,
+                    remove_less=0.01,
+                    key='height'):
+        
+        if key not in spots.keys():
+            err_str = (f'{key} not in spots. Choose from\n'
+                       + f'{spots.keys()}')
+            raise KeyError(err_str)
+        
+         # Find relative indices where conditional is true
+        mask = np.nonzero(spots[key].values < remove_less)[0]
+        drop_indices = spots.iloc[mask].index.values
+        
+        # Drop indices
+        full_num = len(spots)
+        drop_num = len(drop_indices)
+        spots.drop(index=drop_indices, inplace=True)
+        spots.index = range(len(spots))
+        ostr = (f'Trimmed {drop_num} spots '
+                + f'({drop_num / full_num * 100:.2f} %) below {key} of'
+                + f' {remove_less}.')
+        print(ostr)    
     
          
     ##########################

@@ -1,12 +1,14 @@
 import numpy as np
 import time as ttime
 import os
+import psutil
 from tqdm.dask import TqdmCallback
 from tqdm import tqdm
 import warnings
 import functools
 from scipy.spatial import distance_matrix
 from scipy.ndimage import sobel
+import matplotlib.pyplot as plt
 
 # Must define this as something
 _t0 = 0
@@ -315,25 +317,18 @@ class Iterable2D:
 
 def get_vector_map_feature(vector_map,
                            feature_function=len,
-                           dtype=float):
+                           dtype=float,
+                           fill_val=0):
 
     feature_map = np.empty(vector_map.shape, dtype=dtype)
+    if fill_val is not None:
+        feature_map[:] = fill_val
 
     for indices in Iterable2D(feature_map.shape):
-        feature_map[indices] = feature_function(vector_map[indices])
+        if len(vector_map[indices]) > 0:
+            feature_map[indices] = feature_function(vector_map[indices])
     
     return feature_map
-
-# def get_vector_map_feature(vector_map,
-#                            feature_function=len,
-#                            dtype=float):
-#     feature_map = np.empty(vector_map.shape, dtype=dtype)
-
-#     for index in range(np.prod(vector_map.shape)):
-#         indices = np.unravel_index(index, vector_map.shape)
-#         feature_map[indices] = feature_function(vector_map[indices])
-
-#     return feature_map
 
 get_int_vector_map = lambda vm : get_vector_map_feature(vm, feature_function=np.sum)
 get_max_vector_map = lambda vm : get_vector_map_feature(vm, feature_function=np.max)
@@ -450,58 +445,72 @@ class timed_iter(object):
         return p_t_time, p_t_fin
 
 
-# class memory_iter(object):
-#     import time
-#     import psutil
-#     import matplotlib.pyplot as plt
+class memory_iter(object):
+    import time
+    import psutil
+    import matplotlib.pyplot as plt
 
-#     def __init__(self, iterable=None, iter_name=None, total=None):
-#         object.__init__(self)
+    def __init__(self, iterable=None, iter_name=None, total=None):
+        object.__init__(self)
 
-#         if total is None and iterable is not None:
-#             total = len(iterable)
+        if total is None and iterable is not None:
+            total = len(iterable)
 
-#         if iter_name is None:
-#             iter_name = 'iteration'
+        if iter_name is None:
+            iter_name = 'iteration'
 
-#         self.iterable = iterable
-#         self.total = total
-#         self.iter_name = iter_name
+        self.iterable = iterable
+        self.total = total
+        self.iter_name = iter_name
 
 
-#     def __iter__(self):
-#         self.t_start = self.time.monotonic()
-#         self.index = 0
+    def __iter__(self):
+        self.t_start = self.time.monotonic()
+        self.index = 0
         
-#         # Generate plot
-#         self.mems = psutil.virtual_memory()
-#         self.x = []
-#         self.y = []
+        # Generate plot
+        self.mems = psutil.virtual_memory()
+        self.mems_tot = self.mems[0] / 2**30
+        self.x = []
+        self.y = []
+        self.max_y = 0
         
-#         self.fig, self.ax = plt.subplots()
-#         self.scatter = self.ax.scatter(x, y)
+        self.fig, self.ax = plt.subplots()
+        self.line, = self.ax.plot(self.x, self.y)
 
-#         self.set_xlim(0 len(self) * 1.05)
-#         self.set_ylim(0, self.mems[0] * 1.05)
+        # Add bounds
+        self.ax.axhline(self.mems_tot, c='r', ls='--', lw=1)
+        self.ax.axvline(len(self), c='k', ls='--', lw=1)
 
-#         for obj in self.iterable:
-#             self.mems = psutil.virtual_memory()
+        self.ax.set_xlabel('Number of Iterations')
+        self.ax.set_ylabel('Memory Usage [GB]')
+        self.ax.set_title('Memory Tracker')
+        self.fig.show()
 
-#             self.x.append(self.index)
-#             self.y.append(self.mems[1] / 2**20)
+        for obj in self.iterable:
+            self.mems = psutil.virtual_memory()
 
-#             self.scatter.set_offsets(np.c_[self.x, self.y])
-#             self.fig.canvas.draw_idle()
+            self.x.append(self.index)
+            new_mem = self.mems[3] / 2**30
+            self.y.append(new_mem)
+            if new_mem > self.max_y:
+                self.max_y = new_mem
 
-#             yield obj
+            self.line.set_data(self.x, self.y)
+            self.ax.set_xlim(0, np.min([len(self.x) * 1.25, len(self) * 1.15]))
+            self.ax.set_ylim(0, np.min([self.max_y * 1.25, self.mems_tot * 1.15]))
+            self.fig.canvas.draw_idle()
+            self.fig.canvas.flush_events()
 
-#             self.index += 1
+            yield obj
+
+            self.index += 1
 
 
-#     def __len__(self):
-#         if self.total is not None:
-#             out_len = self.total
-#         else:
-#             out_len = len(self.iterable)
+    def __len__(self):
+        if self.total is not None:
+            out_len = self.total
+        else:
+            out_len = len(self.iterable)
 
-#         return out_len
+        return out_len

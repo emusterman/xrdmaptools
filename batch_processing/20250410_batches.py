@@ -61,7 +61,7 @@ def process_map(scan_id, wd, dark_field, poni_file, swapped_axes=False):
     xdm.finalize_images()
 
     # Integrate map
-    xdm.integrate1d_map()
+    xdm.integrate1D_map()
 
     # Find blobs
     xdm.find_blobs(threshold_method='minimum',
@@ -105,7 +105,7 @@ def batch1():
         fig, ax = xdm.plot_image(xdm.max_image, vmax=1, title='Max Image', return_plot=True)
         fig.savefig(f'{base_wd}figures/scan{xdm.scan_id}_max_image.png')
 
-        tth, intensity = xdm.integrate1d_image(xdm.max_image)
+        tth, intensity = xdm.integrate1D_image(xdm.max_image)
         fig, ax = xdm.plot_integration(intensity, tth=tth, title='Max Integration', return_plot=True)
         fig.savefig(f'{base_wd}figures/scan{xdm.scan_id}_max_integration.png')
 
@@ -119,7 +119,7 @@ def batch1():
 
         blob_sum_image = np.sum(images, axis=(0, 1))
 
-        tth, intensity = xdm.integrate1d_image(blob_sum_image)
+        tth, intensity = xdm.integrate1D_image(blob_sum_image)
         fig, ax = xdm.plot_integration(intensity, tth=tth, title='Blob Sum Integration', return_plot=True)
         fig.savefig(f'{base_wd}figures/scan{xdm.scan_id}_blob_sum_integration.png')
 

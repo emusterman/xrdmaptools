@@ -1200,7 +1200,7 @@ class XRDData:
         """
         Opens HDF file.
 
-        Opens HDF file from hdf path information if available. If dask
+        Opens HDF from hdf_path information if available. If dask
         is enabled, then a temporary image data storage location in the
         HDF file will be setup or accessed if it already exist.
 
@@ -2446,7 +2446,7 @@ class XRDData:
 
         dummy_image = 100 * np.ones(self.image_shape)
 
-        image, _, _ = self.ai.integrate2d_ng(dummy_image,
+        image, _, _ = self.ai.integrate2D_ng(dummy_image,
                                              tth_num,
                                              chi_num,
                                              unit=units)

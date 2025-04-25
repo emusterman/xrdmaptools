@@ -417,7 +417,7 @@ class XRDMap(XRDBaseScan):
     ##############################
         
 
-    def integrate1d_map(self,
+    def integrate1D_map(self,
                         tth_num=None,
                         tth_resolution=None,
                         unit='2th_deg',
@@ -477,7 +477,7 @@ class XRDMap(XRDBaseScan):
                 else:
                     image *= mask[indices]
         
-            tth, I = self.integrate1d_image(image=image,
+            tth, I = self.integrate1D_image(image=image,
                                             tth_num=tth_num,
                                             unit=unit,
                                             **kwargs)            
@@ -508,7 +508,7 @@ class XRDMap(XRDBaseScan):
 
     # Briefly doubles memory. No Dask support
     # TODO: change corrections, reset projections, update map_title, etc. from XRDData
-    def integrate2d_map(self,
+    def integrate2D_map(self,
                         tth_num=None,
                         tth_resolution=None,
                         chi_num=None,
@@ -563,7 +563,7 @@ class XRDMap(XRDBaseScan):
                                        *self.image_shape)),
                                        total=self.num_images):
         
-            I, tth, chi = self.integrate2d_image(image=pixel,
+            I, tth, chi = self.integrate2D_image(image=pixel,
                                                  tth_num=tth_num,
                                                  unit=unit,
                                                  **kwargs)            
@@ -585,6 +585,11 @@ class XRDMap(XRDBaseScan):
 
         # Save recirpocal space positions
         self.save_reciprocal_positions()
+
+
+    # Backwards compatibility
+    integrate1d_map = integrate1D_map
+    integrate2d_map = integrate2D_map
         
     
     #######################
@@ -1029,51 +1034,63 @@ class XRDMap(XRDBaseScan):
         self.save_spots()
 
 
+    # def trim_spots(self,
+    #                remove_less=0.01,
+    #                metric='height',
+    #                save_spots=False):
+    #     if not hasattr(self, 'spots') or self.spots is None:
+    #         err_str = 'Cannot trim spots if XRDMap has not no spots.'
+    #         raise ValueError(err_str)
+
+    #     metric = str(metric).lower()
+    #     if any([x[:3] == 'fit' for x in self.spots.iloc[0].keys()]):
+    #         if metric in ['height', 'amp']:
+    #             significance = (self.spots['fit_amp']
+    #                             - self.spots['fit_offset'])
+    #         elif metric in ['intensity',
+    #                         'int',
+    #                         'breadth',
+    #                         'integrated',
+    #                         'volume']:
+    #             # this should account for offset too            
+    #             significance = self.spots['fit_integrated'] 
+    #         else:
+    #             raise ValueError('Unknown metric specification.')
+    #     else:
+    #         if metric in ['height', 'amp']:
+    #             significance = self.spots['guess_height']
+    #         elif metric in ['intensity',
+    #                         'int',
+    #                         'breadth',
+    #                         'integrated',
+    #                         'volume']:
+    #             significance = self.spots['guess_int']
+    #         else:
+    #             raise ValueError('Unknown metric specification.')
+
+    #     # Find relative indices where conditional is true
+    #     mask = np.nonzero(significance.values < remove_less)[0]
+
+    #     # Convert relative indices into dataframe index
+    #     drop_indices = self.spots.iloc[mask].index.values # awful call
+
+    #     # Drop indices
+    #     self.spots.drop(index=drop_indices, inplace=True)
+    #     ostr = (f'Trimmed {len(drop_indices)} spots less '
+    #             + f'than {remove_less} significance.')
+    #     print(ostr)
+
+    #     if save_spots:
+    #         self.save_spots()
+
     def trim_spots(self,
                    remove_less=0.01,
-                   metric='height',
+                   key='guess_int',
                    save_spots=False):
-        if not hasattr(self, 'spots') or self.spots is None:
-            err_str = 'Cannot trim spots if XRDMap has not no spots.'
-            raise ValueError(err_str)
-
-        metric = str(metric).lower()
-        if any([x[:3] == 'fit' for x in self.spots.iloc[0].keys()]):
-            if metric in ['height', 'amp']:
-                significance = (self.spots['fit_amp']
-                                - self.spots['fit_offset'])
-            elif metric in ['intensity',
-                            'int',
-                            'breadth',
-                            'integrated',
-                            'volume']:
-                # this should account for offset too            
-                significance = self.spots['fit_integrated'] 
-            else:
-                raise ValueError('Unknown metric specification.')
-        else:
-            if metric in ['height', 'amp']:
-                significance = self.spots['guess_height']
-            elif metric in ['intensity',
-                            'int',
-                            'breadth',
-                            'integrated',
-                            'volume']:
-                significance = self.spots['guess_int']
-            else:
-                raise ValueError('Unknown metric specification.')
-
-        # Find relative indices where conditional is true
-        mask = np.nonzero(significance.values < remove_less)[0]
-
-        # Convert relative indices into dataframe index
-        drop_indices = self.spots.iloc[mask].index.values # awful call
-
-        # Drop indices
-        self.spots.drop(index=drop_indices, inplace=True)
-        ostr = (f'Trimmed {len(drop_indices)} spots less '
-                + f'than {remove_less} significance.')
-        print(ostr)
+        
+        self._trim_spots(self.spots,
+                         remove_less=remove_less,
+                         key=key)
 
         if save_spots:
             self.save_spots()
@@ -1092,19 +1109,23 @@ class XRDMap(XRDBaseScan):
     
     def remove_spot_fits(self):
         self._remove_spot_vals(drop_tags=['fit'])
-    
 
-    def pixel_spots(self, map_indices, copied=True):
 
-        pixel_spots = self.spots[
-                        (self.spots['map_x'] == map_indices[1])
-                        & (self.spots['map_y'] == map_indices[0])]
+    def _pixel_spots(spots, map_indices, copied=True):
+        pixel_spots = spots[(spots['map_x'] == map_indices[1])
+                            & (spots['map_y'] == map_indices[0])]
         
         # Copies to protect orginal spots from changes
         if copied:
             pixel_spots = pixel_spots.copy()
         
         return pixel_spots
+    
+
+    def pixel_spots(self, map_indices, copied=True):
+        return self._pixel_spots(self.spots,
+                                 map_indices,
+                                 copied=copied)
 
 
     @_check_swapped_axes
@@ -1170,7 +1191,7 @@ class XRDMap(XRDBaseScan):
         self.vector_map = vector_map
         # Write to hdf
         self.save_vector_map(rewrite_data=rewrite_data,
-                                    verbose=verbose)
+                             verbose=verbose)
         
         # Cleaning up XRDMap state
         if not keep_images and remove_images_after:
@@ -1183,10 +1204,10 @@ class XRDMap(XRDBaseScan):
     @_check_swapped_axes
     @XRDBaseScan._protect_hdf()
     def save_vector_map(self,
-                               vector_map=None,
-                               edges=None,
-                               rewrite_data=False,
-                               verbose=False):
+                        vector_map=None,
+                        edges=None,
+                        rewrite_data=False,
+                        verbose=False):
 
         # Allows for more customizability with other functions
         hdf = getattr(self, 'hdf')
@@ -1208,10 +1229,10 @@ class XRDMap(XRDBaseScan):
                 edges = self.edges
     
         self._save_vector_map(hdf,
-                                     vector_map=vector_map,
-                                     edges=edges,
-                                     rewrite_data=rewrite_data,
-                                     verbose=verbose)
+                              vector_map=vector_map,
+                              edges=edges,
+                              rewrite_data=rewrite_data,
+                              verbose=verbose)
         
         # Remove secondary reference
         del hdf

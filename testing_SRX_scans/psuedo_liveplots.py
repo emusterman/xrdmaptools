@@ -125,7 +125,7 @@ def phase_corr_func(images, ai=None, dark=None, flat=None, scalers=None):
 
     integrations = np.empty((images.shape[0], tth_num), dtype=np.float16)
     for i, image in enumerate(images):
-        integration = ai.integrate1d_ng(image, tth_num,
+        integration = ai.integrate1D_ng(image, tth_num,
                                         unit='2th_deg',
                                       correctSolidAngle=False,
                                       polarization_factor=None)

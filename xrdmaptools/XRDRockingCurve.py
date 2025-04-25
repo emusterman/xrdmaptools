@@ -990,12 +990,26 @@ class XRDRockingCurve(XRDBaseScan):
                                        subsample=subsample,
                                        verbose=verbose)
 
-        tth, chi, wavelength = q_2_polar(spots,
-                                         stage_rotation=0,
-                                         degrees=(
-                                            self.polar_units == 'deg'))
+        # Convert reciprocal positions to polar units
+        if self.rocking_axis == 'energy':
+            if self.use_stage_rotation:
+                stage_rotation = self.theta[0]
+            else:
+                stage_rotation = 0
+            tth, chi, wavelength = q_2_polar(spots,
+                                stage_rotation=stage_rotation,
+                                degrees=(
+                                self.polar_units == 'deg'))
+            theta = [self.theta[0],] * len(spots)
+        else: # angle
+            tth, chi, theta = q_2_polar(spots,
+                                wavelength=self.wavelength[0],
+                                degrees=(
+                                self.polar_units == 'deg'))
+            wavelength = [self.wavelength[0],] * len(wavelength)
 
         temp_dict = {
+            'height' : label_maxs,
             'intensity' : label_ints,
             'qx' : spots[:, 0],
             'qy' : spots[:, 1],
@@ -1003,7 +1017,7 @@ class XRDRockingCurve(XRDBaseScan):
             'tth' : tth,
             'chi' : chi,
             'wavelength': wavelength,
-            # 'theta' : theta
+            'theta' : theta
             }
 
         # Save 3D spots similar to 3D spots
@@ -1038,6 +1052,19 @@ class XRDRockingCurve(XRDBaseScan):
             for key, value in extra_attrs.items():
                 overwrite_attr(self.hdf[hdf_str].attrs, key, value)      
         print('done!')
+
+
+    def trim_spots(self,
+                   remove_less=0.01,
+                   key='intensity',
+                   save_spots=False):
+        
+        self._trim_spots(self.spots_3D,
+                         remove_less=remove_less,
+                         key=key)
+
+        if save_spots:
+            self.save_spots()
 
 
     @XRDBaseScan._protect_hdf()

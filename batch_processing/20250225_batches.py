@@ -312,7 +312,7 @@ def process_xrd_batch():
         xdm.estimate_background(method='bruckner')
         xdm.rescale_images()
         xdm.finalize_images()
-        xdm.integrate1d_map()
+        xdm.integrate1D_map()
         del xdm
 
 

@@ -110,7 +110,7 @@ def process_tomo_maps():
         xdm.nullify_images()
 
         xdm.finalize_images()
-        xdm.integrate1d_map()
+        xdm.integrate1D_map()
 
         xdm.find_blobs()
         # xdm.find_spots(radius=5)
@@ -203,7 +203,7 @@ def process_broken_tomo_maps():
         xdm.nullify_images()
 
         xdm.finalize_images()
-        xdm.integrate1d_map()
+        xdm.integrate1D_map()
 
         xdm.find_blobs()
         # xdm.find_spots(radius=5)
@@ -223,7 +223,7 @@ def get_blob_integrations():
 
         xdm = XRDMap.from_hdf(f'scan{scan}_xrdmap.h5', wd=f'{base_wd}xrd_tomo/')
 
-        int_map, tth, extent, tth_res = xdm.integrate1d_map(
+        int_map, tth, extent, tth_res = xdm.integrate1D_map(
                         mask=xdm.blob_masks,
                         return_values=True)
 

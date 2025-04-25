@@ -244,7 +244,7 @@ def estimate_map_air_scatter(xdm):
         # Get image
         img = xdm.images[indices]
         # Integrate to 1D
-        tth, intensity = xdm.integrate1d_image(img)
+        tth, intensity = xdm.integrate1D_image(img)
         # Strip peaks
         bkg = masked_bruckner_image_background(intensity.reshape(-1, 1),
                                                size=20,

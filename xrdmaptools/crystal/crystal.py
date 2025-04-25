@@ -11,6 +11,7 @@ from xrdmaptools.utilities.math import vector_angle
 # The 2 * pi factor is stored in the Phase class reciprocal lattice vectors
 
 
+# Unused I think...
 class LatticeParameters():
 
     def __init__(self,
@@ -412,37 +413,6 @@ def are_collinear(vectors, return_area=False):
         return area
     else:
         return collinear_flag
-    
-
-# # This assumes list of vectors which may be different than are_coplanar()
-# def are_collinear(vectors):
-#     vecs = np.asarray(vectors)
-#     collinear_flag = True
-
-#     # Probably faster. Not easy to perform pairwise
-#     if len(vecs) == 2:
-#         if np.sum(np.abs(np.cross(*vecs))) > 1e-8:
-#             collinear_flag = False
-#         return collinear_flag
-
-#     # Pairwise analysis for list of vectors
-#     const_list = []
-#     for ind in range(vecs.shape[1]):
-#         vecs_axis = vecs[:, ind]
-#         if not np.any(vecs_axis == 0):
-#             const = np.abs(vecs_axis[:, np.newaxis] / vecs_axis[np.newaxis, :])
-#             const_list.append(np.round(const, 3))
-
-#     combos = list(combinations(range(vecs.shape[1]), 2))
-#     if len(combos) > 1:
-#         combos.pop(-1) # last index is redundant
-
-#     for combo in combos:
-#         if np.any(const_list[combo[0]] != const_list[combo[1]]):
-#             collinear_flag = False
-#             break
-        
-#     return collinear_flag
     
 
 def hkl_2_hkil(hkls):

@@ -1112,3 +1112,69 @@ def integrateable_dynamic_1D_plot(dyn_kw={},
     cid = fig.canvas.mpl_connect('button_press_event', onclick)
     binding_id = plt.connect('motion_notify_event', onmove)
     return fig, ax, span
+
+
+
+def interactive_3D_labeled_plot(dyn_kw={},
+                                map_kw={},
+                                cmap='viridis',
+                                marker_color='red'):
+    '''
+    
+    '''
+
+    # Generate plot
+    fig = plt.figure(figsize=_figsize, dpi=_dpi)
+    ax = [fig.add_axes(121), fig.add_axes(122, projection='3d')]
+    dyn_kw['axes'] = ax
+    _update_map(dyn_kw['data'],
+                 map_kw=map_kw,
+                 axes=ax,
+                 cmap=cmap)
+
+    # Set globals and first scatter
+    _set_globals(ax, map_kw)
+    _update_axes(dyn_kw=dyn_kw,
+                    dimensions=3,
+                    fig=fig,
+                    cmap=cmap,
+                    marker_color=marker_color)
+
+    label_list = []    
+    def update_axes(event):
+        nonlocal label_list
+        if _update_coordinates(event,
+                               map_kw):
+            _update_axes(dyn_kw=dyn_kw,
+                         dimensions=3,
+                         fig=fig,
+                         cmap=cmap,
+                         marker_color=marker_color)
+            
+            for a in label_list:
+                a.remove()
+            label_list = []
+            for hkls, spots, colors in zip(
+                                dyn_kw['labels'][row, col],
+                                dyn_kw['label_spots'][row, col],
+                                dyn_kw['label_colors'][row, col]):
+                a = dyn_kw['axes'][1].text(*spots.T, hkls, fontsize=8, c=colors)
+                label_list.append(a)
+
+    # Make interactive
+    def onclick(event):
+        if event.inaxes == ax[0]:
+            global dynamic_toggle, marker
+            dynamic_toggle = not dynamic_toggle
+            update_axes(event)
+    
+    # Make dynamic
+    def onmove(event):
+        global dynamic_toggle
+        if dynamic_toggle:
+            if event.inaxes == ax[0]:
+                update_axes(event)
+    
+    cid = fig.canvas.mpl_connect('button_press_event', onclick)
+    binding_id = plt.connect('motion_notify_event', onmove)
+    return fig, ax

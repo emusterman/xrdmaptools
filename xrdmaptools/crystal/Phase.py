@@ -1,5 +1,11 @@
 import xrayutilities as xu
-from xrayutilities.materials.spacegrouplattice import sgrp_sym, SGLattice
+from xrayutilities.materials.spacegrouplattice import (
+    RangeDict,
+    sgrp_sym,
+    sgrp_name,
+    sgrp_params,
+    SGLattice
+)
 from xrayutilities.materials.atom import Atom
 import matplotlib
 import os
@@ -19,6 +25,101 @@ from xrdmaptools.utilities.math import (
     vector_angle
 )
 from xrdmaptools.utilities.utilities import rescale_array
+
+
+### Useful crystallography tools ###
+
+# Point group from space group
+point_grp = RangeDict({# Space group number, (Schoenflies, Hermann-Mauguin, Order)
+                       # Triclinic
+                       range(1, 2): ('C1', '1', 1),
+                       range(2, 3): ('Ci', '-1', 2),
+                       # Monoclinic
+                       range(3, 6): ('C2', '2', 2),
+                       range(6, 10): ('CS', 'm', 2),
+                       range(10, 16): ('C2h', '2/m', 4),
+                       # Orthorhombic
+                       range(16, 25): ('D2', '222', 4),
+                       range(25, 47): ('C2v', 'mm2', 4),
+                       range(47, 75): ('D2h', 'mmm', 8),
+                       # Tetragonal
+                       range(75, 81): ('C4', '4', 4),
+                       range(81, 83): ('S4', '-4', 4),
+                       range(83, 89): ('C4h', '4/m', 8),
+                       range(89, 99): ('D4', '422', 8),
+                       range(99, 111): ('C4v', '4mm', 8),
+                       range(111, 123): ('D2d', '-42m', 8),
+                       range(123, 143): ('D4h', '4/mmm', 16),
+                       # Trigonal
+                       range(143, 147): ('C3', '3', 3),
+                       range(147, 149): ('S6', '-3', 6),
+                       range(149, 156): ('D3', '32', 6),
+                       range(156, 162): ('C3v', '3m', 6),
+                       range(162, 168): ('D3d', '-3m', 12),
+                       # Hexagonal
+                       range(168, 174): ('C6', '6', 6),
+                       range(174, 175): ('C3h', '-6', 6),
+                       range(175, 177): ('C6h', '6/m', 12),
+                       range(177, 183): ('D6', '622', 12),
+                       range(183, 187): ('C6v', '6mm', 12),
+                       range(187, 191): ('D3h', '-6m2', 12),
+                       range(191, 195): ('D6h', '6/mmm', 24),
+                       # Cubic
+                       range(195, 200): ('T', '23', 12),
+                       range(200, 207): ('Th', 'm-3', 24),
+                       range(207, 215): ('O', '432', 24),
+                       range(215, 221): ('Td', '-43m', 24),
+                       range(221, 231): ('Oh', 'm-3m', 48),
+                       })
+
+# Laue grp from space group
+laue_grp_nr = RangeDict({# Space group number, (Schoenflies, Hermann-Mauguin, Order)
+                       # Triclinic
+                       range(1, 3): 2,
+                       # Monoclinic
+                       range(3, 16): 15,
+                       # Orthorhombic
+                       range(16, 75): 74,
+                       # Tetragonal
+                       range(75, 89): 88,
+                       range(89, 143): 142,
+                       # Trigonal
+                       range(143, 149): 148,
+                       range(149, 168): 167,
+                       # Hexagonal
+                       range(168, 177): 176,
+                       range(177, 195): 194,
+                       # Cubic
+                       range(195, 207): 206,
+                       range(207, 231): 230,
+                       })
+
+
+# Laue grp from space group
+laue_grp = RangeDict({# Space group number, (Schoenflies, Hermann-Mauguin, Order)
+                       # Triclinic
+                       range(1, 3): ('Ci', '-1', 2),
+                       # Monoclinic
+                       range(3, 16): ('C2h', '2/m', 4),
+                       # Orthorhombic
+                       range(16, 75): ('D2h', 'mmm', 8),
+                       # Tetragonal
+                       range(75, 89): ('C4h', '4/m', 8),
+                       range(89, 143): ('D4h', '4/mmm', 16),
+                       # Trigonal
+                       range(143, 149): ('S6', '-3', 6),
+                       range(149, 168): ('D3d', '-3m', 12),
+                       # Hexagonal
+                       range(168, 177): ('C6h', '6/m', 12),
+                       range(177, 195): ('D6h', '6/mmm', 24),
+                       # Cubic
+                       range(195, 207): ('Th', 'm-3', 24),
+                       range(207, 231): ('Oh', 'm-3m', 48),
+                       })
+
+
+# Pre-computed Laue group symmetry operations
+# For symmetry reduction
 
 
 class Phase(xu.materials.Crystal):
@@ -114,6 +215,13 @@ class Phase(xu.materials.Crystal):
     # Simple and to the point
     def copy(self):
         return deepcopy(self)
+
+    
+    @property
+    def min_q(self):
+        return np.linalg.norm(self.Q([[1, 0, 0],
+                                      [0, 1, 0],
+                                      [0, 0, 1]]), axis=0).min()
 
 
     @staticmethod
