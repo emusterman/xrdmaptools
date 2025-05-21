@@ -68,11 +68,11 @@ gases = {
 
 # From Table 4-3 in CXRO Handbook
 average_gas_ionization_energies = {
-    'He' : 41,
-    'N2' : 36,
-    'air' : 34.4,
-    'Ne' : 36.3,
-    'Ar' : 26, 
-    'Kr' : 24,
-    'Xe' : 22
+    'He' : 41, # eV
+    'N2' : 36, # eV
+    'air' : 34.4, # eV
+    'Ne' : 36.3, # eV
+    'Ar' : 26, # eV
+    'Kr' : 24, # eV
+    'Xe' : 22 # eV
 }

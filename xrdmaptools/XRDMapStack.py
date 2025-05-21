@@ -1689,7 +1689,8 @@ class XRDMapStack(list):
                            phase=None,
                            degrees=None,
                            save_to_hdf=True,
-                           verbose=False):
+                           verbose=False,
+                           half_mask=True):
 
         if not hasattr(self, 'spots_3D') or self.spots_3D is None:
             err_str = 'Spots must be found before they can be indexed.'
@@ -1702,16 +1703,24 @@ class XRDMapStack(list):
                 err_str = 'Phase must be provided for indexing.'
                 raise ValueError(err_str)
         
-        map_shape = (np.max(self.spots_3D['map_y']),
-                     np.max(self.spots_3D['map_x']))
+        # Effective map shape
+        map_shape = (np.max(self.spots_3D['map_y']) + 1,
+                     np.max(self.spots_3D['map_x']) + 1)
 
         # Get phase information
         max_q = np.max(self.spots_3D['q_mag'])
-
         phase.generate_reciprocal_lattice(1.15 * max_q)
         all_ref_qs = phase.all_qs.copy()
         all_ref_hkls = phase.all_hkls.copy()
         all_ref_fs = phase.all_fs.copy()
+
+        # Ignore half...
+        if half_mask:
+            half_mask = all_ref_hkls[:, -1] <= 0
+            all_ref_qs = all_ref_qs[half_mask]
+            all_ref_hkls = all_ref_hkls[half_mask]
+            all_ref_fs = all_ref_fs[half_mask]
+
         ref_mags = np.linalg.norm(all_ref_qs, axis=1)
 
         # Find minimum q vector step size from reference phase
@@ -1777,7 +1786,7 @@ class XRDMapStack(list):
                                  'near_angle' : near_angle,
                                  'degrees' : int(degrees)})
     
-
+    # WIP: as in it doesn't currently speed anything up
     def dask_index_all_3D_spots(self,
                            near_q,
                            near_angle,

@@ -22,7 +22,7 @@ def tic(output=False):
         return _t0
 
 
-def toc(string='', output=False):
+def toc(string='', print=True, output=False):
     global _t0
     dt = ttime.monotonic() - _t0
     s = f'{string}\ndt = {dt:.3f} sec'

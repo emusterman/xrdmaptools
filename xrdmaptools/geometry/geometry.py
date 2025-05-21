@@ -585,7 +585,7 @@ class QMask():
     def from_XRDRockingScan(cls,
                             rsm,
                             **kwargs):
-        # Surprisingly works for both XRDRockingCurve and XRDMapStack
+        # Works for both XRDRockingCurve and XRDMapStack
         
         inst = cls(rsm.tth_arr,
                    rsm.chi_arr,
@@ -601,8 +601,15 @@ class QMask():
 
     def generate(self,
                  q_vectors,
-                 ext=0,
+                 wavelength_ext=0.1,
+                 angle_ext=None,
                  return_sub_masks=False):
+
+        # Setup wiggle room
+        if angle_ext is None:
+            angle_ext = 5 # in degrees
+            if not self.degrees:
+                angle_ext = np.radians(angle_ext)        
 
         # Convert vectors to polar
         if self.rocking_axis == 'energy':
@@ -616,8 +623,8 @@ class QMask():
                                              degrees=self.degrees)
 
             rocking_mask = np.all([
-                        wavelength >= self.wavelength_min * (1 - ext),
-                        wavelength <= self.wavelength_max * (1 + ext)],
+                        wavelength >= self.wavelength_min - wavelength_ext,
+                        wavelength <= self.wavelength_max + wavelength_ext],
                         axis=0)
         
         else:
@@ -625,10 +632,10 @@ class QMask():
                                     q_vectors,
                                     wavelength=self.wavelength_min,
                                     degrees=self.degrees)
-
+            
             rocking_mask = np.all([
-                            rotation >= self.theta_min * (1 - ext),
-                            rotation <= self.theta_max * (1 + ext)],
+                            rotation >= self.theta_min - angle_ext,
+                            rotation <= self.theta_max + angle_ext],
                             axis=0)
 
         # Shift chi values if discontinuiteies
@@ -645,8 +652,9 @@ class QMask():
             first = chi
             second = tth
 
-        upper = second - general_polynomial(first, *self.upper_poly)
-        lower = second - general_polynomial(first, *self.lower_poly)
+        # TODO: Check that the sign of angle_correct for both detector positions
+        upper = second - (general_polynomial(first, *self.upper_poly) - angle_ext)
+        lower = second - (general_polynomial(first, *self.lower_poly) + angle_ext)
         vertical_mask = np.sign(upper) != np.sign(lower)
         
         # Horizontally bounded mask
@@ -657,16 +665,17 @@ class QMask():
             first = chi
             second = tth
 
-        left = second - general_polynomial(first, *self.left_poly)
-        right = second - general_polynomial(first, *self.right_poly)
+        # TODO: Check that the sign of angle_correct for both detector positions
+        left = second - (general_polynomial(first, *self.left_poly) + angle_ext)
+        right = second - (general_polynomial(first, *self.right_poly) - angle_ext)
         horizontal_mask = np.sign(left) != np.sign(right)
         
         # Extent masks
-        tth_mask = np.all([tth >= self.tth_min * (1 - ext),
-                           tth <= self.tth_max * (1 + ext)],
+        tth_mask = np.all([tth >= self.tth_min - angle_ext,
+                           tth <= self.tth_max + angle_ext],
                            axis=0)
-        chi_mask = np.all([chi >= self.chi_min * (1 - ext),
-                           chi <= self.chi_max * (1 + ext)],
+        chi_mask = np.all([chi >= self.chi_min - angle_ext,
+                           chi <= self.chi_max + angle_ext],
                            axis=0)
         
         if return_sub_masks:

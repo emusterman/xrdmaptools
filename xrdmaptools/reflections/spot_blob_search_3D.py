@@ -155,14 +155,7 @@ def rsm_spot_search(qs,
     kdtree = KDTree(new_qs)
 
     mutable_intensity = new_int.copy()
-    # mutable_intensity[np.argmax(mutable_intensity)] = np.nan
-    
-    # Construct iterable
-    # if verbose:
-    #     print('Finding spots...')
-    #     iterable = tqdm(range(len(mutable_intensity) - 1))
-    # else:
-    #     iterable = range(len(mutable_intensity) - 1)
+
     if verbose:
         print('Finding spots...')
         iterable = tqdm(range(len(mutable_intensity)))
@@ -192,6 +185,7 @@ def rsm_spot_search(qs,
 
             # Single round conversion of nearby labels' intensities
             for i, nearby_intensity in enumerate(nearby_intensities):
+                # print('First significance call')
                 if (nearby_intensity < significance
                                         * np.max(nearby_intensities)):
                     convert_idxs = list(np.nonzero(labels
@@ -208,6 +202,7 @@ def rsm_spot_search(qs,
 
             # Is the local itensity below the significance of nearby?
             if np.max(nearby_intensities) > (local_intensity / significance):
+                # print('Second significance call')
                 labels[np.array(nn_idxs)[np.isnan(labels[nn_idxs])]] = found_labels[np.argmax(nearby_intensities)]
 
             else:

@@ -56,7 +56,7 @@ def pair_casting_index_best_grain(all_ref_qs,
         red_pairs = reduce_symmetric_equivalents(
                 pairs,
                 all_spot_qs,
-                qll_ref_qs,
+                all_ref_qs,
                 all_ref_hkls,
                 near_angle,
                 min_q,
@@ -253,15 +253,15 @@ def find_all_valid_pairs(all_spot_qs,
 
     # Construct iterable
     if verbose:
-        iterable = tqdm(spot_pair_indices)
+        iterate = lambda x : tqdm(x, position=0, leave=True)
     else:
-        iterable = spot_pair_indices
+        iterate = lambda x : x
 
     blank_connection = np.array([np.nan,] * len(phase_mask))
     connection_pairs = []
     if verbose:
-        print('Finding all valid pairs...')
-    for pair in iterable:
+        print('Finding all valid pairs...', flush=True)
+    for pair in iterate(spot_pair_indices):
         ref_combos = list(product(*[np.nonzero(mag_diff_arr[i] < near_q)[0]
                           for i in pair]))
 
@@ -306,13 +306,12 @@ def reduce_symmetric_equivalents(connection_pairs,
 
     # Construct iterator. Generators cannot be reused
     if verbose:
-        iterable1 = tqdm(enumerate(connection_pairs),
-                         total=len(connection_pairs))
-        iterable2 = tqdm(enumerate(connection_pairs),
-                         total=len(connection_pairs))
+        iterate = lambda x : tqdm(enumerate(x),
+                                  total=len(x),
+                                  position=0,
+                                  leave=True)
     else:
-        iterable1 = enumerate(connection_pairs)
-        iterable2 = enumerate(connection_pairs)
+        iterate = lambda x : enumerate(x)
     
     # Evaluating valid pairs
     pair_orientations = []
@@ -320,7 +319,7 @@ def reduce_symmetric_equivalents(connection_pairs,
     pair_rmse = []
     if verbose:
         print('Evaluating all valid pairs...')
-    for pair_i, pair_connection in iterable1:
+    for pair_i, pair_connection in iterate(connection_pairs):
         (spot_indices,
         ref_indices) = _get_connection_indices(pair_connection)
         pair_ref_hkls = all_ref_hkls[ref_indices]
@@ -351,9 +350,7 @@ def reduce_symmetric_equivalents(connection_pairs,
     # Reducing symmetrically equivalent pairs
     eval_pair_mask = np.array([True,] * len(connection_pairs))
     keep_pair_mask = eval_pair_mask.copy()
-    if verbose:
-        print('Removing equivalent valid pairs...')
-    for pair_i, pair_connection in iterable2:
+    for pair_i, pair_connection in enumerate(connection_pairs):
         # Immediately kick out already evaluated pairs
         if not eval_pair_mask[pair_i]:
             continue
@@ -485,15 +482,15 @@ def pair_casting(connection_pair,
         qof = 0
     else:
         qof = get_quality_of_fit(
-                    all_spot_qs[curr_spot_inds],
-                    all_spot_ints[curr_spot_inds],
-                    all_rot_qs[curr_ref_inds],
-                    all_ref_fs[curr_ref_inds],
-                    all_spot_qs, # Already within qmask
-                    all_spot_ints,
-                    all_rot_qs[temp_qmask],
-                    all_ref_fs[temp_qmask],
-                    sigma=near_q)
+            all_spot_qs[curr_spot_inds], # fit_spot_qs
+            all_spot_ints[curr_spot_inds], # fit_spot_ints
+            all_rot_qs[curr_ref_inds], # fit_rot_qs
+            all_ref_fs[curr_ref_inds], # fit_ref_fs
+            all_spot_qs, # all_spot_qs
+            all_spot_ints, # all_spot_ints
+            all_rot_qs[temp_qmask], # all_rot_qs
+            all_ref_fs[temp_qmask], # all_ref_fs
+            sigma=near_q)
     
     return connection, qof, multi
 
@@ -508,6 +505,7 @@ def multiple_pair_casting(connection_pairs,
                           iter_max=50,
                           keep_initial_pair=False,
                           exclude_found_pairs=False,
+                          sort_results=True,
                           verbose=True):
 
     # Modify and set up some values
@@ -518,19 +516,20 @@ def multiple_pair_casting(connection_pairs,
     all_ref_fs = np.asarray(all_ref_fs)
 
     # Construct iterator
-    # print(f'{verbose=}')
     if verbose:
-        iterable = tqdm(enumerate(connection_pairs),
-                        total=len(connection_pairs))
+        iterate = lambda x : tqdm(enumerate(x),
+                                  total=len(x),
+                                  position=0,
+                                  leave=True)
     else:
-        iterable = enumerate(connection_pairs)
+        iterate = lambda x : enumerate(x)
 
     connections = []
     qofs = []
     multi_reflections = []
     if verbose:
         print('Casting valid pairs...')
-    for i, pair in iterable:
+    for i, pair in iterate(connection_pairs):
         # Check if the pair has already been included
         if (exclude_found_pairs
             and evaluated_pair_mask[i]):
@@ -546,10 +545,6 @@ def multiple_pair_casting(connection_pairs,
                                     near_q,
                                     keep_initial_pair=keep_initial_pair,
                                     iter_max=iter_max)
-        
-        # Remove very bad qofs
-        # if qof <= 0:
-        #     continue
 
         connections.append(connection)
         qofs.append(qof)
@@ -569,13 +564,14 @@ def multiple_pair_casting(connection_pairs,
                 evaluated_pair_mask[found_pair_mask] = True
     
     # Sort by qof
-    connections = [x for _, x in sorted(zip(qofs, connections),
-                                        key=lambda pair: pair[0],
-                                        reverse=True)]
-    multi_reflections = [x for _, x in sorted(zip(qofs, multi_reflections),
-                                              key=lambda pair: pair[0],
-                                              reverse=True)]
-    qofs = sorted(qofs, reverse=True)
+    if sort_results:
+        connections = [x for _, x in sorted(zip(qofs, connections),
+                                            key=lambda pair: pair[0],
+                                            reverse=True)]
+        multi_reflections = [x for _, x in sorted(zip(qofs, multi_reflections),
+                                                key=lambda pair: pair[0],
+                                                reverse=True)]
+        qofs = sorted(qofs, reverse=True)
                 
     return connections, np.asarray(qofs), multi_reflections
 
@@ -695,7 +691,7 @@ def iterative_pattern_decomposition(connection_pairs,
         connections, qofs, _ = pair_casting_indexing(
                                     current_pair_list,
                                     all_spot_qs[included_spot_mask],
-                                    all_spot_ints[included_spot_mask],
+                                    all_spot_ints,
                                     all_ref_qs,
                                     all_ref_fs,
                                     qmask,
@@ -743,8 +739,181 @@ def iterative_pattern_decomposition(connection_pairs,
     return best_connections, np.asarray(best_qofs)
 
 
+# # More intelligent. Only re-evaluates pairs of connections which are no longer valid
+# def decaying_pattern_decomposition(connection_pairs,
+#                                    all_spot_qs,
+#                                    all_spot_ints,
+#                                    all_ref_qs,
+#                                    all_ref_fs,
+#                                    qmask,
+#                                    near_q,
+#                                    qof_minimum=0,
+#                                    keep_initial_pair=False,
+#                                    max_ori_refine_iter=50,
+#                                    max_ori_decomp_count=20,
+#                                    verbose=True):
+
+#     best_connections, best_qofs = [], []
+#     excluded_spot_indices = []
+#     included_conn_mask = np.asarray([True,] * len(connection_pairs))
+#     included_spot_mask = np.asarray([True,] * len(connection_pairs[0]))
+#     blank_full_connection = np.asarray([np.nan,] * len(included_spot_mask))
+
+#     # Internal wrapper for indexing method
+#     # Can redefine for other methods as desired
+#     def _internal_indexing(pairs,
+#                            spots,
+#                            verbose=verbose):
+#         out = pair_casting_indexing(
+#                     pairs,
+#                     spots,
+#                     all_spot_ints, # must always be full amount for proper comparison
+#                     all_ref_qs,
+#                     all_ref_fs,
+#                     qmask,
+#                     near_q,
+#                     iter_max=max_ori_refine_iter,
+#                     keep_initial_pair=keep_initial_pair,
+#                     verbose=verbose)
+#         return out
+    
+#     (orig_connections,
+#      orig_qofs,
+#      orig_multi_reflections) = _internal_indexing(
+#                                 connection_pairs,
+#                                 all_spot_qs)
+
+#     connections = np.asarray(orig_connections.copy())
+#     qofs = np.asarray(orig_qofs.copy())
+#     multi_reflections = orig_multi_reflections.copy()
+
+#     # included_conn_mask = np.asarray([True,] * len(connections))
+
+#     iter_count = 0
+#     while True:        
+#         # Find best connection
+#         try:
+#             best_ind = np.nanargmax(qofs[included_conn_mask]) # Should not be nan???
+#         except:
+#             print('Failed to find best index!')
+#             return qofs, included_conn_mask, connections
+#         best_connection = connections[included_conn_mask][best_ind]
+#         best_qof = qofs[included_conn_mask][best_ind]
+
+#         # Conditional to catch catastrophic failures
+#         if np.sum(~np.isnan(best_connection)) <= 1:
+#             print('ERROR: All indexing failed!')
+#             print('Returning previously successful indexing.')
+#             print('override: returning connections, qofs, included_conn_mask, best_connections, best_qofs')
+#             return connections, qofs, included_conn_mask, best_connections, np.asarray(best_qofs)
+#             return best_connections, np.asarray(best_qofs)
+        
+#         # Record best parameters
+#         best_connections.append(best_connection)
+#         best_qofs.append(best_qof)
+
+#         # Update connections
+#         full_spot_inds, full_ref_inds = _get_connection_indices(best_connection)
+#         excluded_spot_indices.extend(full_spot_inds)
+#         included_spot_mask[excluded_spot_indices] = False
+
+#         # Update masks for different types of results
+#         valid_conn_mask = ~np.any([~np.isnan(connections[:, idx])
+#                                    for idx in excluded_spot_indices],
+#                                    axis=0)
+#         valid_pair_mask = ~np.any([~np.isnan(connection_pairs[:, idx])
+#                                    for idx in excluded_spot_indices],
+#                                    axis=0)
+#         exclude_ambig_num = np.array([np.sum([ind in multi
+#                                         for ind in full_spot_inds])
+#                                       for multi in multi_reflections])
+#         all_ambig_num = np.array([len(multi)
+#                                   for multi in multi_reflections])
+#         ambig_mask = ((exclude_ambig_num > 0) # Has an excluded index
+#                        & ((all_ambig_num
+#                            - exclude_ambig_num) > 0)) # And has other valid indices
+
+#         # Useful masks
+#         recalc_mask = ambig_mask & ~(~valid_pair_mask & ~valid_conn_mask)
+#         included_conn_mask = valid_conn_mask.copy()
+#         included_conn_mask[recalc_mask] = True
+
+#         # Conditionals to kill iteration
+#         iter_count += 1
+#         if (len(all_spot_qs) - len(excluded_spot_indices) < 1 # Cannot solve orientations
+#             or best_qof < qof_minimum
+#             or included_conn_mask.sum() < 1
+#             or iter_count >= max_ori_decomp_count): # Reach maxed allowed orientations
+#             break
+
+#         # Evaluate new pairs as needed
+#         if recalc_mask.sum() > 0:
+#             # Down-cast connections
+#             new_pairs = []
+#             for idx in range(len(connection_pairs)):
+#                 if recalc_mask[idx]:
+#                     if (~valid_pair_mask & valid_conn_mask)[idx]:
+#                         # Original pair is invalid, but connection is valid.
+#                         # Append connection
+#                         new_pairs.append(connections[idx][included_spot_mask])
+#                     else:
+#                         # Append original pair
+#                         new_pairs.append(connection_pairs[idx][included_spot_mask])
+
+#             # Re-index connections
+#             (new_connections,
+#              new_qofs,
+#              new_multi_reflections) = _internal_indexing(
+#                                         new_pairs,
+#                                         all_spot_qs[included_spot_mask],
+#                                         verbose=False)
+            
+#             # Expand new connections
+#             full_new_connections = []
+#             for conn in new_connections:
+#                 full_new_connection = blank_full_connection.copy()
+#                 full_new_connection[included_spot_mask] = conn
+#                 full_new_connections.append(full_new_connection)
+            
+#             # For debugging
+#             if np.any(np.array([np.sum(~np.isnan(conn))
+#                                 for conn in full_new_connections]) < 2):
+#                 print('Found error.')
+#                 return (recalc_mask,
+#                         new_pairs,
+#                         included_spot_mask,
+#                         included_conn_mask,
+#                         full_new_connections,
+#                         new_qofs)
+            
+#             # Update values
+#             connections[recalc_mask] = full_new_connections
+#             qofs[recalc_mask] = new_qofs
+#             # multi_reflections cannot be converted to array
+#             for i, idx in enumerate(np.nonzero(recalc_mask)[0]):
+#                 multi_reflections[idx] = new_multi_reflections[i]
+    
+#     # Trim bad connections.
+#     # May be worth keeping since they have already been calculated.
+#     best_qofs = np.asarray(best_qofs)
+#     if len(best_connections) > 1:
+#         # I don't like this, but I want to keep it as a list
+#         best_connections = list(np.asarray(best_connections)[best_qofs >= qof_minimum])
+#         best_qofs = best_qofs[best_qofs >= qof_minimum]
+#     else:
+#         if verbose and best_qofs.squeeze() < qof_minimum:
+#             warn_str = ('WARNING: Indexing quality '
+#                         + f'({best_qofs.squeeze():.4f}) below '
+#                         + f'designated minimum ({qof_minimum:.4f}). '
+#                         + 'Stopping indexing.')
+#             print(warn_str)
+        
+#     return best_connections, best_qofs
+
+
+
 # More intelligent. Only re-evaluates pairs of connections which are no longer valid
-def decaying_pattern_decomposition(connection_pairs,
+def decaying_pattern_decomposition(start_connections,
                                    all_spot_qs,
                                    all_spot_ints,
                                    all_ref_qs,
@@ -759,149 +928,94 @@ def decaying_pattern_decomposition(connection_pairs,
 
     best_connections, best_qofs = [], []
     excluded_spot_indices = []
-    included_conn_mask = np.asarray([True,] * len(connection_pairs))
-    included_spot_mask = np.asarray([True,] * len(connection_pairs[0]))
-    blank_full_connection = np.asarray([np.nan,] * len(included_spot_mask))
+    included_conn_mask = np.asarray([True,] * len(start_connections))
+    included_spot_mask = np.asarray([True,] * len(start_connections[0]))
+    track_conns = np.asarray(start_connections).copy()
 
     # Internal wrapper for indexing method
     # Can redefine for other methods as desired
     def _internal_indexing(pairs,
                            spots,
-                           spot_ints,
                            verbose=verbose):
-        out = pair_casting_indexing(
+        out = multiple_pair_casting(
                     pairs,
                     spots,
-                    spot_ints,
+                    all_spot_ints, # must always be full amount for proper comparison
                     all_ref_qs,
                     all_ref_fs,
                     qmask,
                     near_q,
+                    sort_results=False,
                     iter_max=max_ori_refine_iter,
                     keep_initial_pair=keep_initial_pair,
                     verbose=verbose)
         return out
     
-    (orig_connections,
-     orig_qofs,
-     orig_multi_reflections) = _internal_indexing(
-                                connection_pairs,
-                                all_spot_qs,
-                                all_spot_ints)
-
-    connections = np.asarray(orig_connections.copy())
-    qofs = np.asarray(orig_qofs.copy())
-    multi_reflections = orig_multi_reflections.copy()
-
-    # included_conn_mask = np.asarray([True,] * len(connections))
+    (connections,
+     qofs,
+     multi_reflections) = _internal_indexing(
+                                start_connections,
+                                all_spot_qs)
+    connections = np.asarray(connections)
 
     iter_count = 0
     while True:        
         # Find best connection
-        try:
-            best_ind = np.nanargmax(qofs[included_conn_mask]) # Should not be nan???
-        except:
-            print('Failed to find best index!')
-            return qofs, included_conn_mask, connections
-        best_connection = connections[included_conn_mask][best_ind]
-        best_qof = qofs[included_conn_mask][best_ind]
-
-        # Conditional to catch catastrophic failures
-        if np.sum(~np.isnan(best_connection)) <= 1:
-            print('ERROR: All indexing failed!')
-            print('Returning previously successful indexing.')
-            print('override: returning connections, qofs, included_conn_mask, best_connections, best_qofs')
-            return connections, qofs, included_conn_mask, best_connections, np.asarray(best_qofs)
-            return best_connections, np.asarray(best_qofs)
+        best_ind = np.nanargmax(qofs)
         
         # Record best parameters
-        best_connections.append(best_connection)
-        best_qofs.append(best_qof)
+        best_connections.append(connections[best_ind].copy())
+        best_qofs.append(qofs[best_ind])
 
         # Update connections
-        full_spot_inds, full_ref_inds = _get_connection_indices(best_connection)
-        excluded_spot_indices.extend(full_spot_inds)
+        spot_inds, ref_inds = _get_connection_indices(best_connections[-1])
+        excluded_spot_indices.extend(spot_inds)
+
+        # Record changes and remove already indexed spots
+        changed_mask = np.any(~np.isnan(connections[:, excluded_spot_indices]), axis=1)
+        track_conns[:, excluded_spot_indices] = np.nan
         included_spot_mask[excluded_spot_indices] = False
 
-        # Update masks for different types of results
-        valid_conn_mask = ~np.any([~np.isnan(connections[:, idx])
-                                   for idx in excluded_spot_indices],
-                                   axis=0)
-        valid_pair_mask = ~np.any([~np.isnan(connection_pairs[:, idx])
-                                   for idx in excluded_spot_indices],
-                                   axis=0)
-        exclude_ambig_num = np.array([np.sum([ind in multi
-                                        for ind in full_spot_inds])
-                                      for multi in multi_reflections])
-        all_ambig_num = np.array([len(multi)
-                                  for multi in multi_reflections])
-        ambig_mask = ((exclude_ambig_num > 0) # Has an excluded index
-                       & ((all_ambig_num
-                           - exclude_ambig_num) > 0)) # And has other valid indices
+        # Determine which connections are still valid
+        valid_mask = np.sum(~np.isnan(track_conns), axis=1) >= 2
+        included_conn_mask[np.nonzero(included_conn_mask)[0][~valid_mask]] = False
+        
+        # Remove invalid connections, and determine which should be recalculated
+        track_conns = track_conns[valid_mask]
+        connections = connections[valid_mask]
+        qofs = qofs[valid_mask]
+        recalc_mask = changed_mask[valid_mask]
 
-        # Useful masks
-        recalc_mask = ambig_mask & ~(~valid_pair_mask & ~valid_conn_mask)
-        included_conn_mask = valid_conn_mask.copy()
-        included_conn_mask[recalc_mask] = True
-
-        # Conditionals to kill iteration
-        iter_count += 1
-        if (len(all_spot_qs) - len(excluded_spot_indices) < 1 # Cannot solve orientations
-            or best_qof < qof_minimum
-            or included_conn_mask.sum() < 1
-            or iter_count >= max_ori_decomp_count): # Reach maxed allowed orientations
-            break
-
-        # Evaluate new pairs as needed
+        # Recalculate as necessary
         if recalc_mask.sum() > 0:
-            # Down-cast connections
-            new_pairs = []
-            for idx in range(len(connection_pairs)):
-                if recalc_mask[idx]:
-                    if (~valid_pair_mask & valid_conn_mask)[idx]:
-                        # Original pair is invalid, but connection is valid.
-                        # Append connection
-                        new_pairs.append(connections[idx][included_spot_mask])
-                    else:
-                        # Append original pair
-                        new_pairs.append(connection_pairs[idx][included_spot_mask])
-
             # Re-index connections
             (new_connections,
              new_qofs,
              new_multi_reflections) = _internal_indexing(
-                                        new_pairs,
-                                        all_spot_qs[included_spot_mask],
-                                        all_spot_ints[included_spot_mask],
-                                        verbose=False)
-            
+                # connections[np.ix_(recalc_mask, included_spot_mask)],
+                start_connections[included_conn_mask][np.ix_(recalc_mask, included_spot_mask)],
+                all_spot_qs[included_spot_mask],
+                verbose=False)
+
             # Expand new connections
-            full_new_connections = []
-            for conn in new_connections:
-                full_new_connection = blank_full_connection.copy()
-                full_new_connection[included_spot_mask] = conn
-                full_new_connections.append(full_new_connection)
-            
-            # For debugging
-            if np.any(np.array([np.sum(~np.isnan(conn))
-                                for conn in full_new_connections]) < 2):
-                print('Found error.')
-                return (recalc_mask,
-                        new_pairs,
-                        included_spot_mask,
-                        included_conn_mask,
-                        full_new_connections,
-                        new_qofs)
-            
+            full_new_connections = np.empty((recalc_mask.sum(),
+                                            len(included_spot_mask)))
+            full_new_connections[:] = np.nan
+            full_new_connections[:, included_spot_mask] = new_connections
+
             # Update values
             connections[recalc_mask] = full_new_connections
             qofs[recalc_mask] = new_qofs
-            # multi_reflections cannot be converted to array
-            for i, idx in enumerate(np.nonzero(recalc_mask)[0]):
-                multi_reflections[idx] = new_multi_reflections[i]
-    
+
+        # Conditionals to kill iteration
+        iter_count += 1
+        if (len(connections) < 1 # Nothing left to compare
+            or len(all_spot_qs) - len(excluded_spot_indices) < 1 # Cannot solve orientations
+            or qofs.max() < qof_minimum # Quality of fit has gotten too poor
+            or iter_count >= max_ori_decomp_count): # Reach maxed allowed orientations
+            break
+
     # Trim bad connections.
-    # May be worth keeping since they have already been calculated.
     best_qofs = np.asarray(best_qofs)
     if len(best_connections) > 1:
         # I don't like this, but I want to keep it as a list
@@ -955,6 +1069,7 @@ def pair_voting_decomposition(connection_pairs,
 #########################
 
 
+
 def get_quality_of_fit(fit_spot_qs,
                        fit_spot_ints,
                        fit_rot_qs,
@@ -969,6 +1084,9 @@ def get_quality_of_fit(fit_spot_qs,
     # 1. Penalize missing reference reflections weighted according to their expected intensity
     # 2. Do not penalize extra measured reflections which are not indexing (allows for overlapping orientations)
     # 3. Penalize reflections weighted by their distance from expected postions
+
+    kwargs.setdefault('sigma', 0.1)
+    sigma = kwargs.pop('sigma')
 
     # qof = get_rmse(fit_spot_qs,
     #                fit_rot_qs)
@@ -988,11 +1106,20 @@ def get_quality_of_fit(fit_spot_qs,
     #                             sigma=1,
     #                             int_weight=0.1)
 
-    qof = explained_intensity_qof(fit_spot_ints,
-                                  fit_ref_fs,
-                                  all_spot_ints,
-                                  all_ref_fs,
-                                  ratio=0.5)
+    # qof = explained_intensity_qof(fit_spot_ints,
+    #                               fit_ref_fs,
+    #                               all_spot_ints,
+    #                               all_ref_fs,
+    #                               ratio=0.75)
+    
+    qof = dist_int_qof(fit_spot_qs,
+                       fit_rot_qs,
+                       fit_spot_ints,
+                       all_spot_ints,
+                       fit_ref_fs,
+                       all_ref_fs,
+                       sigma=sigma,
+                       ratio=0.5)
 
     # qof = len(fit_spot_qs) / len(all_spot_qs)
 
@@ -1064,12 +1191,37 @@ def explained_intensity_qof(fit_spot_ints,
                             ratio=0.5,
                             ):
 
-    exp_val = np.sum(fit_spot_ints / np.max(all_spot_ints))
-    ref_val = (np.sum(fit_ref_fs)
-              / np.sum(all_ref_fs))
+    exp_val = np.sum(fit_spot_ints) / np.sum(all_spot_ints)
+    ref_val = np.sum(fit_ref_fs) / np.sum(all_ref_fs)
 
-    return (exp_val * ratio) + ((1 - ratio) * ref_val / 100) 
+    # print(f'{exp_val=}')
+    # print(f'{ref_val=}')
+
+    return (ratio * exp_val) + ((1 - ratio) * ref_val)
+
+
+
+def dist_int_qof(fit_spot_qs,
+                 fit_rot_qs,
+                 fit_spot_ints,
+                 all_spot_ints,
+                 fit_ref_fs,
+                 all_ref_fs,
+                 sigma=1,
+                 ratio=0.75):
+
+
+    dist = [np.sqrt(np.sum([(p - q)**2 for p, q in zip(v1, v2)]))
+            for v1, v2 in zip(fit_spot_qs, fit_rot_qs)]
     
+    # Gaussian with specified standard deviation
+    # centered at zero sampled at distance
+    gauss_int = fit_spot_ints * np.exp(-(np.asarray(dist))**2 / (2 * sigma**2))
+
+    exp_val = np.sum(gauss_int) / np.sum(all_spot_ints)
+    ref_val = np.sum(fit_ref_fs) / np.sum(all_ref_fs)
+
+    return (ratio * exp_val) + ((1 - ratio) * ref_val)
 
 
 
