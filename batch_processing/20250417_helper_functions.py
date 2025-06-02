@@ -1802,6 +1802,7 @@ pair_casting_index_full_pattern = timed(pair_casting_index_full_pattern)
 def test_indexing(all_spot_qs,
                   all_spot_ints,
                   all_ref_qs,
+                  all_ref_hkls,
                   all_ref_fs,
                   near_q,
                   near_angle,
@@ -1870,6 +1871,65 @@ def test_indexing(all_spot_qs,
                                              & np.asarray(doublet_mask)
                                              & np.asarray(collinear_mask))]
         
+        # Rotation based symmeterization
+        if len(ref_combos) > 0:
+            temp_connections = []
+            temp_pairs, temp_pair_mask = [], []
+            pair_chars, pair_mags, pair_matches = [], [], []
+            match_id = 0
+            
+            # Check all possible combintations from pair
+            for combo in ref_combos:
+                
+                # Remove orientationally invariant combinations
+                if are_collinear(all_ref_hkls[combo]):
+                    continue
+
+                # Add pairs
+                temp_pairs.append([(s, r) for s, r in zip(pair, combo)])
+                temp_pair_mask.append(True)
+
+                # Add connections (MAY BE REMOVED LATER)
+                connection = blank_connection.copy()
+                connection[phase_inds[pair[0]]] = combo[0]
+                connection[phase_inds[pair[1]]] = combo[1]
+                temp_connections.append(connection)
+
+                # Qualify potential fits and their orientationally magnitude
+                if symmeterize:
+                    # Characterize combo
+                    combo_char = (ref_q_mags[combo[0]].round(10),
+                                  ref_q_mags[combo[1]].round(10),
+                                  ref_angles[tuple(combo)].round(10))
+                    if combo_char not in pair_chars:
+                        match_id += 1
+                        pair_matches.append(match_id)
+                    else:
+                        pair_matches.append(pair_chars.index(combo_char))
+                    pair_chars.append(combo_char)
+                    
+                    # Orientation magnitude of combo. Will chose smallest-ish later
+                    combo_mag = Rotation.align_vectors(
+                                        all_spot_qs[pair],
+                                        all_ref_qs[combo])[0].magnitude()
+                    if degrees:
+                        combo_mag = np.degrees(combo_mag)
+                    pair_mags.append(combo_mag)
+            
+            # Pick 
+            if symmeterize:
+                temp_pair_mask = np.asarray([False,] * len(temp_pair_mask))
+                for idx in np.unique(pair_matches):
+                    equi_mask = pair_matches == idx
+                    min_angle = np.min(np.asarray(pair_mags)[equi_mask])
+                    keep_mask = np.asarray(pair_mags)[equi_mask] < min_angle + near_angle
+                    temp_pair_mask[np.nonzero(equi_mask)[0][keep_mask]] = True
+            
+            pairs.extend(np.asarray(temp_pairs)[temp_pair_mask])
+            connection_pairs.extend(np.asarray(temp_connections)[temp_pair_mask])
+
+
+        # Magnitude base symmeterization - BAD        
         # if len(ref_combos) > 0:
         #     temp_pairs, temp_pair_mask = [], []
         #     pair_characteristics, pair_matches, pair_evaluators = [], [], []
@@ -1897,15 +1957,16 @@ def test_indexing(all_spot_qs,
             
         #     pairs.extend(np.asarray(temp_pairs)[temp_pair_mask])
 
-        if len(ref_combos) > 0:
-            pair_characteristics = []
-            for combo in ref_combos:
-                pairs.append([(s, r) for s, r in zip(pair, combo)])
+        # # No symmeterization
+        # if len(ref_combos) > 0:
+        #     pair_characteristics = []
+        #     for combo in ref_combos:
+        #         pairs.append([(s, r) for s, r in zip(pair, combo)])
             
-                connection = blank_connection.copy()
-                connection[phase_inds[pair[0]]] = combo[0]
-                connection[phase_inds[pair[1]]] = combo[1]
-                connection_pairs.append(connection)
+        #         connection = blank_connection.copy()
+        #         connection[phase_inds[pair[0]]] = combo[0]
+        #         connection[phase_inds[pair[1]]] = combo[1]
+        #         connection_pairs.append(connection)
 
     # if len(connection_pairs) > 0:
     #     red_pairs = reduce_symmetric_equivalents(np.asarray(connection_pairs),
@@ -1971,20 +2032,20 @@ def test_indexing(all_spot_qs,
 
         # cliques = sym_cliques
 
-        clique_character = []
-        sym_cliques = []
-        for clique in cliques:
-            character = []
-            for point in clique:
-                spot_ind, ref_ind = point_conversions[point]
-                character.append([spot_ind, ref_q_mags[ref_ind].round(10)])
-            character = tuple(character)
+        # clique_character = []
+        # sym_cliques = []
+        # for clique in cliques:
+        #     character = []
+        #     for point in clique:
+        #         spot_ind, ref_ind = point_conversions[point]
+        #         character.append([spot_ind, ref_q_mags[ref_ind].round(10)])
+        #     character = tuple(character)
 
-            if character not in clique_character:
-                sym_cliques.append(clique)
-                clique_character.append(character)
+        #     if character not in clique_character:
+        #         sym_cliques.append(clique)
+        #         clique_character.append(character)
     
-        cliques = sym_cliques
+        # cliques = sym_cliques
 
         # clique_character = []
         # clique_mags = []
@@ -2083,7 +2144,6 @@ def test_indexing(all_spot_qs,
 
 
 
-
 def test_index_all_3D_spots(self,
                         near_q,
                         near_angle,
@@ -2171,16 +2231,17 @@ def test_index_all_3D_spots(self,
                                         verbose=verbose)
 
 
-            # conns, qofs = test_indexing(spots,
-            #                         spot_ints,
-            #                         all_ref_qs[ref_mask],
-            #                         all_ref_fs[ref_mask],
-            #                         near_q,
-            #                         near_angle,
-            #                         min_q,
-            #                         self.qmask,
-            #                         degrees=True,
-            #                         verbose=verbose)
+            conns, qofs = test_indexing(spots,
+                                    spot_ints,
+                                    all_ref_qs[ref_mask],
+                                    all_ref_hkls[ref_mask],
+                                    all_ref_fs[ref_mask],
+                                    near_q,
+                                    near_angle,
+                                    min_q,
+                                    self.qmask,
+                                    degrees=True,
+                                    verbose=verbose)
             
             # for grain_id, (conn, qof) in enumerate(zip(conns, qofs)):
             #     # Get values
