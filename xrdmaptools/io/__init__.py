@@ -11,7 +11,7 @@ __contact__ = 'emusterma@bnl.gov'
 __license__ = 'N/A'
 __copyright__ = 'N/A'
 __status__ = 'testing'
-__date__ = "06/10/2024" # DD/MM/YYYY
+__date__ = "06/10/2024" # MM/DD/YYYY
 
 
 # This is required for wildcard (*) imports

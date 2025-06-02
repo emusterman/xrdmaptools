@@ -15,7 +15,7 @@ __contact__ = 'emusterma@bnl.gov'
 __license__ = 'N/A'
 __copyright__ = 'N/A'
 __status__ = 'testing'
-__date__ = "03/14/2024" # DD/MM/YYYY
+__date__ = "03/14/2024" # MM/DD/YYYY
 
 
 # This version is not currently published!
@@ -43,3 +43,9 @@ __all__ = submodules + [
 
 def __dir__():
     return __all__
+
+
+# Bring class objects one level up for convenience
+from .XRDMap import XRDMap
+from .XRDRockingCurve import XRDRockingCurve
+from .XRDMapStack import XRDMapStack
