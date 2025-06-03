@@ -1280,7 +1280,7 @@ class XRDBaseScan(XRDData):
             err_str = 'Must define either tth_num or tth_resolution.'
             raise ValueError(err_str)
         
-        return self.ai.integrate1D_ng(image,
+        return self.ai.integrate1d_ng(image,
                                       tth_num,
                                       unit=unit,
                                       correctSolidAngle=False,
@@ -1338,7 +1338,7 @@ class XRDBaseScan(XRDData):
             err_str = 'Must define either chi_num or chi_resolution.'
             raise ValueError(err_str)
        
-        return self.ai.integrate2D_ng(image, tth_num, chi_num,
+        return self.ai.integrate2d_ng(image, tth_num, chi_num,
                                       unit=unit,
                                       correctSolidAngle=False,
                                       polarization_factor=None,
