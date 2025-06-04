@@ -341,7 +341,7 @@ class XRDBaseScan(XRDData):
         if len(self.phases) > 0: # pull phase info
             ostr += '\n\tPhases:'
             for key in self.phases.keys():
-                ostr += '\n\t\t' + self.phases[key].__repr__()
+                ostr += ('\n\t\t' + '\t\t'.join(self.phases[key].__repr__().splitlines(True)))
         if hasattr(self, 'spots'): # pull limited spot info
             ostr += '\n\tSpots:'
             ostr += '\n\t\tNumber:  ' + str(len(self.spots))
@@ -1767,7 +1767,7 @@ class XRDBaseScan(XRDData):
                       tth_resolution=None,
                       tth_num=None,
                       unit='2th_deg',
-                      ignore_less=1,
+                      ignore_less=0.5,
                       title=None,
                       title_scan_id=True,
                       save_to_hdf=False):
@@ -1848,17 +1848,17 @@ class XRDBaseScan(XRDData):
 
     
     # This might be replaced with generate reciprocal lattice
-    def _get_all_reflections(self, ignore_less=1):
-        """
+    # def _get_all_reflections(self, ignore_less=1):
+    #     """
 
-        """
+    #     """
 
-        for phase in self.phases:
-            self.phases[phase].get_hkl_reflections(
-                tth_range=(0, # Limited to zero for large d-spacing
-                              # Used for indexing later
-                           np.max(self.tth)),
-                ignore_less=ignore_less)
+    #     for phase in self.phases:
+    #         self.phases[phase].get_hkl_reflections(
+    #             tth_range=(0, # Limited to zero for large d-spacing
+    #                           # Used for indexing later
+    #                        np.max(self.tth)),
+    #             ignore_less=ignore_less)
 
 
     ###########################
