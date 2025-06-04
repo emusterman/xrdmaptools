@@ -1745,9 +1745,8 @@ class XRDData:
         self.images /= scaler_arr.reshape(*self.map_shape, 1, 1)
         self.scaler_map = scaler_arr
         # Trying to catch non-saved values
-        if not hasattr(self, 'sclr_dict'): 
-            # This could cause inconsistencies if this code ever 
-            # differs from estimate_saturated_pixel
+        if sclr_key == 'input': 
+            # Catch and save custom inputs
             self.save_images(images='scaler_map',
                              units='counts',
                              labels=self.map_labels) 
