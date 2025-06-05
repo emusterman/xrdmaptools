@@ -183,11 +183,15 @@ def manual_load_data(scan_id=-1,
                                                   detectors=detectors,
                                                   returns=['xrd_dets'])                             
     r_paths = _get_resource_paths(bs_run, resource_keys)
+    # print(data_keys)
+    # print(r_paths.keys())
 
     # Do not search for empty data
+    # Will eliminate redundant xpress3 keys
     for key in list(r_paths.keys()):
         if len(r_paths[key]) == 0:
             del r_paths[key]
+    # print(r_paths.keys())
 
     # Load data
     _empty_lists = [[] for _ in range(len(data_keys))]
@@ -195,6 +199,7 @@ def manual_load_data(scan_id=-1,
     dropped_rows, broken_rows = [], []
     
     # These are all essentially handlers with more conditionals for fixing data
+    # Encoders
     r_key = 'ZEBRA_HDF51'
     if r_key in r_paths.keys():
         vprint('Loading encoders...')
@@ -209,22 +214,27 @@ def manual_load_data(scan_id=-1,
             dropped_rows += dr_rows
             broken_rows += br_rows
 
+    # Scalers
     r_key = 'SIS_HDF51'
     if r_key in r_paths.keys():
         vprint('Loading scalers...')
-        sclr_keys = [value for value in data_keys if value in ['i0', 'im', 'it', 'sis_time']]
-        if 'i0_time' in data_keys and 'sis_time' not in sclr_keys:
-            sclr_keys.append('sis_time')
-            data_dict['sis_time'] = []
+        sclr_keys = [value for value in data_keys if value in ['i0', 'im', 'it', 'time']]
+        if 'i0_time' in data_keys and 'time' not in sclr_keys:
+            sclr_keys.append('time')
+        time_key = None
         for r_path in r_paths[r_key]:
             with h5py.File(r_path, 'r') as f:
+                if time_key is None:
+                    time_key = [key for key in f.keys() if 'time' in key][0]
+                    sclr_keys[sclr_keys.index('time')] = time_key
+                    data_dict[time_key] = []
                 for key in sclr_keys:
                     data_dict[key].append(np.array(f[key]))
         # Stack data into array
         if 'i0_time' in data_keys:
-            data_dict['i0_time'] = [d / 50e6 for d in data_dict['sis_time']] # 50 MHz clock
-        if 'sis_time' not in data_keys and 'sis_time' in data_dict.keys():
-            del data_dict['sis_time']
+            data_dict['i0_time'] = [d / 50e6 for d in data_dict[time_key]] # 50 MHz clock
+        if time_key not in data_keys and time_key in data_dict.keys():
+            del data_dict[time_key]
         for key in ['i0', 'im', 'it', 'i0_time']:
             if key not in data_dict:
                 continue
@@ -232,18 +242,21 @@ def manual_load_data(scan_id=-1,
             dropped_rows += dr_rows
             broken_rows += br_rows
 
-    r_key = 'XSP3_FLY'
-    if r_key in r_paths.keys():
-        vprint('Loading xspress3...')
-        key = 'xs_fluor'
-        for r_path in r_paths[r_key]:
-            with h5py.File(r_path, 'r') as f:
-                data_dict[key].append(np.array(f['entry/data/data']))
-        # Stack data into array
-        dr_rows, br_rows = _flag_broken_rows(data_dict[key], key)
-        dropped_rows += dr_rows
-        broken_rows += br_rows
+    # Xpress3
+    for r_key in ['XSP3_FLY', 'XPS3_FLY']:
+        if r_key in r_paths.keys():
+            vprint('Loading xspress3...')
+            key = 'xs_fluor'
+            for r_path in r_paths[r_key]:
+                with h5py.File(r_path, 'r') as f:
+                    data_dict[key].append(np.array(f['entry/data/data']))
+            # Stack data into array
+            dr_rows, br_rows = _flag_broken_rows(data_dict[key], key)
+            dropped_rows += dr_rows
+            broken_rows += br_rows
+            break
 
+    # Dexela
     r_key = 'DEXELA_FLY_V1'
     if r_key in r_paths.keys():
         vprint('Loading dexela...')
@@ -257,18 +270,21 @@ def manual_load_data(scan_id=-1,
         broken_rows += br_rows
 
     # Not tested!!!
-    r_key = 'MERLIN_FLY_V1'
-    if r_key in r_paths.keys():
-        vprint('Loading merlin...')
-        key = 'merlin_image'
-        for r_path in r_paths[r_key]:
-            with h5py.File(r_path, 'r') as f:
-                data_dict[key].append(np.array(f['entry/data/data']))
-        # Stack data into array
-        dr_rows, br_rows = _flag_broken_rows(data_dict[key], key)
-        dropped_rows += dr_rows
-        broken_rows += br_rows
+    # Merlin
+    for r_key in ['MERLIN_FLY_V1', 'MERLIN_FLY_STREAM_V1']:
+        if r_key in r_paths.keys():
+            vprint('Loading merlin...')
+            key = 'merlin_image'
+            for r_path in r_paths[r_key]:
+                with h5py.File(r_path, 'r') as f:
+                    data_dict[key].append(np.array(f['entry/data/data']))
+            # Stack data into array
+            dr_rows, br_rows = _flag_broken_rows(data_dict[key], key)
+            dropped_rows += dr_rows
+            broken_rows += br_rows
+            break
 
+    # return data_dict
     # Repair data
     dropped_rows = sorted(list(np.unique(dropped_rows)))
     broken_rows = sorted(list(np.unique(broken_rows)))
@@ -553,14 +569,19 @@ def _get_resource_keys(bs_run,
         resource_keys.append('SIS_HDF51')
 
     if any(key in ['xs_fluor'] for key in data_keys):
-        resource_keys.append('XSP3_FLY')
+        # There must have been a type somehwere...
+        # Multiple keys will be handled later
+        resource_keys.append('XSP3_FLY') # After ca. Feb. 2024
+        resource_keys.append('XPS3_FLY') # before ca. Feb. 2024
 
     if any(key in ['dexela_image'] for key in data_keys):
         resource_keys.append('DEXELA_FLY_V1')
 
     # Not sure if this is correct???
     if any(key in ['merlin_image'] for key in data_keys):
+        # Not sure why there are two...
         resource_keys.append('MERLIN_FLY_V1')
+        resource_keys.append('MERLIN_FLY_STREAM_V1')
 
     # Check for issues:
     if len(resource_keys) < 1:
