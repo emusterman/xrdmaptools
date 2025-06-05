@@ -1835,7 +1835,6 @@ class XRDData:
         ValueError if mask shape does not match image shape.
         """
         
-
         if mask is not None:
             mask = np.asarray(mask).astype(np.bool_)
             if mask.shape != self.image_shape:
