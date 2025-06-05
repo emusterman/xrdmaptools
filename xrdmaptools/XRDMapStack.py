@@ -1683,11 +1683,12 @@ class XRDMapStack(list):
                             'label_int_method' : label_int_method})
 
 
+    # WIP: Current implementations is slow!
     def index_all_3D_spots(self,
                            near_q,
                            near_angle,
+                           degrees,
                            phase=None,
-                           degrees=None,
                            save_to_hdf=True,
                            verbose=False,
                            half_mask=True):
@@ -1786,135 +1787,6 @@ class XRDMapStack(list):
                                  'near_angle' : near_angle,
                                  'degrees' : int(degrees)})
     
-    # WIP: as in it doesn't currently speed anything up
-    def dask_index_all_3D_spots(self,
-                           near_q,
-                           near_angle,
-                           phase=None,
-                           degrees=None,
-                           save_to_hdf=True,
-                           verbose=False):
-
-        if not hasattr(self, 'spots_3D') or self.spots_3D is None:
-            err_str = 'Spots must be found before they can be indexed.'
-            raise AttributeError(err_str)
-        
-        if phase is None:
-            if len(self.phases) == 1:
-                phase = list(self.phases.values())[0]
-            else:
-                err_str = 'Phase must be provided for indexing.'
-                raise ValueError(err_str)
-
-        # Get phase information
-        all_q_mags = np.linalg.norm(self.spots_3D[['qx',
-                                                   'qy',
-                                                   'qz']], axis=1)
-        max_q = np.max(all_q_mags)
-
-        phase.generate_reciprocal_lattice(1.15 * max_q)
-        all_ref_qs = phase.all_qs.copy()
-        all_ref_hkls = phase.all_hkls.copy()
-        all_ref_fs = phase.all_fs.copy()
-        all_ref_mags = np.linalg.norm(all_ref_qs, axis=1)
-
-        # Find minimum q vector step size from reference phase
-        min_q = np.min(np.linalg.norm(phase.Q([[1, 0, 0],
-                                                    [0, 1, 0],
-                                                    [0, 0, 1]]),
-                                                   axis=0))
-
-        # Function for scheduled indexing
-        # Removed all external references in hopes of increased speed...
-        @dask.delayed
-        def delayed_indexing(spot_indices, spot_qs, spot_ints,):
-            # pixel_df = self.pixel_3D_spots(indices, copied=False)
-            # spots = pixel_df[['qx', 'qy', 'qz']].values
-            
-            all_rel_inds = []
-            all_grain_ids = []
-            all_qofs = []
-            all_hkls = []
-
-            if len(spot_indices) > 1 and not are_collinear(spot_qs):
-
-                spot_q_mags = np.linalg.norm(spot_qs, axis=1)
-                max_spot_q = np.max(spot_q_mags)
-                min_spot_q = np.min(spot_q_mags)
-
-                ext = 0.15
-                ref_mask = ((min_spot_q * (1 - ext) < all_ref_mags)
-                            & (all_ref_mags < max_spot_q * (1 + ext)))
-
-                (conns,
-                 qofs,
-                 hkls) = pair_casting_index_full_pattern(
-                                            all_ref_qs[ref_mask],
-                                            all_ref_hkls[ref_mask],
-                                            all_ref_fs[ref_mask],
-                                            min_q,
-                                            spot_qs,
-                                            spot_ints,
-                                            near_q,
-                                            near_angle,
-                                            self.qmask,
-                                            degrees=degrees,
-                                            verbose=verbose)
-
-                for grain_id, (conn, qof) in enumerate(zip(conns, qofs)):
-                    # Get values
-                    (spot_inds,
-                     hkl_inds) = _get_connection_indices(conn)
-
-                    # Collect results
-                    rel_ind = spot_indices[spot_inds]
-                    all_rel_inds.extend(rel_ind)
-                    all_grain_ids.extend([grain_id,] * len(spot_inds))
-                    all_qofs.extend([qof,] * len(spot_inds))
-                    all_hkls.extend(hkls[hkl_inds])
-
-            return all_rel_inds, all_grain_ids, all_qofs, all_hkls
-                
-        
-        # Update spots dataframe with new columns
-        self.spots_3D['phase'] = ''
-        self.spots_3D[['grain_id', 'h', 'k', 'l', 'qof']] = np.nan
-
-        # Iterate through each spatial pixel of map
-        delayed_list = []
-        for index in range(np.prod(self.xdms_vector_map.shape)):
-            indices = np.unravel_index(index, self.xdms_vector_map.shape)
-            pixel_df = self.pixel_3D_spots(indices)
-            spot_indices = pixel_df.index.values
-            spot_qs = pixel_df[['qx', 'qy', 'qz']].values
-            spot_ints = pixel_df['intensity'].values
-            if verbose:
-                print(f'Indexing for map indices {indices}.')
-            
-            # Collect scheduled calls
-            delayed_list.append(delayed_indexing(spot_indices, spot_qs, spot_ints))
-
-        # Compute scheduled operations
-        if not verbose:
-            with TqdmCallback(tqdm_class=tqdm):
-                proc_list = dask.compute(*delayed_list)
-        else:
-            proc_list = dask.compute(*delayed_list)
-        
-        # Unpack data into useable format
-        all_inds = list(itertools.chain(*[res[0] for res in proc_list]))
-        self.spots_3D.loc[all_inds, 'phase'] = phase.name
-        self.spots_3D.loc[all_inds, 'grain_id'] = list(itertools.chain(*[res[1] for res in proc_list]))
-        self.spots_3D.loc[all_inds, 'qof'] = list(itertools.chain(*[res[2] for res in proc_list]))
-        self.spots_3D.loc[all_inds, ['h', 'k', 'l']] = list(itertools.chain(*[res[3] for res in proc_list]))
-
-        # Write to hdf
-        if save_to_hdf:
-            self.save_3D_spots(
-                    extra_attrs={'near_q' : near_q,
-                                 'near_angle' : near_angle,
-                                 'degrees' : degrees})
-
 
     def pixel_3D_spots(self, map_indices, copied=True):
         return XRDMap._pixel_spots(self.spots_3D,
