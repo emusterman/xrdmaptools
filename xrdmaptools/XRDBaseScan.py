@@ -319,6 +319,7 @@ class XRDBaseScan(XRDData):
             A nice representation of the class with relevant
             information.
         """
+        
         # Native info
         ostr = f'{self._hdf_type}:'
         ostr += f'\n\tFacility:\t{self.facility}'
