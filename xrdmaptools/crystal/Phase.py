@@ -258,7 +258,7 @@ class Phase(xu.materials.Crystal):
     def get_hkl_reflections(self,
                             energy,
                             tth_range=None,
-                            ignore_less=1,
+                            ignore_less=0.5,
                             save_reflections=True):
 
         if tth_range is None:
