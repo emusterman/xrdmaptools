@@ -157,7 +157,13 @@ def pair_casting_index_full_pattern(all_ref_qs,
 
 
 
-def phase_based_index_best_pattern(phase, *args, **kwargs):
+def phase_based_index_best_pattern(phase, 
+                                   all_spot_qs,
+                                   all_spot_ints,
+                                   near_q,
+                                   near_angle,
+                                   qmask,
+                                   **kwargs):
     
     # Find q vector magnitudes and max for spots
     spot_q_mags = np.linalg.norm(all_spot_qs, axis=1)
@@ -178,11 +184,21 @@ def phase_based_index_best_pattern(phase, *args, **kwargs):
                                          all_ref_hkls,
                                          all_ref_fs,
                                          min_q,
-                                         *args,
-                                         **kwargs), all_ref_hkls
+                                         all_spot_qs,
+                                         all_spot_ints,
+                                         near_q,
+                                         near_angle,
+                                         qmask,
+                                         **kwargs)
 
 
-def phase_based_index_full_pattern(phase, *args, **kwargs):
+def phase_based_index_full_pattern(phase, 
+                                   all_spot_qs,
+                                   all_spot_ints,
+                                   near_q,
+                                   near_angle,
+                                   qmask,
+                                   **kwargs):
     
     # Find q vector magnitudes and max for spots
     spot_q_mags = np.linalg.norm(all_spot_qs, axis=1)
@@ -203,8 +219,12 @@ def phase_based_index_full_pattern(phase, *args, **kwargs):
                                            all_ref_hkls,
                                            all_ref_fs,
                                            min_q,
-                                           *args,
-                                           **kwargs), all_ref_hkls
+                                           all_spot_qs,
+                                           all_spot_ints,
+                                           near_q,
+                                           near_angle,
+                                           qmask,
+                                           **kwargs)
 
 
 #####################
@@ -580,83 +600,83 @@ def multiple_pair_casting(connection_pairs,
 pair_casting_indexing = multiple_pair_casting
 
 
-def pair_voting(connection_pairs,
-                approximate_max_pairs=10):
+# def pair_voting(connection_pairs,
+#                 approximate_max_pairs=10):
 
-    # Creat blank to fill
-    blank_connection = connection_pairs[0].copy()
-    blank_connection[:] = np.nan
+#     # Creat blank to fill
+#     blank_connection = connection_pairs[0].copy()
+#     blank_connection[:] = np.nan
 
-    # Convert pairs in sorted list of votes. List comprehension is a bit too messy
-    spot_votes_list = []
-    all_votes_list = []
-    for i in range(np.asarray(connection_pairs).shape[1]):
-        spot_votes = Counter(red_pairs[:, i][~np.isnan(red_pairs[:, i])].astype(int))
-        spot_votes = np.asarray(list(spot_votes.items()))
-        spot_votes_list.append(spot_votes)
-        if len(spot_votes) > 0:
-            all_votes_list.extend(spot_votes[:, 1])
+#     # Convert pairs in sorted list of votes. List comprehension is a bit too messy
+#     spot_votes_list = []
+#     all_votes_list = []
+#     for i in range(np.asarray(connection_pairs).shape[1]):
+#         spot_votes = Counter(red_pairs[:, i][~np.isnan(red_pairs[:, i])].astype(int))
+#         spot_votes = np.asarray(list(spot_votes.items()))
+#         spot_votes_list.append(spot_votes)
+#         if len(spot_votes) > 0:
+#             all_votes_list.extend(spot_votes[:, 1])
     
-    # Determine number of popular spots to use
-    for num_spots in range(2, 16):
-        if scipy.special.comb(num_spots, 2) > approximate_max_pairs:
-            num_spots -= 1 # Went too far
-            break
+#     # Determine number of popular spots to use
+#     for num_spots in range(2, 16):
+#         if scipy.special.comb(num_spots, 2) > approximate_max_pairs:
+#             num_spots -= 1 # Went too far
+#             break
 
-    # Determine most popular spot indexing
-    # Equally popular spots will inflate the number of spots used
-    vote_num_cutoff = sorted(all_votes_list, reverse=True)[num_spots]
+#     # Determine most popular spot indexing
+#     # Equally popular spots will inflate the number of spots used
+#     vote_num_cutoff = sorted(all_votes_list, reverse=True)[num_spots]
 
-    # Build list of single spots
-    single_spots = []
-    for spot_i, spot_votes in enumerate(spot_votes_list):
-        for votes in spot_votes:
-            if votes[1] >= vote_num_cutoff:
-                single_spots.append((spot_i, votes[0]))
+#     # Build list of single spots
+#     single_spots = []
+#     for spot_i, spot_votes in enumerate(spot_votes_list):
+#         for votes in spot_votes:
+#             if votes[1] >= vote_num_cutoff:
+#                 single_spots.append((spot_i, votes[0]))
     
-    # Combine spots into indexable pairs
-    popular_pairs = []
-    for combo in combinations(range(len(single_spots)), 2):
-        # Check if they are the same spot
-        if single_spots[combo[0]][0] != single_spots[combo[1]][0]:
-            pop_pair = blank_connection.copy()
-            pop_pair[single_spots[combo[0]][0]] = single_spots[combo[0]][1]
-            pop_pair[single_spots[combo[1]][0]] = single_spots[combo[1]][1]
-            popular_pairs.append(pop_pair)
+#     # Combine spots into indexable pairs
+#     popular_pairs = []
+#     for combo in combinations(range(len(single_spots)), 2):
+#         # Check if they are the same spot
+#         if single_spots[combo[0]][0] != single_spots[combo[1]][0]:
+#             pop_pair = blank_connection.copy()
+#             pop_pair[single_spots[combo[0]][0]] = single_spots[combo[0]][1]
+#             pop_pair[single_spots[combo[1]][0]] = single_spots[combo[1]][1]
+#             popular_pairs.append(pop_pair)
 
-    return popular_pairs
+#     return popular_pairs
 
 
 # Works best with small near_q values. Time saving is thus limited
-def pair_voting_indexing(connection_pairs,
-                         all_spot_qs,
-                         all_spot_ints,
-                         all_ref_qs,
-                         all_ref_fs,
-                         qmask,
-                         near_q,
-                         keep_initial_pair=False,
-                         iter_max=50,
-                         approximate_max_pairs=10):
+# def pair_voting_indexing(connection_pairs,
+#                          all_spot_qs,
+#                          all_spot_ints,
+#                          all_ref_qs,
+#                          all_ref_fs,
+#                          qmask,
+#                          near_q,
+#                          keep_initial_pair=False,
+#                          iter_max=50,
+#                          approximate_max_pairs=10):
 
-    popular_pairs = pair_voting(connection_pairs,
-                        approximate_max_pairs=approximate_max_pairs)
+#     popular_pairs = pair_voting(connection_pairs,
+#                         approximate_max_pairs=approximate_max_pairs)
     
-    # Index most popular pairs
-    connections, qofs, _ = pair_casting_indexing(
-                            popular_pairs,
-                            all_spot_qs,
-                            all_spot_ints,
-                            phase.all_qs,
-                            phase.all_fs,
-                            qmask,
-                            near_q,
-                            iter_max=iter_max,
-                            keep_initial_pair=keep_initial_pair,
-                            exclude_found_pairs=False,
-                            verbose=False)
+#     # Index most popular pairs
+#     connections, qofs, _ = pair_casting_indexing(
+#                             popular_pairs,
+#                             all_spot_qs,
+#                             all_spot_ints,
+#                             phase.all_qs,
+#                             phase.all_fs,
+#                             qmask,
+#                             near_q,
+#                             iter_max=iter_max,
+#                             keep_initial_pair=keep_initial_pair,
+#                             exclude_found_pairs=False,
+#                             verbose=False)
     
-    return connections[np.argmax(qofs)], qofs[np.argmax(qofs)]
+#     return connections[np.argmax(qofs)], qofs[np.argmax(qofs)]
 
 
 ###########################
@@ -664,252 +684,79 @@ def pair_voting_indexing(connection_pairs,
 ###########################
 
 # Deprecated. Slow
-def iterative_pattern_decomposition(connection_pairs,
-                                    all_spot_qs,
-                                    all_spot_ints,
-                                    all_ref_qs,
-                                    all_ref_fs,
-                                    qmask,
-                                    near_q,
-                                    keep_initial_pair=False,
-                                    max_ori_refine_iter=50,
-                                    max_ori_decomp_count=20,
-                                    verbose=True):
+# def iterative_pattern_decomposition(connection_pairs,
+#                                     all_spot_qs,
+#                                     all_spot_ints,
+#                                     all_ref_qs,
+#                                     all_ref_fs,
+#                                     qmask,
+#                                     near_q,
+#                                     keep_initial_pair=False,
+#                                     max_ori_refine_iter=50,
+#                                     max_ori_decomp_count=20,
+#                                     verbose=True):
     
-    best_connections = []
-    best_qofs = []
-    excluded_spot_indices = []
-    included_spot_mask = np.asarray([True,] * len(connection_pairs[0]))
-    blank_full_connection = np.asarray([np.nan,] * len(included_spot_mask))
-    current_pair_list = connection_pairs.copy()
-
-    iter_count = 0
-    ITERATE = True
-    while ITERATE:
-
-        # Evaluate all pairs
-        connections, qofs, _ = pair_casting_indexing(
-                                    current_pair_list,
-                                    all_spot_qs[included_spot_mask],
-                                    all_spot_ints,
-                                    all_ref_qs,
-                                    all_ref_fs,
-                                    qmask,
-                                    near_q,
-                                    iter_max=max_ori_refine_iter,
-                                    keep_initial_pair=keep_initial_pair,
-                                    verbose=verbose)
-        
-        best_connection = connections[np.argmax(qofs)]
-
-        # Condition to catch catastrophic failures
-        if np.sum(~np.isnan(best_connection)) <= 1:
-            print('ERROR: All indexing failed!')
-            print('Returning previously successful indexing.')
-            return best_connections, best_qofs
-        
-        # Expand best connection to reference all spots
-        full_best_connection = blank_full_connection.copy()
-        full_best_connection[included_spot_mask] = best_connection
-        best_connections.append(full_best_connection)
-        best_qofs.append(np.max(qofs))
-
-        # Update connections
-        full_spot_inds, full_ref_inds = _get_connection_indices(full_best_connection)
-        excluded_spot_indices.extend(full_spot_inds)
-        included_spot_mask[excluded_spot_indices] = False
-
-        # Remove pairs where spots have already been indexed
-        new_pairs = []
-        curr_spot_inds, curr_ref_inds = _get_connection_indices(best_connection)
-        for pair in current_pair_list:
-            # All nan means the pair does not use any of the excluded indices
-            if np.all([np.isnan(pair[index]) for index in curr_spot_inds]):
-                new_pairs.append(pair[np.isnan(best_connection)]) # reversed??
-        current_pair_list = np.asarray(new_pairs)
-
-        # Conditionals to kill iteration
-        iter_count += 1
-        if (len(all_spot_qs) - len(excluded_spot_indices) < 1 # Cannot solve orientations
-            or len(current_pair_list) < 1 # No more valid pairs to solve
-            or iter_count >= max_ori_decomp_count): # Reach maxed allowed orientations
-            ITERATE = False
-            break
-    
-    return best_connections, np.asarray(best_qofs)
-
-
-# # More intelligent. Only re-evaluates pairs of connections which are no longer valid
-# def decaying_pattern_decomposition(connection_pairs,
-#                                    all_spot_qs,
-#                                    all_spot_ints,
-#                                    all_ref_qs,
-#                                    all_ref_fs,
-#                                    qmask,
-#                                    near_q,
-#                                    qof_minimum=0,
-#                                    keep_initial_pair=False,
-#                                    max_ori_refine_iter=50,
-#                                    max_ori_decomp_count=20,
-#                                    verbose=True):
-
-#     best_connections, best_qofs = [], []
+#     best_connections = []
+#     best_qofs = []
 #     excluded_spot_indices = []
-#     included_conn_mask = np.asarray([True,] * len(connection_pairs))
 #     included_spot_mask = np.asarray([True,] * len(connection_pairs[0]))
 #     blank_full_connection = np.asarray([np.nan,] * len(included_spot_mask))
-
-#     # Internal wrapper for indexing method
-#     # Can redefine for other methods as desired
-#     def _internal_indexing(pairs,
-#                            spots,
-#                            verbose=verbose):
-#         out = pair_casting_indexing(
-#                     pairs,
-#                     spots,
-#                     all_spot_ints, # must always be full amount for proper comparison
-#                     all_ref_qs,
-#                     all_ref_fs,
-#                     qmask,
-#                     near_q,
-#                     iter_max=max_ori_refine_iter,
-#                     keep_initial_pair=keep_initial_pair,
-#                     verbose=verbose)
-#         return out
-    
-#     (orig_connections,
-#      orig_qofs,
-#      orig_multi_reflections) = _internal_indexing(
-#                                 connection_pairs,
-#                                 all_spot_qs)
-
-#     connections = np.asarray(orig_connections.copy())
-#     qofs = np.asarray(orig_qofs.copy())
-#     multi_reflections = orig_multi_reflections.copy()
-
-#     # included_conn_mask = np.asarray([True,] * len(connections))
+#     current_pair_list = connection_pairs.copy()
 
 #     iter_count = 0
-#     while True:        
-#         # Find best connection
-#         try:
-#             best_ind = np.nanargmax(qofs[included_conn_mask]) # Should not be nan???
-#         except:
-#             print('Failed to find best index!')
-#             return qofs, included_conn_mask, connections
-#         best_connection = connections[included_conn_mask][best_ind]
-#         best_qof = qofs[included_conn_mask][best_ind]
+#     ITERATE = True
+#     while ITERATE:
 
-#         # Conditional to catch catastrophic failures
+#         # Evaluate all pairs
+#         connections, qofs, _ = pair_casting_indexing(
+#                                     current_pair_list,
+#                                     all_spot_qs[included_spot_mask],
+#                                     all_spot_ints,
+#                                     all_ref_qs,
+#                                     all_ref_fs,
+#                                     qmask,
+#                                     near_q,
+#                                     iter_max=max_ori_refine_iter,
+#                                     keep_initial_pair=keep_initial_pair,
+#                                     verbose=verbose)
+        
+#         best_connection = connections[np.argmax(qofs)]
+
+#         # Condition to catch catastrophic failures
 #         if np.sum(~np.isnan(best_connection)) <= 1:
 #             print('ERROR: All indexing failed!')
 #             print('Returning previously successful indexing.')
-#             print('override: returning connections, qofs, included_conn_mask, best_connections, best_qofs')
-#             return connections, qofs, included_conn_mask, best_connections, np.asarray(best_qofs)
-#             return best_connections, np.asarray(best_qofs)
+#             return best_connections, best_qofs
         
-#         # Record best parameters
-#         best_connections.append(best_connection)
-#         best_qofs.append(best_qof)
+#         # Expand best connection to reference all spots
+#         full_best_connection = blank_full_connection.copy()
+#         full_best_connection[included_spot_mask] = best_connection
+#         best_connections.append(full_best_connection)
+#         best_qofs.append(np.max(qofs))
 
 #         # Update connections
-#         full_spot_inds, full_ref_inds = _get_connection_indices(best_connection)
+#         full_spot_inds, full_ref_inds = _get_connection_indices(full_best_connection)
 #         excluded_spot_indices.extend(full_spot_inds)
 #         included_spot_mask[excluded_spot_indices] = False
 
-#         # Update masks for different types of results
-#         valid_conn_mask = ~np.any([~np.isnan(connections[:, idx])
-#                                    for idx in excluded_spot_indices],
-#                                    axis=0)
-#         valid_pair_mask = ~np.any([~np.isnan(connection_pairs[:, idx])
-#                                    for idx in excluded_spot_indices],
-#                                    axis=0)
-#         exclude_ambig_num = np.array([np.sum([ind in multi
-#                                         for ind in full_spot_inds])
-#                                       for multi in multi_reflections])
-#         all_ambig_num = np.array([len(multi)
-#                                   for multi in multi_reflections])
-#         ambig_mask = ((exclude_ambig_num > 0) # Has an excluded index
-#                        & ((all_ambig_num
-#                            - exclude_ambig_num) > 0)) # And has other valid indices
-
-#         # Useful masks
-#         recalc_mask = ambig_mask & ~(~valid_pair_mask & ~valid_conn_mask)
-#         included_conn_mask = valid_conn_mask.copy()
-#         included_conn_mask[recalc_mask] = True
+#         # Remove pairs where spots have already been indexed
+#         new_pairs = []
+#         curr_spot_inds, curr_ref_inds = _get_connection_indices(best_connection)
+#         for pair in current_pair_list:
+#             # All nan means the pair does not use any of the excluded indices
+#             if np.all([np.isnan(pair[index]) for index in curr_spot_inds]):
+#                 new_pairs.append(pair[np.isnan(best_connection)]) # reversed??
+#         current_pair_list = np.asarray(new_pairs)
 
 #         # Conditionals to kill iteration
 #         iter_count += 1
 #         if (len(all_spot_qs) - len(excluded_spot_indices) < 1 # Cannot solve orientations
-#             or best_qof < qof_minimum
-#             or included_conn_mask.sum() < 1
+#             or len(current_pair_list) < 1 # No more valid pairs to solve
 #             or iter_count >= max_ori_decomp_count): # Reach maxed allowed orientations
+#             ITERATE = False
 #             break
-
-#         # Evaluate new pairs as needed
-#         if recalc_mask.sum() > 0:
-#             # Down-cast connections
-#             new_pairs = []
-#             for idx in range(len(connection_pairs)):
-#                 if recalc_mask[idx]:
-#                     if (~valid_pair_mask & valid_conn_mask)[idx]:
-#                         # Original pair is invalid, but connection is valid.
-#                         # Append connection
-#                         new_pairs.append(connections[idx][included_spot_mask])
-#                     else:
-#                         # Append original pair
-#                         new_pairs.append(connection_pairs[idx][included_spot_mask])
-
-#             # Re-index connections
-#             (new_connections,
-#              new_qofs,
-#              new_multi_reflections) = _internal_indexing(
-#                                         new_pairs,
-#                                         all_spot_qs[included_spot_mask],
-#                                         verbose=False)
-            
-#             # Expand new connections
-#             full_new_connections = []
-#             for conn in new_connections:
-#                 full_new_connection = blank_full_connection.copy()
-#                 full_new_connection[included_spot_mask] = conn
-#                 full_new_connections.append(full_new_connection)
-            
-#             # For debugging
-#             if np.any(np.array([np.sum(~np.isnan(conn))
-#                                 for conn in full_new_connections]) < 2):
-#                 print('Found error.')
-#                 return (recalc_mask,
-#                         new_pairs,
-#                         included_spot_mask,
-#                         included_conn_mask,
-#                         full_new_connections,
-#                         new_qofs)
-            
-#             # Update values
-#             connections[recalc_mask] = full_new_connections
-#             qofs[recalc_mask] = new_qofs
-#             # multi_reflections cannot be converted to array
-#             for i, idx in enumerate(np.nonzero(recalc_mask)[0]):
-#                 multi_reflections[idx] = new_multi_reflections[i]
     
-#     # Trim bad connections.
-#     # May be worth keeping since they have already been calculated.
-#     best_qofs = np.asarray(best_qofs)
-#     if len(best_connections) > 1:
-#         # I don't like this, but I want to keep it as a list
-#         best_connections = list(np.asarray(best_connections)[best_qofs >= qof_minimum])
-#         best_qofs = best_qofs[best_qofs >= qof_minimum]
-#     else:
-#         if verbose and best_qofs.squeeze() < qof_minimum:
-#             warn_str = ('WARNING: Indexing quality '
-#                         + f'({best_qofs.squeeze():.4f}) below '
-#                         + f'designated minimum ({qof_minimum:.4f}). '
-#                         + 'Stopping indexing.')
-#             print(warn_str)
-        
-#     return best_connections, best_qofs
-
+#     return best_connections, np.asarray(best_qofs)
 
 
 # More intelligent. Only re-evaluates pairs of connections which are no longer valid
@@ -1030,38 +877,6 @@ def decaying_pattern_decomposition(start_connections,
             print(warn_str)
         
     return best_connections, best_qofs
-
-
-def pair_voting_decomposition(connection_pairs,
-                              all_spot_qs,
-                              all_spot_ints,
-                              all_ref_qs,
-                              all_ref_fs,
-                              qmask,
-                              near_q,
-                              keep_initial_pair=False,
-                              iter_max=50,
-                              approximate_max_pairs=10):
-    raise NotImplementedError()
-    
-    # Setup starting containers
-    best_connections, best_qofs = [], []
-
-    # best_connection, best_qof = 
-    
-    # Grab the most popular votes and set of individually indexed spots
-
-    # Combine popular spots into all combinations of popular pairs
-    
-
-
-    # Pair cast only popular pairs
-
-    # Chose only best by qof still
-
-    # Down-cast connection pairs and revaulate
-
-
 
 
 #########################
