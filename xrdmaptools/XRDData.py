@@ -1477,8 +1477,7 @@ class XRDData:
             provided air scatter array. Any corrections applied to the
             current images, but not listed in applied corrections will
             then be applied to the air scatter array before
-            corrections. By default the applied_corrections are those
-            already applied to the current images.
+            corrections. By default there are no applied corrections.
         override : bool, optional
             Override already applied corrections if True. Default is
             False.
