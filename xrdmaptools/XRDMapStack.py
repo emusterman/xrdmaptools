@@ -1810,17 +1810,29 @@ class XRDMapStack(list):
         print('done!')
 
 
+    @_protect_xdms_hdf()
     def trim_3D_spots(self,
                       remove_less=0.01,
                       key='intensity',
-                      save_spots=False):
+                      save_spots=False,
+                      save_metadata=True):
         
         XRDBaseScan._trim_spots(self.spots_3D,
                                 remove_less=remove_less,
                                 key=key)
 
+        # Overwrite current spots. This will fully delete trimmed spots
         if save_spots:
             self.save_spots()
+        
+        # Track trimming metadata. Needed to fully replicate processing
+        if save_metadata:
+            self.open_xdms_hdf()
+            hdf_str = f'{self._hdf_type}/reflections/spots_3D'
+            overwrite_attr(self.xdms_hdf[hdf_str].attrs,
+                           'trimmed_key', key)
+            overwrite_attr(self.xdms_hdf[hdf_str].attrs,
+                           'trimmed_value', remove_less)
 
     
     def _spots_3D_to_vectors(self,
