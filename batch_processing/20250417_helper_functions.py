@@ -927,7 +927,12 @@ def symmeterize_and_stitch(spots_3D,
                                 continue
 
                             # Find all spots and update labels
-                            updated_inds = all_grains[drop_key]
+                            try:
+                                updated_inds = all_grains[drop_key]
+                            except:
+                                print(near_keys)
+                                print(drop_ind)
+                                continue
                             all_grains[keep_key].extend(updated_inds)
                             del all_grains[drop_key]                 
     
@@ -954,9 +959,6 @@ def symmeterize_and_stitch(spots_3D,
                 
                 # Update progress
                 pbar.update(1)
-
-    # Remove progress!!
-    # pbar.close()
 
     # Count all grain orientations
     counts = [len(v) for v in all_grains.values()]
@@ -1648,52 +1650,52 @@ def get_strain_and_orientation_maps(spots_3D, phase, grain_id=0):
 
 
 
-def quick_processing():
-    wd = '/nsls2/data/srx/proposals/2025-1/pass-316224/figures/'
-    scan = 'scan167103-167175'
+# def quick_processing():
+#     wd = '/nsls2/data/srx/proposals/2025-1/pass-316224/figures/'
+#     scan = 'scan167103-167175'
     
-    lat_params = [phase.a, phase.b, phase.c, phase.alpha, phase.beta, phase.gamma]
-    title_stubs = [f'{i}_lattice_parameter' for i in ['a', 'b', 'c', 'alpha', 'beta', 'gamma']]
+#     lat_params = [phase.a, phase.b, phase.c, phase.alpha, phase.beta, phase.gamma]
+#     title_stubs = [f'{i}_lattice_parameter' for i in ['a', 'b', 'c', 'alpha', 'beta', 'gamma']]
 
-    strain_ext = 5e-2
-    angle_ext = 2
-    strain_ext_func = lambda x : (x * (1 - strain_ext), x * (1 + strain_ext))
-    angle_ext_func = lambda x : (x - angle_ext, x + angle_ext)
-    ext_funcs = ([strain_ext_func,] * 3) + ([angle_ext_func,] * 3)
+#     strain_ext = 5e-2
+#     angle_ext = 2
+#     strain_ext_func = lambda x : (x * (1 - strain_ext), x * (1 + strain_ext))
+#     angle_ext_func = lambda x : (x - angle_ext, x + angle_ext)
+#     ext_funcs = ([strain_ext_func,] * 3) + ([angle_ext_func,] * 3)
 
-    def gen_plots(lat_map):
-        for i in range(6):
-            param_map = lat_map[..., i]
-            vmin, vmax = ext_funcs[i](lat_params[i])
-            fig, ax = xdms.plot_map(param_map,
-                                    vmin=vmin,
-                                    vmax=vmax,
-                                    title=title_stubs[i],
-                                    return_plot=True)
-            fig.savefig(f'{wd}{title}{title_stubs[i]}.png')
+#     def gen_plots(lat_map):
+#         for i in range(6):
+#             param_map = lat_map[..., i]
+#             vmin, vmax = ext_funcs[i](lat_params[i])
+#             fig, ax = xdms.plot_map(param_map,
+#                                     vmin=vmin,
+#                                     vmax=vmax,
+#                                     title=title_stubs[i],
+#                                     return_plot=True)
+#             fig.savefig(f'{wd}{title}{title_stubs[i]}.png')
 
 
-    title = f'{scan}_full_'
-    ori_map, e_map, lat_map = get_strain_and_orientation_maps(xdms.spots_3D, LatticeParameters.from_Phase(phase), grain_id=0)
-    lat_map[..., 3:] = np.degrees(lat_map[..., 3:])
-    gen_plots(lat_map)
+#     title = f'{scan}_full_'
+#     ori_map, e_map, lat_map = get_strain_and_orientation_maps(xdms.spots_3D, LatticeParameters.from_Phase(phase), grain_id=0)
+#     lat_map[..., 3:] = np.degrees(lat_map[..., 3:])
+#     gen_plots(lat_map)
 
-    title = f'{scan}_grain0_'
-    ori_map, e_map, lat_map = get_strain_and_orientation_maps(all_spots, LatticeParameters.from_Phase(phase), grain_id=0)
-    lat_map[..., 3:] = np.degrees(lat_map[..., 3:])
-    gen_plots(lat_map)
+#     title = f'{scan}_grain0_'
+#     ori_map, e_map, lat_map = get_strain_and_orientation_maps(all_spots, LatticeParameters.from_Phase(phase), grain_id=0)
+#     lat_map[..., 3:] = np.degrees(lat_map[..., 3:])
+#     gen_plots(lat_map)
 
-    title = f'{scan}_grain1_'
-    ori_map, e_map, lat_map = get_strain_and_orientation_maps(all_spots, LatticeParameters.from_Phase(phase), grain_id=1)
-    lat_map[..., 3:] = np.degrees(lat_map[..., 3:])
-    gen_plots(lat_map)
+#     title = f'{scan}_grain1_'
+#     ori_map, e_map, lat_map = get_strain_and_orientation_maps(all_spots, LatticeParameters.from_Phase(phase), grain_id=1)
+#     lat_map[..., 3:] = np.degrees(lat_map[..., 3:])
+#     gen_plots(lat_map)
 
-    title = f'{scan}_grain2_'
-    ori_map, e_map, lat_map = get_strain_and_orientation_maps(all_spots, LatticeParameters.from_Phase(phase), grain_id=2)
-    lat_map[..., 3:] = np.degrees(lat_map[..., 3:])
-    gen_plots(lat_map)
+#     title = f'{scan}_grain2_'
+#     ori_map, e_map, lat_map = get_strain_and_orientation_maps(all_spots, LatticeParameters.from_Phase(phase), grain_id=2)
+#     lat_map[..., 3:] = np.degrees(lat_map[..., 3:])
+#     gen_plots(lat_map)
 
-    plt.close('all')
+#     plt.close('all')
 
 
 
@@ -2166,7 +2168,7 @@ def test_index_all_3D_spots(self,
     
     # Effective map shape
     map_shape = (np.max(self.spots_3D['map_y']) + 1,
-                    np.max(self.spots_3D['map_x']) + 1)
+                 np.max(self.spots_3D['map_x']) + 1)
 
     # Get phase information
     max_q = np.max(self.spots_3D['q_mag'])
@@ -2231,30 +2233,30 @@ def test_index_all_3D_spots(self,
                                         verbose=verbose)
 
 
-            conns, qofs = test_indexing(spots,
-                                    spot_ints,
-                                    all_ref_qs[ref_mask],
-                                    all_ref_hkls[ref_mask],
-                                    all_ref_fs[ref_mask],
-                                    near_q,
-                                    near_angle,
-                                    min_q,
-                                    self.qmask,
-                                    degrees=True,
-                                    verbose=verbose)
+            # conns, qofs = test_indexing(spots,
+            #                         spot_ints,
+            #                         all_ref_qs[ref_mask],
+            #                         all_ref_hkls[ref_mask],
+            #                         all_ref_fs[ref_mask],
+            #                         near_q,
+            #                         near_angle,
+            #                         min_q,
+            #                         self.qmask,
+            #                         degrees=True,
+            #                         verbose=verbose)
             
-            # for grain_id, (conn, qof) in enumerate(zip(conns, qofs)):
-            #     # Get values
-            #     (spot_inds,
-            #         hkl_inds) = _get_connection_indices(conn)
-            #     hkls = all_ref_hkls[ref_mask][hkl_inds]
+            for grain_id, (conn, qof) in enumerate(zip(conns, qofs)):
+                # Get values
+                (spot_inds,
+                    hkl_inds) = _get_connection_indices(conn)
+                hkls = all_ref_hkls[ref_mask][hkl_inds]
 
-            #     # Assign values
-            #     rel_ind = pixel_df.index[spot_inds]
-            #     self.spots_3D.loc[rel_ind, 'phase'] = phase.name
-            #     self.spots_3D.loc[rel_ind, 'grain_id'] = grain_id
-            #     self.spots_3D.loc[rel_ind, 'qof'] = qof
-            #     self.spots_3D.loc[rel_ind, ['h', 'k', 'l']] = hkls
+                # Assign values
+                rel_ind = pixel_df.index[spot_inds]
+                self.spots_3D.loc[rel_ind, 'phase'] = phase.name
+                self.spots_3D.loc[rel_ind, 'grain_id'] = grain_id
+                self.spots_3D.loc[rel_ind, 'qof'] = qof
+                self.spots_3D.loc[rel_ind, ['h', 'k', 'l']] = hkls
 
 
 def dask_index_all_3D_spots(self,
