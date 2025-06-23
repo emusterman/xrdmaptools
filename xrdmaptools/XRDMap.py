@@ -1032,56 +1032,7 @@ class XRDMap(XRDBaseScan):
 
         # Save spots to hdf
         self.save_spots()
-
-
-    # def trim_spots(self,
-    #                remove_less=0.01,
-    #                metric='height',
-    #                save_spots=False):
-    #     if not hasattr(self, 'spots') or self.spots is None:
-    #         err_str = 'Cannot trim spots if XRDMap has not no spots.'
-    #         raise ValueError(err_str)
-
-    #     metric = str(metric).lower()
-    #     if any([x[:3] == 'fit' for x in self.spots.iloc[0].keys()]):
-    #         if metric in ['height', 'amp']:
-    #             significance = (self.spots['fit_amp']
-    #                             - self.spots['fit_offset'])
-    #         elif metric in ['intensity',
-    #                         'int',
-    #                         'breadth',
-    #                         'integrated',
-    #                         'volume']:
-    #             # this should account for offset too            
-    #             significance = self.spots['fit_integrated'] 
-    #         else:
-    #             raise ValueError('Unknown metric specification.')
-    #     else:
-    #         if metric in ['height', 'amp']:
-    #             significance = self.spots['guess_height']
-    #         elif metric in ['intensity',
-    #                         'int',
-    #                         'breadth',
-    #                         'integrated',
-    #                         'volume']:
-    #             significance = self.spots['guess_int']
-    #         else:
-    #             raise ValueError('Unknown metric specification.')
-
-    #     # Find relative indices where conditional is true
-    #     mask = np.nonzero(significance.values < remove_less)[0]
-
-    #     # Convert relative indices into dataframe index
-    #     drop_indices = self.spots.iloc[mask].index.values # awful call
-
-    #     # Drop indices
-    #     self.spots.drop(index=drop_indices, inplace=True)
-    #     ostr = (f'Trimmed {len(drop_indices)} spots less '
-    #             + f'than {remove_less} significance.')
-    #     print(ostr)
-
-    #     if save_spots:
-    #         self.save_spots()
+        
 
     def trim_spots(self,
                    remove_less=0.01,
