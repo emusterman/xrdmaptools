@@ -2,6 +2,7 @@ import numpy as np
 import os
 import h5py
 import pyFAI
+import scipy
 import pandas as pd
 from pyFAI.io import ponifile
 from enum import IntEnum # Only for ponifile orientation
@@ -13,7 +14,6 @@ import dask.array as da
 import skimage.io as io
 from dask_image import imread as dask_io
 from tqdm import tqdm
-from scipy import constants
 
 # Local imports
 from xrdmaptools.XRDData import XRDData
@@ -319,7 +319,7 @@ class XRDBaseScan(XRDData):
             A nice representation of the class with relevant
             information.
         """
-        
+
         # Native info
         ostr = f'{self._hdf_type}:'
         ostr += f'\n\tFacility:\t{self.facility}'
@@ -927,14 +927,19 @@ class XRDBaseScan(XRDData):
         Start saving data to HDF.
 
         If HDF does not already exist, a new version will be 
-        initialized from current scan parameters.
+        initialized from current scan parameters. Defaulting naming and
+        path will be used when not provided.
 
         Parameters
         ----------
-        hdf : 
-
-        hdf_filename : 
-        hdf_path : path str, 
+        hdf : HDF File Object, optional
+            HDF File Object that will be used for writing additional
+            information.
+        hdf_filename : str, optional
+            Name used for HDF file or name of previous HDF file.
+        hdf_path : path str, optional
+            Path used for writing HDF file or path of previous HDF
+            file.
         dask_enabled : bool, optional
         save_current : bool, optional 
         verbose : bool, optional
@@ -1558,39 +1563,60 @@ class XRDBaseScan(XRDData):
 
     # Post-conversion of scaler to real flux values
     def convert_scalers_to_flux(self,
-                                S_preamp,
-                                f_range,
-                                V_range,
+                                preamp_sensitivity=None,
                                 scaler_key='i0',
                                 chamber_length=None,
-                                gas_name=None,
+                                gas_name=None,                                
+                                f_range=10e6,
+                                V_range=5,
                                 check_init_sets=False):
         """
 
         """
+
+        # Check for preamp sensitivity
+        if preamp_sensitivity is None:
+            if f'{scaler_key}_sensitivity' in self.extra_metadata:
+                preamp_sensitivity = self.extra_metadata[f'{scaler_key}_sensitivity']
+            else:
+                err_str = ('Must provide preamp sensitivity for '
+                           + f'{scaler_key} scaler, or this data must '
+                           + 'be stored in extra_metadata.')
+                raise AttributeError(err_str)
         
         # Get absorption and parse inputs
         (absorption,
          scaler_key,
          chamber_length,
-         gas_name) = self._get_scaler_absorption(
+         gas_name)= self._get_scaler_absorption(
                                     scaler_key=scaler_key,
                                     chamber_length=chamber_length,
-                                    gas=gas)
+                                    gas_name=gas_name)
+
+        # Considerations for singular and list of energies
+        energy = np.asarray([self.energy]).squeeze()
+        if energy.ndim > 0:
+            energy = energy.reshape(self.map_shape)
+            absorption = absorption.reshape(self.map_shape)
+
+            # Untested reshaping of preamp_sensitivity for if it changes over an extended energy rocking curve
+            if np.asarray([preamp_sensitivity]).squeeze().ndim > 0:
+                preamp_sensitivity = np.asarray(preamp_sensitivity).reshape(self.map_shape)
         
         (ionization_energy
          ) = reference_data.average_gas_ionization_energies[gas_name]
 
         charge_term = (ionization_energy
-                       / scipy.constants.e * self.energy * 1e3)
+                       / (scipy.constants.e * energy * 1e3))
         
-        v_to_f_term = ((V_range * S_preamp) / (f_range * self.dwell))
+        v_to_f_term = ((V_range * preamp_sensitivity) / (f_range * self.dwell))
         
         # Determine energy independent scaler values
         new_scaler_key = f'flux_{scaler_key}'
         new_sclr_arr = (self.sclr_dict[scaler_key]
                         * charge_term
-                        * v_to_f_term)
+                        * v_to_f_term
+                        / absorption)
 
         # Set values and write to hdf
         self.sclr_dict[new_scaler_key] = new_sclr_arr
