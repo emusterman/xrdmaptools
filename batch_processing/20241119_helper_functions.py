@@ -479,107 +479,107 @@ def get_vector_map_feature(vector_map,
 
     return feature_map
 
-get_int_vector_map = lambda vm : get_vector_feature_map(vm, feature_function=np.sum)
-fet_num_vector_map = lambda vm : get_vector_feature_map(vm, dtype=int)
+get_int_vector_map = lambda vm : get_vector_map_feature(vm, feature_function=np.sum)
+get_num_vector_map = lambda vm : get_vector_map_feature(vm, dtype=int)
 
 
 
-def get_connection_map(xrdmapstack, phase,
-                       verbose=False):
+# def get_connection_map(xrdmapstack, phase,
+#                        verbose=False):
 
-    vmap = xrdmapstack.xdms_vector_map
-    phase.generate_reciprocal_lattice(1.15 * np.linalg.norm(xrdmapstack.q_arr, axis=-1).max())
-    # qmask = QMask.from_XRDRockingScan(xdms)
-    # phase = xrdmapstack.phases['stibnite']
+#     vmap = xrdmapstack.xdms_vector_map
+#     phase.generate_reciprocal_lattice(1.15 * np.linalg.norm(xrdmapstack.q_arr, axis=-1).max())
+#     # qmask = QMask.from_XRDRockingScan(xdms)
+#     # phase = xrdmapstack.phases['stibnite']
 
-    spot_map = np.empty(vmap.shape, dtype=object)
-    conn_map = np.empty(vmap.shape, dtype=object)
-    qofs_map = np.empty(vmap.shape, dtype=object)
-    hkls_map = np.empty(vmap.shape, dtype=object)
+#     spot_map = np.empty(vmap.shape, dtype=object)
+#     conn_map = np.empty(vmap.shape, dtype=object)
+#     qofs_map = np.empty(vmap.shape, dtype=object)
+#     hkls_map = np.empty(vmap.shape, dtype=object)
 
-    if verbose:
-        iterable = timed_iter(range(np.prod(vmap.shape)))
-    else:
-        iterable = tqdm(range(np.prod(vmap.shape)))
+#     if verbose:
+#         iterable = timed_iter(range(np.prod(vmap.shape)))
+#     else:
+#         iterable = tqdm(range(np.prod(vmap.shape)))
 
-    for index in iterable:
-        indices = np.unravel_index(index, vmap.shape)
+#     for index in iterable:
+#         indices = np.unravel_index(index, vmap.shape)
 
-        q_vectors = vmap[indices][:, :-1]
-        intensity = vmap[indices][:, -1]
+#         q_vectors = vmap[indices][:, :-1]
+#         intensity = vmap[indices][:, -1]
 
-        # int_mask = generate_intensity_mask(intensity,
-        #                                    intensity_cutoff=0.05)
-        int_mask = intensity > 1
+#         # int_mask = generate_intensity_mask(intensity,
+#         #                                    intensity_cutoff=0.05)
+#         int_mask = intensity > 1
         
-        if np.sum(int_mask) > 0:
+#         if np.sum(int_mask) > 0:
 
-            # return q_vectors, intensity, int_mask
+#             # return q_vectors, intensity, int_mask
 
-            (spot_labels,
-             spots,
-             label_ints) = rsm_spot_search(q_vectors[int_mask],
-                                           intensity[int_mask],
-                                           nn_dist=0.05,
-                                           significance=0.1,
-                                           subsample=1)
+#             (spot_labels,
+#              spots,
+#              label_ints) = rsm_spot_search(q_vectors[int_mask],
+#                                            intensity[int_mask],
+#                                            nn_dist=0.05,
+#                                            significance=0.1,
+#                                            subsample=1)
             
-            # print(f'Number of spots is {len(spots)}')
-            if len(spots) > 1:
+#             # print(f'Number of spots is {len(spots)}')
+#             if len(spots) > 1:
                 
-                try:
-                    (best_connections,
-                    best_qofs
-                    ) = pair_casting_index_full_pattern(spots,
-                                                        phase,
-                                                        0.05,
-                                                        5,
-                                                        xrdmapstack.qmask,
-                                                        degrees=True,
-                                                        verbose=verbose)
-                    hkls = phase.all_hkls
-                    # spots = list(spots)
+#                 try:
+#                     (best_connections,
+#                     best_qofs
+#                     ) = pair_casting_index_full_pattern(spots,
+#                                                         phase,
+#                                                         0.05,
+#                                                         5,
+#                                                         xrdmapstack.qmask,
+#                                                         degrees=True,
+#                                                         verbose=verbose)
+#                     hkls = phase.all_hkls
+#                     # spots = list(spots)
 
-                    # # Not sure where all nan connections are coming from, but reduce them
-                    # for i, conn in enumerate(best_connections):
-                    #     if np.all(np.isnan(conn)):
-                    #         spots[i] = np.asarray([])
-                    #         best_connections[i] = np.asarray([])
-                    #         best_qofs[i] = np.asarray([])
-                    #         break
+#                     # # Not sure where all nan connections are coming from, but reduce them
+#                     # for i, conn in enumerate(best_connections):
+#                     #     if np.all(np.isnan(conn)):
+#                     #         spots[i] = np.asarray([])
+#                     #         best_connections[i] = np.asarray([])
+#                     #         best_qofs[i] = np.asarray([])
+#                     #         break
 
-                    # record hkls
-                    # if len(spots) > 1:            
-                    #     hkls = phase.all_hkls
+#                     # record hkls
+#                     # if len(spots) > 1:            
+#                     #     hkls = phase.all_hkls
 
 
-                except IndexError:
-                    print('INDEX ERROR')
-                    print(indices)
-                    return spots
-                except Exception as e:
-                    print('New Exception')
-                    print(indices)
-                    raise e
+#                 except IndexError:
+#                     print('INDEX ERROR')
+#                     print(indices)
+#                     return spots
+#                 except Exception as e:
+#                     print('New Exception')
+#                     print(indices)
+#                     raise e
             
-            else:
-                spots = np.asarray([])
-                best_connections = np.asarray([])
-                best_qofs = np.asarray([])
-                hkls = np.asarray([])
+#             else:
+#                 spots = np.asarray([])
+#                 best_connections = np.asarray([])
+#                 best_qofs = np.asarray([])
+#                 hkls = np.asarray([])
         
-        else:
-            spots = np.asarray([])
-            best_connections = np.asarray([])
-            best_qofs = np.asarray([])
-            hkls = np.asarray([])
+#         else:
+#             spots = np.asarray([])
+#             best_connections = np.asarray([])
+#             best_qofs = np.asarray([])
+#             hkls = np.asarray([])
         
-        spot_map[indices] = np.asarray(spots)
-        conn_map[indices] = np.asarray(best_connections)
-        qofs_map[indices] = np.asarray(best_qofs)
-        hkls_map[indices] = np.asarray(hkls)
+#         spot_map[indices] = np.asarray(spots)
+#         conn_map[indices] = np.asarray(best_connections)
+#         qofs_map[indices] = np.asarray(best_qofs)
+#         hkls_map[indices] = np.asarray(hkls)
 
-    return spot_map, conn_map, qofs_map, hkls_map
+#     return spot_map, conn_map, qofs_map, hkls_map
 
 
 
