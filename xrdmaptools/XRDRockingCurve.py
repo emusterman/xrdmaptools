@@ -48,7 +48,9 @@ from xrdmaptools.reflections.spot_blob_search_3D import (
 )
 from xrdmaptools.reflections.spot_blob_indexing_3D import (
     pair_casting_index_best_grain,
-    pair_casting_index_full_pattern
+    pair_casting_index_full_pattern,
+    phase_based_index_best_pattern,
+    phase_based_index_full_pattern
 )
 from xrdmaptools.crystal.crystal import LatticeParameters
 from xrdmaptools.crystal.strain import get_strain_orientation
@@ -403,38 +405,6 @@ class XRDRockingCurve(XRDBaseScan):
                            self.theta)
         save_attrs(self)
 
-
-    # # Full q-vector, not just magnitude
-    # @XRDBaseScan.q_arr.getter
-    # def q_arr(self):
-    #     if hasattr(self, '_q_arr'):
-    #         return self._q_arr
-    #     elif not hasattr(self, 'ai'):
-    #         err_str = ('Cannot calculate q-space without calibration.')
-    #         raise RuntimeError(err_str)
-    #     else:
-    #         self._q_arr = np.empty((self.num_images,
-    #                                 *self.image_shape,
-    #                                 3),
-    #                                 dtype=self.dtype)
-    #         for i in tqdm(range(self.num_images)):
-    #             wavelength = self.wavelength[i]
-    #             if self.use_stage_rotation:
-    #                 theta = self.theta[i]
-    #             else:
-    #                 theta = None # no rotation!
-                
-    #             q_arr = get_q_vect(
-    #                         self.tth_arr,
-    #                         self.chi_arr,
-    #                         wavelength=wavelength,
-    #                         stage_rotation=theta,
-    #                         degrees=self.polar_units == 'deg',
-    #                         rotation_axis='y') # hard-coded for srx
-
-    #             self._q_arr[i] = q_arr
-    #         return self._q_arr
-
     # Re-written as generator to save on memory for large rocking curves
     # Full q-vector, not just magnitude
     @XRDBaseScan.q_arr.getter
@@ -619,7 +589,25 @@ class XRDRockingCurve(XRDBaseScan):
                            'theta',
                            'start_time',
                            'scan_input']:
-                extra_md[key] = scan_md[key]
+                
+                if isinstance(scan_md[key], (int, float, str)):
+                    extra_md[key] = scan_md[key]
+                elif isinstance(scan_md[key], (list, np.ndarray)):
+                    if len(scan_md[key]) == 1:
+                        if isinstance(scan_md[key][0], str):
+                            extra_md[key] = str(scan_md[key][0])
+                        else:
+                            extra_md[key] = scan_md[key][0]
+                    else:
+                        if isinstance(scan_md[key][0], str):
+                            extra_md[key] = [str(v) for v in scan_md[key]]
+                        else:
+                            extra_md[key] = list(scan_md[key])
+                else:
+                    warn_str = (f'WARNING: extra metadata of {key} '
+                                + 'could not be properly handled and '
+                                + 'will be ignored..')
+                    print(warn_str)
 
         rocking_curves = []
         for i, xrd_data_i in enumerate(xrd_data):
@@ -638,7 +626,7 @@ class XRDRockingCurve(XRDBaseScan):
                     beamline='5-ID (SRX)',
                     facility='NSLS-II',
                     # time_stamp=scan_md['time_str'],
-                    extra_metadata=None,
+                    extra_metadata=extra_md,
                     save_hdf=save_hdf,
                     null_map=null_map,
                     rocking_axis=rocking_axis
@@ -1188,9 +1176,10 @@ class XRDRockingCurve(XRDBaseScan):
         # Only pair casting indexing is currently supported
         if method.lower() in ['pair_casting']:
             (best_connection,
-             best_qof) = pair_casting_index_best_grain(
-                            spots,
+             best_qof) = phase_based_index_best_pattern(
                             phase,
+                            spots,
+                            spot_intensity,
                             near_q,
                             near_angle,
                             self.qmask,
@@ -1266,14 +1255,16 @@ class XRDRockingCurve(XRDBaseScan):
         # Only pair casting indexing is currently supported
         if method.lower() in ['pair_casting']:
             (best_connections,
-             best_qofs) = pair_casting_index_full_pattern(
-                    spots,
-                    phase,
-                    near_q,
-                    near_angle,
-                    self.qmask,
-                    degrees=self.polar_units == 'deg',
-                    **kwargs)
+             best_qofs) = phase_based_index_full_pattern(
+                            phase,
+                            spots,
+                            spot_intensity,
+                            near_q,
+                            near_angle,
+                            self.qmask,
+                            degrees=self.polar_units == 'deg',
+                            **kwargs)
+     
         else:
             err_str = (f"Unknown method ({method}) specified. Only "
                        + "'pair_casting' is currently supported.")

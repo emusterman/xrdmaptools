@@ -86,6 +86,7 @@ def load_tiled_data(scan_id=-1,
     xrd_dets = [detector for detector in detectors if detector in ['merlin', 'dexela']]
 
     scan_md = _load_scan_metadata(bs_run)
+    scan_md.update(_load_baseline_metadata(bs_run))
     print(f'Loading data from tiled for scan {scan_md["scan_id"]}...')
 
     data_dict = {}
@@ -130,6 +131,7 @@ def load_db_data(scan_id=-1,
     xrd_dets = [detector for detector in detectors if detector in ['merlin', 'dexela']]
 
     scan_md = _load_scan_metadata(bs_run)
+    scan_md.update(_load_baseline_metadata(bs_run))
     print(f'Loading data from databroker for scan {scan_md["scan_id"]}...')
 
     data_dict = {}
@@ -175,6 +177,7 @@ def manual_load_data(scan_id=-1,
         bs_run = db[int(scan_id)]
 
     scan_md = _load_scan_metadata(bs_run)
+    scan_md.update(_load_baseline_metadata(bs_run))
     vprint(f'Manually loading data for scan {scan_md["scan_id"]}...')
 
     # Get relevant hdf information
@@ -367,6 +370,32 @@ def _load_scan_metadata(bs_run, keys=None):
             scan_md['energy'] = np.round(energy, 3)
 
     return scan_md
+
+
+def _load_baseline_metadata(bs_run, keys=None):
+
+    baseline_md = {}
+
+    # Hard-coded look for preamp settings in baseline
+    for scaler_key in ['i0', 'im', 'it']:
+        if all([f'{scaler_key}_preamp_sens_{suffix}' in bs_run.baseline['data']
+                for suffix in ['num', 'unit']]):
+            sensitivity = float(bs_run.baseline['data'][f'{scaler_key}_preamp_sens_num'][0])
+            unit = bs_run.baseline['data'][f'{scaler_key}_preamp_sens_unit'][0]
+
+            # Apply unit
+            if 'pA' in unit:
+                sensitivity /= 1e12
+            elif 'nA' in unit:
+                sensitivity /= 1e9
+            elif 'uA' in unit:
+                sensitivity /= 1e6
+            elif 'mA' in unit:
+                sensitivity /= 1e3
+        
+            baseline_md[f'{scaler_key}_sensitivity'] = float(sensitivity) # another float conversion??
+
+    return baseline_md
 
 
 def _flag_broken_rows(data_list, msg):
@@ -986,6 +1015,7 @@ def load_step_rc_data(scan_id=-1,
         'dwell' : bs_run.start['scan']['dwell'],
         'start_time' : bs_run.start['time_str']
     }
+    scan_md.update(_load_baseline_metadata(bs_run))
     scantype = scan_md['scantype'].lower()
 
     # Special for backwards compatability

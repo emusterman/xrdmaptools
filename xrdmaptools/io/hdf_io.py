@@ -41,8 +41,9 @@ def initialize_xrdbase_hdf(xrdbase,
 
         # Generate emtpy dataset of extra_metadata
         extra_md = base_grp.create_dataset('extra_metadata',
-                                            data=h5py.Empty("f"))
+                                           data=h5py.Empty("f"))
         for key, value in xrdbase.extra_metadata.items():
+            # print(f'Writing to hdf for {key} with {value} of type {type(value)}')
             extra_md.attrs[key] = value
 
         if (not hasattr(xrdbase, 'scan_input')
