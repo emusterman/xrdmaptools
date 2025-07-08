@@ -490,10 +490,11 @@ def phase_selector(xrd,
         colors = matplotlib.color_sequences['tab20']
     norm_xrd_int = rescale_array(xrd, upper=100, arr_min=0)
 
+    tth_range = np.max(tth) - np.min(tth)
     for phase in phases:
         phase.get_hkl_reflections(energy,
-                                  tth_range=(np.min(tth),
-                                  np.max(tth)),
+                                  tth_range=(np.min(tth) - (0.05 * tth_range),
+                                  np.max(tth) + (0.05 * tth_range)),
                                   ignore_less=ignore_less)
 
     # Waiting is odd..
