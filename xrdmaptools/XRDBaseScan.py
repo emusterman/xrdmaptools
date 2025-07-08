@@ -1535,6 +1535,13 @@ class XRDBaseScan(XRDData):
 
         """
 
+        # Check for energy
+        if self.energy is None:
+            err_str = ('Internal energy attribute is None. Cannot '
+                       + 'correct scalers for X-ray energy without '
+                       + 'energy.')
+            raise AttributeError(err_str)
+
         # Get absorption and parse inputs
         absorption, _, _, _ = self._get_scaler_absorption(
                                     scaler_key=scaler_key,
@@ -1573,6 +1580,13 @@ class XRDBaseScan(XRDData):
         """
 
         """
+
+        # Check for energy
+        if self.energy is None:
+            err_str = ('Internal energy attribute is None. Cannot '
+                       + 'correct scalers for X-ray energy without '
+                       + 'energy.')
+            raise AttributeError(err_str)
 
         # Check for preamp sensitivity
         if preamp_sensitivity is None:
