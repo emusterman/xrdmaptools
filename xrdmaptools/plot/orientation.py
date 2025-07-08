@@ -13,7 +13,7 @@ from xrdmaptools.reflections.spot_blob_indexing_3D import (
 # This module is intended for plotting/visualizing orientation information
 # This will likely make heavy use of the orix module
 
-def plot_3D_indexing(connections,
+def plot_3D_indexing(indexings,
                      all_spot_qs,
                      all_ref_qs,
                      all_ref_hkls,
@@ -31,7 +31,7 @@ def plot_3D_indexing(connections,
     if colors is not None:
         c = colors
     else:
-        c = ['k',] * len(connections)
+        c = ['k',] * len(indexings)
 
     fig, ax = plt.subplots(1, 1, 
                            figsize=(5, 5),
@@ -39,9 +39,10 @@ def plot_3D_indexing(connections,
                            subplot_kw={'projection':'3d'})
 
     # Iterate and plot all connections
-    for i, connection in enumerate(connections):
-        spot_inds, ref_inds = _get_connection_indices(
-                                connection)
+    for i, indexing in enumerate(indexings):
+        spot_inds, ref_inds = indexing.T
+        # spot_inds, ref_inds = _get_connection_indices(
+        #                         connection)
         orientation, _ = Rotation.align_vectors(
                             all_spot_qs[spot_inds],
                             all_ref_qs[ref_inds])
@@ -49,7 +50,8 @@ def plot_3D_indexing(connections,
         temp_q_mask = qmask.generate(all_rot_qs)
 
         ax.scatter(*all_rot_qs[temp_q_mask].T,
-                   s=all_ref_fs[temp_q_mask] * 0.1,
+                #    s=all_ref_fs[temp_q_mask] * 0.1,exit
+                
                    c=c[i])
         ax.scatter(*all_spot_qs.T,
                    s=1,
