@@ -38,12 +38,15 @@ def process_map(scan_id,
                 poni_file,
                 swapped_axes=False):
 
-    if os.path.exists(f'{base_wd}xrdmaps/scan{scan_id}_xrdmap.h5'):
-        print('File found! Loading from HDF...')
-        xdm = XRDMap.from_hdf(f'scan{scan_id}_xrdmap.h5', wd=f'{base_wd}xrdmaps/', image_data_key='raw', swapped_axes=swapped_axes)
+    if not isinstance(scan_id, XRDMap):
+        if os.path.exists(f'{base_wd}xrdmaps/scan{scan_id}_xrdmap.h5'):
+            print('File found! Loading from HDF...')
+            xdm = XRDMap.from_hdf(f'scan{scan_id}_xrdmap.h5', wd=f'{base_wd}xrdmaps/', image_data_key='raw', swapped_axes=swapped_axes)
+        else:
+            print('Loading data from server...')
+            xdm = XRDMap.from_db(scan_id, wd=f'{base_wd}xrdmaps/', swapped_axes=swapped_axes)
     else:
-        print('Loading data from server...')
-        xdm = XRDMap.from_db(scan_id, wd=f'{base_wd}xrdmaps/', swapped_axes=swapped_axes)
+        xdm = scan_id
     
     # Basic corrections
     xdm.correct_dark_field(dark_field)
