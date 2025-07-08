@@ -103,8 +103,11 @@ class XRDMap(XRDBaseScan):
 
         # Interpolate positions
         # Can happen before or after swapped_axes
+        # Only if interpolated positions are not already determined
         if (self.scan_input is not None
-            and len(self.scan_input) != 0):
+            and len(self.scan_input) != 0
+            and ('interp_x' not in self.pos_dict 
+                 or 'interp_y' not in self.pos_dict)):
             self.interpolate_positions(check_init_sets=check_init_sets)
         
         # Swap axes if called. Tranposes major data components
@@ -317,7 +320,7 @@ class XRDMap(XRDBaseScan):
                 # This will force a default to scan_id with iteration
                 filename=None, 
                 image_data=sliced_images[i],
-                # map_shape=None,         no energy attribute
+                energy=energy, # To allow for no energy attribute
                 dwell=self.dwell,
                 theta=self.theta,
                 poni_file=poni, # Often None, but may be loaded...
