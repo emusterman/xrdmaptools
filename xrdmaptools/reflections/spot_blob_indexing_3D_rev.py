@@ -361,13 +361,28 @@ def seed_casting(seed,
             if len(prev_indexing) >= 2:
                 indexing = prev_indexing
                 curr_spots, curr_refs = indexing.T
+
+                # Check to see if original seed was a poor choice
+                if (not isinstance(seed, Rotation)
+                    and len(indexing) == len(seed)
+                    and np.all(indexing == seed)):
+                    # Re-determine orientation and qmask
+                    orientation = Rotation.align_vectors(
+                                all_spot_qs[curr_spots],
+                                all_ref_qs[curr_refs])[0]
+                    all_rot_qs = orientation.apply(all_ref_qs,
+                                                   inverse=False)
+                    temp_qmask = qmask.generate(all_rot_qs)
+                    for ind in curr_refs:
+                        if ind not in temp_qmask.nonzero()[0]:
+                            return indexing, 0
                 break
             else:
                 return [], 0
 
         # Parse indexing
         curr_spots, curr_refs = indexing.T
-        prev_spots, prev_refs = indexing.T
+        prev_spots, prev_refs = prev_indexing.T
 
         # Check to see if indexing has converged
         if len(indexing) == len(prev_indexing):
@@ -388,18 +403,26 @@ def seed_casting(seed,
    
     # Find qof
     all_rot_qs = orientation.apply(all_ref_qs, inverse=False)
-    temp_qmask = qmask.generate(all_rot_qs)
+    temp_qmask = qmask.generate(all_rot_qs, wavelength_ext=0.2)
+
+    # Check for bad seed inputs if the fitting failed.
+    # if indexing == seed
+
+    # print(curr_spots)
+    # print(curr_refs)
+    # print(all_ref_fs[temp_qmask])
+    # print(orientation.magnitude())
 
     qof = get_quality_of_fit(
         all_spot_qs[curr_spots], # fit_spot_qs
         all_spot_ints[curr_spots], # fit_spot_ints
         all_rot_qs[curr_refs], # fit_rot_qs
         all_ref_fs[curr_refs], # fit_ref_fs
-        all_spot_qs, # all_spot_qs
         all_spot_ints, # all_spot_ints
-        all_rot_qs[temp_qmask], # all_rot_qs
         all_ref_fs[temp_qmask], # all_ref_fs
         sigma=near_q)
+    
+    # print(f'{qof=}')
     
     return indexing, qof
 
@@ -497,9 +520,7 @@ def pair_casting(connection_pair,
             all_spot_ints[curr_spot_inds], # fit_spot_ints
             all_rot_qs[curr_ref_inds], # fit_rot_qs
             all_ref_fs[curr_ref_inds], # fit_ref_fs
-            all_spot_qs, # all_spot_qs
             all_spot_ints, # all_spot_ints
-            all_rot_qs[temp_qmask], # all_rot_qs
             all_ref_fs[temp_qmask], # all_ref_fs
             sigma=near_q)
     
@@ -626,13 +647,13 @@ def multiple_pair_casting(connection_pairs,
             continue
 
         connection, qof = pair_casting(pair,
-                                      all_spot_qs,
-                                      all_spot_ints,
-                                      all_ref_qs,
-                                      all_ref_fs,
-                                      qmask,
-                                      near_q,
-                                      iter_max=iter_max)
+                                       all_spot_qs,
+                                       all_spot_ints,
+                                       all_ref_qs,
+                                       all_ref_fs,
+                                       qmask,
+                                       near_q,
+                                       iter_max=iter_max)
 
         connections.append(connection)
         qofs.append(qof)
@@ -930,9 +951,7 @@ def get_quality_of_fit(fit_spot_qs,
                        fit_spot_ints,
                        fit_rot_qs,
                        fit_ref_fs,
-                       all_spot_qs,
                        all_spot_ints,
-                       all_rot_qs,
                        all_ref_fs,
                        **kwargs):
 
@@ -950,15 +969,12 @@ def get_quality_of_fit(fit_spot_qs,
     # qof = weighted_distance_qof(fit_spot_qs,
     #                             fit_rot_qs,
     #                             fit_ref_fs,
-    #                             all_spot_qs,
-    #                             all_rot_qs,
     #                             all_ref_fs,
     #                             int_weight=0.5)
 
     # qof = complete_distance_qof(fit_spot_qs,
     #                             fit_rot_qs,
-    #                             all_spot_qs,
-    #                             all_rot_qs,
+    #                             all_rot_fs,
     #                             sigma=1,
     #                             int_weight=0.1)
 
@@ -977,7 +993,7 @@ def get_quality_of_fit(fit_spot_qs,
                        sigma=sigma,
                        ratio=0.5)
 
-    # qof = len(fit_spot_qs) / len(all_spot_qs)
+    # qof = len(fit_spot_qs) / len(all_spot_ints)
 
     return qof
 
@@ -985,8 +1001,6 @@ def get_quality_of_fit(fit_spot_qs,
 def weighted_distance_qof(fit_spot_qs,
                           fit_rot_qs,
                           fit_ref_fs,
-                          all_spot_qs, # unused
-                          all_rot_qs,
                           all_ref_fs,
                           sigma=1,
                           int_weight=0.5):
@@ -1000,8 +1014,7 @@ def weighted_distance_qof(fit_spot_qs,
     # Gaussian with specified standard deviation
     # centered at zero sampled at distance
     dist_val = np.sum(np.exp(-(np.asarray(dist))**2 / (2 * sigma**2)))
-    # norm_dist_val = dist_val / len(all_spot_qs)
-    norm_dist_val = dist_val / len(all_rot_qs)
+    norm_dist_val = dist_val / len(all_ref_fs)
 
     int_val = (np.sum(fit_ref_fs)
               / np.sum(all_ref_fs))
@@ -1018,8 +1031,7 @@ def weighted_distance_qof(fit_spot_qs,
 
 def complete_distance_qof(fit_spot_qs,
                           fit_rot_qs,
-                          all_spot_qs,
-                          all_rot_qs,
+                          all_rot_fs,
                           sigma=1,
                           int_weight=0.5): # Gaussian standard deviation to evaluate
 
@@ -1034,7 +1046,7 @@ def complete_distance_qof(fit_spot_qs,
     # centered at zero sampled at distance
     qof = np.sum(np.exp(-(np.asarray(dist))**2 / (2 * sigma**2)))
 
-    max_qof = len(all_rot_qs)
+    max_qof = len(all_rot_fs)
     norm_qof = qof / max_qof
 
     return norm_qof
@@ -1064,8 +1076,7 @@ def dist_int_qof(fit_spot_qs,
                  fit_ref_fs,
                  all_ref_fs,
                  sigma=1,
-                 ratio=0.75):
-
+                 ratio=0.5):
 
     dist = [np.sqrt(np.sum([(p - q)**2 for p, q in zip(v1, v2)]))
             for v1, v2 in zip(fit_spot_qs, fit_rot_qs)]
@@ -1079,9 +1090,6 @@ def dist_int_qof(fit_spot_qs,
 
     return (ratio * exp_val) + ((1 - ratio) * ref_val)
 
-
-
-    
 
 def get_rmse(fit_spot_qs,
              fit_rot_qs):
@@ -1114,107 +1122,3 @@ def _decompose_connection(connection,
     conn_refs = all_ref_qs[ref_indices]
 
     return conn_spots, conn_refs
-
-
-
-
-
-
-
-
-# def test_index_all_3D_spots(self,
-#                         near_q,
-#                         near_angle,
-#                         phase=None,
-#                         degrees=False,
-#                         save_to_hdf=True,
-#                         verbose=False,
-#                         half_mask=True):
-
-#     if not hasattr(self, 'spots_3D') or self.spots_3D is None:
-#         err_str = 'Spots must be found before they can be indexed.'
-#         raise AttributeError(err_str)
-    
-#     if phase is None:
-#         if len(self.phases) == 1:
-#             phase = list(self.phases.values())[0]
-#         else:
-#             err_str = 'Phase must be provided for indexing.'
-#             raise ValueError(err_str)
-    
-#     # Effective map shape
-#     map_shape = (np.max(self.spots_3D['map_y']) + 1,
-#                  np.max(self.spots_3D['map_x']) + 1)
-
-#     # Get phase information
-#     max_q = np.max(self.spots_3D['q_mag'])
-#     phase.generate_reciprocal_lattice(1.15 * max_q)
-#     all_ref_qs = phase.all_qs.copy()
-#     all_ref_hkls = phase.all_hkls.copy()
-#     all_ref_fs = phase.all_fs.copy()
-
-#     # Ignore half...
-#     if half_mask:
-#         half_mask = all_ref_hkls[:, -1] <= 0
-#         all_ref_qs = all_ref_qs[half_mask]
-#         all_ref_hkls = all_ref_hkls[half_mask]
-#         all_ref_fs = all_ref_fs[half_mask]
-
-#     ref_mags = np.linalg.norm(all_ref_qs, axis=1)
-
-#     # Find minimum q vector step size from reference phase
-#     min_q = phase.min_q
-    
-#     # Update spots dataframe with new columns
-#     self.spots_3D['phase'] = ''
-#     self.spots_3D[['grain_id', 'h', 'k', 'l', 'qof']] = np.nan
-
-#     # Construct iterable
-#     if verbose:
-#         iterable = timed_iter(range(np.prod(map_shape)))
-#     else:
-#         iterable = tqdm(range(np.prod(map_shape)))
-
-#     # Iterate through each spatial pixel of map
-#     for index in iterable:
-#         indices = np.unravel_index(index, map_shape)
-#         pixel_df = self.pixel_3D_spots(indices, copied=False)
-#         spots = pixel_df[['qx', 'qy', 'qz']].values
-
-#         if verbose:
-#             print(f'Indexing for map indices {indices}.')
-#             print(f'Pixel has {len(spots)} spots.')            
-        
-#         if len(spots) > 1 and not are_collinear(spots):
-#             spot_mags = pixel_df['q_mag'].values
-#             spot_ints = pixel_df['intensity'].values
-#             ext = 0.15
-#             ref_mask = ((ref_mags > spot_mags.min() * (1 - ext))
-#                         & (ref_mags < spot_mags.max() * (1 + ext)))
-
-#             (conns,
-#                 qofs) = pair_casting_index_full_pattern(
-#                                         all_ref_qs[ref_mask],
-#                                         all_ref_hkls[ref_mask],
-#                                         all_ref_fs[ref_mask],
-#                                         min_q,
-#                                         spots,
-#                                         spot_ints,
-#                                         near_q,
-#                                         near_angle,
-#                                         self.qmask,
-#                                         degrees=True,
-#                                         verbose=verbose)
-            
-#             for grain_id, (conn, qof) in enumerate(zip(conns, qofs)):
-#                 # Get values
-#                 (spot_inds,
-#                     hkl_inds) = _get_connection_indices(conn)
-#                 hkls = all_ref_hkls[ref_mask][hkl_inds]
-
-#                 # Assign values
-#                 rel_ind = pixel_df.index[spot_inds]
-#                 self.spots_3D.loc[rel_ind, 'phase'] = phase.name
-#                 self.spots_3D.loc[rel_ind, 'grain_id'] = grain_id
-#                 self.spots_3D.loc[rel_ind, 'qof'] = qof
-#                 self.spots_3D.loc[rel_ind, ['h', 'k', 'l']] = hkls
