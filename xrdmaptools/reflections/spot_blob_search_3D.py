@@ -8,7 +8,6 @@ from tqdm.dask import TqdmCallback
 from xrdmaptools.utilities.math import arbitrary_center_of_mass
 
 
-
 # 3D analog of blob_search
 def rsm_blob_search(q_vectors,
                     max_dist=0.01,
@@ -224,19 +223,20 @@ def rsm_spot_search(qs,
     for unique_label, new_label in zip(unique_labels, new_labels):
         labels[labels == unique_label] = new_label
 
+    # Up-sample data back to full range
     if subsample > 1:
+        full_kdtree = KDTree(qs)
+        indices = list(range(len(qs)))[::subsample]
+        full_labels = np.empty(len(qs))
+        full_labels[:] = np.nan
+        full_labels[indices] = labels
+
         # Construct iterable
         if verbose:
             print('Upsampling data...')
             iterable = tqdm(range(len(full_labels)))
         else:
             iterable = range(len(full_labels))
-        
-        full_kdtree = KDTree(qs)
-        indices = list(range(len(qs)))[::subsample]
-        full_labels = np.empty(len(qs))
-        full_labels[:] = np.nan
-        full_labels[indices] = labels
         
         for i in iterable:
             if np.isnan(full_labels[i]):
