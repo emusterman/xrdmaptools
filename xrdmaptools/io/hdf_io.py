@@ -200,23 +200,28 @@ def load_xrdbase_hdf(filename,
         sclr_dict = _load_xrd_hdf_scalers(base_grp)
 
         # Load pixel positions
-        pos_dict = _load_xrd_hdf_positions(base_grp) 
+        pos_dict = _load_xrd_hdf_positions(base_grp)
 
-        # Vector data is mutually exclusive between rsm and xrdmap
-        # Load vectorized data
-        vector_dict = _load_xrd_hdf_vectorized_data(base_grp)
+        # Load vector data. Function handles whether from rsm or xrdmap
+        vector_dict = _load_xrd_hdf_vector_data(
+                                    base_grp,
+                                    load_vector_map=load_vector_map)
 
-        # Load vectorized map data
-        if load_vector_map:
-            _vector_dict = _load_xrd_hdf_vectorized_map_data(base_grp)
-            if vector_dict is not None and _vector_dict is not None:
-                err_str = ('Vectorized data found in both rocking curve '
-                        + 'and mapped format! Something is very wrong!')
-                raise RuntimeError(err_str)
-            else:
-                # Replace with real values
-                if vector_dict is None:
-                    vector_dict = _vector_dict
+        # # Vector data is mutually exclusive between rsm and xrdmap
+        # # Load vectorized data
+        # vector_dict = _load_xrd_hdf_vectorized_data(base_grp)
+
+        # # Load vectorized map data
+        # if load_vector_map:
+        #     _vector_dict = _load_xrd_hdf_vectorized_map_data(base_grp)
+        #     if vector_dict is not None and _vector_dict is not None:
+        #         err_str = ('Vectorized data found in both rocking curve '
+        #                 + 'and mapped format! Something is very wrong!')
+        #         raise RuntimeError(err_str)
+        #     else:
+        #         # Replace with real values
+        #         if vector_dict is None:
+        #             vector_dict = _vector_dict
 
         # Final hdf considerations
         if not dask_enabled:
@@ -604,13 +609,16 @@ def _load_xrd_hdf_positions(base_grp):
     return pos_dict
 
 
-# For rocking curves. Labeled as 'vectorized_data'
-def _load_xrd_hdf_vectorized_data(base_grp):
+# Load vector data. Different for 'vectorized_data' from rocking curves
+# and 'vectorized_map' for xrdmap and xrdmapstack
+def _load_xrd_hdf_vector_data(base_grp, load_vector_map=True):
     vector_dict = None
-    if 'vectorized_data' in base_grp.keys():
-        print('Loading vectorized data...', end='', flush=True)
-        vector_grp = base_grp['vectorized_data']
+
+    # XRDRockingCurve Data
+    if 'vectorized_data' in base_grp:
+        print('Loading vectorized_data...', end='', flush=True)
         vector_dict = {}
+        vector_grp = base_grp['vectorized_data']
 
         q_vectors, intensity = None, None
         for key, value in vector_grp.items():
@@ -626,54 +634,146 @@ def _load_xrd_hdf_vectorized_data(base_grp):
             else:
                 vector_dict[key] = value[:]
             
+            # Collect datset attrs
+            for attr_key, attr_value in value.attrs.items():
+                if attr_key != 'time_stamp':
+                    vector_dict[attr_key] = attr_value
+        
+        # Collect group attrs
+        for attr_key, attr_value in vector_grp.attrs.items():
+            if attr_key != 'time_stamp':
+                vector_dict[attr_key] = attr_value
+
         # Construct vectors for backwards compatibility
         if q_vectors is not None and intensity is not None:
             vector_dict['vectors'] = np.hstack([
                                         q_vectors[:],
                                         intensity[:].reshape(-1, 1)])
-
-        # Collect extra_attrs
-        for attr_key, attr_value in value.attrs.items():
-            vector_dict[attr_key] = attr_value
         
-        # On the off-chance the group was created,
-        # but without any datasets
+        # Blank group returns nothing
         if len(vector_dict.keys()) == 0:
             vector_dict = None
 
         print('done!')
-    return vector_dict
-
-
-# For full maps. Labeled as 'vectorized_map'
-def _load_xrd_hdf_vectorized_map_data(base_grp):
-
-    vector_map = None
-    edges = None
-    vector_dict = None
-    if 'vectorized_map' in base_grp.keys():
+    
+    # XRDMap and XRDMapStack Data
+    elif 'vectorized_map' in base_grp and load_vector_map:
+        vector_map = None
         print('Loading vectorized map...', end='', flush=True)
+        vector_dict = {}
         vector_grp = base_grp['vectorized_map']
-        map_shape = vector_grp.attrs['vectorized_map_shape']
+
+        # Conditional for new format
+        if 'vector_map' in vector_grp:
+            map_grp = vector_grp['vector_map']
+        else:
+            map_grp = vector_grp
+        
+        map_shape = map_grp.attrs['vectorized_map_shape']
         vector_map = np.empty(map_shape, dtype=object)
 
         for index in range(np.prod(map_shape)):
             indices = np.unravel_index(index, map_shape)
             title = ','.join([str(ind) for ind in indices])
-            vector_map[indices] = vector_grp[title][:]
-        
+            vector_map[indices] = map_grp[title][:]
+        vector_dict['vector_map'] = vector_map
+
         if 'edges' in vector_grp:
             edges = []
             for edge_title, edge_dset in vector_grp['edges'].items():
                 edges.append(edge_dset[:])
+            vector_dict['edges'] = edges
         
-        vector_dict = {
-            'vector_map' : vector_map,
-            'edges' : edges
-        }
+        # Collect extra attrs from datasets
+        # May take awhile for previously saved vector maps
+        for key, value in vector_grp.items():
+            for attr_key, attr_value in value.attrs.items():
+                if attr_key != 'time_stamp':
+                    vector_dict[attr_key] = attr_value
+
+        # Collect extra attrs from full group
+        for attr_key, attr_value in vector_grp.attrs.items():
+            if attr_key != 'time_stamp':
+                vector_dict[attr_key] = attr_value
+        
+        # Remove unwanted values
+        if 'vectorized_map_shape' in vector_dict:
+            del vector_dict['vectorized_map_shape']
+
         print('done!')
-        
+
     return vector_dict
+
+# # For rocking curves. Labeled as 'vectorized_data'
+# def _load_xrd_hdf_vectorized_data(base_grp):
+#     vector_dict = None
+#     if 'vectorized_data' in base_grp.keys():
+#         print('Loading vectorized data...', end='', flush=True)
+#         vector_grp = base_grp['vectorized_data']
+#         vector_dict = {}
+
+#         q_vectors, intensity = None, None
+#         for key, value in vector_grp.items():
+#             if key == 'edges':
+#                 edges = []
+#                 for edge_title, edge_dset in value.items():
+#                     edges.append(edge_dset[:])
+#                 vector_dict[key] = edges
+#             elif key == 'q_vectors': # backwards compatibility
+#                 q_vectors = value
+#             elif key == 'intensity': # backwards compatibility
+#                 intensity = value
+#             else:
+#                 vector_dict[key] = value[:]
+            
+#         # Construct vectors for backwards compatibility
+#         if q_vectors is not None and intensity is not None:
+#             vector_dict['vectors'] = np.hstack([
+#                                         q_vectors[:],
+#                                         intensity[:].reshape(-1, 1)])
+
+#         # Collect extra_attrs
+#         for attr_key, attr_value in value.attrs.items():
+#             vector_dict[attr_key] = attr_value
+        
+#         # On the off-chance the group was created,
+#         # but without any datasets
+#         if len(vector_dict.keys()) == 0:
+#             vector_dict = None
+
+#         print('done!')
+#     return vector_dict
+
+
+# # For full maps. Labeled as 'vectorized_map'
+# def _load_xrd_hdf_vectorized_map_data(base_grp):
+
+#     vector_map = None
+#     edges = None
+#     vector_dict = None
+#     if 'vectorized_map' in base_grp.keys():
+#         print('Loading vectorized map...', end='', flush=True)
+#         vector_grp = base_grp['vectorized_map']
+#         map_shape = vector_grp.attrs['vectorized_map_shape']
+#         vector_map = np.empty(map_shape, dtype=object)
+
+#         for index in range(np.prod(map_shape)):
+#             indices = np.unravel_index(index, map_shape)
+#             title = ','.join([str(ind) for ind in indices])
+#             vector_map[indices] = vector_grp[title][:]
+        
+#         if 'edges' in vector_grp:
+#             edges = []
+#             for edge_title, edge_dset in vector_grp['edges'].items():
+#                 edges.append(edge_dset[:])
+        
+#         vector_dict = {
+#             'vector_map' : vector_map,
+#             'edges' : edges
+#         }
+#         print('done!')
+        
+#     return vector_dict
 
 
 ###################
@@ -819,12 +919,17 @@ def load_xrdmapstack_hdf(filename,
                 hdf.close()
                 hdf = h5py.File(hdf_path, 'r')
                 base_grp = hdf[hdf_type]
+        
+        # 'vector_map' is renamed later to 'xdms_vector_map'
+        vector_dict = _load_xrd_hdf_vector_data(
+                                base_grp,
+                                load_vector_map=load_xdms_vector_map)
             
-        if load_xdms_vector_map:
-            # Same functions works for XRDMaps and XRDMapStacks
-            vector_dict = _load_xrd_hdf_vectorized_map_data(base_grp)
-        else:
-            vector_dict = None
+        # if load_xdms_vector_map:
+        #     # Same functions works for XRDMaps and XRDMapStacks
+        #     vector_dict = _load_xrd_hdf_vectorized_map_data(base_grp)
+        # else:
+        #     vector_dict = None
     
     # Catch error, close hdf, re-raise
     except Exception as e:

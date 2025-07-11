@@ -27,7 +27,8 @@ from xrdmaptools.utilities.utilities import (
 )
 from xrdmaptools.io.hdf_io import (
     initialize_xrdbase_hdf,
-    load_xrdbase_hdf
+    load_xrdbase_hdf,
+    _load_xrd_hdf_vector_data
     )
 from xrdmaptools.io.hdf_utils import (
     check_hdf_current_images,
@@ -444,10 +445,10 @@ class XRDBaseScan(XRDData):
         integration_data_key = input_dict.pop(
                                     'integration_data_key')
         recip_pos = input_dict.pop('recip_pos')
-        phases = input_dict.pop('phases')
-        spots = input_dict.pop('spots')
-        spot_model = input_dict.pop('spot_model')
-        spots_3D = input_dict.pop('spots_3D')
+        # phases = input_dict.pop('phases')
+        # spots = input_dict.pop('spots')
+        # spot_model = input_dict.pop('spot_model')
+        # spots_3D = input_dict.pop('spots_3D')
         vector_dict = input_dict.pop('vector_dict')
         
         # Other kwargs needing special treatment
@@ -498,7 +499,18 @@ class XRDBaseScan(XRDData):
         elif (input_dict['image_data'] is None
                 and input_dict['integration_data'] is not None):
             title = integration_title # truncate _integrations
-            corrections = integration_corrections        
+            corrections = integration_corrections  
+
+        # Set up extra attributes that do not go into __init__
+        extra_attrs = {}
+        extra_attrs.update(image_attrs)
+        extra_attrs.update(integration_attrs)
+        for attr_name in ['phases',
+                          'spots',
+                          'spot_model',
+                          'spots_3D']:
+            if input_dict[attr_name] is not None:
+                extra_attrs[attr_name] = input_dict.pop(attr_name)
         
         # Remove unused values
         # (keeps pos_dict out of rocking curve...)
@@ -506,51 +518,52 @@ class XRDBaseScan(XRDData):
             if value is None:
                 del input_dict[key]
 
-        # Set up extra attributes
-        extra_attrs = {}
-        extra_attrs.update(image_attrs)
-        extra_attrs.update(integration_attrs)
-        # Add phases
-        extra_attrs['phases'] = phases
-        # Add spots
-        if spots is not None:
-            extra_attrs['spots'] = spots
-        if spot_model is not None:
-            extra_attrs['spot_model'] = spot_model
-        if spots_3D is not None:
-            extra_attrs['spots_3D'] = spots_3D
+        # # Set up extra attributes
+        # extra_attrs = {}
+        # extra_attrs.update(image_attrs)
+        # extra_attrs.update(integration_attrs)
+        # # Add phases
+        # extra_attrs['phases'] = phases
+        # # Add spots
+        # if spots is not None:
+        #     extra_attrs['spots'] = spots
+        # if spot_model is not None:
+        #     extra_attrs['spot_model'] = spot_model
+        # if spots_3D is not None:
+        #     extra_attrs['spots_3D'] = spots_3D
 
         # Add vector information. Not super elegant
         if vector_dict is not None:
-            for key, value in vector_dict.items():
-                # Check for int cutoffs
-                # Wait to make sure intensity is processed
-                if key == 'blob_int_cutoff':
-                    # Backwards compatibility
-                    if 'relative_cutoff' in vector_dict:
-                        relative_cutoff = bool(vector_dict['relative_cutoff'])
-                    else:
-                        relative_cutoff = True
-                    intensity = vector_dict['vectors'][:, -1]
-                    (extra_attrs['blob_int_mask']
-                    ) = generate_intensity_mask(
-                        intensity,
-                        int_cutoff=vector_dict['blob_int_cutoff'],
-                        relative_cutoff=relative_cutoff)
-                elif key == 'spot_int_cutoff':
-                    # Backwards compatibilty
-                    if 'relative_cutoff' in vector_dict:
-                        relative_cutoff = bool(vector_dict['relative_cutoff'])
-                    else:
-                        relative_cutoff = True
-                    intensity = vector_dict['vectors'][:, -1]
-                    (extra_attrs['spot_int_mask']
-                    ) = generate_intensity_mask(
-                        intensity,
-                        int_cutoff=vector_dict['spot_int_cutoff'],
-                        relative_cutoff=relative_cutoff)
-                else:
-                    extra_attrs[key] = value
+            extra_attrs.update(cls._parse_vector_dict(vector_dict))
+            # for key, value in vector_dict.items():
+            #     # Check for int cutoffs
+            #     # Wait to make sure intensity is processed
+            #     if key == 'blob_int_cutoff':
+            #         # Backwards compatibility
+            #         if 'relative_cutoff' in vector_dict:
+            #             relative_cutoff = bool(vector_dict['relative_cutoff'])
+            #         else:
+            #             relative_cutoff = True
+            #         intensity = vector_dict['vectors'][:, -1]
+            #         (extra_attrs['blob_int_mask']
+            #         ) = generate_intensity_mask(
+            #             intensity,
+            #             int_cutoff=vector_dict['blob_int_cutoff'],
+            #             relative_cutoff=relative_cutoff)
+            #     elif key == 'spot_int_cutoff':
+            #         # Backwards compatibilty
+            #         if 'relative_cutoff' in vector_dict:
+            #             relative_cutoff = bool(vector_dict['relative_cutoff'])
+            #         else:
+            #             relative_cutoff = True
+            #         intensity = vector_dict['vectors'][:, -1]
+            #         (extra_attrs['spot_int_mask']
+            #         ) = generate_intensity_mask(
+            #             intensity,
+            #             int_cutoff=vector_dict['spot_int_cutoff'],
+            #             relative_cutoff=relative_cutoff)
+            #     else:
+            #         extra_attrs[key] = value
 
         # Instantiate XRDBaseScan
         inst = cls(**input_dict,
@@ -655,7 +668,7 @@ class XRDBaseScan(XRDData):
                 delattr(self, '_q_arr')
         
         # Re-write hdf values
-        @XRDBaseScan._protect_hdf()
+        @XRDData._protect_hdf()
         def save_attrs(self): # Not sure if this needs self...
             attrs = self.hdf[self._hdf_type].attrs
             overwrite_attr(attrs, 'energy', self.energy)
@@ -712,7 +725,7 @@ class XRDBaseScan(XRDData):
                 delattr(self, '_q_arr')
 
         # Re-write hdf values
-        @XRDBaseScan._protect_hdf()
+        @XRDData._protect_hdf()
         def save_attrs(self): # Not sure if this needs self...
             overwrite_attr(self.hdf[self._hdf_type].attrs,
                            'theta',
@@ -738,7 +751,7 @@ class XRDBaseScan(XRDData):
                 delattr(self, '_q_arr')
 
         # Re-write hdf values
-        @XRDBaseScan._protect_hdf()
+        @XRDData._protect_hdf()
         def save_attrs(self): # Not sure if this needs self...
             overwrite_attr(self.hdf[self._hdf_type].attrs,
                            'use_stage_rotation',
@@ -1105,9 +1118,7 @@ class XRDBaseScan(XRDData):
         else:
             # Success actually changes the write location
             # And likely initializes a new hdf
-
             old_base_attrs = dict(self.hdf[self._hdf_type].attrs)
-            # old_extra_metadata = dict(self.hdf[f'{self._hdf_type}/extra_metadata'].attrs)
 
             self.stop_saving_hdf()
             self.start_saving_hdf(hdf=hdf,
@@ -1121,12 +1132,7 @@ class XRDBaseScan(XRDData):
             # Overwrite from old values
             for key, value in old_base_attrs.items():
                 self.hdf[self._hdf_type].attrs[key] = value
-            # for key, value in old_extra_metadata.items():
-                # self.hdf[f'{self._hdf_type}/extra_metadata'].attrs[key] = value
 
-            
-            
-            
 
     ##############################
     ### Calibrating Map Images ###
@@ -1146,15 +1152,8 @@ class XRDBaseScan(XRDData):
 
         if isinstance(poni_file, str):
             poni_path = pathify(wd, poni_file, '.poni')
-            # if not os.path.exists(f'{wd}{poni_file}'):
-            #     err_str = f'{wd}{poni_file} does not exist.'
-            #     raise FileNotFoundError(err_str)
-
-            # if poni_file[-4:] != 'poni':
-            #     raise RuntimeError('Please provide a .poni file.')
 
             print('Setting detector calibration...')
-            # self.ai = pyFAI.load(f'{wd}{poni_file}')
             self.ai = pyFAI.load(poni_path)
         
         elif isinstance(poni_file, OrderedDict):
@@ -1224,7 +1223,7 @@ class XRDBaseScan(XRDData):
         # Extract calibration parameters to save
         self.poni = self.ai.get_config()
 
-        # reset any previous calibrated arrays
+        # Reset any previous calibrated arrays
         self._del_arr()
         
         # Save poni files as dictionary 
@@ -1259,10 +1258,8 @@ class XRDBaseScan(XRDData):
                     if isinstance(value_i, IntEnum):
                         value_i = value_i.value
                     overwrite_attr(new_new_grp.attrs, key_i, value_i)
-                    # new_new_grp.attrs[key_i] = value_i
             else:
                 overwrite_attr(new_grp.attrs, key, value)
-                # new_grp.attrs[key] = value
 
 
     # One off 1D integration
@@ -1897,20 +1894,6 @@ class XRDBaseScan(XRDData):
                     self.remove_phase(phase)
             self.save_phases()
 
-    
-    # This might be replaced with generate reciprocal lattice
-    # def _get_all_reflections(self, ignore_less=1):
-    #     """
-
-    #     """
-
-    #     for phase in self.phases:
-    #         self.phases[phase].get_hkl_reflections(
-    #             tth_range=(0, # Limited to zero for large d-spacing
-    #                           # Used for indexing later
-    #                        np.max(self.tth)),
-    #             ignore_less=ignore_less)
-
 
     ###########################
     ### Vectorized Data I/O ###
@@ -1931,8 +1914,9 @@ class XRDBaseScan(XRDData):
         print('Saving vectorized map data...')
         vector_grp = hdf[self._hdf_type].require_group(
                                                 'vectorized_map')
+        map_grp = vector_grp.require_group('vector_map')
         vector_grp.attrs['time_stamp'] = ttime.ctime()
-        vector_grp.attrs['vectorized_map_shape'] = vector_map.shape
+        map_grp.attrs['vectorized_map_shape'] = vector_map.shape
 
         all_used_indices = [] # For potential vmask shape changes
         for index in range(np.prod(vector_map.shape)):
@@ -1941,15 +1925,19 @@ class XRDBaseScan(XRDData):
             title = ','.join([str(ind) for ind in indices]) 
             all_used_indices.append(title)
 
-            XRDBaseScan._save_vectors(vector_grp,
+            XRDBaseScan._save_vectors(map_grp,
                                       vector_map[indices],
                                       title=title,
                                       rewrite_data=rewrite_data,
                                       verbose=verbose)
     
         # In case virtual shape changed; remove extra datasets
-        for dset_key in vector_grp.keys():
+        for dset_key in map_grp.keys():
             if dset_key not in all_used_indices:
+                del map_grp[dset_key]
+        # Backwards compatibility; scrub old data into new format
+        for dset_key in vector_grp.keys():
+            if dset_key not in all_used_indices + ['vector_map']:
                 del vector_grp[dset_key]
         
         # Save edges if available. Only useful for XRDMapStack
@@ -2110,25 +2098,60 @@ class XRDBaseScan(XRDData):
                             warn_str += '\nProceeding without changes.'
                             if verbose:
                                 print(warn_str)
+    
+    # Called in other functions. Not protected.
+    @staticmethod
+    def _parse_vector_dict(vector_dict):
+        vector_attrs = {}
 
+        # Parse vector_dict
+        if vector_dict is not None:
+            for key, value in vector_dict.items():
+                # Check for intensity masks
+                if key == 'spot_int_cutoff':
+                    # Backwards compatibility
+                    relative_cutoff = True
+                    if 'relative_cutoff' in vector_dict:
+                        relative_cutoff = bool(vector_dict['relative_cutoff'])
+                    intensity = vector_dict['vectors'][:, -1]
+                    (vector_attrs['spot_int_mask']
+                    ) = generate_intensity_mask(
+                        intensity,
+                        int_cutoff=vector_dict['spot_int_cutoff'],
+                        relative_cutoff=relative_cutoff)
+                elif key == 'blob_int_cutoff':
+                    # Backwards compatibility
+                    relative_cutoff = True
+                    if 'relative_cutoff' in value.attrs:
+                        relative_cutoff = bool(value.attrs['relative_cutoff'])
+                    intensity = vector_dict['vectors'][:, -1]
+                    (vector_attrs['blob_int_mask']
+                    ) = generate_intensity_mask(
+                        intensity,
+                        int_cutoff=vector_dict['blob_int_cutoff'],
+                        relative_cutoff=relative_cutoff)
+                else:
+                    vector_attrs[key] = value
+        
+        return vector_attrs
+    
+
+    @XRDData._protect_hdf()
+    def load_vectors(self,
+                     hdf):
+        # Load data from hdf
+        vector_dict = _load_xrd_hdf_vector_data(hdf[self._hdf_type])
+
+        # Universal parsing from XRDBaseScan class
+        vector_attrs = self._parse_vector_dict(vector_dict)
+
+        # Attach to current instance
+        for key, value in vector_attrs.items():
+            setattr(self, key, value)
 
     #################################
     ### Generalized Spot Analysis ###
     #################################
-
-    # # Called in other function, not protected
-    # def _save_spots(self, spots, hdf, hdf_path, extra_attrs, dset_name='spots'):
-    #     print('Saving spots to hdf...', end='', flush=True)
-    #     hdf_str = f'{self._hdf_type}/reflections/{dset_name}'
-    #     spots.to_hdf(hdf_path, key=hdf_str, format='table')
-
-    #     if extra_attrs is not None:
-    #         self.open_hdf()
-    #         for key, value in extra_attrs.items():
-    #             overwrite_attr(self.hdf[hdf_str].attrs, key, value)
-
-    #     print('done!')
-
     
     # Wrapped for child classes
     @staticmethod

@@ -29,7 +29,8 @@ from xrdmaptools.utilities.utilities import (
 from xrdmaptools.io.hdf_io import (
     initialize_xrdmapstack_hdf,
     load_xrdmapstack_hdf,
-    _load_xrd_hdf_vectorized_map_data
+    # _load_xrd_hdf_vectorized_map_data
+    _load_xrd_hdf_vector_data
     )
 from xrdmaptools.io.hdf_utils import (
     check_attr_overwrite,
@@ -314,8 +315,8 @@ class XRDMapStack(list):
     ai = _list_property_constructor('ai')
     pos_dict = _list_property_constructor('pos_dict')
     sclr_dict = _list_property_constructor('sclr_dict')
-    _swapped_axes = _list_property_constructor('_swapped_axes',
-                                               include_set=True)
+    # _swapped_axes = _list_property_constructor('_swapped_axes',
+    #                                            include_set=True)
 
     # Universal attributes
     beamline = _universal_property_constructor('beamline')
@@ -1108,8 +1109,8 @@ class XRDMapStack(list):
                              edges=None,
                              rewrite_data=False):
 
-        # Allows for more customizability with other functions
-        hdf = getattr(self, 'xdms_hdf')
+        # # Allows for more customizability with other functions
+        # hdf = getattr(self, 'xdms_hdf')
 
         # Check input
         if xdms_vector_map is None:
@@ -1132,25 +1133,36 @@ class XRDMapStack(list):
                 raise AttributeError(err_str)
     
         XRDMap._save_vector_map(self, # this might break
-                                hdf,
+                                self.xdms_hdf,
                                 vector_map=xdms_vector_map,
                                 edges=edges,
                                 rewrite_data=rewrite_data)
-        # Remove secondary reference
-        del hdf
+        # # Remove secondary reference
+        # del hdf
     
 
-    # Mostly verbatim
+    # # Almost verbatim from XRDBaseScan._load_vectors
+    # @_check_xdms_swapped_axes
+    # @_protect_xdms_hdf()
+    # def load_xdms_vector_map(self):
+    #     # Load data from hdf
+    #     # vector_dict = _load_xrd_hdf_vectorized_map_data(
+    #     #                                 self.xdms_hdf[self._hdf_type])
+    #     vector_dict = _load_xrd_hdf_vector_data(
+    #                                     self.xdms_hdf[self._hdf_type])
+
+    #     # Universal parsing from XRDBaseScan class
+    #     vector_attrs = XRDBaseScan._parse_vector_dict(vector_dict)
+
+    #     # Attach to current instance
+    #     for key, value in vector_attrs.items():
+    #         setattr(self, key, value)
+
+    # Almost verbatim with XRDMap.load_vector_map
     @_check_xdms_swapped_axes
-    @_protect_xdms_hdf()
-    def load_xdms_vector_map(self):
-        vector_dict = _load_xrd_hdf_vectorized_map_data(
-                                        self.xdms_hdf[self._hdf_type])
-        self.vector_map = vector_dict['vector_map']
-        self.edges = vector_dict['edges']
-
-
-
+    @XRDBaseScan._protect_hdf()
+    def load_vector_map(self):
+        XRDBaseScan._load_vectors(self.xdms_hdf)
 
 
     # Need to modify to not look for a random image

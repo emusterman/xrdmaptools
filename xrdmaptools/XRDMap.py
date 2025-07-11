@@ -17,7 +17,7 @@ from xrdmaptools.utilities.utilities import (
     pathify,
     _check_dict_key
 )
-from xrdmaptools.io.hdf_io import _load_xrd_hdf_vectorized_map_data
+# from xrdmaptools.io.hdf_io import _load_xrd_hdf_vectorized_map_data
 from xrdmaptools.io.hdf_utils import (
     check_attr_overwrite,
     overwrite_attr,
@@ -1182,8 +1182,8 @@ class XRDMap(XRDBaseScan):
                         rewrite_data=False,
                         verbose=False):
 
-        # Allows for more customizability with other functions
-        hdf = getattr(self, 'hdf')
+        # # Allows for more customizability with other functions
+        # hdf = getattr(self, 'hdf')
 
         # Check input
         if vector_map is None:
@@ -1201,22 +1201,23 @@ class XRDMap(XRDBaseScan):
             if hasattr(self, 'edges'):
                 edges = self.edges
     
-        self._save_vector_map(hdf,
+        self._save_vector_map(self.hdf,
                               vector_map=vector_map,
                               edges=edges,
                               rewrite_data=rewrite_data,
                               verbose=verbose)
         
-        # Remove secondary reference
-        del hdf
+        # # Remove secondary reference
+        # del hdf
     
 
     @_check_swapped_axes
     @XRDBaseScan._protect_hdf()
     def load_vector_map(self):
-        vector_dict = _load_xrd_hdf_vectorized_map_data(
-                                        self.hdf[self._hdf_type])
-        self.vector_map = vector_dict['vector_map']
+        self._load_vectors(self.hdf)
+    #     vector_dict = _load_xrd_hdf_vectorized_map_data(
+    #                                     self.hdf[self._hdf_type])
+    #     self.vector_map = vector_dict['vector_map']
 
 
     #################################

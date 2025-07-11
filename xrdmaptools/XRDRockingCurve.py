@@ -11,9 +11,6 @@ import matplotlib.pyplot as plt
 from plotly import graph_objects as go
 import dask.array as da
 
-# from .XRDMap import XRDMap
-# from .utilities.utilities import timed_iter
-
 from xrdmaptools.XRDBaseScan import XRDBaseScan
 from xrdmaptools.utilities.math import (
     energy_2_wavelength,
@@ -28,7 +25,6 @@ from xrdmaptools.geometry.geometry import (
     q_2_polar,
     QMask
 )
-from xrdmaptools.io.hdf_io import _load_xrd_hdf_vectorized_map_data
 from xrdmaptools.io.hdf_utils import (
     check_attr_overwrite,
     overwrite_attr
@@ -789,8 +785,8 @@ class XRDRockingCurve(XRDBaseScan):
                      rewrite_data=False,
                      verbose=False):
 
-        # Allows for more customizability with other functions
-        hdf = getattr(self, 'hdf')
+        # # Allows for more customizability with other functions
+        # hdf = getattr(self, 'hdf')
 
         # Check input
         if vectors is None:
@@ -812,21 +808,26 @@ class XRDRockingCurve(XRDBaseScan):
                            + 'edges attribute.')
                 raise AttributeError(err_str)
     
-        self._save_rocking_vectorization(hdf,
+        self._save_rocking_vectorization(self.hdf,
                                          vectors,
                                          edges=edges,
                                          rewrite_data=rewrite_data,
                                          verbose=verbose)
-        # Remove secondary reference
-        del hdf
+        # # Remove secondary reference
+        # del hdf
     
 
     @XRDBaseScan._protect_hdf()
     def load_vectors(self):
-        vector_dict = _load_xrd_hdf_vectorized_data(base_grp)(
-                                        self.hdf[self._hdf_type])
-        self.vectors = vector_dict['vectors']
-        self.edges = vector_dict['edges']
+        self._load_vectors(self.hdf)
+    #     # Load data from hdf
+    #     vector_dict = _load_xrd_hdf_vectorized_data(base_grp)(
+    #                                     self.hdf[self._hdf_type])
+    #     # Universal parsing from XRDBaseScan class
+    #     vector_attrs = self._parse_vector_dict(vector_dict)
+
+    #     # self.vectors = vector_dict['vectors']
+    #     # self.edges = vector_dict['edges']
                             
 
     #######################
@@ -835,8 +836,9 @@ class XRDRockingCurve(XRDBaseScan):
 
 
     def get_vector_int_mask(self,
+                            intensity=None,
                             int_cutoff=0,
-                            relative=True):
+                            relative_cutoff=True):
 
         if intensity is None:
             if (hasattr(self, 'vectors')
@@ -1002,7 +1004,7 @@ class XRDRockingCurve(XRDBaseScan):
             self.save_vector_information(
                 self.spot_labels,
                 'spot_labels',
-                extra_attrs={'spot_int_cutoff' : int_cutoff
+                extra_attrs={'spot_int_cutoff' : int_cutoff,
                              'relative_cutoff' : int(relative_cutoff)})
         
 
@@ -1033,9 +1035,6 @@ class XRDRockingCurve(XRDBaseScan):
             for key, value in extra_attrs.items():
                 overwrite_attr(self.hdf[hdf_str].attrs, key, value)      
         print('done!')
-
-
-
 
 
     @XRDBaseScan._protect_hdf()
