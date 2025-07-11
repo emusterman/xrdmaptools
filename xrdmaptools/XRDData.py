@@ -15,7 +15,7 @@ from xrdmaptools.io.hdf_utils import (
     get_optimal_chunks
 )
 from xrdmaptools.utilities.math import (
-    rescale_array
+    rescale_array,
     check_precision
 )
 from xrdmaptools.utilities.utilities import (
