@@ -305,7 +305,7 @@ def fit_spline_bkg(xrddata, mask=None, sparsity=0.5, s=5000):
 def masked_bruckner_background(image_map,
                                size=10,
                                max_iterations=100,
-                               binning=2,
+                               binning=4,
                                min_prominence=0.1,
                                mask=None,
                                inplace=True,
