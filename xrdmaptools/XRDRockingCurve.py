@@ -346,12 +346,6 @@ class XRDRockingCurve(XRDBaseScan):
         self._parse_subscriptable_value(energy, 'energy')
         self._wavelength = energy_2_wavelength(self._energy)
 
-        # Propogate changes...
-        if hasattr(self, 'ai') and self.ai is not None:
-            self.ai.energy = self._energy[0]
-            if hasattr(self, '_q_arr'):
-                delattr(self, '_q_arr')
-
         @XRDBaseScan._protect_hdf()
         def save_attrs(self): # Not sure if this needs self...
             attrs = self.hdf[self._hdf_type].attrs
@@ -365,13 +359,6 @@ class XRDRockingCurve(XRDBaseScan):
     def wavelength(self, wavelength):
         self._parse_subscriptable_value(wavelength, 'wavelength')
         self._energy = wavelength_2_energy(self._wavelength)
-
-        # Propogate changes...
-        if hasattr(self, 'ai') and self.ai is not None:
-            self.ai.energy = self._energy[0]
-            if hasattr(self, '_q_arr'):
-                pass
-                # delattr(self, '_q_arr')
 
         @XRDBaseScan._protect_hdf()
         def save_attrs(self): # Not sure if this needs self...
@@ -391,12 +378,6 @@ class XRDRockingCurve(XRDBaseScan):
             print(warn_str)
             theta = 0
         self._parse_subscriptable_value(theta, 'theta')
-
-        # Propogate changes...
-        if hasattr(self, 'ai'):
-            if hasattr(self, '_q_arr'):
-                pass
-                # delattr(self, '_q_arr')
             
         @XRDBaseScan._protect_hdf()
         def save_attrs(self): # Not sure if this needs self...
@@ -427,12 +408,6 @@ class XRDRockingCurve(XRDBaseScan):
                             stage_rotation=theta,
                             degrees=self.polar_units == 'deg',
                             rotation_axis='y') # hard-coded for srx
-
-    @q_arr.deleter
-    def q_arr(self):
-        # Generator version leaves nothing to delete, but this allows
-        # for the call without throwing errors
-        pass 
     
 
     ##########################
@@ -1030,7 +1005,20 @@ class XRDRockingCurve(XRDBaseScan):
                 extra_attrs={'spot_int_cutoff' : int_cutoff
                              'relative_cutoff' : int(relative_cutoff)})
         
-    
+
+    def trim_spots(self,
+                   remove_less=0.01,
+                   key='intensity',
+                   save_spots=False):
+        
+        self._trim_spots(self.spots_3D,
+                         remove_less=remove_less,
+                         key=key)
+
+        if save_spots:
+            self.save_spots()    
+
+
     # Analog of 2D spots from xrdmap
     @XRDBaseScan._protect_hdf(pandas=True)
     def save_3D_spots(self, extra_attrs=None):
@@ -1047,17 +1035,7 @@ class XRDRockingCurve(XRDBaseScan):
         print('done!')
 
 
-    def trim_spots(self,
-                   remove_less=0.01,
-                   key='intensity',
-                   save_spots=False):
-        
-        self._trim_spots(self.spots_3D,
-                         remove_less=remove_less,
-                         key=key)
 
-        if save_spots:
-            self.save_spots()
 
 
     @XRDBaseScan._protect_hdf()
