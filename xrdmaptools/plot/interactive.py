@@ -2,7 +2,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.colors import Normalize, LogNorm
 from mpl_toolkits.mplot3d.art3d import Path3DCollection
-
+from matplotlib.widgets import SpanSelector, RectangleSelector
 
 '''
 Preliminary interactive plotting for scanning XRD maps from SRX beamline.
@@ -89,7 +89,6 @@ def _update_axes(dyn_kw,
         elif len(dyn_kw['data'].shape) == 4:
             dimensions = 2
     
-    # dyn_kw['axes'][1].clear()
     if dimensions == 1:
         _update_plot(dyn_kw=dyn_kw)
 
@@ -301,8 +300,7 @@ def _update_marker(axi=None,
 def _update_map(data=None,
                 map_kw={},
                 axis=None,
-                cmap='viridis',
-                update=False):
+                cmap='viridis'):
     '''
         
     '''
@@ -353,7 +351,6 @@ def _update_map(data=None,
         elif map_kw['scale'] in ['log', 'logrithmic']:
             map_kw['scale'] = LogNorm
 
-        
         # Plot Image!
         im = axis.imshow(map_kw['map'],
                             cmap=cmap,
@@ -401,7 +398,7 @@ def _set_globals(axis, map_kw):
     map_y = map_kw['y_ticks'][row]
 
 
-### Variations of Plotting Functions ###
+### Interactive plotting functions ###
 
 def interactive_1D_plot(dyn_kw={},
                         map_kw={},
@@ -570,6 +567,258 @@ def interactive_3D_plot(dyn_kw={},
     return fig, ax
 
 
+### 1D Windowed Plots ###
+
+def _interactive_1D_window_plot(dyn_kw={},
+                                map_kw={},
+                                func=None,
+                                map_label=None,
+                                cmap='viridis',
+                                marker_color='red'):
+    '''
+    
+    '''
+
+    # Check axes range
+    if _check_missing_key(dyn_kw, 'x_ticks'):
+        dyn_kw['x_ticks'] = range(dyn_kw['data'].shape[-1])
+
+    # Generate plot
+    fig, ax = plt.subplots(1, 2, figsize=_figsize, dpi=_dpi)
+
+    dyn_kw['axes'] = ax
+    _update_map(dyn_kw['data'],
+                map_kw=map_kw,
+                axis=ax[0],
+                cmap=cmap)
+    
+    _set_globals(ax[0], map_kw)
+    _update_axes(dyn_kw,
+                 dimensions=1,
+                 fig=fig,
+                 cmap=cmap,
+                 marker_color=marker_color)
+
+    def onselect(xmin, xmax):
+        indmin, indmax = np.searchsorted(dyn_kw['x_ticks'],
+                                         (xmin, xmax))
+        indmax = min(len(dyn_kw['x_ticks']) - 1, indmax)
+
+        if indmax - indmin >= 1:
+            new_map = func(dyn_kw, map_kw, slice(indmin, indmax))
+            
+            map_kw['map'] = new_map
+            map_kw['title'] = f'{map_label} from {xmin:.2f}-{xmax:.2f}'
+
+            dyn_kw['axes'][0].images[0].set_norm(
+                map_kw['scale'](map_kw['vmin'], map_kw['vmax']))
+            _update_map(
+                map_kw=map_kw,
+                axis=ax[0],
+                cmap=cmap)
+            fig.canvas.draw_idle()
+    
+    # Manually set integration to max value
+    axi = dyn_kw['axes'][1].lines[0]
+    axi.set_data(dyn_kw['x_ticks'], np.max(dyn_kw['data'], axis=(0, 1)))
+    dyn_kw['axes'][1].set_title('Max Integration')
+
+    span = SpanSelector(
+        ax[1],
+        onselect,
+        "horizontal",
+        useblit=True,
+        props=dict(alpha=0.5, facecolor="tab:red"),
+        interactive=True,
+        drag_from_anywhere=True
+    )
+
+    fig.show()
+    return fig, ax, span
+
+
+def interactive_1D_window_sum_plot(**kwargs):
+
+    def func(dyn_kw, map_kw, inds):
+        new_map = np.sum(dyn_kw['data'][:, :, inds], axis=-1)
+        # Keep current values of plot
+        map_kw['vmin'], map_kw['vmax'] = dyn_kw['axes'][0].images[0].get_clim()
+
+        return new_map
+
+    return _interactive_1D_window_plot(**kwargs,
+                                       func=func,
+                                       map_label='Sum')
+
+
+def interactive_1D_window_com_plot(**kwargs):
+    
+    # def func(vals, inds):
+    #     return (np.sum(vals * inds, axis=-1) / np.sum(vals, axis=-1))
+    def func(dyn_kw, map_kw, inds):
+        new_map = (np.sum(dyn_kw['data'][..., inds]
+                          * dyn_kw['x_ticks'][inds], axis=-1)
+                   / np.sum(dyn_kw['data'][..., inds], axis=-1))
+        map_kw['vmin'] = np.min(dyn_kw['x_ticks'][inds])
+        map_kw['vmax'] = np.max(dyn_kw['x_ticks'][inds])
+        return new_map
+    
+    return _interactive_1D_window_plot(**kwargs,
+                                       func=func,
+                                       map_label='2θ CoM')
+
+
+### 2D Windowed Plots ###
+
+def _interactive_2D_window_plot(dyn_kw={},
+                                map_kw={},
+                                func=None,
+                                map_label=None,
+                                cmap='viridis',
+                                marker_color='red'):
+    '''
+    
+    '''
+
+    # Check axes range
+    if _check_missing_key(dyn_kw, 'x_ticks'):
+        dyn_kw['x_ticks'] = range(dyn_kw['data'].shape[-1])
+
+    # Generate plot
+    fig, ax = plt.subplots(1, 2, figsize=_figsize, dpi=_dpi)
+
+    dyn_kw['axes'] = ax
+    _update_map(dyn_kw['data'],
+                map_kw=map_kw,
+                axis=ax[0],
+                cmap=cmap)
+    
+    _set_globals(ax[0], map_kw)
+    _update_axes(dyn_kw,
+                 dimensions=2,
+                 fig=fig,
+                 cmap=cmap,
+                 marker_color=marker_color)
+
+    def onselect(eclick, erelease):
+        x1, y1 = eclick.xdata, eclick.ydata
+        x2, y2 = erelease.xdata, erelease.ydata
+
+        ymin = np.min([y1, y2]).round().astype(int)
+        ymax = np.max([y1, y2]).round().astype(int)
+        xmin = np.min([x1, x2]).round().astype(int)
+        xmax = np.max([x1, x2]).round().astype(int)
+
+        if ymax != ymin and xmax != xmin:
+            rect_slice = (slice(ymin, ymax), slice(xmin, xmax))
+
+            new_map = func(dyn_kw, map_kw, rect_slice)
+            
+            map_kw['map'] = new_map
+            map_kw['title'] = f'ROI {map_label}'
+
+            dyn_kw['axes'][0].images[0].set_norm(
+                map_kw['scale'](map_kw['vmin'], map_kw['vmax']))         
+            _update_map(
+                map_kw=map_kw,
+                axis=ax[0],
+                cmap=cmap,
+                update_clim=True)
+
+            fig.canvas.draw_idle()
+
+    def toggle_selector(event):
+        if event.key == 't':
+            if rect.active:
+                print(f'ROI selector deactivated.')
+                rect.set_active(False)
+            else:
+                print(f'ROI selector activated.')
+                rect.set_active(True)
+
+    # Manually set image to max image
+    axi = dyn_kw['axes'][1].images[0]
+    max_img = np.max(dyn_kw['data'], axis=(0, 1))
+    axi.set_data(max_img)
+    dyn_kw['axes'][1].set_title("Max Image\nDraw box for ROI here. Toggle 't' to turn off.")
+    dyn_kw['vmin'] = max_img.min()
+    dyn_kw['vmax'] = max_img.max()
+    axi.set_clim(dyn_kw['vmin'], dyn_kw['vmax'])
+
+    rect = RectangleSelector(
+        ax[1],
+        onselect,
+        useblit=True,
+        button=[1, 3],  # disable middle button
+        minspanx=1,
+        minspany=1,
+        spancoords='pixels',
+        interactive=True,
+        props=dict(alpha=0.5, facecolor="tab:red"),
+    )
+
+    fig.canvas.mpl_connect('key_press_event', toggle_selector)
+    fig.show()
+    return fig, ax, rect
+
+
+def interactive_2D_window_sum_plot(**kwargs):
+
+    def func(dyn_kw, map_kw, rect_slice):
+        return np.sum(dyn_kw['data'][..., *rect_slice], axis = (-2, -1))
+
+    return _interactive_2D_window_plot(**kwargs,
+                                       func=func,
+                                       map_label='Sum')
+
+
+def interactive_2D_window_tth_com_plot(dyn_kw={},
+                                       **kwargs):
+    # Specific check
+    if 'tth_arr' not in dyn_kw:
+        raise ValueError("Must provide 'tth_arr' in dyn_kw!")
+
+    def func(dyn_kw, map_kw, rect_slice):
+        weight_rect = dyn_kw['data'][..., *rect_slice]
+        tth_rect = dyn_kw['tth_arr'][rect_slice]
+        div_map = np.sum(dyn_kw['data'][..., *rect_slice], axis=(-2, -1))
+        tth_map = np.sum(weight_rect * tth_rect, axis=(-2, -1)) / div_map
+
+        map_kw['vmin'] = np.min(tth_rect)
+        map_kw['vmax'] = np.max(tth_rect)
+
+        return tth_map
+
+    return _interactive_2D_window_plot(dyn_kw=dyn_kw,
+                                       **kwargs,
+                                       func=func,
+                                       map_label='2θ CoM')
+
+
+def interactive_2D_window_chi_com_plot(dyn_kw={},
+                                       **kwargs):
+    # Specific check
+    if 'chi_arr' not in dyn_kw:
+        raise ValueError("Must provide 'chi_arr' in dyn_kw!")
+
+    def func(dyn_kw, map_kw, rect_slice):
+        weight_rect = dyn_kw['data'][..., *rect_slice]
+        chi_rect = dyn_kw['chi_arr'][rect_slice]
+        div_map = np.sum(dyn_kw['data'][..., *rect_slice], axis=(-2, -1))
+        chi_map = np.sum(weight_rect * chi_rect, axis=(-2, -1)) / div_map
+
+        map_kw['vmin'] = np.min(chi_rect)
+        map_kw['vmax'] = np.max(chi_rect)
+
+        return chi_map
+
+    return _interactive_2D_window_plot(dyn_kw=dyn_kw,
+                                       **kwargs,
+                                       func=func,
+                                       map_label='χ CoM')
+
+
+
 
 
 ### Not fully implemented into dataset classes
@@ -602,9 +851,9 @@ def interactive_2D_1D_plot(dyn_2D_kw={},
     dyn_1D_kw['axes'] = [ax[0], ax[2]]
 
     _update_map(dyn_1D_kw['data'],
-                 map_kw=map_kw,
-                 axis=ax[0],
-                 cmap=cmap)
+                map_kw=map_kw,
+                axis=ax[0],
+                cmap=cmap)
 
     # Set globals and first plots
     _set_globals(ax[0], map_kw)
@@ -678,9 +927,9 @@ def interactive_1D_1D_plot(dyn_kw1={},
     dyn_kw2['axes'] = [ax[0], ax[2]]
 
     _update_map(dyn_kw1['data'],
-                 map_kw=map_kw,
-                 axis=ax[0],
-                 cmap=cmap)
+                map_kw=map_kw,
+                axis=ax[0],
+                cmap=cmap)
 
     # Set globals and first plots
     _set_globals(ax[0], map_kw)
@@ -750,9 +999,9 @@ def interactive_shared_2D_1D_plot(dyn_2D_kw={},
     dyn_1D_kw['axes'] = [ax[0], ax[2]]
 
     _update_map(dyn_1D_kw['data'],
-                 map_kw=map_kw,
-                 axis=ax[0],
-                 cmap=cmap)
+                map_kw=map_kw,
+                axis=ax[0],
+                cmap=cmap)
 
     # Set globals and first plots
     _set_globals(ax[0], map_kw)
@@ -802,6 +1051,10 @@ def interactive_shared_2D_1D_plot(dyn_2D_kw={},
 
 
 
+
+
+
+
 ### Small Helper Functions ###
 
 def _fill_kwargs(kwargs, keys):
@@ -836,266 +1089,6 @@ def _find_image_extent(x_ticks, y_ticks):
 
 ### WIP Functions ###
 
-from matplotlib.widgets import SpanSelector
-
-def static_window_sum_1D_plot(dyn_kw={},
-                              map_kw={},
-                              cmap='viridis',
-                              marker_color='red'):
-    '''
-    
-    '''
-
-    # Check axes range
-    if _check_missing_key(dyn_kw, 'x_ticks'):
-        dyn_kw['x_ticks'] = range(dyn_kw['data'].shape[-1])
-
-    # Generate plot
-    fig, ax = plt.subplots(1, 2, figsize=_figsize, dpi=_dpi)
-    
-    # Fill and save set values
-    map_kw = _fill_kwargs(map_kw,
-            ['vmin',
-             'vmax'])
-    map_vmin = map_kw['vmin']
-    map_vmax = map_kw['vmax']
-
-    dyn_kw['axes'] = ax
-    _update_map(dyn_kw['data'],
-                 map_kw=map_kw,
-                 axis=ax[0],
-                 cmap=cmap)
-    
-    _set_globals(ax[0], map_kw)
-    _update_axes(dyn_kw,
-                 dimensions=1,
-                 fig=fig,
-                 cmap=cmap,
-                 marker_color=marker_color)
-
-    def onselect(xmin, xmax):
-        indmin, indmax = np.searchsorted(dyn_kw['x_ticks'],
-                                         (xmin, xmax))
-        indmax = min(len(dyn_kw['x_ticks']) - 1, indmax)
-
-        if indmax - indmin >= 1:
-            new_map = np.sum(dyn_kw['data'][..., indmin : indmax], axis=(-1))
-            
-            map_kw['map'] = new_map
-            map_kw['title'] = f'Sum from {xmin:.2f}-{xmax:.2f}'
-            map_kw['vmin'] = map_vmin
-            map_kw['vmax'] = map_vmax
-
-            _update_map(
-                map_kw=map_kw,
-                axis=ax[0],
-                cmap=cmap,
-                update=True)
-            fig.canvas.draw_idle()
-    
-    # Manually set integration to max value
-    axi = dyn_kw['axes'][1].lines[0]
-    axi.set_data(dyn_kw['x_ticks'], np.max(dyn_kw['data'], axis=(0, 1)))
-    dyn_kw['axes'][1].set_title('Max Integration')
-
-    span = SpanSelector(
-        ax[1],
-        onselect,
-        "horizontal",
-        useblit=True,
-        props=dict(alpha=0.5, facecolor="tab:red"),
-        interactive=True,
-        drag_from_anywhere=True
-    )
-
-    fig.show()
-    return fig, ax, span
-
-
-def static_window_com_1D_plot(dyn_kw={},
-                              map_kw={},
-                              cmap='viridis',
-                              marker_color='red'):
-    '''
-    
-    '''
-
-    # Check axes range
-    if _check_missing_key(dyn_kw, 'x_ticks'):
-        dyn_kw['x_ticks'] = range(dyn_kw['data'].shape[-1])
-
-    # Generate plot
-    fig, ax = plt.subplots(1, 2, figsize=_figsize, dpi=_dpi)
-    
-    # Fill and save set values
-    # map_kw = _fill_kwargs(map_kw,
-    #         ['vmin',
-    #          'vmax'])
-
-    dyn_kw['axes'] = ax
-    _update_map(dyn_kw['data'],
-                 map_kw=map_kw,
-                 axis=ax[0],
-                 cmap=cmap)
-
-    map_vmin = map_kw['vmin']
-    map_vmax = map_kw['vmax']
-    
-    # Set globals and first plot
-    _set_globals(ax[0], map_kw)
-    _update_axes(dyn_kw,
-                 dimensions=1,
-                 fig=fig,
-                 cmap=cmap,
-                 marker_color=marker_color)
-
-    def onselect(xmin, xmax):
-        indmin, indmax = np.searchsorted(dyn_kw['x_ticks'],
-                                         (xmin, xmax))
-        indmax = min(len(dyn_kw['x_ticks']) - 1, indmax)
-
-        if indmax - indmin >= 1:
-
-            new_map = (np.sum(dyn_kw['data'][..., indmin : indmax]
-                              * dyn_kw['x_ticks'][indmin : indmax], axis=-1)
-                       / np.sum(dyn_kw['data'][..., indmin : indmax], axis=-1))
-            
-            map_kw['map'] = new_map
-            map_kw['title'] = f'Center of Mass from {xmin:.2f}-{xmax:.2f}'
-            map_kw['vmin'] = map_vmin
-            map_kw['vmax'] = map_vmax
-
-            _update_map(
-                map_kw=map_kw,
-                axis=ax[0],
-                cmap=cmap,
-                update=True)
-            fig.canvas.draw_idle()
-    
-    # Manual set integration to max value
-    axi = dyn_kw['axes'][1].lines[0]
-    axi.set_data(dyn_kw['x_ticks'], np.max(dyn_kw['data'], axis=(0, 1)))
-    dyn_kw['axes'][1].set_title('Max Integration')
-
-    span = SpanSelector(
-        ax[1],
-        onselect,
-        "horizontal",
-        useblit=True,
-        props=dict(alpha=0.5, facecolor="tab:red"),
-        interactive=True,
-        drag_from_anywhere=True
-    )
-
-    fig.show()
-    return fig, ax, span
-    
-
-# WIP: The dynamic nature of the 1D plots makes this function finicky
-def integrateable_dynamic_1D_plot(dyn_kw={},
-                                  map_kw={},
-                                  cmap='viridis',
-                                  marker_color='red'):
-    '''
-    
-    '''
-
-    # Check axes range
-    if _check_missing_key(dyn_kw, 'x_ticks'):
-        dyn_kw['x_ticks'] = range(dyn_kw['data'].shape[-1])
-
-    # Generate plot
-    fig, ax = plt.subplots(1, 2, figsize=_figsize, dpi=_dpi)
-    
-
-    # Fill and save set values
-    # map_kw = _fill_kwargs(map_kw,
-    #         ['vmin',
-    #          'vmax'])
-
-
-    dyn_kw['axes'] = ax
-    _update_map(dyn_kw['data'],
-                 map_kw=map_kw,
-                 axis=ax[0],
-                 cmap=cmap)
-    
-    map_vmin = map_kw['vmin']
-    map_vmax = map_kw['vmax']    
-    
-    _set_globals(ax[0], map_kw)
-    _update_axes(dyn_kw,
-                 dimensions=1,
-                 fig=fig,
-                 cmap=cmap,
-                 marker_color=marker_color)
-
-    def update_axes(event):
-        if _update_coordinates(event,
-                               map_kw):
-            _update_axes(dyn_kw,
-                         dimensions=1,
-                         fig=fig,
-                         cmap=cmap,
-                         marker_color=marker_color)
-
-
-    def onselect(xmin, xmax):
-        indmin, indmax = np.searchsorted(dyn_kw['x_ticks'],
-                                         (xmin, xmax))
-        indmax = min(len(dyn_kw['x_ticks']) - 1, indmax)
-
-        if indmax - indmin >= 1:
-            # new_map = np.sum(dyn_kw['data'][:, :, indmin : indmax],
-            #              axis=(-1))
-
-            new_map = (np.sum(dyn_kw['data'][..., indmin : indmax]
-                              * dyn_kw['x_ticks'][indmin : indmax], axis=-1)
-                       / np.sum(dyn_kw['data'][..., indmin : indmax], axis=-1))
-            
-            map_kw['map'] = new_map
-            # map_kw['title'] = 'Selected ROI'
-            map_kw['title'] = f'Sum from {xmin:.2f}-{xmax:.2f}'
-            map_kw['vmin'] = map_vmin
-            map_kw['vmax'] = map_vmax
-
-            _update_map(
-                map_kw=map_kw,
-                axis=ax[0],
-                cmap=cmap,
-                update=True)
-            fig.canvas.draw_idle()
-
-    # Make interactive
-    def onclick(event):
-        if event.inaxes == ax[0]:
-            global dynamic_toggle, marker
-            dynamic_toggle = not dynamic_toggle
-            update_axes(event)
-
-    # Make dynamic
-    def onmove(event):
-        global dynamic_toggle
-        if dynamic_toggle:
-            if event.inaxes == ax[0]:
-                update_axes(event)
-
-    span = SpanSelector(
-        ax[1],
-        onselect,
-        "horizontal",
-        useblit=True,
-        props=dict(alpha=0.5, facecolor="tab:red"),
-        interactive=True,
-        drag_from_anywhere=True
-    )
-
-    cid = fig.canvas.mpl_connect('button_press_event', onclick)
-    binding_id = plt.connect('motion_notify_event', onmove)
-    return fig, ax, span
-
-
-
 # Written quickly
 def interactive_3D_labeled_plot(dyn_kw={},
                                 map_kw={},
@@ -1110,9 +1103,9 @@ def interactive_3D_labeled_plot(dyn_kw={},
     ax = [fig.add_axes(121), fig.add_axes(122, projection='3d')]
     dyn_kw['axes'] = ax
     _update_map(dyn_kw['data'],
-                 map_kw=map_kw,
-                 axis=ax[0],
-                 cmap=cmap)
+                map_kw=map_kw,
+                axis=ax[0],
+                cmap=cmap)
 
     # Set globals and first scatter
     _set_globals(ax[0], map_kw)

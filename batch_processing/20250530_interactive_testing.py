@@ -83,8 +83,7 @@ def static_window_stats_2D_plot(dyn_kw={},
                 _update_map(
                     map_kw=map_kw,
                     axis=ax,
-                    cmap=cmap,
-                    update=True)
+                    cmap=cmap)
             fig.canvas.draw_idle()
 
     def toggle_selector(event):
