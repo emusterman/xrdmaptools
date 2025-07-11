@@ -46,6 +46,8 @@ def __dir__():
 
 
 # Bring class objects one level up for convenience
+from .XRDData import XRDData
+from .XRDBaseScan import XRDBaseScan
 from .XRDMap import XRDMap
 from .XRDRockingCurve import XRDRockingCurve
 from .XRDMapStack import XRDMapStack
