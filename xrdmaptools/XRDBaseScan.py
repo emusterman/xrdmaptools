@@ -526,19 +526,29 @@ class XRDBaseScan(XRDData):
                 # Check for int cutoffs
                 # Wait to make sure intensity is processed
                 if key == 'blob_int_cutoff':
+                    # Backwards compatibility
+                    if 'relative_cutoff' in vector_dict:
+                        relative_cutoff = bool(vector_dict['relative_cutoff'])
+                    else:
+                        relative_cutoff = True
                     intensity = vector_dict['vectors'][:, -1]
                     (extra_attrs['blob_int_mask']
                     ) = generate_intensity_mask(
                         intensity,
-                        intensity_cutoff=vector_dict[
-                                            'blob_int_cutoff'])
+                        int_cutoff=vector_dict['blob_int_cutoff'],
+                        relative_cutoff=relative_cutoff)
                 elif key == 'spot_int_cutoff':
+                    # Backwards compatibilty
+                    if 'relative_cutoff' in vector_dict:
+                        relative_cutoff = bool(vector_dict['relative_cutoff'])
+                    else:
+                        relative_cutoff = True
                     intensity = vector_dict['vectors'][:, -1]
                     (extra_attrs['spot_int_mask']
                     ) = generate_intensity_mask(
                         intensity,
-                        intensity_cutoff=vector_dict[
-                                            'spot_int_cutoff'])
+                        int_cutoff=vector_dict['spot_int_cutoff'],
+                        relative_cutoff=relative_cutoff)
                 else:
                     extra_attrs[key] = value
 

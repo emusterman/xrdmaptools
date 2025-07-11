@@ -860,8 +860,8 @@ class XRDRockingCurve(XRDBaseScan):
 
 
     def get_vector_int_mask(self,
-                            intensity=None,
-                            intensity_cutoff=0):
+                            int_cutoff=0,
+                            relative=True):
 
         if intensity is None:
             if (hasattr(self, 'vectors')
@@ -870,7 +870,8 @@ class XRDRockingCurve(XRDBaseScan):
         
         int_mask = generate_intensity_mask(
                         intensity,
-                        intensity_cutoff)
+                        int_cutoff=int_cutoff,
+                        relative_cutoff=relative_cutoff)
 
         return int_mask
 
@@ -921,19 +922,19 @@ class XRDRockingCurve(XRDBaseScan):
                       max_dist=0.05,
                       max_neighbors=5,
                       subsample=1,
-                      intensity_cutoff=0,
+                      int_cutoff=0,
+                      relative_cutoff=True,
                       save_to_hdf=True):
 
         if (not hasattr(self, 'vectors')
             or self.vectors is None):
-        # if (not hasattr(self, 'q_vectors')
-        #     or not hasattr(self, 'intensity')):
             err_str = ('Cannot perform 3D spot search without '
                        + 'first vectorizing images.')
             raise AttributeError(err_str)
 
         int_mask = self.get_vector_int_mask(
-                        intensity_cutoff=intensity_cutoff)
+                        int_cutoff=int_cutoff,
+                        relative_cutoff=relative_cutoff)
 
         labels = rsm_blob_search(self.vectors[:, :3][int_mask],
                                  max_dist=max_dist,
@@ -947,17 +948,19 @@ class XRDRockingCurve(XRDBaseScan):
             self.save_vector_information(
                 self.blob_labels,
                 'blob_labels',
-                extra_attrs={'blob_int_cutoff' : intensity_cutoff})
+                extra_attrs={'blob_int_cutoff' : int_cutoff,
+                             'relative_cutoff' : int(relative_cutoff)})
         
     
     def find_3D_spots(self,
                       nn_dist=0.005,
                       significance=0.1,
                       subsample=1,
-                      intensity_cutoff=0,
+                      int_cutoff=0,
+                      relative_cutoff=True,
                       label_int_method='mean',
                       save_to_hdf=True,
-                      verbose=False):
+                      verbose=True):
 
         if (not hasattr(self, 'vectors')
             or self.vectors is None):
@@ -966,7 +969,8 @@ class XRDRockingCurve(XRDBaseScan):
             raise AttributeError(err_str)
 
         int_mask = self.get_vector_int_mask(
-                        intensity_cutoff=intensity_cutoff)
+                        int_cutoff=int_cutoff,
+                        relative_cutoff=relative_cutoff)
         
         (spot_labels,
          spots,
@@ -994,7 +998,7 @@ class XRDRockingCurve(XRDBaseScan):
                                 wavelength=self.wavelength[0],
                                 degrees=(
                                 self.polar_units == 'deg'))
-            wavelength = [self.wavelength[0],] * len(wavelength)
+            wavelength = [self.wavelength[0],] * len(spots)
 
         temp_dict = {
             'height' : label_maxs,
@@ -1023,7 +1027,8 @@ class XRDRockingCurve(XRDBaseScan):
             self.save_vector_information(
                 self.spot_labels,
                 'spot_labels',
-                extra_attrs={'spot_int_cutoff' : intensity_cutoff})
+                extra_attrs={'spot_int_cutoff' : int_cutoff
+                             'relative_cutoff' : int(relative_cutoff)})
         
     
     # Analog of 2D spots from xrdmap
@@ -1605,7 +1610,7 @@ class XRDRockingCurve(XRDBaseScan):
         energy = wavelength_2_energy(wavelength)
 
         # Assumes energy is rocking axis...
-        energy_step = np.abs(np.mean(np.gradient(self.energy)))
+        energy_step = np.abs(np.mean(np.diff(self.energy)))
         min_energy = np.min(self.energy)
         max_energy = np.max(self.energy)
 
