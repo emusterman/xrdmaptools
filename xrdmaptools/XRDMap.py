@@ -37,8 +37,11 @@ from xrdmaptools.reflections.spot_blob_search import (
 from xrdmaptools.plot.interactive import (
     interactive_2D_plot,
     interactive_1D_plot,
-    static_window_sum_1D_plot,
-    static_window_com_1D_plot
+    interactive_1D_window_sum_plot,
+    interactive_1D_window_com_plot,
+    interactive_2D_window_sum_plot,
+    interactive_2D_window_tth_com_plot,
+    interactive_2D_window_chi_com_plot
     )
 from xrdmaptools.plot.general import (
     plot_map,
@@ -762,26 +765,42 @@ class XRDMap(XRDBaseScan):
 
         # Depending on the order of when the axes are
         # swapped any of these could break...
-        if (hasattr(self, 'blob_masks')
-            and self.blob_masks is not None):
-            self.blob_masks = self.blob_masks.swapaxes(0, 1)
-        if (hasattr(self, 'null_map')
-            and self.null_map is not None):
-            self.null_map = self.null_map.swapaxes(0, 1)
-        if (hasattr(self, 'scaler_map')
-            and self.scaler_map is not None):
-            self.scaler_map = self.scaler_map.swapaxes(0, 1)
-        if (hasattr(self, 'vector_map')
-            and self.vector_map is not None):
-            self.vector_map = self.vector_map.swapaxes(0, 1)
+        for attr in ['null_map',
+                     'scaler_map',
+                     'background',
+                     'blob_masks',
+                     'vector_map']:
+            if (hasattr(self, attr)
+                and getattr(self, attr) is not None):
+                setattr(self, attr, getattr(self, attr).swapaxes(0, 1))
 
-        # Modify other attributes as needed
+        # if (hasattr(self, 'blob_masks')
+        #     and self.blob_masks is not None):
+        #     self.blob_masks = self.blob_masks.swapaxes(0, 1)
+        # if (hasattr(self, 'null_map')
+        #     and self.null_map is not None):
+        #     self.null_map = self.null_map.swapaxes(0, 1)
+        # if (hasattr(self, 'scaler_map')
+        #     and self.scaler_map is not None):
+        #     self.scaler_map = self.scaler_map.swapaxes(0, 1)
+        # if (hasattr(self, 'vector_map')
+        #     and self.vector_map is not None):
+        #     self.vector_map = self.vector_map.swapaxes(0, 1)
+
+        # Modify dictionaries
         if hasattr(self, 'pos_dict') and self.pos_dict is not None:
             for key in list(self.pos_dict.keys()):
                 self.pos_dict[key] = self.pos_dict[key].swapaxes(0, 1)  
         if hasattr(self, 'sclr_dict') and self.sclr_dict is not None:
             for key in list(self.sclr_dict.keys()):
                 self.sclr_dict[key] = self.sclr_dict[key].swapaxes(0, 1)
+
+        # Modify saturated pixel tracking
+        if (hasattr(self, 'saturated_pixels')
+            and self.saturated_pixels is not None
+            and len(self.saturated_pixels) > 0):
+            self.saturated_pixels[:, [0, 1]] = self.saturated_pixels[:, [1, 0]]
+
         # Update spot map_indices
         if hasattr(self, 'spots'):
             map_x_ind = self.spots['map_x'].values
@@ -1443,22 +1462,22 @@ class XRDMap(XRDBaseScan):
             fig.show()
 
 
-    def plot_window_sum_map(self,
-                            dyn_kw=None,
-                            map_kw=None,
-                            title_scan_id=True,
-                            return_plot=False,
-                            **kwargs):
+    def plot_1D_window_sum_map(self,
+                               dyn_kw=None,
+                               map_kw=None,
+                               title_scan_id=True,
+                               return_plot=False,
+                               **kwargs):
         
-        dyn_kw, map_kw = self._prepare_interactive_integrations(
+        dyn_kw, map_kw = self._prepare_1D_window_plot(
                                         dyn_kw=dyn_kw,
                                         map_kw=map_kw,
                                         title_scan_id=title_scan_id
                                         )
         
-        fig, ax, span = static_window_sum_1D_plot(dyn_kw,
-                                                  map_kw,
-                                                  **kwargs)
+        fig, ax, span = interactive_1D_window_sum_plot(dyn_kw=dyn_kw,
+                                                       map_kw=map_kw,
+                                                       **kwargs)
         # Save internally for reference.
         self.__span = span
 
@@ -1468,22 +1487,22 @@ class XRDMap(XRDBaseScan):
             fig.show()
         
 
-    def plot_window_com_map(self,
-                            dyn_kw=None,
-                            map_kw=None,
-                            title_scan_id=True,
-                            return_plot=False,
-                            **kwargs):
+    def plot_1D_window_com_map(self,
+                               dyn_kw=None,
+                               map_kw=None,
+                               title_scan_id=True,
+                               return_plot=False,
+                               **kwargs):
 
-        dyn_kw, map_kw = self._prepare_interactive_integrations(
+        dyn_kw, map_kw = self._prepare_1D_window_plot(
                                         dyn_kw=dyn_kw,
                                         map_kw=map_kw,
                                         title_scan_id=title_scan_id
                                         )
         
-        fig, ax, span = static_window_com_1D_plot(dyn_kw,
-                                                  map_kw,
-                                                  **kwargs)
+        fig, ax, span = interactive_1D_window_com_plot(dyn_kw=dyn_kw,
+                                                       map_kw=map_kw,
+                                                       **kwargs)
         
         # Save internally for reference.
         self.__span = span
@@ -1494,10 +1513,10 @@ class XRDMap(XRDBaseScan):
             fig.show()
 
 
-    def _prepare_interactive_integrations(self,
-                                          dyn_kw=None,
-                                          map_kw=None,
-                                          title_scan_id=True):
+    def _prepare_1D_window_plot(self,
+                                dyn_kw=None,
+                                map_kw=None,
+                                title_scan_id=True):
         
         # Python doesn't play well with mutable default kwargs
         if dyn_kw is None:
@@ -1525,6 +1544,145 @@ class XRDMap(XRDBaseScan):
     
         # Add default map_kw information if not already included
         if not _check_dict_key(map_kw, 'map'):
+            map_kw['map'] = self.max_integration_map
+            map_kw['title'] = 'Max Integration Intensity'
+        if not _check_dict_key(map_kw, 'x_ticks'):
+            map_kw['x_ticks'] = np.round(np.linspace(
+                *self.map_extent()[:2],
+                self.map_shape[1]), 2)
+        if not _check_dict_key(map_kw, 'y_ticks'):
+            map_kw['y_ticks'] = np.round(np.linspace(
+                *self.map_extent()[2:],
+                self.map_shape[0]), 2)
+        if hasattr(self, 'position_units'):
+            if not _check_dict_key(map_kw, 'x_label'):
+                map_kw['x_label'] = ('x position '
+                                     + f'[{self.position_units}]')
+            if not _check_dict_key(map_kw, 'y_label'):
+                map_kw['y_label'] = ('y position '
+                                     + f'[{self.position_units}]')
+        
+        if 'title' not in map_kw:
+            map_kw['title'] = None
+        map_kw['title'] = self._title_with_scan_id(
+                            map_kw['title'],
+                            default_title='Custom Map',
+                            title_scan_id=title_scan_id)
+        
+        return dyn_kw, map_kw
+
+
+
+    def plot_2D_window_sum_map(self,
+                               dyn_kw=None,
+                               map_kw=None,
+                               title_scan_id=True,
+                               return_plot=False,
+                               **kwargs):
+        
+        dyn_kw, map_kw = self._prepare_2D_window_plot(
+                                        dyn_kw=dyn_kw,
+                                        map_kw=map_kw,
+                                        title_scan_id=title_scan_id
+                                        )
+        
+        fig, ax, rect = interactive_2D_window_sum_plot(dyn_kw=dyn_kw,
+                                                       map_kw=map_kw,
+                                                       **kwargs)
+        # Save internally for reference.
+        self.__rect = rect
+
+        if return_plot:
+            return fig, ax
+        else:
+            fig.show()
+
+
+
+    def plot_2D_window_tth_com_map(self,
+                                   dyn_kw=None,
+                                   map_kw=None,
+                                   title_scan_id=True,
+                                   return_plot=False,
+                                   **kwargs):
+        
+        dyn_kw, map_kw = self._prepare_2D_window_plot(
+                                        dyn_kw=dyn_kw,
+                                        map_kw=map_kw,
+                                        title_scan_id=title_scan_id
+                                        )
+        
+        fig, ax, rect = interactive_2D_window_tth_com_plot(
+                                                dyn_kw=dyn_kw,
+                                                map_kw=map_kw,
+                                                **kwargs)
+        # Save internally for reference.
+        self.__rect = rect
+
+        if return_plot:
+            return fig, ax
+        else:
+            fig.show()
+
+
+
+    def plot_2D_window_chi_com_map(self,
+                                   dyn_kw=None,
+                                   map_kw=None,
+                                   title_scan_id=True,
+                                   return_plot=False,
+                                   **kwargs):
+        
+        dyn_kw, map_kw = self._prepare_2D_window_plot(
+                                        dyn_kw=dyn_kw,
+                                        map_kw=map_kw,
+                                        title_scan_id=title_scan_id
+                                        )
+        
+        fig, ax, rect = interactive_2D_window_chi_com_plot(
+                                                dyn_kw=dyn_kw,
+                                                map_kw=map_kw,
+                                                **kwargs)
+        # Save internally for reference.
+        self.__rect = rect
+
+        if return_plot:
+            return fig, ax
+        else:
+            fig.show()
+
+
+    def _prepare_2D_window_plot(self,
+                                dyn_kw=None,
+                                map_kw=None,
+                                title_scan_id=True):
+        
+        # Python doesn't play well with mutable default kwargs
+        if dyn_kw is None:
+            dyn_kw = {}
+        if map_kw is None:
+            map_kw = {}
+
+        if _check_dict_key(dyn_kw, 'data'):
+            dyn_kw['data'] = np.asarray(dyn_kw['data'])
+        elif not hasattr(self, 'images'):
+            err_str = 'Could not find images to plot data!'
+            raise ValueError(err_str)
+        elif self.images.ndim != 4:
+            err_str = ('Image data shape is not 4D, '
+                       + f'but {self.images.ndim}.')
+            raise ValueError(err_str)
+        else:
+            dyn_kw['data'] = self.images
+
+        # Add calibration information
+        if not _check_dict_key(dyn_kw, 'tth_arr'):
+            dyn_kw['tth_arr'] = self.tth_arr
+        if not _check_dict_key(dyn_kw, 'chi_arr'):
+            dyn_kw['chi_arr'] = self.chi_arr
+    
+        # Add default map_kw information if not already included
+        if not _check_dict_key(map_kw, 'map'):
             map_kw['map'] = self.max_map
             map_kw['title'] = 'Max Detector Intensity'
         if not _check_dict_key(map_kw, 'x_ticks'):
@@ -1543,6 +1701,7 @@ class XRDMap(XRDBaseScan):
                 map_kw['y_label'] = ('y position '
                                      + f'[{self.position_units}]')
         
+        # Update title
         if 'title' not in map_kw:
             map_kw['title'] = None
         map_kw['title'] = self._title_with_scan_id(
