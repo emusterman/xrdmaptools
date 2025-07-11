@@ -311,7 +311,8 @@ def _load_xrd_hdf_image_data(base_grp,
 
             # Collect XRDData attributes that are not instantiated...
             image_attrs = {}
-            for key in ['dark_field',
+            for key in ['saturated_pixels',
+                        'dark_field',
                         'flat_field',
                         'air_scatter',
                         'scaler_map',
