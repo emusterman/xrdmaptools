@@ -60,7 +60,7 @@ def plot_3D_scatter(q_vectors,
         ax.plot(*edge.T, c='gray', lw=1)
 
     ax.set_xlabel('qx [Å⁻¹]')
-    ax.set_ylabel('qy [Å⁻¹]')
+    ax.set_ylabel('qy [Å⁻¹]', labelpad=10)
     ax.set_zlabel('qz [Å⁻¹]')
     ax.set_aspect('equal')
 
