@@ -35,7 +35,6 @@ def map_2_grid(q_vectors,
     points = np.array([qx, qy, qz]).T
 
     int_grid = griddata(points, intensity, grid, method='nearest')
-    #int_grid = int_grid.reshape(yy.shape[0], xx.shape[0], zz.shape[0]).T
     int_grid = int_grid.reshape(xx.shape[0], yy.shape[0], zz.shape[0])
 
     return *np.meshgrid(xx, yy, zz, indexing='ij'), int_grid
