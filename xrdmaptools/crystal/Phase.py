@@ -22,9 +22,9 @@ from xrdmaptools.utilities.math import (
     tth_2_q,
     q_2_tth,
     convert_qd,
-    vector_angle
+    vector_angle,
+    rescale_array
 )
-from xrdmaptools.utilities.utilities import rescale_array
 
 
 ### Useful crystallography tools ###

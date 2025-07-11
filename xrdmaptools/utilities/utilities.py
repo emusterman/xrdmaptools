@@ -234,54 +234,61 @@ def delta_array(arr):
 
     return magnitude
 
+# Moved to .math
+# def rescale_array(arr,
+#                   lower=0,
+#                   upper=1,
+#                   arr_min=None,
+#                   arr_max=None,
+#                   mask=None,
+#                   copy=False):
+#     # Works for arrays of any size including images!
 
-def rescale_array(arr,
-                  lower=0,
-                  upper=1,
-                  arr_min=None,
-                  arr_max=None,
-                  mask=None,
-                  copy=False):
-    # Works for arrays of any size including images!
+#     if copy:
+#         arr = arr.copy()
 
-    if copy:
-        arr = arr.copy()
-
-    if mask is not None:
-        arr[~mask] = np.nan
-    if arr_min is None:
-        arr_min = np.nanmin(arr)
-    if arr_max is None:
-        arr_max = np.nanmax(arr)
-        if upper is None:
-            upper = arr_max
+#     if mask is not None:
+#         arr[~mask] = np.nan
+#     if arr_min is None:
+#         arr_min = np.nanmin(arr)
+#     if arr_max is None:
+#         arr_max = np.nanmax(arr)
+#         if upper is None:
+#             upper = arr_max
     
-    ext = upper - lower
+#     ext = upper - lower
     
-    # Copied array operation
-    #scaled_arr = lower + ext * ((arr - arr_min) / (arr_max - arr_min))
+#     # Copied array operation
+#     #scaled_arr = lower + ext * ((arr - arr_min) / (arr_max - arr_min))
     
-    # In-place operation. Much faster
-    arr -= arr_min
-    arr /= (arr_max - arr_min)
-    arr *= ext
-    arr += lower
+#     # In-place operation. Much faster
+#     arr -= arr_min
+#     arr /= (arr_max - arr_min)
+#     arr *= ext
+#     arr += lower
 
-    if mask is not None:
-        arr[~mask] = 0
+#     if mask is not None:
+#         arr[~mask] = 0
 
-    return arr # I don't really need to return the array after this...
+#     return arr # I don't really need to return the array after this...
 
 
-def generate_intensity_mask(intensity, intensity_cutoff=0):
+def generate_intensity_mask(intensity,
+                            int_cutoff=0,
+                            relative_cutoff=False):
 
-        int_mask = (intensity
-                    >= np.min(intensity) + intensity_cutoff
-                    * (np.max(intensity) - np.min(intensity)))
+        if relative_cutoff:
+            int_mask = (intensity
+                        >= np.min(intensity) + int_cutoff
+                        * (np.max(intensity) - np.min(intensity)))            
+
+        else:
+            int_mask = intensity >= int_cutoff
 
         return int_mask
 
 
+# Unused
 def deprecated(func):
     @functools.wraps(func)
     def new_func(*args, **kwargs):

@@ -18,10 +18,12 @@ from skimage.feature import peak_local_max
 from scipy.signal import find_peaks
 
 # Local imports
-from ..utilities.math import circular_mask, compute_r_squared, arbitrary_center_of_mass
-from ..utilities.utilities import label_nearest_spots, rescale_array
-
-from .SpotModels import generate_bounds
+from ..utilities.math import (
+    circular_mask,
+    compute_r_squared,
+    rescale_array
+    arbitrary_center_of_mass
+)
 
 
 def peak_search():

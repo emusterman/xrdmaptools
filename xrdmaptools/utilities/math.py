@@ -73,6 +73,44 @@ def multi_vector_angles(v1s, v2s, degrees=False):
 ### Useful Functions ###
 ########################
 
+def rescale_array(arr,
+                  lower=0,
+                  upper=1,
+                  arr_min=None,
+                  arr_max=None,
+                  mask=None,
+                  copy=False):
+    # Works for arrays of any size including images!
+
+    if copy:
+        arr = arr.copy()
+
+    if mask is not None:
+        arr[~mask] = np.nan
+    if arr_min is None:
+        arr_min = np.nanmin(arr)
+    if arr_max is None:
+        arr_max = np.nanmax(arr)
+        if upper is None:
+            upper = arr_max
+    
+    ext = upper - lower
+    
+    # Copied array operation
+    #scaled_arr = lower + ext * ((arr - arr_min) / (arr_max - arr_min))
+    
+    # In-place operation. Much faster
+    arr -= arr_min
+    arr /= (arr_max - arr_min)
+    arr *= ext
+    arr += lower
+
+    if mask is not None:
+        arr[~mask] = 0
+
+    return arr # I don't really need to return the array after this...
+
+
 def arbitrary_center_of_mass(weights, *args):
 
     weights = np.asarray(weights)
@@ -88,6 +126,18 @@ def arbitrary_center_of_mass(weights, *args):
         val_list.append(val)
 
     return tuple(val_list)
+
+
+def arbitary_standard_deviation(weights, *args):
+
+    # In-place operation; must copy input
+    weights = rescale_array(weights,
+                            lower=0,
+                            upper=1,
+                            copy=True)
+
+    return np.sqrt(np.diag(np.cov(np.stack([*args]),
+                                  aweights=weights)))
 
 
 #####################################
