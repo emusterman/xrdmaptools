@@ -14,9 +14,11 @@ from xrdmaptools.io.hdf_utils import (
     overwrite_attr,
     get_optimal_chunks
 )
-from xrdmaptools.utilities.math import check_precision
+from xrdmaptools.utilities.math import (
+    rescale_array
+    check_precision
+)
 from xrdmaptools.utilities.utilities import (
-    rescale_array,
     Iterable2D
 )
 from xrdmaptools.utilities.image_corrections import (
@@ -1278,6 +1280,51 @@ class XRDData:
 
     ### Initial image corrections ###
 
+    def track_saturated_pixels(self,
+                               saturated_value=16383,
+                               verbose=True):
+        """
+        Identify and track saturated pixels.
+
+        Identify saturated pixels from 'raw' images according to
+        a given saturated value for a detector. Pixel indices will be
+        stored internally and written to the HDF file. If the data is
+        vectorized, these indices will be recorded with the new
+        vectors. This is not a tracked correction.
+
+        Parameters
+        ----------
+        saturated_value : uint, optional
+            Image pixel values above or equal to this value will be
+            considered saturated. By default this value is set to the
+            saturated value for the dexela detector, 2¹⁴ - 1.
+        verbose : bool, optional
+            Flag to indicate if the function should be verbose or
+            silent. True by default.
+
+        Raises
+        ------
+        ValueError if images are not in their 'raw' format.
+        """
+
+        if self.title != 'raw':
+            err_str = ('Saturated pixels can only be realiably '
+                       + f'determined from raw images not {self.title}'
+                       + ' images.')
+            raise ValueError(err_str)
+        
+        if verbose:
+            print('Tracking saturated pixels...')
+        
+        indices = np.nonzero(self.images >= saturated_value)
+        self.saturated_pixels = np.asarray(indices).T
+
+        # Write values to HDF
+        self.save_images(images='saturated_pixels',
+                         units='indices',
+                         labels=[*self.map_labels, 'img_y', 'img_x']) 
+
+
     def correct_dark_field(self,
                            dark_field=None,
                            override=False):
@@ -1327,7 +1374,14 @@ class XRDData:
                        + f'{self.image_shape}.')
             raise ValueError(err_str)
         
+        # Store internally
         self.dark_field = dark_field
+
+        # Check for saturated pixels
+        if (not hasattr(self, 'saturated_pixels')
+            or self.saturated_pixels is None
+            or len(self.saturated_pixels) == 0):
+            self.track_saturated_pixels(verbose=False)
 
         # Check for the start of corrections with dask.
         # Otherwise keep lazily loaded...
@@ -1374,7 +1428,8 @@ class XRDData:
         
         print('Correcting dark-field...', end='', flush=True)
         self.images -= self.dark_field
-
+        
+        # Write to hdf
         self.save_images(images='dark_field',
                          units='counts')
         
@@ -3143,20 +3198,6 @@ class XRDData:
         if return_val:
             return disk_size, units
         print(f'Disk size of images is {disk_size:.3f} {units}.')
-
-
-    # WIP apparently???
-    # @staticmethod
-    # def estimate_disk_size(size):
-    #     # External reference function to estimate map size before acquisition
-    #     raise NotImplementedError()
-
-    #     if not isinstance(size, (tuple, list, np.ndarray)):
-    #         err_str = ('Size argument must be iterable of '
-    #                    + 'map dimensions.')
-    #         raise TypeError(err_str)
-
-    #     disk_size = np.prod([*size, 2])
 
 
     def _get_save_labels(self,
