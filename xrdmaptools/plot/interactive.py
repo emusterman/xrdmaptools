@@ -722,8 +722,7 @@ def _interactive_2D_window_plot(dyn_kw={},
             _update_map(
                 map_kw=map_kw,
                 axis=ax[0],
-                cmap=cmap,
-                update_clim=True)
+                cmap=cmap)
 
             fig.canvas.draw_idle()
 
