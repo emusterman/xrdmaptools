@@ -333,7 +333,8 @@ def get_vector_map_feature(vector_map,
 
     for indices in Iterable2D(feature_map.shape):
         if len(vector_map[indices]) > 0:
-            feature_map[indices] = feature_function(vector_map[indices])
+            # Vector shape [qx, qy, qz, int, ...] # May be extended with saturated and spot information...
+            feature_map[indices] = feature_function(vector_map[indices][:, 3])
     
     return feature_map
 
