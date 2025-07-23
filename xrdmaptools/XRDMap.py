@@ -1463,6 +1463,65 @@ class XRDMap(XRDBaseScan):
             fig.show()
 
 
+    def _prepare_interactive_integrations(self,
+                                          dyn_kw=None,
+                                          map_kw=None,
+                                          title_scan_id=True):
+        
+        # Python doesn't play well with mutable default kwargs
+        if dyn_kw is None:
+            dyn_kw = {}
+        if map_kw is None:
+            map_kw = {}
+
+        if _check_dict_key(dyn_kw, 'data'):
+            dyn_kw['data'] = np.asarray(dyn_kw['data'])
+        elif not hasattr(self, 'integrations'):
+            err_str = 'Could not find integrations to plot data!'
+            raise ValueError(err_str)
+        elif self.integrations.ndim != 3:
+            err_str = ('Integration data shape is not 3D, '
+                       + f'but {self.integrations.ndim}.')
+            raise ValueError(err_str)
+        else:
+            dyn_kw['data'] = self.integrations
+
+        if not _check_dict_key(dyn_kw, 'x_ticks'):
+            if hasattr(self, 'tth') and self.tth is not None:
+                dyn_kw['x_ticks'] = self.tth
+                dyn_kw['x_label'] = ('Scattering Angle, 2θ '
+                                     + f'[{self.scattering_units}]')
+    
+        # Add default map_kw information if not already included
+        if not _check_dict_key(map_kw, 'map'):
+            map_kw['map'] = self.max_integration_map
+            map_kw['title'] = 'Max Detector Intensity'
+        if not _check_dict_key(map_kw, 'x_ticks'):
+            map_kw['x_ticks'] = np.round(np.linspace(
+                *self.map_extent()[:2],
+                self.map_shape[1]), 2)
+        if not _check_dict_key(map_kw, 'y_ticks'):
+            map_kw['y_ticks'] = np.round(np.linspace(
+                *self.map_extent()[2:],
+                self.map_shape[0]), 2)
+        if hasattr(self, 'position_units'):
+            if not _check_dict_key(map_kw, 'x_label'):
+                map_kw['x_label'] = ('x position '
+                                     + f'[{self.position_units}]')
+            if not _check_dict_key(map_kw, 'y_label'):
+                map_kw['y_label'] = ('y position '
+                                     + f'[{self.position_units}]')
+        
+        if 'title' not in map_kw:
+            map_kw['title'] = None
+        map_kw['title'] = self._title_with_scan_id(
+                            map_kw['title'],
+                            default_title='Custom Map',
+                            title_scan_id=title_scan_id)
+        
+        return dyn_kw, map_kw
+
+
     def plot_1D_window_sum_map(self,
                                dyn_kw=None,
                                map_kw=None,
