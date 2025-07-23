@@ -379,16 +379,17 @@ def seed_casting(seed,
                 break
             else:
                 return [], 0
-
+        
         # Parse indexing
         curr_spots, curr_refs = indexing.T
-        prev_spots, prev_refs = prev_indexing.T
+        if len(prev_indexing) > 0:
+            prev_spots, prev_refs = np.asarray(prev_indexing).T
 
-        # Check to see if indexing has converged
-        if len(indexing) == len(prev_indexing):
-            if (np.all(sorted(curr_spots) == sorted(prev_spots))
-                and np.all(sorted(curr_refs) == sorted(prev_refs))):
-                break
+            # Check to see if indexing has converged
+            if len(indexing) == len(prev_indexing):
+                if (np.all(sorted(curr_spots) == sorted(prev_spots))
+                    and np.all(sorted(curr_refs) == sorted(prev_refs))):
+                    break
 
         # Update for next round
         prev_indexing = indexing
