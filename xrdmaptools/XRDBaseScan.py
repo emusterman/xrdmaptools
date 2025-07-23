@@ -2137,7 +2137,7 @@ class XRDBaseScan(XRDData):
     
 
     @XRDData._protect_hdf()
-    def load_vectors(self,
+    def _load_vectors(self,
                      hdf):
         # Load data from hdf
         vector_dict = _load_xrd_hdf_vector_data(hdf[self._hdf_type])
