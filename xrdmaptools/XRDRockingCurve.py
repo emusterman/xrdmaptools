@@ -314,12 +314,12 @@ class XRDRockingCurve(XRDBaseScan):
             elif mov_ang and not mov_en:
                 self.rocking_axis = 'angle'
             elif mov_en and mov_ang:
-                err_str = ('Ambiguous rocking direction. '
+                err_str = ('Ambiguous rocking axis. '
                             + 'Energy varies by more than 5 eV and '
                             + 'theta varies by more than 50 mdeg.')
                 raise RuntimeError(err_str)
             else:
-                err_str = ('Ambiguous rocking direction. '
+                err_str = ('Ambiguous rocking axis. '
                             + 'Energy varies by less than 5 eV and '
                             + 'theta varies by less than 50 mdeg.')
                 raise RuntimeError(err_str)
@@ -1098,6 +1098,7 @@ class XRDRockingCurve(XRDBaseScan):
                                spots=None,
                                spot_intensity=None,
                                spot_intensity_cutoff=0,
+                               relative_cutoff=True
                                ):
         
         if spots is None and hasattr(self, 'spots_3D'):
@@ -1122,7 +1123,8 @@ class XRDRockingCurve(XRDBaseScan):
         
         int_mask = self.get_vector_int_mask(
                     intensity=spot_intensity,
-                    intensity_cutoff=spot_intensity_cutoff)
+                    int_cutoff=spot_intensity_cutoff,
+                    relative_cutoff=relative_cutoff)
         
         return spots[int_mask], spot_intensity[int_mask], int_mask
 
@@ -1133,6 +1135,7 @@ class XRDRockingCurve(XRDBaseScan):
                          spots=None,
                          spot_intensity=None,
                          spot_intensity_cutoff=0,
+                         relative_cutoff=True,
                          phase=None,
                          method='pair_casting',
                          save_to_hdf=True,
@@ -1143,7 +1146,8 @@ class XRDRockingCurve(XRDBaseScan):
          spot_intensity,
          int_mask) = self._parse_indexing_inputs(
                                     spots,
-                                    spot_intensity)
+                                    spot_intensity,
+                                    relative_cutoff=relative_cutoff)
 
         if phase is None and len(self.phases) == 1:
             phase = list(self.phases.values())[0]
@@ -1211,6 +1215,7 @@ class XRDRockingCurve(XRDBaseScan):
                         spots=None,
                         spot_intensity=None,
                         spot_intensity_cutoff=0,
+                        relative_cutoff=True,
                         phase=None,
                         method='pair_casting',
                         save_to_hdf=True,
@@ -1221,7 +1226,8 @@ class XRDRockingCurve(XRDBaseScan):
          spot_intensity,
          int_mask) = self._parse_indexing_inputs(
                                     spots,
-                                    spot_intensity)
+                                    spot_intensity,
+                                    relative_cutoff=relative_cutoff)
 
 
         if phase is None and len(self.phases) == 1:
