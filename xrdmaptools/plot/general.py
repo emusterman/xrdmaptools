@@ -1,6 +1,7 @@
 import matplotlib.pyplot as plt
 import numpy as np
 from skimage.measure import label
+import functools
 
 
 # Local imports
@@ -12,6 +13,23 @@ from ..reflections.spot_blob_search import find_blob_contours
 ######################
 ### Image Plotting ###
 ######################
+
+def return_plot_wrapper(func):
+    @functools.wraps(func)
+    def wrapped(*args,
+                return_plot=False,
+                **kwargs):
+
+        # Direction function
+        fig, ax = func(*args, **kwargs)
+        
+        if return_plot:
+            return fig, ax
+        else:
+            fig.show()
+    
+    return wrapped
+
 
 # Grabs and formats data from xrdbasescan if requested
 def _plot_parse_xrdbasescan(xrdbasescan,
