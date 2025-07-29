@@ -27,13 +27,13 @@ from matplotlib.animation import FuncAnimation
 
 # Local imports
 from xrdmaptools.utilities.utilities import (
-  rescale_array,
   timed_iter,
   memory_iter,
   get_int_vector_map,
   get_num_vector_map,
   get_max_vector_map
 )
+from xrdmaptools.utilities.math import rescale_array
 from xrdmaptools.XRDBaseScan import XRDBaseScan
 from xrdmaptools.utilities.utilities import (
     generate_intensity_mask
