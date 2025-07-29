@@ -339,8 +339,7 @@ class Phase(xu.materials.Crystal):
         return 2 * np.pi / np.linalg.norm(self.Q(hkl_lst), axis=1)
     
 
-    # Horribly optimized...
-    # OPTIMIZE ME
+    # TODO: OPTIMIZE ME
     def planeAngles(self, hkl1, hkl2):
         # Double-check to make sure this is still used in the final version
         a, b, c = list(self.lattice._parameters.values())[:3]
@@ -502,7 +501,7 @@ def phase_selector(xrd,
         plt.close('all') 
 
     fig, ax = plt.subplots(1, 1, figsize=(8, 5), dpi=200)
-    xrd_plot = ax.plot(tth, norm_xrd_int, label='Composite XRD', c='k', zorder=(len(phases) + 1))
+    xrd_plot = ax.plot(tth, norm_xrd_int, label='Measured XRD', c='k', zorder=(len(phases) + 1))
     fig.subplots_adjust(right=0.75)
 
     def update_max(LineCollection, phase, slider):
@@ -513,7 +512,6 @@ def phase_selector(xrd,
     lines = [xrd_plot]
     slider_lst = []
     update_lst = []
-    #zero_phases = [phase.name for phase in phases]
 
     def update_factory(index):
         def update(val):
@@ -545,7 +543,7 @@ def phase_selector(xrd,
         slider_lst[i].on_changed(update_lst[i])
 
     ax.set_ylim(0)
-    ax.set_xlabel('Scattering Angle, 2θ [°]')
+    ax.set_xlabel('Scattering Angle, 2θ [deg.]')
     ax.legend(fontsize=10)
 
     if title is None:
@@ -556,23 +554,21 @@ def phase_selector(xrd,
     def on_close(event):
         for phase, slider in zip(phases, slider_lst):
             phase_vals[phase.name] = slider.val
-        #print(zero_phases)
         return phase_vals
     
     if update_reflections:
-        print('Updating reflections...')
+        print('Updating phases...')
         fig.canvas.mpl_connect('close_event', on_close)
         plt.show(block=True)
         plt.pause(0.01)
         return phase_vals
     else:
-        print('Not updating reflections...')
+        print('Not updating phases...')
         if return_plot:
             return fig, ax, slider_lst
         else:
             fig.show()
             return slider_lst
-        #return phase_vals
 
 
 
