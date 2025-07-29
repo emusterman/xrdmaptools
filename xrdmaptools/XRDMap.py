@@ -44,6 +44,7 @@ from xrdmaptools.plot.interactive import (
     interactive_2D_window_chi_com_plot
     )
 from xrdmaptools.plot.general import (
+    return_plot_wrapper,
     plot_map,
     )
 
@@ -129,7 +130,7 @@ class XRDMap(XRDBaseScan):
     ################################
         
 
-    @ classmethod
+    @classmethod
     def from_db(cls,
                 scan_id=-1,
                 broker='manual',
@@ -433,6 +434,7 @@ class XRDMap(XRDBaseScan):
                         unit='2th_deg',
                         mask=None,
                         return_values=False,
+                        save_to_hdf=True,
                         **kwargs):
         
         if not hasattr(self, 'ai'):
@@ -509,8 +511,8 @@ class XRDMap(XRDBaseScan):
         self.tth_resolution = tth_resolution
 
         # Save integrations to hdf
-        if self.hdf_path is not None:
-            print('Compressing and writing integrations to disk...')
+        if save_to_hdf:
+            print('Writing integrations to disk...')
             self.save_integrations()
             print('done!')
             self.save_reciprocal_positions()
@@ -1096,14 +1098,15 @@ class XRDMap(XRDBaseScan):
     @XRDBaseScan._protect_hdf(pandas=True)
     def save_spots(self, extra_attrs=None):
         print('Saving spots to hdf...', end='', flush=True)
-        hdf_str = f'{self._hdf_type}/reflections/spots'
+        hdf_str = f'{self._hdf_type}/reflections'
         self.spots.to_hdf(
                         self.hdf_path,
-                        key=hdf_str,
+                        key=f'{hdf_str}/spots',
                         format='table')
 
         if extra_attrs is not None:
-            self.open_hdf()
+            if self.hdf is None:
+                self.open_hdf()
             for key, value in extra_attrs.items():
                 overwrite_attr(self.hdf[hdf_str].attrs, key, value)
         print('done!')
@@ -1304,7 +1307,7 @@ class XRDMap(XRDBaseScan):
     ### Plotting Functions ###
     ##########################
     
-
+    @return_plot_wrapper
     def plot_map(self,
                  map_values,
                  map_extent=None,
@@ -1313,7 +1316,6 @@ class XRDMap(XRDBaseScan):
                  fig=None,
                  ax=None,
                  title_scan_id=True,
-                 return_plot=False,
                  **kwargs):
         
         map_values = np.asarray(map_values)
@@ -1336,26 +1338,21 @@ class XRDMap(XRDBaseScan):
                         default_title='Custom Map',
                         title_scan_id=title_scan_id)
         
-        fig, ax = plot_map(map_values,
-                           map_extent=map_extent,
-                           position_units=position_units,
-                           title=title,
-                           fig=fig,
-                           ax=ax,
-                           **kwargs)
-        
-        if return_plot:
-            return fig, ax
-        else:
-            fig.show()
+        return plot_map(map_values,
+                        map_extent=map_extent,
+                        position_units=position_units,
+                        title=title,
+                        fig=fig,
+                        ax=ax,
+                        **kwargs)
 
 
     # Interactive plots do not currently accept fig, ax inputs
+    @return_plot_wrapper
     def plot_interactive_map(self,
                              dyn_kw=None,
                              map_kw=None,
                              title_scan_id=True,
-                             return_plot=False,
                              **kwargs):
         
         # Python doesn't play well with mutable default kwargs
@@ -1413,21 +1410,17 @@ class XRDMap(XRDBaseScan):
                             default_title='Custom Map',
                             title_scan_id=title_scan_id)
 
-        fig, ax = interactive_2D_plot(dyn_kw,
-                                      map_kw,
-                                      **kwargs)
-
-        if return_plot:
-            return fig, ax
-        else:
-            fig.show()  
+        return interactive_2D_plot(dyn_kw,
+                                   map_kw,
+                                   **kwargs)
+                    
 
 
+    @return_plot_wrapper
     def plot_interactive_integration_map(self,
                                          dyn_kw=None,
                                          map_kw=None,
                                          title_scan_id=True,
-                                         return_plot=False,
                                          **kwargs):
         
         dyn_kw, map_kw = self._prepare_interactive_integrations(
@@ -1436,13 +1429,9 @@ class XRDMap(XRDBaseScan):
                                         title_scan_id=title_scan_id
                                         )
     
-        fig, ax = interactive_1D_plot(dyn_kw,
-                                      map_kw,
-                                      **kwargs)
-        if return_plot:
-            return fig, ax
-        else:
-            fig.show()
+        return interactive_1D_plot(dyn_kw,
+                                   map_kw,
+                                   **kwargs)
 
 
     def _prepare_interactive_integrations(self,
@@ -1504,11 +1493,11 @@ class XRDMap(XRDBaseScan):
         return dyn_kw, map_kw
 
 
+    @return_plot_wrapper
     def plot_1D_window_sum_map(self,
                                dyn_kw=None,
                                map_kw=None,
                                title_scan_id=True,
-                               return_plot=False,
                                **kwargs):
         
         dyn_kw, map_kw = self._prepare_1D_window_plot(
@@ -1521,19 +1510,16 @@ class XRDMap(XRDBaseScan):
                                                        map_kw=map_kw,
                                                        **kwargs)
         # Save internally for reference.
-        self.__span = span
+        self._1D_window_sum_span = span
 
-        if return_plot:
-            return fig, ax
-        else:
-            fig.show()
+        return fig, ax
         
 
+    @return_plot_wrapper
     def plot_1D_window_com_map(self,
                                dyn_kw=None,
                                map_kw=None,
                                title_scan_id=True,
-                               return_plot=False,
                                **kwargs):
 
         dyn_kw, map_kw = self._prepare_1D_window_plot(
@@ -1547,12 +1533,9 @@ class XRDMap(XRDBaseScan):
                                                        **kwargs)
         
         # Save internally for reference.
-        self.__span = span
+        self._1D_window_com_span = span
 
-        if return_plot:
-            return fig, ax
-        else:
-            fig.show()
+        return fig, ax
 
 
     def _prepare_1D_window_plot(self,
@@ -1620,12 +1603,11 @@ class XRDMap(XRDBaseScan):
         return dyn_kw, map_kw
 
 
-
+    @return_plot_wrapper
     def plot_2D_window_sum_map(self,
                                dyn_kw=None,
                                map_kw=None,
                                title_scan_id=True,
-                               return_plot=False,
                                **kwargs):
         
         dyn_kw, map_kw = self._prepare_2D_window_plot(
@@ -1638,20 +1620,16 @@ class XRDMap(XRDBaseScan):
                                                        map_kw=map_kw,
                                                        **kwargs)
         # Save internally for reference.
-        self.__rect = rect
+        self._2D_window_sum_rect = rect
 
-        if return_plot:
-            return fig, ax
-        else:
-            fig.show()
+        return fig, ax
 
 
-
+    @return_plot_wrapper
     def plot_2D_window_tth_com_map(self,
                                    dyn_kw=None,
                                    map_kw=None,
                                    title_scan_id=True,
-                                   return_plot=False,
                                    **kwargs):
         
         dyn_kw, map_kw = self._prepare_2D_window_plot(
@@ -1665,20 +1643,16 @@ class XRDMap(XRDBaseScan):
                                                 map_kw=map_kw,
                                                 **kwargs)
         # Save internally for reference.
-        self.__rect = rect
+        self._2D_window_tth_com_rect = rect
 
-        if return_plot:
-            return fig, ax
-        else:
-            fig.show()
+        return fig, ax
 
 
-
+    @return_plot_wrapper
     def plot_2D_window_chi_com_map(self,
                                    dyn_kw=None,
                                    map_kw=None,
                                    title_scan_id=True,
-                                   return_plot=False,
                                    **kwargs):
         
         dyn_kw, map_kw = self._prepare_2D_window_plot(
@@ -1692,12 +1666,9 @@ class XRDMap(XRDBaseScan):
                                                 map_kw=map_kw,
                                                 **kwargs)
         # Save internally for reference.
-        self.__rect = rect
+        self._2D_window_chi_com_rect = rect
 
-        if return_plot:
-            return fig, ax
-        else:
-            fig.show()
+        return fig, ax
 
 
     def _prepare_2D_window_plot(self,
@@ -1766,6 +1737,7 @@ class XRDMap(XRDBaseScan):
         return dyn_kw, map_kw
     
 
+    @return_plot_wrapper
     def plot_waterfall(self, **kwargs):
 
         if 'axis' in kwargs:

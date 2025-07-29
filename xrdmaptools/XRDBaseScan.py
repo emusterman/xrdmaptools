@@ -36,6 +36,7 @@ from xrdmaptools.io.hdf_utils import (
     overwrite_attr,
 )
 from xrdmaptools.plot.general import (
+    return_plot_wrapper,
     _plot_parse_xrdbasescan,
     _xrdbasescan_image,
     _xrdbasescan_integration,
@@ -1397,7 +1398,7 @@ class XRDBaseScan(XRDData):
         """
 
         """
-                 
+
         if self.tth is None:
             tth = []
         else:
@@ -1406,7 +1407,7 @@ class XRDBaseScan(XRDData):
             chi = []
         else:
             chi = self.chi
-
+        
         print('Writing reciprocal positions to disk...', end='', flush=True)
         # This group may already exist if poni file was already initialized
         curr_grp = self.hdf[self._hdf_type].require_group('reciprocal_positions')
@@ -1438,11 +1439,11 @@ class XRDBaseScan(XRDData):
             overwrite_attr(dset.attrs, 'comments', comments[i])
             overwrite_attr(dset.attrs, 'dtype', str(data[i].dtype))
             overwrite_attr(dset.attrs,
-                           f'{key}_resolution',
-                           resolution[i])
+                        f'{key}_resolution',
+                        resolution[i])
             dset.attrs['time_stamp'] = ttime.ctime() # always new
 
-        print('done!')
+            print('done!')
     
     ##################################
     ### Scaler and Position Arrays ###
@@ -1832,23 +1833,11 @@ class XRDBaseScan(XRDData):
                        + 'before selecting phases.')
             raise AttributeError(err_str)
 
-        if tth_resolution is None:
-            tth_resolution = self.tth_resolution
-
-        tth_min = np.min(self.tth_arr)
-        tth_max = np.max(self.tth_arr)
-        if tth_num is None:
-            tth_num = int(np.round((tth_max - tth_min)
-                                   / tth_resolution))
-        elif tth_num is None and tth_resolution is None:
-            err_str = 'Must define either tth_num or tth_resolution.'
-            raise ValueError(err_str)
-        
         if xrd is None:
             if self.corrections['polar_calibration']:
                 xrd = self._processed_images_composite
             else:
-                xrd = self.composite_image
+                xrd = self.max_image
         
         if energy is None:
             if isinstance(self.energy, list):
@@ -1859,14 +1848,26 @@ class XRDBaseScan(XRDData):
                 energy = self.energy
         
         if xrd.ndim == 2:
+            if tth_resolution is None:
+                tth_resolution = self.tth_resolution
+
+            tth_min = np.min(self.tth_arr)
+            tth_max = np.max(self.tth_arr)
+            if tth_num is None:
+                tth_num = int(np.round((tth_max - tth_min)
+                                    / tth_resolution))
+            elif tth_num is None and tth_resolution is None:
+                err_str = 'Must define either tth_num or tth_resolution.'
+                raise ValueError(err_str)
+
             tth, xrd = self.integrate1D_image(image=xrd,
                                               tth_num=tth_num,
                                               unit=unit)
         elif xrd.ndim == 1:
             if not hasattr(self, 'tth') or self.tth is None:
                 tth, _ = self.integrate1D_image(
-                                image=np.zeros(xdm.image_shape),
-                                tth_num=len(xrd.ndim),
+                                image=np.zeros(self.image_shape),
+                                tth_num=len(xrd),
                                 unit=unit)
             else:
                 tth = self.tth
@@ -1882,21 +1883,24 @@ class XRDBaseScan(XRDData):
                             title_scan_id=title_scan_id)
 
         # Plot phase_selector
-        phase_vals = phase_selector(xrd,
-                                    list(self.phases.values()),
-                                    energy,
-                                    tth,
-                                    ignore_less=ignore_less,
-                                    title=title,
-                                    update_reflections=save_to_hdf)
+        out = phase_selector(xrd,
+                             list(self.phases.values()),
+                             energy,
+                             tth,
+                             ignore_less=ignore_less,
+                             title=title,
+                             update_reflections=save_to_hdf)
 
         # Update reflections and write to hdf
         if save_to_hdf:
             old_phases = list(self.phases.keys())
             for phase in old_phases:
-                if phase_vals[phase] <= 0:
+                if out[phase] <= 0:
                     self.remove_phase(phase)
             self.save_phases()
+        else:
+            # Store list of sliders temporarily
+            self._phase_sliders = out 
 
 
     ###########################
@@ -1907,6 +1911,7 @@ class XRDBaseScan(XRDData):
     def _save_vector_map(self,
                          hdf,
                          vector_map,
+                         vector_map_title='vector_map',
                          edges=None,
                          rewrite_data=False,
                          verbose=False):
@@ -1918,7 +1923,7 @@ class XRDBaseScan(XRDData):
         print('Saving vectorized map data...')
         vector_grp = hdf[self._hdf_type].require_group(
                                                 'vectorized_map')
-        map_grp = vector_grp.require_group('vector_map')
+        map_grp = vector_grp.require_group(vector_map_title)
         vector_grp.attrs['time_stamp'] = ttime.ctime()
         map_grp.attrs['vectorized_map_shape'] = vector_map.shape
 
@@ -1940,9 +1945,9 @@ class XRDBaseScan(XRDData):
             if dset_key not in all_used_indices:
                 del map_grp[dset_key]
         # Backwards compatibility; scrub old data into new format
-        for dset_key in vector_grp.keys():
-            if dset_key not in all_used_indices + ['vector_map']:
-                del vector_grp[dset_key]
+        # for dset_key in vector_grp.keys():
+        #     if dset_key not in all_used_indices + ['vector_map']:
+        #         del vector_grp[dset_key]
         
         # Save edges if available. Only useful for XRDMapStack
         XRDBaseScan._save_edges(vector_grp,
@@ -1956,6 +1961,7 @@ class XRDBaseScan(XRDData):
     def _save_rocking_vectorization(self,
                                     hdf,
                                     vectors,
+                                    vector_title='vectors',
                                     edges=None,
                                     rewrite_data=False,
                                     verbose=False):
@@ -1972,6 +1978,7 @@ class XRDBaseScan(XRDData):
         # Save vectors
         XRDBaseScan._save_vectors(vector_grp,
                                   vectors,
+                                  vector_title=vector_title,
                                   rewrite_data=rewrite_data,
                                   verbose=verbose)
 
@@ -1981,10 +1988,13 @@ class XRDBaseScan(XRDData):
                                 rewrite_data=rewrite_data,
                                 verbose=verbose)
         
-        # Scrub old tags for backwards compatibility
-        for dset_key in vector_grp.keys():
-            if dset_key not in ['vectors', 'edges']:
-                del vector_grp[dset_key]
+        # # Scrub old tags for backwards compatibility
+        # for dset_key in vector_grp.keys():
+        #     if dset_key not in ['vectors',
+        #                         'edges',
+        #                         'spot_labels',
+        #                         'blob_labels']:
+        #         del vector_grp[dset_key]
 
         print('done!')
     
@@ -2154,6 +2164,7 @@ class XRDBaseScan(XRDData):
         for key, value in vector_attrs.items():
             setattr(self, key, value)
 
+
     #################################
     ### Generalized Spot Analysis ###
     #################################
@@ -2256,7 +2267,7 @@ class XRDBaseScan(XRDData):
         else:
             fig.show()
 
-
+    @return_plot_wrapper
     def plot_integration(self,
                          integration=None,
                          indices=None,
@@ -2268,7 +2279,6 @@ class XRDBaseScan(XRDData):
                          y_min=None,
                          y_max=None,
                          title_scan_id=True,
-                         return_plot=False,
                          **kwargs):
         """
 
@@ -2301,10 +2311,8 @@ class XRDBaseScan(XRDData):
                             title_scan_id=title_scan_id)
         ax.set_title(title)
         
-        if return_plot:
-            return fig, ax
-        else:
-            fig.show()
+
+        return fig, ax
 
 
     def _plot_waterfall(self,
@@ -2363,16 +2371,14 @@ class XRDBaseScan(XRDData):
                             title_scan_id=title_scan_id)
         ax.set_title(title)
         
-        if return_plot:
-            return fig, ax
-        else:
-            fig.show()
+        return fig, ax
     
 
     ##################################
     ### Plot Experimental Geometry ###
     ##################################
 
+    @return_plot_wrapper
     def plot_q_space(self,
                      indices=None,
                      skip=500,
@@ -2381,8 +2387,7 @@ class XRDBaseScan(XRDData):
                      beam_path=True,
                      fig=None,
                      ax=None,
-                     title_scan_id=True,
-                     return_plot=False):
+                     title_scan_id=True):
         """
 
         """
@@ -2401,18 +2406,15 @@ class XRDBaseScan(XRDData):
                             title_scan_id=title_scan_id)
         ax.set_title(title)
         
-        if return_plot:
-            return fig, ax
-        else:
-            fig.show()
+        return fig, ax
 
 
+    @return_plot_wrapper
     def plot_detector_geometry(self,
                                skip=300,
                                fig=None,
                                ax=None,
-                               title_scan_id=True,
-                               return_plot=False):
+                               title_scan_id=True):
         """
 
         """
@@ -2427,7 +2429,4 @@ class XRDBaseScan(XRDData):
                             title_scan_id=title_scan_id)
         ax.set_title(title)
         
-        if return_plot:
-            return fig, ax
-        else:
-            fig.show()
+        return fig, ax

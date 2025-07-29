@@ -50,6 +50,7 @@ from xrdmaptools.reflections.spot_blob_indexing_3D import (
 )
 from xrdmaptools.crystal.crystal import LatticeParameters
 from xrdmaptools.crystal.strain import get_strain_orientation
+from xrdmaptools.plot.general import return_plot_wrapper
 from xrdmaptools.plot.image_stack import base_slider_plot
 from xrdmaptools.plot.volume import (
     plot_3D_scatter,
@@ -891,7 +892,7 @@ class XRDRockingCurve(XRDBaseScan):
                             'multiplier' : multiplier,
                             'expansion' : expansion})
         
-
+    # Uncommon
     def find_3D_blobs(self,
                       max_dist=0.05,
                       max_neighbors=5,
@@ -1014,68 +1015,91 @@ class XRDRockingCurve(XRDBaseScan):
                          remove_less=remove_less,
                          key=key)
 
-        if save_spots:
-            self.save_spots()    
+        if save_3D_spots:
+            self.save_3D_spots()    
 
 
     # Analog of 2D spots from xrdmap
     @XRDBaseScan._protect_hdf(pandas=True)
     def save_3D_spots(self, extra_attrs=None):
         print('Saving 3D spots to hdf...', end='', flush=True)
-        hdf_str = f'{self._hdf_type}/reflections/spots_3D'
+        hdf_str = f'{self._hdf_type}/reflections'
         self.spots_3D.to_hdf(self.hdf_path,
-                             key=hdf_str,
+                             key=f'{hdf_str}/spots_3D',
                              format='table')
 
         if extra_attrs is not None:
-            self.open_hdf()
+            if self.hdf is None:
+                self.open_hdf()
             for key, value in extra_attrs.items():
                 overwrite_attr(self.hdf[hdf_str].attrs, key, value)      
         print('done!')
-
+    
 
     @XRDBaseScan._protect_hdf()
     def save_vector_information(self,
-                                data,
-                                title,
+                                vector_info,
+                                vector_info_title,
+                                rewrite_data=True,
                                 extra_attrs=None):
-            
-        # Get vector group
-        vect_grp = self.hdf[self._hdf_type].require_group(
-                                                'vectorized_data')
 
-        if title not in vect_grp.keys():
-            dset = vect_grp.require_dataset(
-                title,
-                data=data,
-                shape=data.shape,
-                dtype=data.dtype)
-        else:
-            dset = vect_grp[title]
+        self._save_rocking_vectorization(self.hdf,
+                                         vector_info,
+                                         vector_title=vector_info_title,
+                                         edges=None,
+                                         rewrite_data=rewrite_data,
+                                         verbose=verbose)
 
-            if (dset.shape == data.shape
-                and dset.dtype == data.dtype):
-                dset[...] = data
-            elif (dset.shape == data.shape
-                    and dset.dtype != data.dtype):
-                    dset[...] = data.astype(dset.dtype)
-            else:
-                warn_str = (f'WARNING: {title} dataset shape does '
-                            + 'not match given data; rewriting '
-                            + 'with new shape. This may bloat '
-                            + 'the file size.')
-                print(warn_str)
-                del vect_grp[title]
-                dset = vect_grp.require_dataset(
-                    title,
-                    data=data,
-                    shape=data.shape,
-                    dtype=data.dtype)
-        
         # Add extra information
         if extra_attrs is not None:
             for key, value in extra_attrs.items():
-                overwrite_attr(dset.attrs, key, value)
+                overwrite_attr(
+                    self.hdf['vectorized_data'][vector_info_title].attrs,
+                    key,
+                    value)
+
+    # @XRDBaseScan._protect_hdf()
+    # def save_vector_information(self,
+    #                             data,
+    #                             title,
+    #                             extra_attrs=None):
+            
+    #     # Get vector group
+    #     vect_grp = self.hdf[self._hdf_type].require_group(
+    #                                             'vectorized_data')
+
+    #     if title not in vect_grp.keys():
+    #         dset = vect_grp.require_dataset(
+    #             title,
+    #             data=data,
+    #             shape=data.shape,
+    #             dtype=data.dtype)
+    #     else:
+    #         dset = vect_grp[title]
+
+    #         if (dset.shape == data.shape
+    #             and dset.dtype == data.dtype):
+    #             dset[...] = data
+    #         elif (dset.shape == data.shape
+    #                 and dset.dtype != data.dtype):
+    #                 dset[...] = data.astype(dset.dtype)
+    #         else:
+    #             warn_str = (f'WARNING: {title} dataset shape does '
+    #                         + 'not match given data; rewriting '
+    #                         + 'with new shape. This may bloat '
+    #                         + 'the file size.')
+    #             print(warn_str)
+    #             del vect_grp[title]
+    #             dset = vect_grp.require_dataset(
+    #                 title,
+    #                 data=data,
+    #                 shape=data.shape,
+    #                 dtype=data.dtype)
+        
+    #     # Add extra information
+    #     if extra_attrs is not None:
+    #         for key, value in extra_attrs.items():
+    #             overwrite_attr(dset.attrs, key, value)
 
 
     ###########################################
@@ -1395,11 +1419,12 @@ class XRDRockingCurve(XRDBaseScan):
     # Disable q-space plotting
     def plot_q_space(self, *args, **kwargs):
         err_str = ('Q-space plotting not supported for '
-                   + 'XRDRockingCurves, since Ewald sphere/or '
+                   + 'XRDRockingCurves; Ewald sphere/or '
                    + 'crystal orientation changes during scanning.')
         raise NotImplementedError(err_str)
 
 
+    @return_plot_wrapper
     def plot_image_stack(self,
                          images=None,
                          slider_vals=None,
@@ -1408,7 +1433,6 @@ class XRDRockingCurve(XRDBaseScan):
                          vmin=None,
                          vmax=None,
                          title_scan_id=True,
-                         return_plot=False,
                          **kwargs):
 
         if images is None:
@@ -1433,34 +1457,28 @@ class XRDRockingCurve(XRDBaseScan):
                                 + 'Rocking Curve'),
                             title_scan_id=title_scan_id)
         
-        (fig,
-        ax,
-        slider) = base_slider_plot(
-            images,
-            slider_vals=slider_vals,
-            slider_label=slider_label,
-            title=title,
-            vmin=vmin,
-            vmax=vmax,
-            **kwargs)
-
-        if return_plot:
-            # Need a slider reference
-            self.__slider = slider
-            return fig, ax
-        else:
-            # Need a slider reference
-            self.__slider = slider
-            fig.show()
+        fig, ax, slider = base_slider_plot(
+                                images,
+                                slider_vals=slider_vals,
+                                slider_label=slider_label,
+                                title=title,
+                                vmin=vmin,
+                                vmax=vmax,
+                                **kwargs)
+        
+         # Need a slider reference
+        self._image_stack_slider = slider
+        return fig, ax
     
 
+    @return_plot_wrapper
     def plot_waterfall(self, **kwargs):
         return self._plot_waterfall(
                             axis=0,
                             axis_text=self.rocking_axis.capitalize(),
                             **kwargs)
             
-
+    @return_plot_wrapper
     def plot_3D_scatter(self,
                         q_vectors=None,
                         intensity=None,
@@ -1468,7 +1486,6 @@ class XRDRockingCurve(XRDBaseScan):
                         edges=None,
                         skip=None,
                         title_scan_id=True,
-                        return_plot=False,
                         **kwargs):
         
         if q_vectors is None:
@@ -1501,20 +1518,17 @@ class XRDRockingCurve(XRDBaseScan):
                             title_scan_id=title_scan_id)
         ax.set_title(title)
 
-        if return_plot:
-            return fig, ax
-        else:
-            fig.show()
-    
+        return fig, ax
+
 
     # Convenience wrapper of plot_3D_scatter to plot found 3D spots
+    @return_plot_wrapper
     def plot_3D_spots(self,
                       spots_3D=None,
                       title=None,
                       edges=None,
                       skip=None,
                       title_scan_id=True,
-                      return_plot=False,
                       **kwargs):
         
         if spots_3D is None:
@@ -1547,10 +1561,7 @@ class XRDRockingCurve(XRDBaseScan):
                             title_scan_id=title_scan_id)
         ax.set_title(title)
 
-        if return_plot:
-            return fig, ax
-        else:
-            fig.show()      
+        return fig, ax   
 
 
     # Broken for angle rocking curves
@@ -1633,13 +1644,13 @@ class XRDRockingCurve(XRDBaseScan):
                             plot_ints,
                             gridstep=gridstep,
                             **kwargs)
-        
     
+    # TODO: Move this to plot volume module
+    @return_plot_wrapper
     def plot_sampled_volume_outline(self,
                                     edges=None,
                                     title=None,
-                                    title_scan_id=True,
-                                    return_plot=False):
+                                    title_scan_id=True):
 
         if edges is None:
             if hasattr(self, 'edges'):
@@ -1668,7 +1679,5 @@ class XRDRockingCurve(XRDBaseScan):
         ax.set_zlabel('qz [Å⁻¹]')
         ax.set_aspect('equal')
 
-        if return_plot:
-            return fig, ax
-        else:
-            fig.show()
+        return fig, ax
+

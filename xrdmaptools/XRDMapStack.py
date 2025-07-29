@@ -57,6 +57,7 @@ from xrdmaptools.crystal.map_alignment import (
     com_auto_alignment,
     manual_alignment
 )
+from xrdmaptools.plot.general import return_plot_wrapper
 from xrdmaptools.plot.image_stack import base_slider_plot
 from xrdmaptools.plot.interactive import (
     interactive_3D_plot
@@ -771,10 +772,8 @@ class XRDMapStack(list):
 
     def _modify_pseudo_inherited_plot(func, verbatim=True):
 
+        @return_plot_wrapper
         def modified_plot(self, *args, **kwargs):
-            xdms_return_plot = None
-            if 'return_plot' in kwargs:
-                xdms_return_plot = kwargs.pop('return_plot')
             xdms_title = None
             if 'title' in kwargs:
                 xdms_title = kwargs.pop('title')
@@ -799,10 +798,7 @@ class XRDMapStack(list):
             
             ax.set_title(title)
 
-            if xdms_return_plot:
-                return fig, ax
-            else:
-                fig.show()
+            return fig, ax
         
         return modified_plot
 
@@ -827,6 +823,7 @@ class XRDMapStack(list):
         return XRDRockingCurve._title_with_scan_id(self,
                                                    *args,
                                                    **kwargs)  
+
 
     def plot_sampled_volume_outline(self, *args, **kwargs):
         return XRDRockingCurve.plot_sampled_volume_outline(self,
@@ -1073,10 +1070,13 @@ class XRDMapStack(list):
     # Does not interact with individual maps; use swap_axes instead
     def _swap_xdms_axes(self):   
 
-       # Update vector map
+        # Update vector map and related data
         if (hasattr(self, 'xdms_vector_map')
             and self.xdms_vector_map is not None):
             self.xdms_vector_map = self.xdms_vector_map.swapaxes(0, 1)
+        if (hasattr(self, 'xdms_spot_label_map')
+            and self.xdms_spot_label_map is not None):
+            self.xdms_spot_label_map = self.xdms_spot_label_map.swapaxes(0, 1)
 
         # Update spot map_indices
         if hasattr(self, 'spots'):
@@ -1142,6 +1142,30 @@ class XRDMapStack(list):
                                 vector_map=xdms_vector_map,
                                 edges=edges,
                                 rewrite_data=rewrite_data)
+
+
+    @_check_xdms_swapped_axes
+    @_protect_xdms_hdf()
+    def save_xdms_vector_map_information(self,
+                                         vector_map_info,
+                                         vecto_map_info_title,
+                                         rewrite_data=True,
+                                         extra_attrs=None):
+
+        XRDMap._save_vector_map(self, # this might break
+                                self.xdms_hdf,
+                                vector_map=vector_map_info,
+                                vector_map_title=vector_map_info_title,
+                                edges=None,
+                                rewrite_data=rewrite_data)
+
+        # Add extra information
+        if extra_attrs is not None:
+            for key, value in extra_attrs.items():
+                overwrite_attr(
+                    self.hdf['vectorized_data'][vector_info_title].attrs,
+                    key,
+                    value)
     
 
     # Almost verbatim with XRDMap.load_vector_map
@@ -1296,6 +1320,7 @@ class XRDMapStack(list):
     ### Vectorizing Data ###
     ########################
 
+    # TODO: Add center of mass alignment method
     def align_maps(self,
                    map_stack,
                    method='correlation', # Default first map may not be the best
@@ -1630,9 +1655,10 @@ class XRDMapStack(list):
                               theta
                               ]
             else:
+                spot_labels = []
                 temp_lists = [[] for _ in range(len(df_keys))]
 
-            return temp_lists
+            return temp_lists, spot_labels
 
         # Iterate through each spatial pixel of map
         delayed_list = []
@@ -1652,17 +1678,31 @@ class XRDMapStack(list):
         # Unpack data into useable format
         df_data = []
         for i in range(len(df_keys)):
-            df_data.append(list(itertools.chain(*[res[i] for res in proc_list])))
-        
-        # return df_keys, df_data
+            df_data.append(list(itertools.chain(*[res[0][i] for res in proc_list])))
 
         # Compile spots
         full_dict = dict(zip(df_keys, df_data))
         self.spots_3D = pd.DataFrame.from_dict(full_dict)
 
+        # Store spot labels
+        self.xdms_spot_labels_map = np.empty(self.xdms_vector_map.shape, dtype=object)
+        for index in range(np.prod(self.xdms_vector_map.shape)):
+            indices = np.unravel_index(index, self.xdms_vector_map.shape)
+            self.xdms_spot_labels_map[indices] = list(proc_list[index])
+
         # Write to hdf
         if save_to_hdf:
             self.save_3D_spots(
+                    extra_attrs={
+                            'abs_int_cutoff' : abs_int_cutoff,
+                            'nn_dist' : nn_dist,
+                            'significance' : significance,
+                            'subsample' : subsample,
+                            'label_int_method' : label_int_method})
+            self.save_xdms_vector_map_information(
+                    self.xdms_spot_labels_map,
+                    'spot_labels_map',
+                    rewrite_data=rewrite_data,
                     extra_attrs={
                             'abs_int_cutoff' : abs_int_cutoff,
                             'nn_dist' : nn_dist,
@@ -1786,13 +1826,14 @@ class XRDMapStack(list):
     @_protect_xdms_hdf(pandas=True)
     def save_3D_spots(self, extra_attrs=None):
         print('Saving 3D spots to hdf...', end='', flush=True)
-        hdf_str = f'{self._hdf_type}/reflections/spots_3D'
+        hdf_str = f'{self._hdf_type}/reflections/'
         self.spots_3D.to_hdf(self.xdms_hdf_path,
-                             key=hdf_str,
+                             key=f'{hdf_str}/spots_3D',
                              format='table')
 
         if extra_attrs is not None:
-            self.open_xdms_hdf()
+            if self.xdms_hdf is None:
+                self.open_xdms_hdf()
             for key, value in extra_attrs.items():
                 overwrite_attr(self.xdms_hdf[hdf_str].attrs, key, value)      
         print('done!')
@@ -1872,6 +1913,7 @@ class XRDMapStack(list):
         raise NotImplementedError(err_str)
 
 
+    @return_plot_wrapper
     def plot_map_stack(self,
                        map_stack,
                        slider_vals=None,
@@ -1879,7 +1921,6 @@ class XRDMapStack(list):
                        title=None,
                        shifts=None,
                        title_scan_id=True,
-                       return_plot=False,
                        **kwargs,
                        ):
 
@@ -1908,9 +1949,7 @@ class XRDMapStack(list):
             title = (f'scan{self.scan_id[0]}-{self.scan_id[-1]}:'
                      + f' {title}')
 
-        (fig,
-         ax,
-         slider) = base_slider_plot(
+        fig, ax, slider = base_slider_plot(
                                 map_stack,
                                 slider_vals=slider_vals,
                                 slider_label=slider_label,
@@ -1919,22 +1958,17 @@ class XRDMapStack(list):
                                 **kwargs
                                 )
         
-        if return_plot:
-            # matplotlib likes to keep a reference
-            self.__slider = slider 
-            return fig, ax
-        else:
-            # matplotlib likes to keep a reference
-            self.__slider = slider
-            fig.show()
+        # matplotlib likes to keep a reference
+        self._map_stack_slider = slider 
+        return fig, ax
     
 
+    @return_plot_wrapper
     def plot_interactive_map(self,
                              spots_3D=False,
                              dyn_kw=None,
                              map_kw=None,
                              title_scan_id=True,
-                             return_plot=False,
                              **kwargs):
         
         # Python doesn't play well with mutable default kwargs
@@ -2032,11 +2066,6 @@ class XRDMapStack(list):
                             title_scan_id=title_scan_id)
 
         # Plot!
-        fig, ax = interactive_3D_plot(dyn_kw,
-                                      map_kw,
-                                      **kwargs)
-
-        if return_plot:
-            return fig, ax
-        else:
-            fig.show()  
+        return interactive_3D_plot(dyn_kw,
+                                   map_kw,
+                                   **kwargs)
