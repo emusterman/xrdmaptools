@@ -74,3 +74,149 @@ def plot_single_isosurface(vectors, gridstep=0.01):
     ax.set_aspect('equal')
     
     fig.show()
+
+
+
+def plot_phase_and_xrf_maps(xdm):
+    from scipy.signal import find_peaks
+    from scipy.ndimage import gaussian_filter
+
+    tth, intensity = xdm.integrate1D_image(xdm.max_image)
+    gauss_int = gaussian_filter(intensity, sigma=5)
+    # gauss_int = intensity
+
+    peaks = find_peaks(gauss_int, prominence=1, width=5)[0]
+
+    phase_maps = {phase_name : np.zeros(xdm.map_shape)
+                  for phase_name in xdm.phases.keys()}
+    
+    all_tth = []
+    all_phases = []
+
+    for phase in xdm.phases.values():
+        phase.get_hkl_reflections(energy=xdm.energy)
+        all_tth.extend(phase.reflections['tth'])
+        all_phases.extend([phase.name,] * len(phase.reflections['tth']))
+    all_tth = np.asarray(all_tth)
+
+    wind = 20
+    for peak in peaks:
+        best_match = np.argmin(np.abs(tth[peak] - all_tth))
+        tth_cen = np.argmin(np.abs(np.asarray(tth) - all_tth[best_match]))
+        phase_maps[all_phases[best_match]] += np.sum(xdm.integrations[..., tth_cen - wind : tth_cen + wind], axis=-1)
+
+    fig, ax = plt.subplots(2, 3, figsize=(12, 6), dpi=300, layout='tight')
+
+    # Element maps
+    for i, el_key in enumerate(['Fe', 'Ni', 'Cr']):
+        axi = ax[0, i]
+        
+        im = axi.imshow(xdm.xrf[f'{el_key}_K'] / xdm.xrf['Ar_K'], extent=xdm.map_extent())
+        fig.colorbar(im, ax=axi)
+        axi.set_title(f'XRF {el_key} K-emission')
+        axi.set_xticks([])
+        if i != 0:
+            axi.set_yticks([])
+        else:
+            axi.set_ylabel(f'y-axis [{xdm.position_units}]')
+
+    # Phase maps
+    for i, phase_key in enumerate(['Hematite', 'Ferrite', 'Austenite']):
+        axi = ax[1, i]
+
+        im = axi.imshow(phase_maps[phase_key], extent=xdm.map_extent())
+        fig.colorbar(im, ax=axi)
+        axi.set_title(f'XRD {phase_key} Sum')
+        axi.set_xlabel(f'x-axis [{xdm.position_units}]')
+        if i != 0:
+            axi.set_yticks([])
+        else:
+            axi.set_ylabel(f'y-axis [{xdm.position_units}]')
+    
+    fig.show()
+
+
+import matplotlib.ticker as mticker
+# 161738
+def plot_map_and_xrd(xdm):
+
+    tth, intensity = xdm.integrate1D_image(xdm.max_image)
+    peaks = find_peaks(intensity, prominence=0.1, width=7, height=0.1)[0]
+
+    # rescale_array(intensity, upper=100)
+
+    fig, ax = plt.subplots(1, 2, dpi=300, figsize=(8, 3), layout='tight')
+
+    # XRD
+    ax[0].plot(tth, intensity, c='k')
+    ax[0].set_xlabel(f'Scattering Angle, 2θ [{xdm.scattering_units}]')
+    # ax[0].set_yticks([])
+    ax[0].set_ylabel('Intensity [a.u.]')
+    ax[0].set_title('Maximum Integration')
+    # ax[0].yaxis.set_major_locator(mticker.MultipleLocator(0.2))
+
+    # for peak in peaks:
+    #     ax[0].text(tth[peak], intensity[peak], 'hkl', fontsize=8, color='k')
+
+    # Map
+    cen, wind = 526, 20
+    im = ax[1].imshow(np.max(xdm.integrations[..., cen - wind : cen + wind], axis=-1), extent=xdm.map_extent(), vmin=0, vmax=0.1)
+    fig.colorbar(im, ax=ax[1])
+    ax[1].set_xlabel(f'x-axis [{xdm.position_units}]')
+    ax[1].set_ylabel(f'y-axis [{xdm.position_units}]')
+    ax[1].set_title('(012) Intensity')
+    ax[1].set_aspect('equal')
+
+    # asp0 = np.abs(np.diff(ax[0].get_xlim())[0] / np.diff(ax[0].get_ylim())[0])
+    # print(f'{asp0=}')
+    # asp1 = np.abs(np.diff(ax[1].get_xlim())[0] / np.diff(ax[0].get_ylim())[0])
+    # print(f'{asp1=}')
+    # ax[0].set_aspect(asp0)
+
+    fig.show()
+
+from xrdmaptools.geometry.geometry import modular_azimuthal_shift, modular_azimuthal_reshift
+def plot_azimuth(image, tth_arr, chi_arr, tth_range, chi_range=None, plotme=True, **kwargs):
+
+    tth_mask = (tth_arr >= tth_range[0]) & (tth_arr <= tth_range[1])
+    new_chi_arr, new_max_arr, shifted = modular_azimuthal_shift(chi_arr)
+
+    n, bins = np.histogram(new_chi_arr[tth_mask], 
+                           weights=image[tth_mask],
+                           **kwargs)
+    
+    if plotme:
+        fig, ax = plt.subplots()
+        ax.plot(bins[:-1], n)
+        fig.show()
+
+    return n, bins, np.max(image[tth_mask])
+
+from scipy.stats import circmean
+from xrdmaptools.utilities.math import arbitrary_center_of_mass
+from xrdmaptools.utilities.utilities import Iterable2D
+def plot_hsv(xdm):
+
+    hsv_plot = np.zeros((*xdm.map_shape, 3))
+    
+    max_full = np.max(xdm.images)
+    print(max_full)
+
+    for indices in tqdm(Iterable2D(xdm.map_shape)):
+
+        # n, bins, max_int = plot_azimuth(xdm.images[indices], xdm.tth_arr, xdm.chi_arr, tth_range=(11.8, 12.3), plotme=False, bins=180)
+        n, bins, max_int = plot_azimuth(xdm.images[indices], xdm.tth_arr, xdm.chi_arr, tth_range=(10.15, 10.3), plotme=False, bins=180)
+        
+        bins -= np.min(bins)
+
+        com = arbitrary_center_of_mass(n, bins[:-1])[0]
+
+        hsv = np.asarray(plt.cm.hsv(com / np.max(bins))[:3])
+        # hsv *= (max_int / max_full)
+
+        hsv_plot[indices] = hsv
+    
+    return hsv_plot
+
+
+
