@@ -141,6 +141,10 @@ class XRDMap(XRDBaseScan):
                 dask_enabled=False,
                 repair_method='fill',
                 **kwargs):
+
+        """
+
+        """
         
         if wd is None:
             wd = os.getcwd()
@@ -774,19 +778,6 @@ class XRDMap(XRDBaseScan):
                 and getattr(self, attr) is not None):
                 setattr(self, attr, getattr(self, attr).swapaxes(0, 1))
 
-        # if (hasattr(self, 'blob_masks')
-        #     and self.blob_masks is not None):
-        #     self.blob_masks = self.blob_masks.swapaxes(0, 1)
-        # if (hasattr(self, 'null_map')
-        #     and self.null_map is not None):
-        #     self.null_map = self.null_map.swapaxes(0, 1)
-        # if (hasattr(self, 'scaler_map')
-        #     and self.scaler_map is not None):
-        #     self.scaler_map = self.scaler_map.swapaxes(0, 1)
-        # if (hasattr(self, 'vector_map')
-        #     and self.vector_map is not None):
-        #     self.vector_map = self.vector_map.swapaxes(0, 1)
-
         # Modify dictionaries
         if hasattr(self, 'pos_dict') and self.pos_dict is not None:
             for key in list(self.pos_dict.keys()):
@@ -1182,9 +1173,6 @@ class XRDMap(XRDBaseScan):
                         rewrite_data=False,
                         verbose=False):
 
-        # # Allows for more customizability with other functions
-        # hdf = getattr(self, 'hdf')
-
         # Check input
         if vector_map is None:
             if (hasattr(self, 'vector_map')
@@ -1207,17 +1195,11 @@ class XRDMap(XRDBaseScan):
                               rewrite_data=rewrite_data,
                               verbose=verbose)
         
-        # # Remove secondary reference
-        # del hdf
-    
 
     @_check_swapped_axes
     @XRDBaseScan._protect_hdf()
     def load_vector_map(self):
         self._load_vectors(self.hdf)
-    #     vector_dict = _load_xrd_hdf_vectorized_map_data(
-    #                                     self.hdf[self._hdf_type])
-    #     self.vector_map = vector_dict['vector_map']
 
 
     #################################
@@ -1628,6 +1610,12 @@ class XRDMap(XRDBaseScan):
                             map_kw['title'],
                             default_title='Custom Map',
                             title_scan_id=title_scan_id)
+        if 'title' not in dyn_kw:
+            dyn_kw['title'] = None
+        dyn_kw['title'] = self._title_with_scan_id(
+                            dyn_kw['title'],
+                            default_title='',
+                            title_scan_id=title_scan_id)    
         
         return dyn_kw, map_kw
 
@@ -1768,5 +1756,28 @@ class XRDMap(XRDBaseScan):
                             map_kw['title'],
                             default_title='Custom Map',
                             title_scan_id=title_scan_id)
+        if 'title' not in dyn_kw:
+            dyn_kw['title'] = None
+        dyn_kw['title'] = self._title_with_scan_id(
+                            dyn_kw['title'],
+                            default_title='',
+                            title_scan_id=title_scan_id)        
         
         return dyn_kw, map_kw
+    
+
+    def plot_waterfall(self, **kwargs):
+
+        if 'axis' in kwargs:
+            axis = kwargs.pop('axis')
+        else:
+            axis = 0 # default
+        
+        if axis == 0:
+            axis_text = 'Horizontal'
+        elif axis == 1:
+            axis_text = 'Vertical'
+
+        return self._plot_waterfall(axis=axis,
+                                    axis_text=axis_text,
+                                    **kwargs)
