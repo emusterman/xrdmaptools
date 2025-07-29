@@ -776,6 +776,7 @@ def _interactive_2D_window_plot(dyn_kw={},
 def interactive_2D_window_sum_plot(**kwargs):
 
     def func(dyn_kw, map_kw, rect_slice):
+        map_kw['vmin'], map_kw['vmax'] = dyn_kw['axes'][0].images[0].get_clim()
         return np.sum(dyn_kw['data'][..., *rect_slice], axis = (-2, -1))
 
     return _interactive_2D_window_plot(**kwargs,
