@@ -46,6 +46,7 @@ from xrdmaptools.plot.geometry import (
     plot_q_space,
     plot_detector_geometry
 )
+from xrdmaptools.plot.analysis import plot_waterfall
 from xrdmaptools.geometry.geometry import *
 from xrdmaptools.crystal.Phase import Phase, phase_selector
 
@@ -445,10 +446,6 @@ class XRDBaseScan(XRDData):
         integration_data_key = input_dict.pop(
                                     'integration_data_key')
         recip_pos = input_dict.pop('recip_pos')
-        # phases = input_dict.pop('phases')
-        # spots = input_dict.pop('spots')
-        # spot_model = input_dict.pop('spot_model')
-        # spots_3D = input_dict.pop('spots_3D')
         vector_dict = input_dict.pop('vector_dict')
         
         # Other kwargs needing special treatment
@@ -518,52 +515,9 @@ class XRDBaseScan(XRDData):
             if value is None:
                 del input_dict[key]
 
-        # # Set up extra attributes
-        # extra_attrs = {}
-        # extra_attrs.update(image_attrs)
-        # extra_attrs.update(integration_attrs)
-        # # Add phases
-        # extra_attrs['phases'] = phases
-        # # Add spots
-        # if spots is not None:
-        #     extra_attrs['spots'] = spots
-        # if spot_model is not None:
-        #     extra_attrs['spot_model'] = spot_model
-        # if spots_3D is not None:
-        #     extra_attrs['spots_3D'] = spots_3D
-
         # Add vector information. Not super elegant
         if vector_dict is not None:
             extra_attrs.update(cls._parse_vector_dict(vector_dict))
-            # for key, value in vector_dict.items():
-            #     # Check for int cutoffs
-            #     # Wait to make sure intensity is processed
-            #     if key == 'blob_int_cutoff':
-            #         # Backwards compatibility
-            #         if 'relative_cutoff' in vector_dict:
-            #             relative_cutoff = bool(vector_dict['relative_cutoff'])
-            #         else:
-            #             relative_cutoff = True
-            #         intensity = vector_dict['vectors'][:, -1]
-            #         (extra_attrs['blob_int_mask']
-            #         ) = generate_intensity_mask(
-            #             intensity,
-            #             int_cutoff=vector_dict['blob_int_cutoff'],
-            #             relative_cutoff=relative_cutoff)
-            #     elif key == 'spot_int_cutoff':
-            #         # Backwards compatibilty
-            #         if 'relative_cutoff' in vector_dict:
-            #             relative_cutoff = bool(vector_dict['relative_cutoff'])
-            #         else:
-            #             relative_cutoff = True
-            #         intensity = vector_dict['vectors'][:, -1]
-            #         (extra_attrs['spot_int_mask']
-            #         ) = generate_intensity_mask(
-            #             intensity,
-            #             int_cutoff=vector_dict['spot_int_cutoff'],
-            #             relative_cutoff=relative_cutoff)
-            #     else:
-            #         extra_attrs[key] = value
 
         # Instantiate XRDBaseScan
         inst = cls(**input_dict,
@@ -950,7 +904,7 @@ class XRDBaseScan(XRDData):
         Start saving data to HDF.
 
         If HDF does not already exist, a new version will be 
-        initialized from current scan parameters. Defaulting naming and
+        initialized from current scan parameters. Default naming and
         path will be used when not provided.
 
         Parameters
@@ -964,9 +918,17 @@ class XRDBaseScan(XRDData):
             Path used for writing HDF file or path of previous HDF
             file.
         dask_enabled : bool, optional
-        save_current : bool, optional 
+            Flag to indicate if images are lazily loaded. If true, a
+            temporary reference inside the HDF will be opened. False by
+            default.
+        save_current : bool, optional
+            Flag to indicate if the current iteration of the data
+            should be saved immediately. This will call the
+            save_current_hdf function. False by defualt.
         verbose : bool, optional
-
+            Flag to indicate the verbosity if the save_current flag is
+            True. If save_current is False, this flag does nothing. By
+            defualt, verbose is False.
         """
         
         # Check for previous iterations
@@ -1028,7 +990,17 @@ class XRDBaseScan(XRDData):
     # Calls several other save functions
     def save_current_hdf(self, verbose=False):
         """
+        Save the current version of all data to the HDF.
 
+        Call several individual save functions to save current data to
+        HDF. If HDF is not already specified internally, this function
+        will only print a warning.
+
+        Parameters
+        ----------
+        verbose : bool, optional
+            Flag passed to individual save functions to determine
+            verbosity.
         """
         
         if self.hdf_path is None:
@@ -1065,7 +1037,14 @@ class XRDBaseScan(XRDData):
     # Ability to toggle hdf saving and proceed without writing to disk.
     def stop_saving_hdf(self):
         """
+        Stop saving data to HDF.
 
+        This data will disable automatic saving to the HDF and will
+        remove the the path information from the instance.
+
+        Raises
+        ----------
+        RuntimeError if images are lazily loaded with dask.
         """
 
         if self._dask_enabled:
@@ -1083,13 +1062,38 @@ class XRDBaseScan(XRDData):
     @XRDData._protect_hdf()
     def switch_hdf(self,
                    hdf=None,
-                   hdf_path=None,
                    hdf_filename=None,
+                   hdf_path=None,
                    dask_enabled=False,
                    save_current=False,
                    verbose=True):
         """
+        Switch the HDF save location.
 
+        Change the HDF write location from one file to another. This
+        method can be used to initialize and copy the data to another
+        file.
+
+        Parameters
+        ----------
+        hdf : HDF File Object, optional
+            HDF File Object that will be used as the new write object.
+        hdf_filename : str, optional
+            Name used for new HDF file.
+        hdf_path : path str, optional
+            Path used for writing the new HDF file.
+        dask_enabled : bool, optional
+            Flag to indicate if images are lazily loaded. If true, a
+            temporary reference inside the HDF will be opened. False by
+            default.
+        save_current : bool, optional
+            Flag to indicate if the current iteration of the data
+            should be saved immediately. This will call the
+            save_current_hdf function. False by defualt.
+        verbose : bool, optional
+            Flag to indicate the verbosity if the save_current flag is
+            True. If save_current is False, this flag does nothing. By
+            defualt, verbose is False.
         """
 
         # Check to make sure the change is appropriate and correct.
@@ -2099,6 +2103,7 @@ class XRDBaseScan(XRDData):
                             if verbose:
                                 print(warn_str)
     
+
     # Called in other functions. Not protected.
     @staticmethod
     def _parse_vector_dict(vector_dict):
@@ -2185,7 +2190,7 @@ class XRDBaseScan(XRDData):
 
     def _title_with_scan_id(self,
                             title,
-                            default_title='',
+                            default_title=None,
                             title_scan_id=True):
         """
 
@@ -2194,7 +2199,7 @@ class XRDBaseScan(XRDData):
         if title is None:
             title = default_title
         if title_scan_id:
-            if title == '':
+            if title == None:
                 return f'scan{self.scan_id}'
             else:
                 return f'scan{self.scan_id}: {title}'
@@ -2300,9 +2305,69 @@ class XRDBaseScan(XRDData):
             return fig, ax
         else:
             fig.show()
+
+
+    def _plot_waterfall(self,
+                        axis_text='',
+                        axis=0,
+                        integration_method='max',
+                        v_offset=0.25,
+                        tth=None,
+                        units=None,
+                        title=None,
+                        cmap=None,
+                        fig=None,
+                        ax=None,
+                        title_scan_id=True,
+                        return_plot=False,
+                        **kwargs):
+
+        # Check inputs
+        if integration_method.lower() == 'max':
+            int_func = np.max
+        elif integration_method.lower() == 'sum':
+            int_func = np.sum
+        else:
+            err_str = ("Unknown integration method. Only 'sum' and "
+                       + "'max' are currently supported.")
+            raise ValueError(err_str)
+        
+        if axis not in [0, 1]:
+            err_str = ('Waterfall plots can only be integrated along '
+                       + 'axis 0 or 1.')
+            raise ValueError(err_str)
+
+        if title is None:
+            title = f'{axis_text} Waterfall Plot'            
+        
+        if tth is None:
+            tth = self.tth
+        
+        if units is None:
+            units = self.scattering_units
+
+        fig, ax = plot_waterfall(
+                    int_func(self.integrations, axis=axis),
+                    tth=tth,
+                    units=units,
+                    title=title,
+                    v_offset=v_offset,
+                    fig=fig,
+                    ax=ax,
+                    cmap=cmap,
+                    **kwargs)
+
+        # Reset title
+        title = self._title_with_scan_id(
+                            ax.title._text,
+                            title_scan_id=title_scan_id)
+        ax.set_title(title)
+        
+        if return_plot:
+            return fig, ax
+        else:
+            fig.show()
     
-
-
 
     ##################################
     ### Plot Experimental Geometry ###
