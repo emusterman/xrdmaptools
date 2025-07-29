@@ -486,7 +486,7 @@ def get_confidence_interval(data, params, pcov, alpha=0.05):
 
 # Confidence interval estimation
 # Nonlinear curve fit with confidence interval
-'''import numpy as np
+"""import numpy as np
 from scipy.optimize import curve_fit
 from scipy.stats.distributions import  t
 
@@ -523,4 +523,4 @@ xfit = np.linspace(0,1)
 yfit = func(xfit, pars[0], pars[1])
 plt.plot(xfit,yfit,'b-')
 plt.legend(['data','fit'],loc='best')
-plt.savefig('images/nonlin-curve-fit-ci.png')'''
+plt.savefig('images/nonlin-curve-fit-ci.png')"""

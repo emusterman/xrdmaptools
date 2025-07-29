@@ -78,12 +78,12 @@ def iterative_outlier_correction(images, size=2, tolerance=0.5):
 # OPTIMIZE ME: copies a lot of data
 # Iterative approach might be faster, with Numba and Dask?
 def find_outlier_pixels(images, size=2, tolerance=2):
-    '''
+    """
     images      (arr)   Input ND images. Last two dimensions should be the 2D image   
     size        (float) Size of median window. 2 by default only accounts for nearest neighbor pixels
     tolerance   (float) Multiplier value above which to consider a pixel as an outlier. By default 2 times the median value
     TODO better account for significance.
-    '''
+    """
 
     #data = images.copy()
 
@@ -125,14 +125,14 @@ def find_outlier_pixels(images, size=2, tolerance=2):
 
 
 #def old_find_outlier_pixels(data, size=2, tolerance=3, significance=None):
-#    '''
+#    """
 #   data        (arr)   Input 2D image. Cannot handle higher dimensional data yet...   
 #   size        (float) Size of median window. 2 by default only accounts for nearest neighbor pixels
 #   tolerance   (float) Multiplier value above which to consider a pixel as an outlier. By default 3 times the median value
 #   signficance (float) Signficance value below which to ignore contributions from noise fluctuations. 
 #                        Set to 5 * data standard deviation. Causes issues with Bragg peaks currently.
 #    TODO better account for significance. Better account for multidimensional data...
-#    '''
+#    """
 #
 #    med_img = ndi.median_filter(data, size=size, mode='mirror')
 #
@@ -150,13 +150,13 @@ def find_outlier_pixels(images, size=2, tolerance=2):
 
 def rebin(arr, new_shape=None, bin_size=(2, 2), method='sum', keep_range=False):
     # TODO: Make sure this can be applied across a full image stack...
-    '''
+    """
     arr         (arr)   Original image
     new_shape   (tuple) (n, m) shape of new image
     bin_size    (tuple) (n, m) size of bins
     method      (str)   Method of rebinning. Accepts 'sum' or 'mean'. Mean maintains range. Default is 'sum'.
     keep_range  (bool)  NOT IMPLEMENTED. Rescales output to the same range as the original image.
-    '''
+    """
 
     # Determine new image shape
     if type(new_shape) in [tuple, list, np.ndarray] and len(new_shape) == 2:
@@ -206,7 +206,7 @@ def iter_rescale_array(arr, lower=0, upper=1, arr_min=None, arr_max=None):
 
 
 
-'''def rebin(arr, new_shape, method='sum'):
+"""def rebin(arr, new_shape, method='sum'):
     # TODO: Generalize further based on binning number and not image shape...
     shape = (new_shape[0], arr.shape[0] // new_shape[0],
              new_shape[1], arr.shape[1] // new_shape[1])
@@ -222,6 +222,6 @@ def rebin_2(arr, new_shape):
     new_shape = (arr.shape[0] // 2, arr.shape[1] // 2)
     shape = (new_shape[0], arr.shape[0] // new_shape[0],
              new_shape[1], arr.shape[1] // new_shape[1])
-    return arr.reshape(shape).sum(-1).sum(1)'''
+    return arr.reshape(shape).sum(-1).sum(1)"""
 
 

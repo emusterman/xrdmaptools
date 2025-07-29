@@ -205,9 +205,9 @@ def blob_spot_search(scaled_image,
 #                 expansion=None,
 #                 plotme=False):
     
-#     '''
+#     """
 #     Returns spots in image coordinates.
-#     '''
+#     """
 
 #     if mask is None:
 #        mask = (scaled_image != 0)

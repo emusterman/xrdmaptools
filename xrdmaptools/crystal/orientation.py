@@ -19,12 +19,12 @@ from scipy.spatial.transform import Rotation
 # Returns orientation matrix from euler angles
 def g_func(phi1, phi, phi2, rad=False):
 
-    '''
+    """
     phi1        (float) First Euler angle in Bunge definition
     phi         (float) Second Euler angle in Bunge definition
     phi2        (float) Third Euler angle in Bunge definition
     rad         (bool)  True if angles given in radians
-    '''
+    """
 
     # Check and convert input angles
     if rad & (np.max([phi1, phi, phi2]) > 30): # Assumes some random pixel will exceed threshold in dataset

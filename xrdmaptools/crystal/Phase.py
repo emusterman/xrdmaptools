@@ -399,9 +399,9 @@ class Phase(xu.materials.Crystal):
 def write_calibration_file(mat, name=None, tt_cutoff=90, ignore_less=1,
                            wd=None, filename=None,
                            simulate_convolution=False):
-    '''
+    """
     
-    '''
+    """
     if name == None:
         name = mat.name
     header = [f'# Calibrant: {name} ({mat.chemical_composition()})',
@@ -578,9 +578,9 @@ def phase_selector(xrd,
 
  # Unused
 def find_label_peaks(theta, intensity, phase):
-    '''
+    """
     Assumes uniformly spaced data...
-    '''
+    """
 
     # Normalize data
     norm_int = 100 * (intensity - np.min(intensity)) / (np.max(intensity) - np.min(intensity))
