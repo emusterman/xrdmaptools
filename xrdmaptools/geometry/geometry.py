@@ -601,13 +601,13 @@ class QMask():
 
     def generate(self,
                  q_vectors,
-                 wavelength_ext=0.1,
+                 wavelength_ext=0.025,
                  angle_ext=None,
                  return_sub_masks=False):
 
         # Setup wiggle room
         if angle_ext is None:
-            angle_ext = 5 # in degrees
+            angle_ext = 2.5 # in degrees
             if not self.degrees:
                 angle_ext = np.radians(angle_ext)        
 
