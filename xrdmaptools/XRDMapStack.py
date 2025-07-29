@@ -151,7 +151,7 @@ class XRDMapStack(list):
         self.xdms_extra_metadata = xdms_extra_metadata
 
         # Pre-define values
-        self._shifts = [np.nan,] * len(self)
+        self._shifts = [(0, 0),] * len(self)
 
         # Collect unique phases from individual XRDMaps
         self.phases = {}
@@ -185,7 +185,7 @@ class XRDMapStack(list):
 
         # If none, map pixels may not correspond to each other
         if shifts is not None:
-            self.shifts = shifts
+            self.shifts = [tuple(shift) for shift in shifts]
         
         # Catch-all of extra attributes.
         # Gets them into __init__ sooner
@@ -315,8 +315,6 @@ class XRDMapStack(list):
     ai = _list_property_constructor('ai')
     pos_dict = _list_property_constructor('pos_dict')
     sclr_dict = _list_property_constructor('sclr_dict')
-    # _swapped_axes = _list_property_constructor('_swapped_axes',
-    #                                            include_set=True)
 
     # Universal attributes
     beamline = _universal_property_constructor('beamline')
@@ -452,6 +450,19 @@ class XRDMapStack(list):
             if xdm._swapped_axes != val:
                 xdm.swap_axes()
 
+    
+    @property
+    def qmask(self):
+        if hasattr(self, '_qmask'):
+            return self._qmask
+        else:
+            self._qmask = QMask.from_XRDRockingScan(self)
+            return self._qmask
+    
+    @qmask.deleter
+    def qmask(self):
+        del self._qmask
+
 
     #####################################
     ### Loading data into XRDMapStack ###
@@ -471,8 +482,7 @@ class XRDMapStack(list):
                          integration_data_key=None, # Load empty datasets
                          load_blob_masks=False, # Load empty datasets
                          load_vector_maps=False, # Load emtpy datasets
-                         map_shape=None,
-                         image_shape=None,
+                         rocking_axis=None,
                          **kwargs):
 
         if wd is None:
@@ -504,8 +514,6 @@ class XRDMapStack(list):
                     integration_data_key=integration_data_key,
                     load_blob_masks=load_blob_masks,
                     load_vector_map=load_vector_maps,
-                    map_shape=map_shape,
-                    image_shape=image_shape,
                     save_hdf=save_hdf,
                     **kwargs
                 )
@@ -516,7 +524,8 @@ class XRDMapStack(list):
                    xdms_filename=xdms_filename,
                    xdms_hdf_filename=xdms_hdf_filename,
                    xdms_hdf=xdms_hdf,
-                   save_hdf=save_hdf)
+                   save_hdf=save_hdf,
+                   rocking_axis=rocking_axis)
 
     
     @classmethod
@@ -1038,7 +1047,6 @@ class XRDMapStack(list):
                                     save_current=True)
 
 
-
     ##########################
     ### Modified Functions ###
     ##########################
@@ -1109,9 +1117,6 @@ class XRDMapStack(list):
                              edges=None,
                              rewrite_data=False):
 
-        # # Allows for more customizability with other functions
-        # hdf = getattr(self, 'xdms_hdf')
-
         # Check input
         if xdms_vector_map is None:
             if (hasattr(self, 'xdms_vector_map')
@@ -1137,26 +1142,7 @@ class XRDMapStack(list):
                                 vector_map=xdms_vector_map,
                                 edges=edges,
                                 rewrite_data=rewrite_data)
-        # # Remove secondary reference
-        # del hdf
     
-
-    # # Almost verbatim from XRDBaseScan._load_vectors
-    # @_check_xdms_swapped_axes
-    # @_protect_xdms_hdf()
-    # def load_xdms_vector_map(self):
-    #     # Load data from hdf
-    #     # vector_dict = _load_xrd_hdf_vectorized_map_data(
-    #     #                                 self.xdms_hdf[self._hdf_type])
-    #     vector_dict = _load_xrd_hdf_vector_data(
-    #                                     self.xdms_hdf[self._hdf_type])
-
-    #     # Universal parsing from XRDBaseScan class
-    #     vector_attrs = XRDBaseScan._parse_vector_dict(vector_dict)
-
-    #     # Attach to current instance
-    #     for key, value in vector_attrs.items():
-    #         setattr(self, key, value)
 
     # Almost verbatim with XRDMap.load_vector_map
     @_check_xdms_swapped_axes
@@ -1193,6 +1179,8 @@ class XRDMapStack(list):
         # Delete sorted attrs built from indvidual xrdmaps
         if hasattr(self, '_xrf'):
             del self._xrf
+        if hasattr(self, '_q_arr'):
+            del self._q_arr
 
         # Sort inherent XRDMapStack attrs
         # Not in-place since they may not be lists
@@ -1329,7 +1317,7 @@ class XRDMapStack(list):
             err_str = f'Unknown method ({method}) indicated.'
             raise ValueError(err_str)
 
-        self.shifts = np.asarray(shifts)
+        self.shifts = list(shifts)
 
     
     def interpolate_map_positions(self,
@@ -1544,18 +1532,6 @@ class XRDMapStack(list):
     ################################################
     ### Spot Search and Indexing Vectorized Data ###
     ################################################
-
-    @property
-    def qmask(self):
-        if hasattr(self, '_qmask'):
-            return self._qmask
-        else:
-            self._qmask = QMask.from_XRDRockingScan(self)
-            return self._qmask
-    
-    @qmask.deleter
-    def qmask(self):
-        del self._qmask
 
 
     def find_3D_spots(self,
