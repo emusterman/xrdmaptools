@@ -2,6 +2,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 from plotly import graph_objects as go
 
+# Local imports
+from . import config
 from xrdmaptools.crystal.rsm import map_2_grid
 
 
@@ -46,8 +48,8 @@ def plot_3D_scatter(q_vectors,
     kwargs.setdefault('alpha', 0.1)
 
     fig, ax = plt.subplots(1, 1, 
-                           figsize=(5, 5),
-                           dpi=200,
+                           figsize=config.figsize,
+                           dpi=config.dpi,
                            subplot_kw={'projection':'3d'})
     
     if 'title' in kwargs:

@@ -3,6 +3,8 @@ import matplotlib.pyplot as plt
 from scipy.spatial.transform import Rotation
 import orix
 
+# Local imports
+from . import config
 from xrdmaptools.geometry.geometry import (
     _parse_rotation_input
 )
@@ -34,15 +36,15 @@ def plot_3D_indexing(indexings,
         c = ['k',] * len(indexings)
 
     fig, ax = plt.subplots(1, 1, 
-                           figsize=(5, 5),
-                           dpi=200,
+                           figsize=config.figsize,
+                           dpi=config.dpi,
                            subplot_kw={'projection':'3d'})
 
     # Iterate and plot all connections
     for i, indexing in enumerate(indexings):
         spot_inds, ref_inds = indexing.T
         # spot_inds, ref_inds = _get_connection_indices(
-        #                         connection)
+        #                         indexing)
         orientation, _ = Rotation.align_vectors(
                             all_spot_qs[spot_inds],
                             all_ref_qs[ref_inds])
@@ -50,8 +52,7 @@ def plot_3D_indexing(indexings,
         temp_q_mask = qmask.generate(all_rot_qs)
 
         ax.scatter(*all_rot_qs[temp_q_mask].T,
-                #    s=all_ref_fs[temp_q_mask] * 0.1,exit
-                
+                   s=all_ref_fs[temp_q_mask] * 0.1,
                    c=c[i])
         ax.scatter(*all_spot_qs.T,
                    s=1,

@@ -3,6 +3,9 @@ import numpy as np
 from matplotlib.widgets import Slider
 import matplotlib.patches as patches
 
+# Local imports
+from . import config
+
 
 def base_slider_plot(image_stack,
                      slider_vals=None,
@@ -14,7 +17,7 @@ def base_slider_plot(image_stack,
                      **kwargs
                      ):
 
-    fig = plt.figure(figsize=(5, 5), dpi=200)
+    fig = plt.figure(figsize=config.figsize, dpi=config.dpi)
     ax = fig.add_axes([0.1, 0.1, 0.5, 0.8])
 
     image_shape = image_stack[0].shape

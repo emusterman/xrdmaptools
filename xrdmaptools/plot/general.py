@@ -4,6 +4,7 @@ from skimage.measure import label
 
 
 # Local imports
+from . import config
 from ..geometry.geometry import estimate_image_coords, estimate_polar_coords
 from ..reflections.spot_blob_search import find_blob_contours
 
@@ -13,7 +14,11 @@ from ..reflections.spot_blob_search import find_blob_contours
 ######################
 
 # Grabs and formats data from xrdbasescan if requested
-def _plot_parse_xrdbasescan(xrdbasescan, indices, mask=False, spots=False, contours=False):
+def _plot_parse_xrdbasescan(xrdbasescan,
+                            indices,
+                            mask=False,
+                            spots=False,
+                            contours=False):
 
     # Extract mask
     out_mask = None
@@ -64,8 +69,8 @@ def _plot_parse_xrdbasescan(xrdbasescan, indices, mask=False, spots=False, conto
 
 
 def _xrdbasescan_image(xrdbasescan,
-                  image=None,
-                  indices=None):
+                       image=None,
+                       indices=None):
     # Check image type
     if image is not None:
         image = np.asarray(image)
@@ -93,8 +98,8 @@ def _xrdbasescan_image(xrdbasescan,
 
 
 def _xrdbasescan_integration(xrdbasescan,
-                        integration=None,
-                        indices=None):
+                             integration=None,
+                             indices=None):
 
     # Check image type
     if integration is not None:
@@ -138,9 +143,10 @@ def plot_image(image,
     
     # Plot image
     if fig is None and ax is None:
-        fig, ax = plt.subplots(1, 1, figsize=(5, 5), dpi=200)
+        fig, ax = plt.subplots(1, 1, figsize=config.figsize, dpi=config.dpi)
     elif fig is None and ax is not None or fig is not None and ax is None:
-        raise ValueError('Figure and axes must both provided or both None')
+        err_str = 'Fig and ax must both be None or both provided.'
+        raise ValueError(err_str)
     
     if mask is not None:
         mask = np.asarray(mask)
@@ -270,9 +276,10 @@ def plot_map(value,
              **kwargs):
 
     if fig is None and ax is None:
-        fig, ax = plt.subplots(1, 1, figsize=(5, 5), dpi=200)
+        fig, ax = plt.subplots(1, 1, figsize=config.figsize, dpi=config.dpi)
     elif fig is None and ax is not None or fig is not None and ax is None:
-        raise ValueError('Figure and axes must both provided or both None')    
+        err_str = 'Fig and ax must both be None or both provided.'
+        raise ValueError(err_str)  
 
     im = ax.imshow(value, extent=map_extent, **kwargs)
     fig.colorbar(im, ax=ax)
@@ -306,9 +313,10 @@ def plot_integration(intensity,
                      **kwargs):
     
     if fig is None and ax is None:
-        fig, ax = plt.subplots(1, 1, figsize=(5, 5), dpi=200)
+        fig, ax = plt.subplots(1, 1, figsize=config.figsize, dpi=config.dpi)
     elif fig is None and ax is not None or fig is not None and ax is None:
-        raise ValueError('Figure and axes must both provided or both None')
+        err_str = 'Fig and ax must both be None or both provided.'
+        raise ValueError(err_str)
     
     if units is None:
         units = 'a.u.'
@@ -320,6 +328,7 @@ def plot_integration(intensity,
     ax.set_xlabel(f'Scattering Angle, 2θ [{units}]')
     # Direct access to scaling!
     ax.set_ylim(y_min, y_max)
+    ax.set_ylabel('Intensity [a.u.]')
 
     if title is not None:
         ax.set_title(title)
@@ -342,9 +351,10 @@ def plot_cake(intensity,
     raise NotImplementedError()
 
     if fig is None and ax is None:
-        fig, ax = plt.subplots(1, 1, figsize=(5, 5), dpi=200)
+        fig, ax = plt.subplots(1, 1, figsize=config.figsize, dpi=config.dpi)
     elif fig is None and ax is not None or fig is not None and ax is None:
-        raise ValueError('Figure and axes must both provided or both None')
+        err_str = 'Fig and ax must both be None or both provided.'
+        raise ValueError(err_str)
         
     extent = [np.min(tth), np.max(tth), np.min(chi), np.max(chi)]
 

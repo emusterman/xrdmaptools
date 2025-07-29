@@ -1,6 +1,9 @@
 import matplotlib.pyplot as plt
 import numpy as np
 
+# Local imports
+from . import config
+
 
 
 def plot_q_space(xrdmap,
@@ -13,7 +16,7 @@ def plot_q_space(xrdmap,
                  ax=None):
     
     if fig is None and ax is None:
-        fig, ax = plt.subplots(1, 1, figsize=(5, 5), dpi=200,
+        fig, ax = plt.subplots(1, 1, figsize=config.figsize, dpi=config.dpi,
                                subplot_kw={'projection':'3d'})
     elif fig is None and ax is not None or fig is not None and ax is None:
         raise ValueError('Figure and axes must both provided or both None')
@@ -66,7 +69,7 @@ def plot_detector_geometry(xrdmap,
                            ax=None):
 
     if fig is None and ax is None:
-        fig, ax = plt.subplots(1, 1, figsize=(5, 5), dpi=200,
+        fig, ax = plt.subplots(1, 1, figsize=config.figsize, dpi=config.dpi,
                                subplot_kw={'projection':'3d'})
     elif fig is None and ax is not None or fig is not None and ax is None:
         raise ValueError('Figure and axes must both provided or both None')

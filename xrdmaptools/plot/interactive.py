@@ -4,13 +4,16 @@ from matplotlib.colors import Normalize, LogNorm
 from mpl_toolkits.mplot3d.art3d import Path3DCollection
 from matplotlib.widgets import SpanSelector, RectangleSelector
 
-'''
+# Local imports
+from . import config
+
+"""
 Preliminary interactive plotting for scanning XRD maps from SRX beamline.
 Ultimate goal is to allow for quick preliminary analysis during beamtime to allow diagnostic and on-the-fly testing and analysis. 
 More formalized, detailed, and conventional analysis will be saved for other modules.
 Short-term goal is to write down several iterations of interactive functions, not necessarilly following best coding practices.
 This will keep them all in one place to ease access later.
-'''
+"""
 
 
 # Default parameters
@@ -53,14 +56,16 @@ def _update_axes(dyn_kw,
                  dimensions=None,
                  fig=None,
                  cmap='viridis',
-                 marker_color='red'):
-    '''
+                 marker_color='red',
+                 update_title=True):
+    """
         
-    '''
+    """
 
     dyn_kw = _fill_kwargs(
         dyn_kw,
         ['data',
+         'title', # Only used for windowed plots
          'axes', # [display map, and dynamic ax]
          'vmin', # For images only
          'vmax', # For images only
@@ -99,18 +104,19 @@ def _update_axes(dyn_kw,
     elif dimensions == 3:
         _update_3D_scatter(dyn_kw=dyn_kw,
                            cmap=cmap)
-        
-    dyn_kw['axes'][1].set_title((f'Row = {row}, Col = {col}\n'
-                                 + f'y = {map_y:.2f}, x = {map_x:.2f}'))
+    
+    if update_title:
+        dyn_kw['axes'][1].set_title((f'Row = {row}, Col = {col}\n'
+                                    + f'y = {map_y:.2f}, x = {map_x:.2f}'))
     
     _update_marker(axi=dyn_kw['axes'][0], marker_color=marker_color)    
     fig.canvas.draw_idle()
 
 
 def _update_plot(dyn_kw):
-    '''
+    """
     
-    '''
+    """
     #print('Updating Plot!')
     if not dyn_kw['axes'][1].has_data():
         x_tick_range = np.max(dyn_kw['x_ticks']) - np.min(dyn_kw['x_ticks'])
@@ -149,9 +155,9 @@ def _update_plot(dyn_kw):
 
 def _update_image(dyn_kw,
                   cmap='viridis'):
-    '''
+    """
     
-    '''
+    """
     
     if not dyn_kw['axes'][1].has_data():
         plot_img = dyn_kw['data'][row, col]
@@ -281,9 +287,9 @@ def _update_3D_scatter(dyn_kw,
 
 def _update_marker(axi=None,
                    marker_color='red'):
-    '''
+    """
     
-    '''
+    """
 
     global marker
     marker.remove()
@@ -301,9 +307,9 @@ def _update_map(data=None,
                 map_kw={},
                 axis=None,
                 cmap='viridis'):
-    '''
+    """
         
-    '''
+    """
 
     map_kw = _fill_kwargs(map_kw,
                 ['map',
@@ -404,16 +410,16 @@ def interactive_1D_plot(dyn_kw={},
                         map_kw={},
                         cmap='viridis',
                         marker_color='red'):
-    '''
+    """
     
-    '''
+    """
 
     # Check axes range
     if _check_missing_key(dyn_kw, 'x_ticks'):
         dyn_kw['x_ticks'] = range(dyn_kw['data'].shape[-1])
 
     # Generate plot
-    fig, ax = plt.subplots(1, 2, figsize=_figsize, dpi=_dpi)
+    fig, ax = plt.subplots(1, 2, figsize=config.ext_figsize, dpi=config.dpi)
     dyn_kw['axes'] = ax
     _update_map(dyn_kw['data'],
                 map_kw=map_kw,
@@ -460,9 +466,9 @@ def interactive_2D_plot(dyn_kw={},
                         map_kw={},
                         cmap='viridis',
                         marker_color='red'):
-    '''
+    """
     
-    '''
+    """
 
     # Check axes range
     if _check_missing_key(dyn_kw, 'x_ticks'):
@@ -471,7 +477,7 @@ def interactive_2D_plot(dyn_kw={},
         dyn_kw['y_ticks'] = range(dyn_kw['data'].shape[-2])
 
     # Generate plot
-    fig, ax = plt.subplots(1, 2, figsize=_figsize, dpi=_dpi)
+    fig, ax = plt.subplots(1, 2, figsize=config.ext_figsize, dpi=config.dpi)
     dyn_kw['axes'] = ax
     _update_map(dyn_kw['data'],
                 map_kw=map_kw,
@@ -518,12 +524,12 @@ def interactive_3D_plot(dyn_kw={},
                         map_kw={},
                         cmap='viridis',
                         marker_color='red'):
-    '''
+    """
     
-    '''
+    """
 
     # Generate plot
-    fig = plt.figure(figsize=_figsize, dpi=_dpi)
+    fig = plt.figure(figsize=config.ext_figsize, dpi=config.dpi)
     ax = [fig.add_axes(121), fig.add_axes(122, projection='3d')]
     dyn_kw['axes'] = ax
     _update_map(dyn_kw['data'],
@@ -575,16 +581,16 @@ def _interactive_1D_window_plot(dyn_kw={},
                                 map_label=None,
                                 cmap='viridis',
                                 marker_color='red'):
-    '''
+    """
     
-    '''
+    """
 
     # Check axes range
     if _check_missing_key(dyn_kw, 'x_ticks'):
         dyn_kw['x_ticks'] = range(dyn_kw['data'].shape[-1])
 
     # Generate plot
-    fig, ax = plt.subplots(1, 2, figsize=_figsize, dpi=_dpi)
+    fig, ax = plt.subplots(1, 2, figsize=config.ext_figsize, dpi=config.dpi)
 
     dyn_kw['axes'] = ax
     _update_map(dyn_kw['data'],
@@ -597,7 +603,8 @@ def _interactive_1D_window_plot(dyn_kw={},
                  dimensions=1,
                  fig=fig,
                  cmap=cmap,
-                 marker_color=marker_color)
+                 marker_color=marker_color,
+                 update_title=False)
 
     def onselect(xmin, xmax):
         indmin, indmax = np.searchsorted(dyn_kw['x_ticks'],
@@ -621,7 +628,9 @@ def _interactive_1D_window_plot(dyn_kw={},
     # Manually set integration to max value
     axi = dyn_kw['axes'][1].lines[0]
     axi.set_data(dyn_kw['x_ticks'], np.max(dyn_kw['data'], axis=(0, 1)))
-    dyn_kw['axes'][1].set_title('Max Integration')
+    # dyn_kw['axes'][1].set_title('Max Integration')
+    dyn_kw['axes'][1].set_title(dyn_kw['title']
+                                + "Max Integration")
 
     span = SpanSelector(
         ax[1],
@@ -676,16 +685,16 @@ def _interactive_2D_window_plot(dyn_kw={},
                                 map_label=None,
                                 cmap='viridis',
                                 marker_color='red'):
-    '''
+    """
     
-    '''
+    """
 
     # Check axes range
     if _check_missing_key(dyn_kw, 'x_ticks'):
         dyn_kw['x_ticks'] = range(dyn_kw['data'].shape[-1])
 
     # Generate plot
-    fig, ax = plt.subplots(1, 2, figsize=_figsize, dpi=_dpi)
+    fig, ax = plt.subplots(1, 2, figsize=config.ext_figsize, dpi=config.dpi)
 
     dyn_kw['axes'] = ax
     _update_map(dyn_kw['data'],
@@ -698,7 +707,8 @@ def _interactive_2D_window_plot(dyn_kw={},
                  dimensions=2,
                  fig=fig,
                  cmap=cmap,
-                 marker_color=marker_color)
+                 marker_color=marker_color,
+                 update_title=False)
 
     def onselect(eclick, erelease):
         x1, y1 = eclick.xdata, eclick.ydata
@@ -739,7 +749,9 @@ def _interactive_2D_window_plot(dyn_kw={},
     axi = dyn_kw['axes'][1].images[0]
     max_img = np.max(dyn_kw['data'], axis=(0, 1))
     axi.set_data(max_img)
-    dyn_kw['axes'][1].set_title("Max Image\nDraw box for ROI here. Toggle 't' to turn off.")
+    # dyn_kw['axes'][1].set_title("Max Image\nDraw box for ROI here. Toggle 't' to turn off.")
+    dyn_kw['axes'][1].set_title(dyn_kw['title']
+                                + "Max Image\nDraw box for ROI here. Toggle 't' to turn off.")
     dyn_kw['vmin'] = max_img.min()
     dyn_kw['vmax'] = max_img.max()
     axi.set_clim(dyn_kw['vmin'], dyn_kw['vmax'])
@@ -827,9 +839,9 @@ def interactive_2D_1D_plot(dyn_2D_kw={},
                            map_kw={},
                            cmap='viridis',
                            marker_color='red'):
-    '''
+    """
     
-    '''
+    """
 
     # Check 2D axes range
     if _check_missing_key(dyn_2D_kw, 'x_ticks'):
@@ -841,7 +853,7 @@ def interactive_2D_1D_plot(dyn_2D_kw={},
         dyn_1D_kw['x_ticks'] = range(dyn_1D_kw['data'].shape[-1])
 
     # Generate plot
-    fig = plt.figure(figsize=_figsize, dpi=_dpi)
+    fig = plt.figure(figsize=config.ext_figsize, dpi=config.dpi)
     subfigs = fig.subfigures(1, 2)
     ax = [subfigs[0].subplots(1, 1),
           *subfigs[1].subplots(2, 1, gridspec_kw={'height_ratios': [3, 1]})]
@@ -906,9 +918,9 @@ def interactive_1D_1D_plot(dyn_kw1={},
                            map_kw={},
                            cmap='viridis',
                            marker_color='red'):
-    '''
+    """
     
-    '''
+    """
 
     # Check axes range
     for dyn_kw in [dyn_kw1, dyn_kw2]:
@@ -917,7 +929,7 @@ def interactive_1D_1D_plot(dyn_kw1={},
             dyn_kw['x_ticks'] = range(dyn_kw['data'].shape[-1])
 
     # Generate plot
-    fig = plt.figure(figsize=_figsize, dpi=_dpi)
+    fig = plt.figure(figsize=config.ext_figsize, dpi=config.dpi)
     subfigs = fig.subfigures(1, 2)
     ax = [subfigs[0].subplots(1, 1),
           *subfigs[1].subplots(2, 1)]
@@ -975,9 +987,9 @@ def interactive_shared_2D_1D_plot(dyn_2D_kw={},
                                   map_kw={},
                                   cmap='viridis',
                                   marker_color='red'):
-    '''
+    """
     
-    '''
+    """
 
     # Check 2D axes range
     if _check_missing_key(dyn_2D_kw, 'x_ticks'):
@@ -989,7 +1001,7 @@ def interactive_shared_2D_1D_plot(dyn_2D_kw={},
         dyn_1D_kw['x_ticks'] = range(dyn_1D_kw['data'].shape[-1])
 
     # Generate plot
-    fig = plt.figure(figsize=_figsize, dpi=_dpi)
+    fig = plt.figure(figsize=config.ext_figsize, dpi=config.dpi)
     subfigs = fig.subfigures(1, 2, wspace=0.1)
     ax = [subfigs[0].subplots(1, 1),
           *subfigs[1].subplots(2, 1, gridspec_kw={'height_ratios': [3, 1]}, sharex=True)]
@@ -1093,12 +1105,12 @@ def interactive_3D_labeled_plot(dyn_kw={},
                                 map_kw={},
                                 cmap='viridis',
                                 marker_color='red'):
-    '''
+    """
     
-    '''
+    """
 
     # Generate plot
-    fig = plt.figure(figsize=_figsize, dpi=_dpi)
+    fig = plt.figure(figsize=config.ext_figsize, dpi=config.dpi)
     ax = [fig.add_axes(121), fig.add_axes(122, projection='3d')]
     dyn_kw['axes'] = ax
     _update_map(dyn_kw['data'],
