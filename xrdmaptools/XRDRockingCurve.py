@@ -681,6 +681,10 @@ class XRDRockingCurve(XRDBaseScan):
     def get_sampled_edges(self,
                           q_arr=None):
         
+        """
+        
+        """
+        
         if q_arr is None:
             if (hasattr(self, 'q_arr')
                 and self.q_arr is not None):
@@ -719,6 +723,9 @@ class XRDRockingCurve(XRDBaseScan):
                          override_blob_search=False,
                          rewrite_data=False,
                          verbose=False):
+        """
+        
+        """
 
         if (not override_blob_search
             and not hasattr(self, 'blob_masks')):
@@ -784,9 +791,9 @@ class XRDRockingCurve(XRDBaseScan):
                      edges=None,
                      rewrite_data=False,
                      verbose=False):
+        """
 
-        # # Allows for more customizability with other functions
-        # hdf = getattr(self, 'hdf')
+        """
 
         # Check input
         if vectors is None:
@@ -813,21 +820,11 @@ class XRDRockingCurve(XRDBaseScan):
                                          edges=edges,
                                          rewrite_data=rewrite_data,
                                          verbose=verbose)
-        # # Remove secondary reference
-        # del hdf
     
 
     @XRDBaseScan._protect_hdf()
     def load_vectors(self):
         self._load_vectors(self.hdf)
-    #     # Load data from hdf
-    #     vector_dict = _load_xrd_hdf_vectorized_data(base_grp)(
-    #                                     self.hdf[self._hdf_type])
-    #     # Universal parsing from XRDBaseScan class
-    #     vector_attrs = self._parse_vector_dict(vector_dict)
-
-    #     # self.vectors = vector_dict['vectors']
-    #     # self.edges = vector_dict['edges']
                             
 
     #######################
@@ -1455,6 +1452,13 @@ class XRDRockingCurve(XRDBaseScan):
             # Need a slider reference
             self.__slider = slider
             fig.show()
+    
+
+    def plot_waterfall(self, **kwargs):
+        return self._plot_waterfall(
+                            axis=0,
+                            axis_text=self.rocking_axis.capitalize(),
+                            **kwargs)
             
 
     def plot_3D_scatter(self,
