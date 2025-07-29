@@ -25,7 +25,7 @@ from orix.vector import Vector3d
 
 # Local imports
 from xrdmaptools.utilities.utilities import (
-  rescale_array,
+#   rescale_array,
   timed_iter,
   memory_iter
 )
