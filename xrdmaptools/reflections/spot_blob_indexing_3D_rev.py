@@ -947,7 +947,6 @@ def decaying_pattern_decomposition(start_connections,
 #########################
 
 
-
 def get_quality_of_fit(fit_spot_qs,
                        fit_spot_ints,
                        fit_rot_qs,
@@ -1078,6 +1077,7 @@ def dist_int_qof(fit_spot_qs,
                  all_ref_fs,
                  sigma=1,
                  ratio=0.5):
+
 
     dist = [np.sqrt(np.sum([(p - q)**2 for p, q in zip(v1, v2)]))
             for v1, v2 in zip(fit_spot_qs, fit_rot_qs)]
