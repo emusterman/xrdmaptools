@@ -4,7 +4,7 @@ from scipy.spatial.transform import Rotation
 import orix
 
 # Local imports
-from . import config
+from xrdmaptools.plot import config
 from xrdmaptools.geometry.geometry import (
     _parse_rotation_input
 )
