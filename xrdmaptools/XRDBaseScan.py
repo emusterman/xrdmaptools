@@ -1044,7 +1044,7 @@ class XRDBaseScan(XRDData):
         remove the the path information from the instance.
 
         Raises
-        ----------
+        ------
         RuntimeError if images are lazily loaded with dask.
         """
 
@@ -1149,7 +1149,36 @@ class XRDBaseScan(XRDData):
                         wd=None,
                         check_init_sets=False):
         """
+        Set the detector calibration.
 
+        Loads poni (point-of-normal-incidence) calibration data in the
+        pyFAI standard to determine the detector calibration. The
+        calibration data must match the image shape of the instance
+        or can be interpretted as some form of simple binning. If 
+        successful, the calibration data will be modified to the
+        instance image shape and written to the HDF if available.
+
+        Parameters
+        ----------
+        poni_file : path, OrderedDict, or PoniFile
+            Path to a .poni file, and OrderedDict, or PoniFile object
+            containing the pyFAI information for detector calibration.
+        energy : float, optional
+            Energy in keV of incident X-rays. If None, then the
+            instance energy will be used.
+        wd : path, optional
+            Directory of poni_file if provided as path string. If None,
+            the working directory of the instance will be used.
+        check_init_sets : bool, optional
+            Conditional flag to disable writing the calibration
+            information to the HDF when loading from the HDF. False by 
+            default and typical usage.
+
+        Raises
+        ------
+        ValueError if the designated poni_file was acquired under
+            different detector settings that cannot be interpretted
+            as different binning.
         """
 
         if wd is None:
@@ -1240,7 +1269,16 @@ class XRDBaseScan(XRDData):
     def save_calibration(self, 
                          check_init_sets=False):
         """
+        Writes calibration data to HDF.
 
+        Writes calibration data to HDF if available.
+
+        Parameters
+        ----------
+        check_init_sets : bool
+            Conditional flag to disable writing the calibration
+            information to the HDF when loading from the HDF. False by 
+            default and typical usage.
         """
         
         if check_init_sets:
@@ -1269,22 +1307,57 @@ class XRDBaseScan(XRDData):
 
     # One off 1D integration
     def integrate1D_image(self,
-                          image=None,
+                          image,
                           tth_resolution=None,
                           tth_num=None,
                           unit='2th_deg',
                           **kwargs):
         """
+        Integrate a single 2D pattern into a 1D.
 
+        Integrate a single 2D diffraction pattern into a 1D integration
+        according to the internally stored calibration information.
+
+        Parameters
+        ----------
+        image : 2D array
+            2D array matching the instance image shape
+        tth_resolution : float, optional
+            Scattering angle, two theta, resolution of the integrated
+            1D pattern in keyword 'unit' units. This number is used
+            with the measured scattering angle extent to determine
+            the tth_num number of bins given to the integration. By
+            default this number uses the instance tth_resolution which
+            defaults to 0.01 degrees.
+        tth_num : int, optional
+            Direct number of bins of scattering angle to transform the
+            2D image into a 1D pattern. This value is None by default
+            and determined by the tth_resolution parameter. If
+            provided, this number will be used over tth_resolution.
+        unit : str, optional
+            Units of the 1D integration. This string is used by the
+            internal pyFAI integration function and by default is
+            '2th_deg' for degrees.
+        **kwargs : optional,
+            Other keyword arguments passed to the pyFAI integration
+            function. These should not include the correctSolidAngle
+            or polarization_factor as these corrections are handled
+            elsewhere.
+
+        Returns
+        -------
+        tth : Numpy.ndarray
+            1D array of two theta, scattering angle, values with length
+            matching the tth_num either given or determined by
+            tth_resolution.
+        intensity : Numpy.ndarray
+            1D array of intensity values with the same shape as tth.
         """
 
-        if image is None:
-            if self.corrections['polar_calibration']:
-                err_str = ('You are trying to calibrate '
-                           + 'already calibrated images!')
-                raise RuntimeError(err_str)
-            else:
-                image = self.composite_image
+        if not hasattr(self, 'ai') or self.ai is None:
+            err_str = ('Cannot integrate images without first loading '
+                       + 'the calibration information.')
+            raise AttributeError(err_str)
         
         if tth_resolution is None:
             tth_resolution = self.tth_resolution
@@ -1309,23 +1382,75 @@ class XRDBaseScan(XRDData):
     # One off 2D integration
     def integrate2D_image(self,
                           image,
-                          tth_num=None,
                           tth_resolution=None,
-                          chi_num=None,
+                          tth_num=None,
                           chi_resolution=None,
+                          chi_num=None,
                           unit='2th_deg',
                           **kwargs):
         """
+        Integrate a single 2D pattern into a 2D cake plot.
 
+        Integrate a single 2D diffraction pattern into a 2D cake plot
+        according to the internally stored calibration information.
+
+        Parameters
+        ----------
+        image : 2D array
+            2D array matching the instance image shape
+        tth_resolution : float, optional
+            Scattering angle, two theta, resolution of the integrated
+            2D cake plot in keyword 'unit' units. This number is used
+            with the measured scattering angle extent to determine
+            the tth_num number of bins given to the integration. By
+            default this number uses the instance tth_resolution which
+            defaults to 0.01 degrees.
+        tth_num : int, optional
+            Direct number of bins of scattering angle to transform the
+            2D image into a 2D cake plot. This value is None by default
+            and determined by the tth_resolution parameter. If
+            provided, this number will be used over tth_resolution.
+        chi_resolution : float, optional
+            Azimuthal angle, chi, resolution of the integrated
+            2D cake plot in keyword 'unit' units. This number is used
+            with the measured azimuthal angle extent to determine
+            the chi_num number of bins given to the integration. By
+            default this number uses the instance chi_resolution which
+            defaults to 0.05 degrees.
+        chi_num : int, optional
+            Direct number of bins of azimuthal angle to transform the
+            2D image into a 2D cake plot. This value is None by default
+            and determined by the chi_resolution parameter. If
+            provided, this number will be used over chi_resolution.
+        unit : str, optional
+            Units of the 2D radial and azimuthal directions. This
+            string is used by the internal pyFAI integration function
+            and by default is '2th_deg' for degrees.
+        **kwargs : optional,
+            Other keyword arguments passed to the pyFAI integration
+            function. These should not include the correctSolidAngle
+            or polarization_factor as these corrections are handled
+            elsewhere.
+
+
+        Returns
+        -------
+        intensity : Numpy.ndarray
+            2D array of intensity values with shape (chi_num, tth_num).
+            All values not directly measured by the original image are
+            set to zero.       
+        tth : Numpy.ndarray
+            1D array of two theta, scattering angle, values with length
+            matching the tth_num and second axis of intensity.
+        chi : Numpy.ndarray
+            1D array of chi, azimuthal angle, values with length
+            matching the chi_num and first axis of intensity.
         """
 
-        if image is None:
-            if self.corrections['polar_calibration']:
-                err_str = ('You are trying to clibrate '
-                           + 'already calibrated images!')
-                raise RuntimeError(err_str)
-            else:
-                image = self.composite_image
+        if not hasattr(self, 'ai') or self.ai is None:
+            err_str = ('Cannot integrate images without first loading '
+                       + 'the calibration information.')
+            raise AttributeError(err_str)
 
         if tth_resolution is None:
             tth_resolution = self.tth_resolution
@@ -1372,7 +1497,25 @@ class XRDBaseScan(XRDData):
                               coords,
                               method='linear'):
         """
+        Estimate polar angles of sub-pixel image coordinates.
 
+        Parameters
+        ----------
+        coords : Numpy.ndarray of shape (N, 2)
+            Image coordinates given as array of len N with image
+            coordinates in (x, y). Note this is reveresed from the
+            order in the images attribute (map_y, map_x, img_y, img_x).
+            Example : coords = Numpy.array([[x0, y0], [x1, y1], ...])
+        method : str, optional
+            Method passed to scipy.optimize.RegularGridInterpolator.
+
+        Returns
+        -------
+        coords : Numpy.ndarray of shape (N, 2)
+            Polar coordinates given as array of len N as scattering
+            angle, tth, and then azimuthal angle, chi.
+            Example : coords = Numpy.array([[tth0, chi0], [tth1, chi1],
+                                            ...])
         """
         return estimate_polar_coords(coords,
                                      self.tth_arr,
@@ -1385,7 +1528,26 @@ class XRDBaseScan(XRDData):
                               coords,
                               method='nearest'):
         """
+        Estimate closest image coordinates from polar angle values.
 
+        Parameters
+        ----------
+        coords : Numpy.ndarray of shape (n, 2)
+            Polar coordinates given as array of len N as scattering
+            angle, tth, and then azimuthal angle, chi.
+            Example : coords = Numpy.array([[tth0, chi0], [tth1, chi1],
+                                            ...])
+        method : str, optional
+            Method passed to scipy.optimize.RegularGridInterpolator.
+            Anything beyond 'nearest' is very slow.
+            
+        Returns
+        -------
+        coords : Numpy.ndarray of shape (n, 2)
+            Image coordinates given as array of len N with image
+            coordinates in (x, y). Note this is reveresed from the
+            order in the images attribute (map_y, map_x, img_y, img_x).
+            Example : coords = Numpy.array([[x0, y0], [x1, y1], ...])
         """
         return estimate_image_coords(coords,
                                      self.tth_arr,
@@ -1396,7 +1558,11 @@ class XRDBaseScan(XRDData):
     @XRDData._protect_hdf()
     def save_reciprocal_positions(self):
         """
+        Write reciprocal positions to HDF file.
 
+        Writes internally storedd reciprocal positions (scattering
+        angle as tth and azimuthal angle as chi) to HDF if hdf_path has
+        been specified.
         """
 
         if self.tth is None:
@@ -1454,7 +1620,25 @@ class XRDBaseScan(XRDData):
                     scaler_units='counts',
                     check_init_sets=False):
         """
+        Set the scaler dictionary attribute.
 
+        Set the internal scaler dictionary attribute used for
+        normalization along with the scaler units. If an HDF location
+        is specified, these values will be written to the HDF.
+
+        Parameters
+        ----------
+        sclr_dict : dict of Numpy arrays
+            Dictionary of Numpy arrays matching the shape of the first
+            two dimensions of images (map shape for XRDMap, and rocking
+            axis shape of XRDRockingCurve). Each array is associated
+            with the scaler measurement as named by the keys.
+        scaler_units : str, optional
+            Units of the scaler measurements. 'counts' by default.
+        check_init_sets : bool, optional
+            Conditional flag to disable writing the scaler information
+            to the HDF when loading from the HDF. False by default and
+            typical usage.
         """
 
         # Store sclr_dict as attribute
@@ -1477,7 +1661,38 @@ class XRDBaseScan(XRDData):
                                chamber_length=None,
                                gas_name=None):
         """
+        Internal function for estimating the absorption of an ion
+        chamber.
 
+        Parameters
+        ----------
+        scaler_key : str, optional
+            Key describing which ion chamber the absorption estimate is
+            for. If chamber_length and gas are defined, this key is not
+            used. Default is 'i0'.
+        chamber_length : float, optional
+            Length of the ion chamber in cm. This is None by default
+            and the values for the SRX ion chamber of the scaler_key
+            will be used.
+        gas_name : str, optional
+            Name of the gas used in the ion chamber. Can be 'He', 'N2',
+            'air', 'Ne', 'Ar', 'Kr', 'Xe'. This is None by default and
+            the values for the SRX ion chamber of the scaler_key will
+            be used.
+
+        Returns
+        -------
+        absorption : float
+            Fraction between 0 and 1 of light absorbed by the gas in
+            the ion chamber.
+        scaler_key : float
+            Same scaler key as the input.
+        chamber_length : float
+            Length of the ion chamber in cm used for the absorption
+            estimate. Same value if specified as a keyword argument.
+        gas_name : str
+            Name of the gas used in the ion chamber. Same value if
+            specified as a keyword argument.
         """
         
         if (not hasattr(self, 'energy')
@@ -1541,10 +1756,34 @@ class XRDBaseScan(XRDData):
     def correct_scaler_energies(self,
                                 scaler_key='i0',
                                 chamber_length=None,
-                                gas_name=None,
-                                check_init_sets=False):
+                                gas_name=None):
         """
+        Correct the scaler values for their energy dependence.
 
+        Remove the energy dependence from the specified scaler values
+        in the scaler dictionary and write a new set of energy-
+        corrected values. Write these new values to the HDF if
+        available. The energy correction is based on the internal
+        energy attribute.
+
+        Parameters
+        ----------
+        scaler_key : str, optional
+            Key describing which ion chamber to apply the energy
+            correction. Default is 'i0'.
+        chamber_length : float, optional
+            Length of the ion chamber in cm. This is None by default
+            and the values for the SRX ion chamber of the scaler_key
+            will be used.
+        gas_name : str, optional
+            Name of the gas used in the ion chamber. Can be 'He', 'N2',
+            'air', 'Ne', 'Ar', 'Kr', 'Xe'. This is None by default and
+            the values for the SRX ion chamber of the scaler_key will
+            be used.
+        
+        Raises
+        ------
+        AttributeError if energy cannot be found in the instance.
         """
 
         # Check for energy
@@ -1576,21 +1815,56 @@ class XRDBaseScan(XRDData):
         self.sclr_dict[new_scaler_key] = new_sclr_arr
         self.save_sclr_pos('scalers',
                            self.sclr_dict,
-                           self.scaler_units,
-                           check_init_sets=check_init_sets)
+                           self.scaler_units)
 
 
     # Post-conversion of scaler to real flux values
     def convert_scalers_to_flux(self,
-                                preamp_sensitivity=None,
                                 scaler_key='i0',
                                 chamber_length=None,
-                                gas_name=None,                                
+                                gas_name=None,
+                                preamp_sensitivity=None,                                
                                 f_range=10e6,
-                                V_range=5,
-                                check_init_sets=False):
+                                V_range=5):
         """
+        Convert the scaler values into photon flux.
 
+        Convert the scaler values measured by an ion chamber from the
+        scaler dictionary into photon flux (photons / sec). Write these
+        new values into the scaler dictionary and write to the HDF if
+        avaiable. The conversion supersedes the benefit of correcting
+        the scaler values for energy.
+
+        Parameters
+        ----------
+        scaler_key : str, optional
+            Key describing which ion chamber convert to flux.
+            Default is 'i0'.
+        chamber_length : float, optional
+            Length of the ion chamber in cm. This is None by default
+            and the values for the SRX ion chamber of the scaler_key
+            will be used.
+        gas_name : str, optional
+            Name of the gas used in the ion chamber. Can be 'He', 'N2',
+            'air', 'Ne', 'Ar', 'Kr', 'Xe'. This is None by default and
+            the values for the SRX ion chamber of the scaler_key will
+            be used.
+        preamp_sensitivity : float, optional
+            Sensitivity of the preamplifier in A/V after the ion
+            chamber. None by default and the value will be retreived
+            from the extra_metadata attribute if available.
+        f_range : float, optional
+            Frequency range of the V-to-F converter after the
+            preamplifier. 10 MHz by default.
+        V_range : float, optional
+            Voltage range of V-to-F converter after the preamplifier.
+            5 V by default.
+
+        Raises
+        ------
+        AttributeError if energy cannot be found in the instance, or if
+            the preamplifier sensitivity cannot be found in the instance
+            extra_metadata attribute
         """
 
         # Check for energy
@@ -1648,8 +1922,7 @@ class XRDBaseScan(XRDData):
         self.sclr_dict[new_scaler_key] = new_sclr_arr
         self.save_sclr_pos('scalers',
                            self.sclr_dict,
-                           self.scaler_units,
-                           check_init_sets=check_init_sets)
+                           'ph/s')
 
 
     @XRDData._protect_hdf()
@@ -1659,7 +1932,26 @@ class XRDBaseScan(XRDData):
                       unit_name,
                       check_init_sets=False):
         """
+        Write a scaler or position dictionary to the HDF.
 
+        Combined function for writing a scaler or position dictionary
+        to the HDF if available.
+
+        Parameters
+        ----------
+        group_name : str
+            Name of HDF group where to write the data.
+        map_dict : dict of arrays
+            Dictionary of arrays to write to the HDF. Each array will
+            be saved as a dataset named after its respective key under
+            the group defined by the group_name parameter.
+        unit_name : str
+            Units used for the dictionary values. These will be written
+            as an attribute of the group.
+        check_init_sets : bool, optional
+            Conditional flag to disable writing the dictionary
+            information to the HDF when loading from the HDF. False by
+            default and typical usage.  
         """
 
         if check_init_sets:
@@ -1698,7 +1990,7 @@ class XRDBaseScan(XRDData):
                                     )
             
             # Update attrs
-            overwrite_attr(dset.attrs, 'labels', ['map_x', 'map_y'])
+            overwrite_attr(dset.attrs, 'labels', ['map_y', 'map_x'])
             overwrite_attr(dset.attrs, 'units', unit_name)
             overwrite_attr(dset.attrs, 'dtype', str(value.dtype))
         
@@ -1710,28 +2002,50 @@ class XRDBaseScan(XRDData):
     # Updating potential phase list
     def add_phase(self, phase):
         """
+        Add phase to the instance.
 
+        Adds phase objects to internal phase dictionary if the phase
+        name is not already included.
+
+        Parameters
+        ----------
+        phase : Phase
+            Phase object to be added.
+
+        Raises
+        ------
+        TypeError if phase is not of Phase type.
         """
 
-        if hasattr(phase, 'name'):
-            phase_name = phase.name
-        elif isinstance(phase, str):
-            phase_name = phase
+        if not isinstance(phase, Phase):
+            err_str = ('Only Phase type instances can be added to '
+                       + f'phases. Not of type {type(phase)}.')
+            raise TypeError(err_str)
+        
+        if phase.name not in self.phases.keys():
+            self.phases[phase.name] = phase
         else:
-            raise TypeError(f'Unsure how to handle {phase} type.')
-
-        if phase_name not in self.phases.keys():
-            self.phases[phase_name] = phase
-        else:
-            ostr = (f'Did not add {phase_name} since it is '
+            ostr = (f'Did not add {phase.name} since it is '
                     + 'already a possible phase.')
-            print()
+            print(ostr)
 
 
     def remove_phase(self, phase):
         """
+        Remove phase from instance.
 
+        Remove phase objects to internal phase dictionary.
+
+        Parameters
+        ----------
+        phase : Phase or str
+            Phase object to be added or name of phase.
+
+        Raises
+        ------
+        TypeError if phase is not of Phase type or string.
         """
+
         # Allow for phase object or name to work
         if hasattr(phase, 'name'):
             phase_name = phase.name
@@ -1748,9 +2062,35 @@ class XRDBaseScan(XRDData):
             print(ostr)
         
 
-    def load_phase(self, filename, wd=None, phase_name=None):
+    def load_phase(self,
+                   filename,
+                   wd=None,
+                   phase_name=None):
         """
+        Load phase from external file.
 
+        Loads phase from .cif file into the internal phase dictionary
+        as a Phase object.
+
+        Parameters
+        ----------
+        filename : str
+            Name of file. Only .cif extensions are currently supported.
+        wd : path, optional
+            Path to directory of file. By default this is the same wd
+            as the instance.
+        phase_name : str, optional
+            Name assigned to the phase. This will be written into the
+            Phase instance and the key of the phase dictionary. By
+            default a name will be constructed from the loaded file.
+            This does not always produce nicely formatted names.
+        
+        Raises
+        ------
+        FileNotFoundError if file cannot be found.
+        NotImplementedError if file has extension that may be supported
+            in future developments.
+        TypeError has an extension not intended to be supported.
         """
 
         if wd is None:
@@ -1785,7 +2125,7 @@ class XRDBaseScan(XRDData):
 
     def clear_phases(self):
         """
-
+        Clear all phases from phase dictionary.
         """
 
         self.phases = {}
@@ -1794,7 +2134,16 @@ class XRDBaseScan(XRDData):
     @XRDData._protect_hdf()
     def save_phases(self, verbose=True):
         """
+        Write phases to the HDF.
 
+        Write all phases in the phase dictionary to the HDF if
+        available. Phases are saved into a phase_list group which will
+        be created if it does not already exist.
+
+        Parameters
+        ----------
+        verbose : bool, optional
+            Flag to control verbosity of function.
         """
         
         if len(self.phases) > 0:
@@ -1825,7 +2174,59 @@ class XRDBaseScan(XRDData):
                       title_scan_id=True,
                       save_to_hdf=False):
         """
+        Interactive plot for selecting phases.
 
+        Function to generate an interactive plot for comparing measured
+        diffraction data with calculated line positions of phases in
+        the phase dictionary.
+
+        Parameters
+        ----------
+        xrd : 1D or 2D array, optional
+            2D diffraction pattern matching the instance image shape
+            which will be integrated into 1D, or an already integrated
+            1D pattern. By default, the maximum image instance will be
+            used, or the maximum integration if the image is not
+            available.
+        energy : float, optional
+            X-ray energy used to calculate the phase d-spacings.
+        tth_resolution : float, optional
+            Resolution used for integrated 2D patterns into 1D. By
+            default this uses the instance tth_resolution which is
+            typically 0.01 deg.
+        tth_num : int, optional
+            The number of tth bins used for integrating 2D patterns
+            into 1D patterns. If xrd is 1D, then this value is set to
+            the length of xrd. If xrd is 2D, then this values defaults
+            to the value determined by the tth_resolution.
+        unit : str, optional
+            Units of the 1D integration. This string is used by the
+            internal pyFAI integration function and by default is
+            '2th_deg' for degrees.
+        ignore_less : float, optional
+            All calculated reflections with relative intensities below
+            this cutoff as a percentage will not be plotted. By default
+            this is set to 0.5 %.
+        title : str, optional
+            Title given to the plot. By default this is
+            'Phase Selector'
+        title_scan_id : bool, optional
+            Flag used to prepend title with the instance scan ID.
+            Default is True.
+        save_to_hdf : bool, optional
+            Flag to indicate if phases will be selected. If true, phase
+            values at zero when the plot is closed will be
+            automatically removed from the phase dictionary and
+            remaining phases will be written to the HDF if available.
+    
+        Raises
+        ------
+        AttributeError if the instance has not been calibrated or if
+            multiple energies were used.
+        RuntimeError if an xrd pattern is not provided and one cannot
+            be constructed from the instance data.
+        ValueError if the tth_num cannot be determined for integration
+            or if the provided xrd cannot be integrated.
         """
         
         if not hasattr(self, 'ai') or self.ai is None:
@@ -1837,13 +2238,23 @@ class XRDBaseScan(XRDData):
             if self.corrections['polar_calibration']:
                 xrd = self._processed_images_composite
             else:
-                xrd = self.max_image
+                if hasattr(self, 'images') and self.images is not None:
+                    xrd = self.max_image
+                elif (hasattr(self, 'integrations')
+                      and self.integrations is not None):
+                      xrd = self.max_integration
+                else:
+                    err_str = ('Cannot compare phases with XRD unless a'
+                               + ' pattern is given for comparison or a'
+                               + ' pattern can be extracted from the '
+                               + 'images or integrations attributes.')
+                    raise RuntimeError(err_str)
         
         if energy is None:
             if isinstance(self.energy, list):
                 err_str = ('A specific incident X-ray energy must be '
                         + 'provided to use the phase selector tool.')
-                raise RuntimeError(err_str)
+                raise AttributeError(err_str)
             else:
                 energy = self.energy
         
@@ -2327,7 +2738,6 @@ class XRDBaseScan(XRDData):
                         fig=None,
                         ax=None,
                         title_scan_id=True,
-                        return_plot=False,
                         **kwargs):
 
         # Check inputs

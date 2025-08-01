@@ -231,6 +231,9 @@ class XRDRockingCurve(XRDBaseScan):
 
     # Overwrite parent function
     def __str__(self):
+        """
+
+        """
         ostr = (f'{self._hdf_type}:  scan_id={self.scan_id}, '
                 + f'energy_range={min(self.energy):.3f}'
                 + f'-{max(self.energy):.3f}, '
@@ -240,6 +243,9 @@ class XRDRockingCurve(XRDBaseScan):
 
     # Modify parent function
     def __repr__(self):
+        """
+
+        """
         lines = XRDBaseScan.__repr__(self).splitlines(True)
         lines[4] = (f'\tEnergy Range:\t\t{min(self.energy):.3f}'
                     + f'-{max(self.energy):.3f} keV\n')
@@ -251,6 +257,10 @@ class XRDRockingCurve(XRDBaseScan):
     #########################
 
     def _parse_subscriptable_value(self, value, name):
+        """
+
+        """
+
         # Fill placeholders if value is nothing
         if (np.any(np.array(value) is None)
             or np.any(np.isnan(value))):
@@ -281,7 +291,10 @@ class XRDRockingCurve(XRDBaseScan):
 
         
     def _set_rocking_axis(self, rocking_axis=None):
-        
+        """
+
+        """
+
         # Find rocking axis
         if rocking_axis is not None:
             if rocking_axis.lower() in ['energy', 'wavelength']:
@@ -387,6 +400,9 @@ class XRDRockingCurve(XRDBaseScan):
     # Full q-vector, not just magnitude
     @XRDBaseScan.q_arr.getter
     def q_arr(self):
+        """
+
+        """
         if not hasattr(self, 'ai'):
             err_str = ('Cannot calculate q-space without calibration.')
             raise RuntimeError(err_str)
@@ -452,6 +468,9 @@ class XRDRockingCurve(XRDBaseScan):
                 poni_file=None,
                 save_hdf=True,
                 repair_method='fill'):
+        """
+
+        """
         
         if wd is None:
             wd = os.getcwd()
@@ -616,6 +635,9 @@ class XRDRockingCurve(XRDBaseScan):
     def load_parameters_from_txt(self,
                                  filename=None,
                                  wd=None):
+        """
+
+        """
         
         if wd is None:
             wd = self.wd
@@ -646,6 +668,10 @@ class XRDRockingCurve(XRDBaseScan):
     def load_metadata_from_txt(self,
                                filename=None,
                                wd=None):
+        """
+
+        """
+
         if wd is None:
             wd = self.wd
 
@@ -825,6 +851,10 @@ class XRDRockingCurve(XRDBaseScan):
 
     @XRDBaseScan._protect_hdf()
     def load_vectors(self):
+        """
+
+        """
+
         self._load_vectors(self.hdf)
                             
 
@@ -837,6 +867,9 @@ class XRDRockingCurve(XRDBaseScan):
                             intensity=None,
                             int_cutoff=0,
                             relative_cutoff=True):
+        """
+
+        """
 
         if intensity is None:
             if (hasattr(self, 'vectors')
@@ -851,46 +884,52 @@ class XRDRockingCurve(XRDBaseScan):
         return int_mask
 
 
+    def find_2D_blobs(self, *args, **kwargs):
+        XRDMap.find_2D_blobs(self, *args, **kwargs)
+
     # Same as XRDMap.find_blobs()
-    def find_2D_blobs(self,
-                      threshold_method='minimum',
-                      multiplier=5,
-                      size=3,
-                      expansion=10,
-                      override_rescale=False):
+    # def find_2D_blobs(self,
+    #                   threshold_method='minimum',
+    #                   multiplier=5,
+    #                   size=3,
+    #                   expansion=10,
+    #                   override_rescale=False):
+    #     """
+
+    #     """
     
-        # Cleanup images as necessary
-        self._dask_2_numpy()
-        if not self.corrections['rescaled'] and not override_rescale:
-            warn_str = ("Finding blobs assumes images scaled between 0"
-                        + " and around 100. Current images have not "
-                        + "been rescaled. Apply this correction or "
-                        + "set 'override_rescale' to True in order to"
-                        + " continue. Proceeding without changes.")
-            print(warn_str)
-            return
+    #     # Cleanup images as necessary
+    #     self._dask_2_numpy()
+    #     if not self.corrections['rescaled'] and not override_rescale:
+    #         warn_str = ("Finding blobs assumes images scaled between 0"
+    #                     + " and around 100. Current images have not "
+    #                     + "been rescaled. Apply this correction or "
+    #                     + "set 'override_rescale' to True in order to"
+    #                     + " continue. Proceeding without changes.")
+    #         print(warn_str)
+    #         return
 
-        # Search each image for significant spots
-        blob_mask_list = find_blobs(
-                            self.images,
-                            mask=self.mask,
-                            threshold_method=threshold_method,
-                            multiplier=multiplier,
-                            size=size,
-                            expansion=expansion)
+    #     # Search each image for significant spots
+    #     blob_mask_list = find_blobs(
+    #                         self.images,
+    #                         mask=self.mask,
+    #                         threshold_method=threshold_method,
+    #                         multiplier=multiplier,
+    #                         size=size,
+    #                         expansion=expansion)
         
-        self.blob_masks = np.asarray(
-                            blob_mask_list).reshape(self.shape)
+    #     self.blob_masks = np.asarray(
+    #                         blob_mask_list).reshape(self.shape)
 
-        # Save blob_masks to hdf
-        self.save_images(images='blob_masks',
-                         title='_blob_masks',
-                         units='bool',
-                         extra_attrs={
-                            'threshold_method' : threshold_method,
-                            'size' : size,
-                            'multiplier' : multiplier,
-                            'expansion' : expansion})
+    #     # Save blob_masks to hdf
+    #     self.save_images(images='blob_masks',
+    #                      title='_blob_masks',
+    #                      units='bool',
+    #                      extra_attrs={
+    #                         'threshold_method' : threshold_method,
+    #                         'size' : size,
+    #                         'multiplier' : multiplier,
+    #                         'expansion' : expansion})
         
     # Uncommon
     def find_3D_blobs(self,
@@ -900,6 +939,9 @@ class XRDRockingCurve(XRDBaseScan):
                       int_cutoff=0,
                       relative_cutoff=True,
                       save_to_hdf=True):
+        """
+
+        """
 
         if (not hasattr(self, 'vectors')
             or self.vectors is None):
@@ -936,6 +978,9 @@ class XRDRockingCurve(XRDBaseScan):
                       label_int_method='mean',
                       save_to_hdf=True,
                       verbose=True):
+        """
+
+        """
 
         if (not hasattr(self, 'vectors')
             or self.vectors is None):
@@ -1010,6 +1055,9 @@ class XRDRockingCurve(XRDBaseScan):
                    remove_less=0.01,
                    key='intensity',
                    save_spots=False):
+        """
+
+        """
         
         self._trim_spots(self.spots_3D,
                          remove_less=remove_less,
@@ -1022,6 +1070,10 @@ class XRDRockingCurve(XRDBaseScan):
     # Analog of 2D spots from xrdmap
     @XRDBaseScan._protect_hdf(pandas=True)
     def save_3D_spots(self, extra_attrs=None):
+        """
+
+        """
+
         print('Saving 3D spots to hdf...', end='', flush=True)
         hdf_str = f'{self._hdf_type}/reflections'
         self.spots_3D.to_hdf(self.hdf_path,
@@ -1042,6 +1094,9 @@ class XRDRockingCurve(XRDBaseScan):
                                 vector_info_title,
                                 rewrite_data=True,
                                 extra_attrs=None):
+        """
+
+        """
 
         self._save_rocking_vectorization(self.hdf,
                                          vector_info,
@@ -1108,6 +1163,9 @@ class XRDRockingCurve(XRDBaseScan):
 
     @property
     def qmask(self):
+        """
+
+        """
         if hasattr(self, '_qmask'):
             return self._qmask
         else:
@@ -1121,6 +1179,9 @@ class XRDRockingCurve(XRDBaseScan):
                                spot_intensity_cutoff=0,
                                relative_cutoff=True
                                ):
+        """
+
+        """
         
         if spots is None and hasattr(self, 'spots_3D'):
             spots = self.spots_3D[['qx', 'qy', 'qz']].values
@@ -1162,6 +1223,9 @@ class XRDRockingCurve(XRDBaseScan):
                          save_to_hdf=True,
                          **kwargs
                          ):
+        """
+
+        """
         
         (spots,
          spot_intensity,
@@ -1242,6 +1306,9 @@ class XRDRockingCurve(XRDBaseScan):
                         save_to_hdf=True,
                         **kwargs
                         ):
+        """
+
+        """
         
         (spots,
          spot_intensity,
@@ -1319,6 +1386,9 @@ class XRDRockingCurve(XRDBaseScan):
                                hkls=None,
                                phase=None,
                                grain_id=None):
+        """
+
+        """
 
         # Parse phase input if specified
         if phase is not None:
@@ -1418,6 +1488,10 @@ class XRDRockingCurve(XRDBaseScan):
 
     # Disable q-space plotting
     def plot_q_space(self, *args, **kwargs):
+        """
+
+        """
+
         err_str = ('Q-space plotting not supported for '
                    + 'XRDRockingCurves; Ewald sphere/or '
                    + 'crystal orientation changes during scanning.')
@@ -1434,6 +1508,9 @@ class XRDRockingCurve(XRDBaseScan):
                          vmax=None,
                          title_scan_id=True,
                          **kwargs):
+        """
+
+        """
 
         if images is None:
             images = self.images.squeeze()
@@ -1473,6 +1550,9 @@ class XRDRockingCurve(XRDBaseScan):
 
     @return_plot_wrapper
     def plot_waterfall(self, **kwargs):
+        """
+
+        """
         return self._plot_waterfall(
                             axis=0,
                             axis_text=self.rocking_axis.capitalize(),
@@ -1487,6 +1567,9 @@ class XRDRockingCurve(XRDBaseScan):
                         skip=None,
                         title_scan_id=True,
                         **kwargs):
+        """
+
+        """
         
         if q_vectors is None:
             if hasattr(self, 'vectors') and self.vectors is not None:
@@ -1530,6 +1613,9 @@ class XRDRockingCurve(XRDBaseScan):
                       skip=None,
                       title_scan_id=True,
                       **kwargs):
+        """
+
+        """
         
         if spots_3D is None:
             if not hasattr(self, 'spots_3D'):
@@ -1570,6 +1656,9 @@ class XRDRockingCurve(XRDBaseScan):
                             intensity=None,
                             gridstep=0.01,
                             **kwargs):
+        """
+
+        """
 
         if q_vectors is None:
             if hasattr(self, 'vectors') and self.vectors is not None:
@@ -1651,6 +1740,9 @@ class XRDRockingCurve(XRDBaseScan):
                                     edges=None,
                                     title=None,
                                     title_scan_id=True):
+        """
+
+        """
 
         if edges is None:
             if hasattr(self, 'edges'):

@@ -859,8 +859,8 @@ class XRDData:
         """
         Load images from HDF file.
 
-        Load images from active HDF file according while updating
-        corrections and title. Defaults to most recent set of images.
+        Load images from active HDF file while updating corrections and
+        title. Defaults to the most recent set of images.
 
         Parameters
         ----------
@@ -3242,8 +3242,8 @@ class XRDData:
         """
         Save images to HDF file.
 
-        Save images to 'image_data' in HDF File. This function is valid
-        for full 4D images dataset and individual images. Several other
+        Save images to 'image_data' in HDF file. This function is valid
+        for full 4D image datasets and individual images. Several other
         parameters and details are written along with the image data.
 
         Parameters
@@ -3255,11 +3255,11 @@ class XRDData:
             be used.
         title : dtype, optional
             Title to give the new dataset in the HDF file. If the saved
-            array is 2D, the the title will be prepended with '_'. If
-            title is None, then the current image title or attribute
-            being saved will be used.
+            array is 2D, the title will be prepended with '_'. If title
+            is None, then the current image title or attribute being
+            saved will be used.
         units : str, optional
-            Description of the units each image pixel represent. By
+            Description of the units each image pixel represents. By
             default this is None and 'a.u.' will be used.
         labels : iterable of str, optional
             List of labels used for each axis of array. The length
@@ -3445,7 +3445,7 @@ class XRDData:
         """
         Save integrations to HDF file.
 
-        Save integrations to 'integration_data' in HDF File. This
+        Save integrations to 'integration_data' in HDF file. This
         function is valid for full 3D integration datasets and
         individual integrations. Several other parameters and details
         are written along with the integration data.

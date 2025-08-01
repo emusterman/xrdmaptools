@@ -245,6 +245,9 @@ class XRDMap(XRDBaseScan):
                            approx_new_map_sizes=10, # in GB
                            final_dtype=np.float32,
                            new_directory=True):
+        """
+
+        """
 
         if not self._dask_enabled:
             err_str = ('Images must be lazily loaded with Dask. '
@@ -393,6 +396,10 @@ class XRDMap(XRDBaseScan):
 
     
     def save_current_hdf(self, verbose=False):
+        """
+
+        """
+
         super().save_current_hdf(verbose=verbose)
 
         # Save positions
@@ -436,6 +443,9 @@ class XRDMap(XRDBaseScan):
                         return_values=False,
                         save_to_hdf=True,
                         **kwargs):
+        """
+
+        """
         
         if not hasattr(self, 'ai'):
             err_str = ('Images cannot be calibrated without '
@@ -527,6 +537,9 @@ class XRDMap(XRDBaseScan):
                         chi_resolution=None,
                         unit='2th_deg',
                         **kwargs):
+        """
+
+        """
         
         if (not hasattr(self, 'ai') or self.ai is None):
             err_str = ('Images cannot be calibrated without '
@@ -612,6 +625,9 @@ class XRDMap(XRDBaseScan):
                       pos_dict,
                       position_units=None,
                       check_init_sets=False):
+        """
+
+        """
 
         # Re-work dictionary keys into stable format
         temp_dict = {}
@@ -646,6 +662,9 @@ class XRDMap(XRDBaseScan):
 
     
     def map_extent(self, map_x=None, map_y=None):
+        """
+
+        """
 
         if ((map_x is None or map_y is None)
              and not hasattr(self, 'pos_dict')):
@@ -704,7 +723,10 @@ class XRDMap(XRDBaseScan):
     def load_map_parameters(self,
                             filename,
                             wd=None,
-                            position_units=None):  
+                            position_units=None):
+        """
+
+        """ 
         
         if wd is None:
             wd = self.wd
@@ -729,9 +751,11 @@ class XRDMap(XRDBaseScan):
     # Method to swap axes, specifically swapping the 
     # default format of fast and slow axes
     def swap_axes(self,
-                  # only_images=False,
                   update_flag=True,
-                  ):        
+                  ):
+        """
+
+        """     
 
         if self._dask_enabled and self.title != 'final':
             warn_str = ('WARNING: Dask is enabled and saving to a '
@@ -815,6 +839,9 @@ class XRDMap(XRDBaseScan):
     def interpolate_positions(self,
                               scan_input=None,
                               check_init_sets=False):
+        """
+
+        """
 
         if scan_input is None:
             if (hasattr(self, 'scan_input')
@@ -871,6 +898,9 @@ class XRDMap(XRDBaseScan):
                    size=3,
                    expansion=10,
                    override_rescale=False):
+        """
+
+        """
     
         # Cleanup images as necessary
         self._dask_2_numpy()
@@ -914,6 +944,9 @@ class XRDMap(XRDBaseScan):
                    min_distance=3,
                    radius=10,
                    override_rescale=False):
+        """
+
+        """
         
         if (hasattr(self, 'blob_masks')
             and self.blob_masks is not None):
@@ -973,6 +1006,9 @@ class XRDMap(XRDBaseScan):
     
     def recharacterize_spots(self,
                              radius=10):
+        """
+
+        """
 
         # Remove spot guesses
         print('Removing spot guess characteristics...')
@@ -994,7 +1030,13 @@ class XRDMap(XRDBaseScan):
         self.save_spots()
 
     
-    def fit_spots(self, SpotModel, max_dist=0.5, sigma=1):
+    def fit_spots(self,
+                  SpotModel,
+                  max_dist=0.5,
+                  sigma=1):
+        """
+
+        """
 
         # Find spots in self or from hdf
         if not hasattr(self, 'spots'):
@@ -1037,7 +1079,11 @@ class XRDMap(XRDBaseScan):
                 'spot_model' : self.spot_model.name})
 
 
-    def initial_spot_analysis(self, SpotModel=None):
+    def initial_spot_analysis(self,
+                              SpotModel=None):
+        """
+
+        """
 
         if SpotModel is None and hasattr(self, 'spot_model'):
             SpotModel = self.spot_model
@@ -1053,6 +1099,9 @@ class XRDMap(XRDBaseScan):
                    remove_less=0.01,
                    key='guess_int',
                    save_spots=False):
+        """
+
+        """
         
         self._trim_spots(self.spots,
                          remove_less=remove_less,
@@ -1063,6 +1112,11 @@ class XRDMap(XRDBaseScan):
 
     
     def _remove_spot_vals(self, drop_keys=[], drop_tags=[]):
+        """
+
+        """
+
+
         for key in list(self.spots.keys()):
             for tag in drop_tags:
                 if tag in key:
@@ -1070,14 +1124,30 @@ class XRDMap(XRDBaseScan):
         print(f'Removing spot values for {drop_keys}')
         self.spots.drop(drop_keys, axis=1, inplace=True)
 
+
     def remove_spot_guesses(self):
+        """
+
+        """
+
         self._remove_spot_vals(drop_tags=['guess'])
     
+
     def remove_spot_fits(self):
+        """
+
+        """
+
         self._remove_spot_vals(drop_tags=['fit'])
 
 
-    def _pixel_spots(spots, map_indices, copied=True):
+    @staticmethod
+    def _pixel_spots(spots,
+                     map_indices,
+                     copied=True):
+        """
+
+        """
         pixel_spots = spots[(spots['map_x'] == map_indices[1])
                             & (spots['map_y'] == map_indices[0])]
         
@@ -1089,6 +1159,10 @@ class XRDMap(XRDBaseScan):
     
 
     def pixel_spots(self, map_indices, copied=True):
+        """
+
+        """
+
         return self._pixel_spots(self.spots,
                                  map_indices,
                                  copied=copied)
@@ -1097,6 +1171,10 @@ class XRDMap(XRDBaseScan):
     @_check_swapped_axes
     @XRDBaseScan._protect_hdf(pandas=True)
     def save_spots(self, extra_attrs=None):
+        """
+
+        """
+
         print('Saving spots to hdf...', end='', flush=True)
         hdf_str = f'{self._hdf_type}/reflections'
         self.spots.to_hdf(
@@ -1121,6 +1199,9 @@ class XRDMap(XRDBaseScan):
                            keep_images=False,
                            rewrite_data=False,
                            verbose=False):
+        """
+
+        """
 
         # Check required data
         remove_blob_masks_after = False
@@ -1175,6 +1256,9 @@ class XRDMap(XRDBaseScan):
                         edges=None,
                         rewrite_data=False,
                         verbose=False):
+        """
+
+        """
 
         # Check input
         if vector_map is None:
@@ -1202,6 +1286,10 @@ class XRDMap(XRDBaseScan):
     @_check_swapped_axes
     @XRDBaseScan._protect_hdf()
     def load_vector_map(self):
+        """
+
+        """
+
         self._load_vectors(self.hdf)
 
 
@@ -1221,6 +1309,9 @@ class XRDMap(XRDBaseScan):
                     include_scalers=False,
                     include_positions=False,
                     include_full_data=False):
+        """
+
+        """
 
         # Look for path if no information is provided
         if (wd is None
@@ -1317,6 +1408,9 @@ class XRDMap(XRDBaseScan):
                  ax=None,
                  title_scan_id=True,
                  **kwargs):
+        """
+
+        """
         
         map_values = np.asarray(map_values)
         
@@ -1354,6 +1448,9 @@ class XRDMap(XRDBaseScan):
                              map_kw=None,
                              title_scan_id=True,
                              **kwargs):
+        """
+
+        """
         
         # Python doesn't play well with mutable default kwargs
         if dyn_kw is None:
@@ -1422,22 +1519,9 @@ class XRDMap(XRDBaseScan):
                                          map_kw=None,
                                          title_scan_id=True,
                                          **kwargs):
-        
-        dyn_kw, map_kw = self._prepare_interactive_integrations(
-                                        dyn_kw=dyn_kw,
-                                        map_kw=map_kw,
-                                        title_scan_id=title_scan_id
-                                        )
-    
-        return interactive_1D_plot(dyn_kw,
-                                   map_kw,
-                                   **kwargs)
+        """
 
-
-    def _prepare_interactive_integrations(self,
-                                          dyn_kw=None,
-                                          map_kw=None,
-                                          title_scan_id=True):
+        """
         
         # Python doesn't play well with mutable default kwargs
         if dyn_kw is None:
@@ -1489,8 +1573,10 @@ class XRDMap(XRDBaseScan):
                             map_kw['title'],
                             default_title='Custom Map',
                             title_scan_id=title_scan_id)
-        
-        return dyn_kw, map_kw
+    
+        return interactive_1D_plot(dyn_kw,
+                                   map_kw,
+                                   **kwargs)
 
 
     @return_plot_wrapper
@@ -1499,6 +1585,9 @@ class XRDMap(XRDBaseScan):
                                map_kw=None,
                                title_scan_id=True,
                                **kwargs):
+        """
+
+        """
         
         dyn_kw, map_kw = self._prepare_1D_window_plot(
                                         dyn_kw=dyn_kw,
@@ -1521,6 +1610,9 @@ class XRDMap(XRDBaseScan):
                                map_kw=None,
                                title_scan_id=True,
                                **kwargs):
+        """
+
+        """
 
         dyn_kw, map_kw = self._prepare_1D_window_plot(
                                         dyn_kw=dyn_kw,
@@ -1542,6 +1634,9 @@ class XRDMap(XRDBaseScan):
                                 dyn_kw=None,
                                 map_kw=None,
                                 title_scan_id=True):
+        """
+
+        """
         
         # Python doesn't play well with mutable default kwargs
         if dyn_kw is None:
@@ -1609,6 +1704,9 @@ class XRDMap(XRDBaseScan):
                                map_kw=None,
                                title_scan_id=True,
                                **kwargs):
+        """
+
+        """
         
         dyn_kw, map_kw = self._prepare_2D_window_plot(
                                         dyn_kw=dyn_kw,
@@ -1631,6 +1729,9 @@ class XRDMap(XRDBaseScan):
                                    map_kw=None,
                                    title_scan_id=True,
                                    **kwargs):
+        """
+
+        """
         
         dyn_kw, map_kw = self._prepare_2D_window_plot(
                                         dyn_kw=dyn_kw,
@@ -1654,6 +1755,9 @@ class XRDMap(XRDBaseScan):
                                    map_kw=None,
                                    title_scan_id=True,
                                    **kwargs):
+        """
+
+        """
         
         dyn_kw, map_kw = self._prepare_2D_window_plot(
                                         dyn_kw=dyn_kw,
@@ -1675,6 +1779,9 @@ class XRDMap(XRDBaseScan):
                                 dyn_kw=None,
                                 map_kw=None,
                                 title_scan_id=True):
+        """
+
+        """
         
         # Python doesn't play well with mutable default kwargs
         if dyn_kw is None:
@@ -1739,6 +1846,10 @@ class XRDMap(XRDBaseScan):
 
     @return_plot_wrapper
     def plot_waterfall(self, **kwargs):
+        
+        """
+
+        """
 
         if 'axis' in kwargs:
             axis = kwargs.pop('axis')

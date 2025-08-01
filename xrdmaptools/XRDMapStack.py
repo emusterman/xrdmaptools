@@ -206,7 +206,11 @@ class XRDMapStack(list):
     def _list_property_constructor(property_name,
                                    include_set=False,
                                    include_del=False):
+        """
 
+        """
+
+        # Define getter
         def get_property(self):
             prop_list = []
             for i, xrdmap in enumerate(self):
@@ -220,23 +224,38 @@ class XRDMapStack(list):
         
         set_property, del_property = None, None
 
+        # Define generic docstring
+        doc = (f'List property of {property_name}.\nGetting this '
+               + f'value will return a list of {property_name} for '
+               + 'each XRDMap in the stack.')
+
+        # Define setter if called
         if include_set:
             def set_property(self, values):
                 [setattr(xrdmap, property_name, val)
                  for xrdmap, val in zip(self, values)]
+            doc += ('\nSetting this property must be done with an '
+                    + 'iterable of values matching the stack length.')
 
+        # Defin deleter if called
         if include_del:
             def del_property(self):
                 [delattr(xrdmap, property_name) for xrdmap in self]
+            doc += ('\nDeleting this property will delete the property'
+                    + ' from every XRDMap in the stack.')
 
         return property(get_property,
                         set_property,
-                        del_property)
+                        del_property,
+                        doc=doc)
     
     
     def _universal_property_constructor(property_name,
                                         include_set=False,
                                         include_del=False):
+        """
+
+        """
         # Uses first xrdmap in list as container object
         # Sets and deletes from all list elements
         def get_property(self):
@@ -248,19 +267,29 @@ class XRDMapStack(list):
                 raise AttributeError(err_str)
         
         set_property, del_property = None, None
+
+        # Define generic docstring
+        doc = (f'Unverisal property of {property_name}.\nGetting this '
+               + f'value will return the value of from the first XRDMap'
+               + ' in the stack, which should match every XRDMap.')
         
         if include_set:
             def set_property(self, value): # This may break some of them...
                 [setattr(xrdmap, property_name, value)
                  for xrdmap in self]
+            doc += ('\nSetting this value will iteratively set every '
+                    + 'property in the stack with the single value.')
 
         if include_del:
             def del_property(self):
                 [delattr(xrdmap, property_name) for xrdmap in self]
+            doc += ('\nDeleting this property will delete the property'
+                    + ' from every XRDMap in the stack.')
 
         return property(get_property,
                         set_property,
-                        del_property)
+                        del_property,
+                        doc=doc)
 
 
     energy = _list_property_constructor(
@@ -337,6 +366,9 @@ class XRDMapStack(list):
 
     @property
     def q_arr(self):
+        """
+
+        """
 
         if hasattr(self, '_q_arr'):
             return self._q_arr
@@ -359,6 +391,10 @@ class XRDMapStack(list):
 
     @property
     def xrf(self):
+        """
+
+        """
+
         if hasattr(self, '_xrf'):
             # Check that all xrdmaps are still there
             if len(list(self._xrf.values())[0]) == len(self):
@@ -419,6 +455,10 @@ class XRDMapStack(list):
 
     @property
     def shifts(self):
+        """
+
+        """
+
         return self._shifts
 
     @shifts.setter
@@ -440,6 +480,10 @@ class XRDMapStack(list):
 
     @property
     def _swapped_axes(self):
+        """
+
+        """
+
         return [xdm._swapped_axes for xdm in self]
     
     @_swapped_axes.setter
@@ -454,6 +498,9 @@ class XRDMapStack(list):
     
     @property
     def qmask(self):
+        """
+
+        """
         if hasattr(self, '_qmask'):
             return self._qmask
         else:
@@ -683,6 +730,11 @@ class XRDMapStack(list):
                                           iter_name='XRDMap'):
                     getattr(xrdmap, method)(*args, **kwargs)
         
+        # Generate decorated wrapper of original method docstring
+        doc = f'Iterated wrapper of XRDMap.{method} method:\n'
+        doc += getattr(XRDMap, method).__doc__
+        iterated_method.__doc__ = doc
+        
         return iterated_method
 
     
@@ -746,6 +798,11 @@ class XRDMapStack(list):
 
         def verbatim_method(self, *args, **kwargs):
             getattr(self[0], method)(*args, **kwargs)
+
+        # Generate decorated wrapper of original method docstring
+        doc = f'Verbatim wrapper of XRDMap.{method} method:\n'
+        doc += getattr(XRDMap, method).__doc__
+        verbatim_method.__doc__ = doc
         
         return verbatim_method
 
@@ -842,7 +899,7 @@ class XRDMapStack(list):
             def protector(self, *args, **kwargs):
                 # Check to see if read/write is enabled
                 if self.xdms_hdf_path is not None:
-                    # Is a hdf reference currently active?
+                    # Is an hdf reference currently active?
                     active_hdf = self.xdms_hdf is not None
 
                     if pandas: # Fully close reference
@@ -964,6 +1021,10 @@ class XRDMapStack(list):
              and self.xdms_vector_map is not None)
             and (hasattr(self, 'edges') and self.edges is not None)):
             self.save_xdms_vector_map()
+        
+        # Save 3D spots
+        if hasattr(self, 'spots_3D'):
+            self.save_3D_spots()
 
     
     # Ability to toggle hdf saving and proceed without writing to disk.
