@@ -99,7 +99,7 @@ def _xrdbasescan_image(xrdbasescan,
             if indices is not None:
                 indices = tuple(indices)
         else:
-            raise ValueError(f"Incorrect image shape of {image.shape}. Should be two-dimensional.")
+            raise ValueError(f"Incorrect image shape of {image.shape}. Should be 2D.")
     else:
         if indices is not None:
             indices = tuple(indices)
@@ -129,7 +129,7 @@ def _xrdbasescan_integration(xrdbasescan,
             if indices is not None:
                 indices = tuple(indices)
         else:
-            raise ValueError(f"Incorrect image shape of {integration.shape}. Should be one-dimensional.")
+            raise ValueError(f"Incorrect image shape of {integration.shape}. Should be 1D.")
     else:
         if not hasattr(xrdbasescan, 'integrations'):
             raise ValueError("Integration has not been specified and xrdbasescan does not have any integrations calculated!")

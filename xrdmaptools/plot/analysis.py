@@ -57,7 +57,7 @@ def plot_waterfall(integrations,
         start_ind = 0
 
     if tth is None:
-        tth = range(len(intensity))
+        tth = range(len(integrations[0]))
     
     # Make v_offset relative
     v_offset *= (np.max(integrations) - np.min(integrations))
