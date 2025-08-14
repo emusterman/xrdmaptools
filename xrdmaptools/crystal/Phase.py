@@ -176,15 +176,27 @@ class Phase(xu.materials.Crystal):
         for atom_key in wbase.keys():
             atom = Atom(atom_key.split('[')[0], wbase[atom_key].attrs['number'])
             pos = wbase[atom_key].attrs['position']
+            if 'occupancy' in wbase[atom_key].attrs:
+                occ = wbase[atom_key].attrs['occupancy']
+            else:
+                occ = 1
+            if 'b-factor' in wbase[atom_key].attrs:
+                b = wbase[atom_key].attrs['b-factor']
+            else:
+                b = 0
             if np.any(np.isnan(wbase[atom_key][0])):
                 positions = None
             else:
                 positions = (*wbase[atom_key][:][0],)
-            atom_lst.append((atom, (pos, positions)))
+            atom_lst.append((atom, (pos, positions), occ, b))
 
         args = cls.get_sym_args(space_group, params)
-        lattice = SGLattice(space_group, *args, atoms=[atom[0] for atom in atom_lst],
-                                                    pos=[atom[1] for atom in atom_lst])
+        lattice = SGLattice(space_group,
+                            *args,
+                            atoms=[atom[0] for atom in atom_lst],
+                            pos=[atom[1] for atom in atom_lst],
+                            occ=[atom[2] for atom in atom_lst],
+                            b=[atom[3] for atom in atom_lst],)
         
         return cls(name, lattice, **kwargs)
     
@@ -202,7 +214,6 @@ class Phase(xu.materials.Crystal):
         wbase = iphase.require_group('WyckoffBase')
         for i, atom in enumerate(self.lattice._wbase):
             data = np.array(atom[1][1:])
-            #data = np.array([np.nan for pos in data if pos is None else pos])
             data = np.array([np.nan if pos is None else pos for pos in data])
             dset = wbase.require_dataset(f'{atom[0].name}[{i}]',
                                          data=data,
@@ -210,6 +221,8 @@ class Phase(xu.materials.Crystal):
                                          dtype=data.dtype)
             dset.attrs['number'] = atom[0].num
             dset.attrs['position'] = atom[1][0]
+            dset.attrs['occupancy'] = atom[2]
+            dset.attrs['b-factor'] = atom[3]
 
     
     # Simple and to the point
