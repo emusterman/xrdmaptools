@@ -633,10 +633,8 @@ class XRDData:
         defect, or custom masks of the class. Truthy values will be
         considered for further analysis.
         """
-        # a bit redundant considering only 4D shapes are allowed
-        img_slc = (0,) * (self.images.ndim - 2) 
-        #mask = np.ones_like(self.images[img_slc], dtype=np.bool_)
-        mask = np.ones(self.images[img_slc].shape, dtype=np.bool_)
+        
+        mask = np.ones(self.image_shape, dtype=np.bool_)
 
         # Remove unused calibration pixels
         if hasattr(self, 'polar_mask'):
