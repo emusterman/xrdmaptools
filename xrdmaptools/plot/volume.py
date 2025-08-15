@@ -3,7 +3,7 @@ import numpy as np
 from plotly import graph_objects as go
 
 # Local imports
-from . import config
+from xrdmaptools.plot import config
 from xrdmaptools.crystal.rsm import map_2_grid
 
 
@@ -13,27 +13,47 @@ from xrdmaptools.crystal.rsm import map_2_grid
 
 
 def plot_3D_scatter(q_vectors,
-                    intensity,
+                    colors='k',
                     skip=None,
                     edges=None,
                     **kwargs
                     ):
 
-    # Check matching inputs
-    if len(q_vectors) != len(intensity):
-        err_str = (f'Length of q_vectors ({len(q_vectors)}) does not '
-                   + 'match length of intensity ({len(intensity)}).')
-        raise ValueError(err_str)
-
-    q_vectors = np.asarray(q_vectors)
-    intensity = np.asarray(intensity)
+    kwargs.setdefault('s', 1)
+    kwargs.setdefault('cmap', 'viridis')
+    kwargs.setdefault('alpha', 0.1)
 
     # Check q_vectors shape
+    q_vectors = np.asarray(q_vectors)
     if (q_vectors.ndim != 2 
         or q_vectors.shape[1] != 3):
         err_str = ('q_vectors must have shape (n, 3) not '
-                   + f'({q_vector.shape}).')
+                   + f'({q_vectors.shape}).')
         raise ValueError(err_str)
+
+    if isinstance(colors, (list, tuple, np.ndarray)):
+        colors = np.asarray(colors)
+        if colors.ndim == 1:
+            # List of intensities?
+            if len(q_vectors) == len(colors):
+                pass
+            else:
+                # Or is it a single color value
+                if len(colors) in [1, 2, 4]:
+                    colors = [colors,] * len(q_vectors)
+                    del kwargs['cmap']
+        # Explicit list of colors
+        elif len(q_vectors) == len(colors):
+            del kwargs['cmap']
+        else:
+            err_str = (f'Colors of shape {colors.shape} cannot be '
+                       + 'parsed. Match the len to the q_vectors '
+                       + f'({len(q_vectors)}) or provide a single '
+                       + 'color.')
+            raise ValueError(err_str)
+    else:
+        colors = [colors,] * len(q_vectors)
+        del kwargs['cmap']
 
     if edges is None:
         edges = []
@@ -43,10 +63,6 @@ def plot_3D_scatter(q_vectors,
         if skip == 0:
             skip = 1
     
-    kwargs.setdefault('s', 1)
-    kwargs.setdefault('cmap', 'viridis')
-    kwargs.setdefault('alpha', 0.1)
-
     fig, ax = plt.subplots(1, 1, 
                            figsize=config.figsize,
                            dpi=config.dpi,
@@ -56,7 +72,7 @@ def plot_3D_scatter(q_vectors,
         title = kwargs.pop('title')
         ax.set_title(title)
 
-    ax.scatter(*q_vectors[::skip].T, c=intensity[::skip], **kwargs)
+    ax.scatter(*q_vectors[::skip].T, c=colors[::skip], **kwargs)
 
     for edge in edges:
         ax.plot(*edge.T, c='gray', lw=1)

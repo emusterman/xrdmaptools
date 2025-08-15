@@ -2,13 +2,16 @@ import numpy as np
 import matplotlib.pyplot as plt
 from scipy.spatial.transform import Rotation
 import orix
+from matplotlib import color_sequences
 
 # Local imports
 from xrdmaptools.plot import config
+from xrdmaptools.plot.volume import plot_3D_scatter
+from xrdmaptools.utilities.math import rescale_array
 from xrdmaptools.geometry.geometry import (
     _parse_rotation_input
 )
-from xrdmaptools.reflections.spot_blob_indexing_3D import (
+from xrdmaptools.reflections.spot_blob_indexing_3D_old import (
     _get_connection_indices
 )
 
@@ -17,63 +20,140 @@ from xrdmaptools.reflections.spot_blob_indexing_3D import (
 
 def plot_3D_indexing(indexings,
                      all_spot_qs,
+                     all_spot_ints,
                      all_ref_qs,
                      all_ref_hkls,
                      all_ref_fs,
                      qmask,
                      edges=[],
-                     colors=None,
-                     return_plot=False):
+                     c_seq=None,
+                     title=None,
+                     **kwargs,
+                     ):
     
+    # All numpy arrays
     all_spot_qs = np.asarray(all_spot_qs)
+    all_spot_ints = np.asarray(all_spot_ints)
     all_ref_qs = np.asarray(all_ref_qs)
     all_ref_hkls = np.asarray(all_ref_hkls)
     all_ref_fs = np.asarray(all_ref_fs)
+    
+    # Defaults
+    kwargs.setdefault('s', 1)
 
-    if colors is not None:
-        c = colors
-    else:
-        c = ['k',] * len(indexings)
+    # Indexing colors
+    if c_seq is None:
+        c_seq = color_sequences['tab10']
+    
+    # Transparency based on intensity
+    alpha = all_spot_ints.copy()
+    rescale_array(alpha, lower=0.5)
+    colors = [(0, 0, 0, a) for a in alpha]
 
-    fig, ax = plt.subplots(1, 1, 
-                           figsize=config.figsize,
-                           dpi=config.dpi,
-                           subplot_kw={'projection':'3d'})
-
-    # Iterate and plot all connections
+    fig, ax = plot_3D_scatter(all_spot_qs,
+                              colors=colors,
+                              alpha=None,
+                              edges=edges,
+                              label='Measured',
+                              **kwargs)
+    
+    # Plot part of othe reciprocal lattice
     for i, indexing in enumerate(indexings):
         spot_inds, ref_inds = indexing.T
-        # spot_inds, ref_inds = _get_connection_indices(
-        #                         indexing)
-        orientation, _ = Rotation.align_vectors(
-                            all_spot_qs[spot_inds],
-                            all_ref_qs[ref_inds])
+        orientation = Rotation.align_vectors(
+                        all_spot_qs[spot_inds],
+                        all_ref_qs[ref_inds])[0]
         all_rot_qs = orientation.apply(all_ref_qs)
-        temp_q_mask = qmask.generate(all_rot_qs)
+        temp_qmask = qmask.generate(all_rot_qs)
 
-        ax.scatter(*all_rot_qs[temp_q_mask].T,
-                   s=all_ref_fs[temp_q_mask] * 0.1,
-                   c=c[i])
-        ax.scatter(*all_spot_qs.T,
-                   s=1,
-                   c='r')
+        alpha = all_ref_fs[temp_qmask].copy()
+        rescale_array(alpha, lower=0.5)
+        color = [(*c_seq[i], a) for a in alpha]
 
-        for spot, hkl in zip(all_spot_qs[spot_inds], all_ref_hkls[ref_inds]):
-            ax.text(*spot.T, str(tuple(hkl)), fontsize=8, c=c[i])
+        # Plot reference lattice
+        ax.scatter(*all_rot_qs[temp_qmask].T,
+                   alpha=None,
+                   color=color,
+                   label=f'Grain ID {i}',
+                   **kwargs)
+        
+        # Label indexed measured spots
+        uvw = []
+        for spot, ref, hkl in zip(all_spot_qs[spot_inds],
+                                  all_rot_qs[ref_inds],
+                                  all_ref_hkls[ref_inds]):
+            uvw.append(ref - spot)
+            ax.text(*spot.T, str(tuple(hkl)), fontsize=8, c=c_seq[i])
+
+        ax.quiver(*all_spot_qs[spot_inds].T,
+                  *np.asarray(uvw).T,
+                  arrow_length_ratio=0,
+                  linewidth=0.25,
+                  color=c_seq[i])
+
+    ax.legend(prop={'size': 8})
+    ax.set_title(title)
+
+    return fig, ax
+
+
+# def old_plot_3D_indexing(indexings,
+#                      all_spot_qs,
+#                      all_spot_ints,
+#                      all_ref_qs,
+#                      all_ref_hkls,
+#                      all_ref_fs,
+#                      qmask,
+#                      edges=[],
+#                      colors=None):
     
-    # Plot bounding edges if they are given
-    for edge in edges:
-        ax.plot(*edge.T, c='gray', lw=1)
-    
-    ax.set_xlabel('qx [Å⁻¹]')
-    ax.set_ylabel('qy [Å⁻¹]')
-    ax.set_zlabel('qz [Å⁻¹]')
-    ax.set_aspect('equal')
+#     all_spot_qs = np.asarray(all_spot_qs)
+#     all_ref_qs = np.asarray(all_ref_qs)
+#     all_ref_hkls = np.asarray(all_ref_hkls)
+#     all_ref_fs = np.asarray(all_ref_fs)
 
-    if return_plot:
-        return fig, ax
-    else:
-        fig.show()   
+#     if colors is not None:
+#         c = colors
+#     else:
+#         c = ['k',] * len(indexings)
+
+#     fig, ax = plt.subplots(1, 1, 
+#                            figsize=config.figsize,
+#                            dpi=config.dpi,
+#                            subplot_kw={'projection':'3d'})
+
+#     # Iterate and plot all connections
+#     for i, indexing in enumerate(indexings):
+#         spot_inds, ref_inds = indexing.T
+#         # spot_inds, ref_inds = _get_connection_indices(
+#         #                         indexing)
+#         orientation, _ = Rotation.align_vectors(
+#                             all_spot_qs[spot_inds],
+#                             all_ref_qs[ref_inds])
+#         all_rot_qs = orientation.apply(all_ref_qs, inverse=False)
+#         temp_q_mask = qmask.generate(all_rot_qs)
+
+#         ax.scatter(*all_rot_qs[temp_q_mask].T,
+#                    s=all_ref_fs[temp_q_mask] * 0.1,
+#                    c=c[i])
+#         ax.scatter(*all_spot_qs.T,
+#                    s=1,
+#                    c='r')
+
+#         for spot, hkl in zip(all_spot_qs[spot_inds], all_ref_hkls[ref_inds]):
+#             ax.text(*spot.T, str(tuple(hkl)), fontsize=8, c=c[i])
+    
+#     # Plot bounding edges if they are given
+#     for edge in edges:
+#         ax.plot(*edge.T, c='gray', lw=1)
+    
+#     ax.set_xlabel('qx [Å⁻¹]')
+#     ax.set_ylabel('qy [Å⁻¹]')
+#     ax.set_zlabel('qz [Å⁻¹]')
+#     ax.set_aspect('equal')
+
+#     fig.show()
+#     # return fig, ax  
 
 
 def plot_unit_cell(phase,
