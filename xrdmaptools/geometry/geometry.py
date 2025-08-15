@@ -218,34 +218,6 @@ def q_2_polar(q_vect,
     return tth, chi, output
 
 
-
-# Deprecated. Only finds wavelength
-def old_q_2_polar(q_vect,
-                  wavelength=None,
-                  degrees=False):
-    q_vect = np.asarray(q_vect)
-    q_norm = np.linalg.norm(q_vect, axis=-1)
-
-    # Find tth and chi
-    theta = np.pi / 2 - vector_angle(q_vect,
-                                     [0, 0, -1],
-                                     degrees=False) # always false
-    tth = 2 * theta
-    chi = np.arctan2(q_vect[..., 1],
-                     q_vect[..., 0])
-
-    if degrees:
-        tth = np.degrees(tth)
-        chi = np.degrees(chi)
-
-    # Get radius of Ewald sphere and wavelength
-    if wavelength is None:
-        r = 0.5 * q_norm / np.sin(theta)
-        wavelength = 2 * np.pi / r
-
-    return tth, chi, wavelength
-
-
 # Find nearest q-space position on Ewald sphere within a certain threshold
 def nearest_q_on_ewald(q_vect,
                        wavelength,
@@ -607,7 +579,7 @@ class QMask():
 
         # Setup wiggle room
         if angle_ext is None:
-            angle_ext = 2.5 # in degrees
+            angle_ext = 1 # in degrees
             if not self.degrees:
                 angle_ext = np.radians(angle_ext)        
 
