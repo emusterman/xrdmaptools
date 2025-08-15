@@ -43,10 +43,8 @@ from xrdmaptools.reflections.spot_blob_search_3D import (
     rsm_spot_search
 )
 from xrdmaptools.reflections.spot_blob_indexing_3D import (
-    pair_casting_index_best_grain,
-    pair_casting_index_full_pattern,
-    phase_based_index_best_pattern,
-    phase_based_index_full_pattern
+    phase_index_best_grain,
+    phase_index_all_grains
 )
 from xrdmaptools.crystal.crystal import LatticeParameters
 from xrdmaptools.crystal.strain import get_strain_orientation
@@ -56,6 +54,7 @@ from xrdmaptools.plot.volume import (
     plot_3D_scatter,
     plot_3D_isosurfaces
 )
+from xrdmaptools.plot.orientation import plot_3D_indexing
 
 
 class XRDRockingCurve(XRDBaseScan):
@@ -1063,7 +1062,7 @@ class XRDRockingCurve(XRDBaseScan):
                          remove_less=remove_less,
                          key=key)
 
-        if save_3D_spots:
+        if save_spots:
             self.save_3D_spots()    
 
 
@@ -1093,7 +1092,8 @@ class XRDRockingCurve(XRDBaseScan):
                                 vector_info,
                                 vector_info_title,
                                 rewrite_data=True,
-                                extra_attrs=None):
+                                extra_attrs=None,
+                                verbose=False):
         """
 
         """
@@ -1109,52 +1109,9 @@ class XRDRockingCurve(XRDBaseScan):
         if extra_attrs is not None:
             for key, value in extra_attrs.items():
                 overwrite_attr(
-                    self.hdf['vectorized_data'][vector_info_title].attrs,
+                    self.hdf[self._hdf_type]['vectorized_data'][vector_info_title].attrs,
                     key,
                     value)
-
-    # @XRDBaseScan._protect_hdf()
-    # def save_vector_information(self,
-    #                             data,
-    #                             title,
-    #                             extra_attrs=None):
-            
-    #     # Get vector group
-    #     vect_grp = self.hdf[self._hdf_type].require_group(
-    #                                             'vectorized_data')
-
-    #     if title not in vect_grp.keys():
-    #         dset = vect_grp.require_dataset(
-    #             title,
-    #             data=data,
-    #             shape=data.shape,
-    #             dtype=data.dtype)
-    #     else:
-    #         dset = vect_grp[title]
-
-    #         if (dset.shape == data.shape
-    #             and dset.dtype == data.dtype):
-    #             dset[...] = data
-    #         elif (dset.shape == data.shape
-    #                 and dset.dtype != data.dtype):
-    #                 dset[...] = data.astype(dset.dtype)
-    #         else:
-    #             warn_str = (f'WARNING: {title} dataset shape does '
-    #                         + 'not match given data; rewriting '
-    #                         + 'with new shape. This may bloat '
-    #                         + 'the file size.')
-    #             print(warn_str)
-    #             del vect_grp[title]
-    #             dset = vect_grp.require_dataset(
-    #                 title,
-    #                 data=data,
-    #                 shape=data.shape,
-    #                 dtype=data.dtype)
-        
-    #     # Add extra information
-    #     if extra_attrs is not None:
-    #         for key, value in extra_attrs.items():
-    #             overwrite_attr(dset.attrs, key, value)
 
 
     ###########################################
@@ -1175,8 +1132,8 @@ class XRDRockingCurve(XRDBaseScan):
 
     def _parse_indexing_inputs(self,
                                spots=None,
-                               spot_intensity=None,
-                               spot_intensity_cutoff=0,
+                               intensity=None,
+                               int_cutoff=0,
                                relative_cutoff=True
                                ):
         """
@@ -1190,36 +1147,37 @@ class XRDRockingCurve(XRDBaseScan):
                        + 'already have spots.')
             raise ValueError(err_str)
         
-        if spot_intensity is None and hasattr(self, 'spots_3D'):
-            spot_intensity = self.spots_3D['intensity'].values
+        if intensity is None and hasattr(self, 'spots_3D'):
+            intensity = self.spots_3D['intensity'].values
         else:
             err_str = ('Must specify 3D spot intensities or rocking '
                        + 'curve must already have spot intensities.')
             raise ValueError(err_str)
         
-        if len(spots) != len(spot_intensity):
-            err_str = (f'Length of spots ({len(spot_intensity)}) does '
-                       + 'not match lenght of spot_intensity '
-                       + f'({len(spot_intensity)}).')
+        if len(spots) != len(intensity):
+            err_str = (f'Length of spots ({len(intensity)}) does '
+                       + 'not match length of intensity '
+                       + f'({len(intensity)}).')
             raise RuntimeError(err_str)
         
         int_mask = self.get_vector_int_mask(
-                    intensity=spot_intensity,
-                    int_cutoff=spot_intensity_cutoff,
+                    intensity=intensity,
+                    int_cutoff=int_cutoff,
                     relative_cutoff=relative_cutoff)
         
-        return spots[int_mask], spot_intensity[int_mask], int_mask
+        return spots[int_mask], intensity[int_mask], int_mask
 
 
     def index_best_grain(self,
                          near_q,
                          near_angle,
                          spots=None,
-                         spot_intensity=None,
-                         spot_intensity_cutoff=0,
+                         intensity=None,
+                         int_cutoff=0,
                          relative_cutoff=True,
                          phase=None,
-                         method='pair_casting',
+                         half_mask=True,
+                         method='seed_casting',
                          save_to_hdf=True,
                          **kwargs
                          ):
@@ -1228,10 +1186,11 @@ class XRDRockingCurve(XRDBaseScan):
         """
         
         (spots,
-         spot_intensity,
+         intensity,
          int_mask) = self._parse_indexing_inputs(
                                     spots,
-                                    spot_intensity,
+                                    intensity,
+                                    int_cutoff,
                                     relative_cutoff=relative_cutoff)
 
         if phase is None and len(self.phases) == 1:
@@ -1245,43 +1204,45 @@ class XRDRockingCurve(XRDBaseScan):
             raise ValueError(err_str)
 
         # Only pair casting indexing is currently supported
-        if method.lower() in ['pair_casting']:
-            (best_connection,
-             best_qof) = phase_based_index_best_pattern(
+        if method.lower() in ['seed_casting']:
+            (best_indexing,
+             best_qof) = phase_index_best_grain(
                             phase,
                             spots,
-                            spot_intensity,
+                            intensity,
                             near_q,
                             near_angle,
                             self.qmask,
                             degrees=self.polar_units == 'deg',
+                            half_mask=half_mask,
                             **kwargs)
         else:
             err_str = (f"Unknown method ({method}) specified. Only "
-                       + "'pair_casting' is currently supported.")
+                       + "'seed_casting' is currently supported.")
             raise ValueError(err_str)
-        
-        # TODO: Update spots_3D dataframe to get hkl and grain number...
+
         if hasattr(self, 'spots_3D'):
             grains = np.asarray([np.nan,] * len(self.spots_3D))
             h, k, l = grains.copy(), grains.copy(), grains.copy()
             phases = ['',] * len(self.spots_3D)
             qofs = grains.copy()
 
-            indexed_mask = ~np.isnan(best_connection)
-            ref_inds = best_connection[indexed_mask]
-            full_mask = int_mask.copy()
-            full_mask[int_mask] = indexed_mask
+            spot_inds, ref_inds = best_indexing.T
+            spot_inds = int_mask.nonzero()[0][spot_inds]
+
+            if half_mask:
+                half_mask = phase.all_hkls[:, -1] <= 0
+            else:
+                half_mask = np.ones(len(phase.all_hkls), dtype=np.bool_)
             
-            grains[full_mask] = 0
-            hkls = phase.all_hkls[ref_inds.astype(int)]
-            h[full_mask] = hkls[:, 0]
-            k[full_mask] = hkls[:, 1]
-            l[full_mask] = hkls[:, 2]
-            qofs[full_mask] = best_qof
-            for idx in range(len(phases)):
-                if full_mask[idx]:
-                    phases[idx] = phase.name
+            grains[spot_inds] = 0
+            hkls = phase.all_hkls[half_mask][ref_inds.astype(int)]
+            h[spot_inds] = hkls[:, 0]
+            k[spot_inds] = hkls[:, 1]
+            l[spot_inds] = hkls[:, 2]
+            qofs[spot_inds] = best_qof
+            for ind in spot_inds:
+                phases[ind] = phase.name
 
             for key, values in zip(['phase', 'grain_id', 'h', 'k', 'l', 'qof'],
                                    [phases, grains, h, k, l, qofs]):
@@ -1291,32 +1252,33 @@ class XRDRockingCurve(XRDBaseScan):
             if save_to_hdf:
                 self.save_3D_spots()
 
-        return best_connection, best_qof
+        return best_indexing, best_qof
 
 
-    def index_all_spots(self,
-                        near_q,
-                        near_angle,
-                        spots=None,
-                        spot_intensity=None,
-                        spot_intensity_cutoff=0,
-                        relative_cutoff=True,
-                        phase=None,
-                        method='pair_casting',
-                        save_to_hdf=True,
-                        **kwargs
-                        ):
+    def index_all_grains(self,
+                         near_q,
+                         near_angle,
+                         spots=None,
+                         intensity=None,
+                         int_cutoff=0,
+                         relative_cutoff=True,
+                         phase=None,
+                         half_mask=True,
+                         method='seed_casting',
+                         save_to_hdf=True,
+                         **kwargs
+                         ):
         """
 
         """
         
         (spots,
-         spot_intensity,
+         intensity,
          int_mask) = self._parse_indexing_inputs(
                                     spots,
-                                    spot_intensity,
+                                    intensity,
+                                    int_cutoff,
                                     relative_cutoff=relative_cutoff)
-
 
         if phase is None and len(self.phases) == 1:
             phase = list(self.phases.values())[0]
@@ -1329,45 +1291,47 @@ class XRDRockingCurve(XRDBaseScan):
             raise ValueError(err_str)
 
         # Only pair casting indexing is currently supported
-        if method.lower() in ['pair_casting']:
-            (best_connections,
-             best_qofs) = phase_based_index_full_pattern(
+        if method.lower() in ['seed_casting']:
+            (best_indexings,
+             best_qofs) = phase_index_all_grains(
                             phase,
                             spots,
-                            spot_intensity,
+                            intensity,
                             near_q,
                             near_angle,
                             self.qmask,
                             degrees=self.polar_units == 'deg',
+                            half_mask=half_mask,
                             **kwargs)
-     
         else:
             err_str = (f"Unknown method ({method}) specified. Only "
-                       + "'pair_casting' is currently supported.")
+                       + "'seed_casting' is currently supported.")
             raise ValueError(err_str)
         
-        # TODO: Update spots_3D dataframe to get hkl and grain number...
         if hasattr(self, 'spots_3D'):
             grains = np.asarray([np.nan,] * len(self.spots_3D))
             h, k, l = grains.copy(), grains.copy(), grains.copy()
             phases = ['',] * len(self.spots_3D)
             qofs = grains.copy()
+
+            if half_mask:
+                half_mask = phase.all_hkls[:, -1] <= 0
+            else:
+                half_mask = np.ones(len(phase.all_hkls), dtype=np.bool_)
+
+            for i, indexing in enumerate(best_indexings):
+
+                spot_inds, ref_inds = indexing.T
+                spot_inds = int_mask.nonzero()[0][spot_inds]
             
-            for i, conn in enumerate(best_connections):
-                indexed_mask = ~np.isnan(conn)
-                ref_inds = conn[indexed_mask]
-                full_mask = int_mask.copy()
-                full_mask[int_mask] = indexed_mask
-                
-                grains[full_mask] = i
-                hkls = phase.all_hkls[ref_inds.astype(int)]
-                h[full_mask] = hkls[:, 0]
-                k[full_mask] = hkls[:, 1]
-                l[full_mask] = hkls[:, 2]
-                qofs[full_mask] = best_qofs[i]
-                for idx in range(len(phases)):
-                    if full_mask[idx]:
-                        phases[idx] = phase.name
+                grains[spot_inds] = i
+                hkls = phase.all_hkls[half_mask][ref_inds.astype(int)]
+                h[spot_inds] = hkls[:, 0]
+                k[spot_inds] = hkls[:, 1]
+                l[spot_inds] = hkls[:, 2]
+                qofs[spot_inds] = best_qofs[i]
+                for ind in spot_inds:
+                    phases[ind] = phase.name
 
             for key, values in zip(['phase', 'grain_id', 'h', 'k', 'l', 'qof'],
                                    [phases, grains, h, k, l, qofs]):
@@ -1377,10 +1341,11 @@ class XRDRockingCurve(XRDBaseScan):
             if save_to_hdf:
                 self.save_3D_spots()
         
-        return best_connections, best_qofs
+        return best_indexings, best_qofs
 
 
     # Strain math
+    # TODO: Gives strain in crystal coordinates. Convert to lab
     def get_strain_orientation(self,
                                q_vectors=None,
                                hkls=None,
@@ -1452,6 +1417,7 @@ class XRDRockingCurve(XRDBaseScan):
         return eij, U
 
     
+    # Not sure if this is feasible
     def get_zero_point_correction():
         raise NotImplementedError()
 
@@ -1562,6 +1528,7 @@ class XRDRockingCurve(XRDBaseScan):
     def plot_3D_scatter(self,
                         q_vectors=None,
                         intensity=None,
+                        spots_3D=None,
                         title=None,
                         edges=None,
                         skip=None,
@@ -1570,21 +1537,46 @@ class XRDRockingCurve(XRDBaseScan):
         """
 
         """
-        
+
+        # Set defaults
+        default_title = '3D Scatter'
+
+        # Parse inputs
+        if spots_3D is not None:
+            if isinstance(spots_3D, pd.DataFrame):
+                q_vectors = spots_3D[['qx', 'qy', 'qz']]
+                intensity = spots_3D['intensity']
+                default_title = '3D Spots'
+                skip = 1
+                kwargs['alpha'] = 1
+            elif (hasattr(self, spots_3D)
+                  and self.spots_3D is not None):
+                q_vectors = self.spots_3D[['qx', 'qy', 'qz']]
+                intensity = self.spots_3D['intensity']
+                default_title = '3D Spots'
+                skip = 1
+                kwargs['alpha'] = 1
+            else:
+                warn_str = ("WARNING: 'spots_3D' could not be properly"
+                            + " parsed. Must be Pandas DataFrame or "
+                            + "bool indicating an internal DataFrame. "
+                            + "\nAttempting to plot vectors instead.")
+                print(warn_str)
+
+        # Plot direct vectors
         if q_vectors is None:
             if hasattr(self, 'vectors') and self.vectors is not None:
                 q_vectors = self.vectors[:, :3]
             else:
                 err_str = 'Must provide or already have q_vectors.'
                 raise ValueError(err_str)
-        
         if intensity is None:
             if (hasattr(self, 'vectors')
                 and self.vectors is not None):
                 intensity = self.vectors[:, -1]
             else:
                 intensity = np.zeros(len(q_vectors),
-                                     dtype=q_vectors.dtype)
+                                    dtype=q_vectors.dtype)
 
         if edges is None and hasattr(self, 'edges'):
             edges = self.edges
@@ -1597,58 +1589,99 @@ class XRDRockingCurve(XRDBaseScan):
 
         title = self._title_with_scan_id(
                             title,
-                            default_title='3D Scatter',
+                            default_title=default_title,
                             title_scan_id=title_scan_id)
         ax.set_title(title)
 
         return fig, ax
 
 
-    # Convenience wrapper of plot_3D_scatter to plot found 3D spots
+    # TODO: Combine with plot_3D_scatter?
     @return_plot_wrapper
-    def plot_3D_spots(self,
-                      spots_3D=None,
-                      title=None,
-                      edges=None,
-                      skip=None,
-                      title_scan_id=True,
-                      **kwargs):
+    def plot_3D_indexing(self,
+                         spots_3D=None,
+                         grain_ids=[0],
+                         title=None,
+                         edges=None,
+                         title_scan_id=True,
+                         **kwargs):
         """
 
         """
-        
+
+        # Parse inputs
+        if spots_3D is not None and not isinstance(spots_3D, pd.DataFrame):
+            warn_str = ("WARNING: 'spots_3D' must be Pandas DataFrame not "
+                        + f"{type(spots_3D)}. Searching for internal "
+                        + "spots_3D instead.")
+            print(warn_str)
+            spots_3D = None
+
         if spots_3D is None:
-            if not hasattr(self, 'spots_3D'):
-                err_str = 'Cannot plot 3D spots without spots.'
-                raise AttributeError(err_str)
-            else:
+            if hasattr(self, 'spots_3D') and self.spots_3D is not None:
                 spots_3D = self.spots_3D
-        elif not isinstance(spots_3D, pd.core.frame.DataFrame):
-            err_str = ('Spots must be given as Pandas DataFrame '
-                       + f'not {type(spots_3D)}.')
-            raise TypeError(err_str)
+            else:
+                err_str = ("Must provide 'spots_3D' or must have internal "
+                        + "'spots_3D' attribute.")
+                raise AttributeError(err_str)
         
-        q_vectors = spots_3D[['qx', 'qy', 'qz']]
-        intensity = spots_3D['intensity']
+        for key in ['qx', 'qy', 'qz', 'grain_id', 'h', 'k', 'l']:
+            if key not in spots_3D:
+                err_str = (f"{key} not in spots_3D DataFrame. The data may"
+                        + " not be indexed yet.")
+                raise KeyError(err_str)
+        
+        # Get universal values
+        all_spot_qs = spots_3D[['qx', 'qy', 'qz']].values
+        all_spot_ints = spots_3D['intensity'].values
 
-        fig, ax = self.plot_3D_scatter(
-                        q_vectors=q_vectors,
-                        intensity=intensity,
-                        edges=None,
-                        skip=None,
-                        return_plot=True,
-                        alpha=1,
-                        **kwargs
-                        )
-        
+        # Parse phases
+        phases = [spots_3D[spots_3D['grain_id'] == gi]['phase'].values[0] for gi in grain_ids]
+        phase_mask = [True,] * len(phases)
+        if np.any([phase != phases[0] for phase in phases]):
+            warn_str = ('WARNING: Grain IDs selected for multiple '
+                        + 'phases. Indexing plotting only for a single'
+                        + ' phase which will default to the first '
+                        + f'({phases[0]}).')
+            print(warn_str)
+            phase_mask = phases == phase[0]
+        grain_ids = np.asarray(grain_ids)[phase_mask]
+
+        # Get reference values
+        phase = self.phases[phases[0]]
+        phase.generate_reciprocal_lattice(qmax=np.linalg.norm(all_spot_qs, axis=1).max() * 1.15)
+        all_ref_qs = phase.all_qs
+        all_ref_hkls = phase.all_hkls
+        all_ref_fs = phase.all_fs
+
+        # Build indexing
+        indexings = []
+        for grain_id in grain_ids:
+            df = spots_3D[spots_3D['grain_id'] == grain_id]
+            spot_inds = df.index.values
+            hkls = df[['h', 'k', 'l']].values.astype(int)
+            ref_inds = [np.all(hkl == all_ref_hkls, axis=1).nonzero()[0][0] for hkl in hkls]
+
+            indexings.append(np.asarray([spot_inds, ref_inds]).T)
+
         title = self._title_with_scan_id(
                             title,
-                            default_title='3D Spots',
+                            default_title='3D RSM Indexing',
                             title_scan_id=title_scan_id)
-        ax.set_title(title)
-
-        return fig, ax   
-
+        
+        fig, ax = plot_3D_indexing(indexings,
+                                   all_spot_qs,
+                                   all_spot_ints,
+                                   all_ref_qs,
+                                   all_ref_hkls,
+                                   all_ref_fs,
+                                   self.qmask,
+                                   edges=self.edges,
+                                   title=title,
+                                   **kwargs)
+        
+        return fig, ax
+        
 
     # Broken for angle rocking curves
     def plot_3D_isosurfaces(self,
