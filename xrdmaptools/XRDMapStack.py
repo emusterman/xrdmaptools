@@ -43,7 +43,7 @@ from xrdmaptools.geometry.geometry import (
 from xrdmaptools.reflections.spot_blob_search_3D import (
     rsm_spot_search
 )
-from xrdmaptools.reflections.spot_blob_indexing_3D import (
+from xrdmaptools.reflections.spot_blob_indexing_3D_old import (
     pair_casting_index_full_pattern,
     _get_connection_indices
 )
