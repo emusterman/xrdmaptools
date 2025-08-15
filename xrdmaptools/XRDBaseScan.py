@@ -2454,7 +2454,7 @@ class XRDBaseScan(XRDData):
         # Save vectors
         XRDBaseScan._save_vectors(vector_grp,
                                   vectors,
-                                  vector_title=vector_title,
+                                  title=vector_title,
                                   rewrite_data=rewrite_data,
                                   verbose=verbose)
 
