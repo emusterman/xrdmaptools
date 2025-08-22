@@ -215,6 +215,7 @@ class XRDBaseScan(XRDData):
         self._theta = np.nan
         self._use_stage_rotation = False # overwrite later
 
+        # Initialize or point to hdf
         if not save_hdf:
             if dask_enabled:
                 err_str = ('Enabling dask requires an '
@@ -228,6 +229,7 @@ class XRDBaseScan(XRDData):
                                   hdf_filename=hdf_filename,
                                   dask_enabled=dask_enabled)
         
+        # Instantiate data
         XRDData.__init__(
             self,
             hdf_path=self.hdf_path,
