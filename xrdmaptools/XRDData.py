@@ -165,21 +165,13 @@ class XRDData:
             # Parallized image processing
             if dask_enabled:
                 # Unusual chunk shapes are fixed later
-                # Not the best though....
-                image_data = da.asarray(image_data)
+                image_data = da.stack(image_data)
             else:
                 # Non-paralleized image processing
                 if isinstance(image_data, da.core.Array):
                     image_data = image_data.compute()
-                # list input is handled lazily,
-                # but should only be from databroker
                 elif isinstance(image_data, list):
-                    if dask_enabled:
-                        # bad chunking will be fixed later
-                        image_data = da.stack(image_data) 
-                    else:
-                        image_data = np.stack(image_data)
-                # Otherwise as a numpy array
+                    image_data = np.stack(image_data)
                 else:
                     image_data = np.asarray(image_data)
 
@@ -194,7 +186,11 @@ class XRDData:
             # Fully defined inputs
             if map_shape is not None and image_shape is not None:
                 dataset_shape = (*map_shape, *image_shape)
-                self.images = image_data.reshape(dataset_shape)
+                if dataset_shape != image_data.shape:
+                    note_str = ('NOTE: Reshaping image_data to '
+                                + f'designated shape {dataset_shape}.')
+                    print(note_str)
+                    self.images = image_data.reshape(dataset_shape)
             # 3D input.
             elif image_data.ndim == 3:
                 input_shape = image_data.shape
@@ -3379,6 +3375,7 @@ class XRDData:
         img_grp = self.hdf[f'{self._hdf_type}/image_data']
         
         if title not in img_grp.keys():
+            # print(f'Writing new dataset: {title}')
             dset = img_grp.require_dataset(
                             title,
                             data=images,
@@ -3395,11 +3392,13 @@ class XRDData:
                 and dset.dtype == image_dtype
                 and dset.chunks == chunks):
                 if not dask_flag:
+                    # print(f'Overwriting old dataset: {title}')
                     # Replace data if the size, shape, and chunks match
                     dset[...] = images 
                 else:
                     pass # Leave the dataset for now
             else:
+                # print(f'Deleting and writing new version of old dataset: {title}')
                 # This is not the best, because this only
                 # deletes the flag. The data stays
                 del img_grp[title]
@@ -3414,6 +3413,7 @@ class XRDData:
         
         # Fill in data from dask after setting up the datasets
         if dask_flag:
+            # print(f'Storing dask dataset: {title}')
             # This should ensure lazy operations
             da.store(dask_images, dset, compute=True)
         
