@@ -1158,7 +1158,8 @@ def int_corr_qof(fit_spot_qs,
 
     ref_val = np.dot(filled_ints, all_ref_fs) / (np.linalg.norm(filled_ints) * np.linalg.norm(all_ref_fs))
 
-    return (ratio * exp_val) + ((1 - ratio) * ref_val)
+    # return (ratio * exp_val) + ((1 - ratio) * ref_val)
+    return exp_val * ref_val # Both must be large
 
 
 def get_rmse(fit_spot_qs,
