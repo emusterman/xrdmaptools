@@ -600,29 +600,35 @@ class XRDRockingCurve(XRDBaseScan):
                     print(warn_str)
 
         rocking_curves = []
-        for i, xrd_data_i in enumerate(xrd_data):
-            rc = cls(
-                    scan_id=scan_md['scan_id'],
-                    wd=wd,
-                    filename=filenames[i],
-                    image_data=xrd_data_i,
-                    # Not nominal values - those would be fine.
-                    energy=data_dict['energy'], 
-                    dwell=scan_md['dwell'],
-                    # Not nominal values - those would be fine.
-                    theta=data_dict['theta'],
-                    poni_file=poni_file,
-                    sclr_dict=sclr_dict,
-                    beamline='5-ID (SRX)',
-                    facility='NSLS-II',
-                    # time_stamp=scan_md['time_str'],
-                    extra_metadata=extra_md,
-                    save_hdf=save_hdf,
-                    null_map=null_map,
-                    rocking_axis=rocking_axis
-                    )
+        for i, (image_data, det) in enumerate(zip(xrd_data, xrd_dets)):
+            rsm = cls(scan_id=scan_md['scan_id'],
+                      wd=wd,
+                      filename=filenames[i],
+                      image_data=image_data,
+                      # Not nominal values - those would be fine.
+                      energy=data_dict['energy'], 
+                      dwell=scan_md['dwell'],
+                      # Not nominal values - those would be fine.
+                      theta=data_dict['theta'],
+                      poni_file=poni_file,
+                      sclr_dict=sclr_dict,
+                      beamline='5-ID (SRX)',
+                      facility='NSLS-II',
+                      # time_stamp=scan_md['time_str'],
+                      extra_metadata=extra_md,
+                      save_hdf=save_hdf,
+                      null_map=null_map,
+                      rocking_axis=rocking_axis
+                      )
             
-            rocking_curves.append(rc)
+            # Check for dark-field. Save but do not apply correction.
+            if f'{det}_dark' in data_dict:
+                note_str = f'Automatic dark-field found for {det}.'
+                rsm.dark_field = data_dict[f'{det}_dark'] # Could be passed as extra_attrs
+                rsm.save_images(images='dark_field', units='counts')
+                print(note_str)
+            
+            rocking_curves.append(rsm)
 
         print(f'{cls.__name__} loaded!')
         if len(rocking_curves) > 1:
