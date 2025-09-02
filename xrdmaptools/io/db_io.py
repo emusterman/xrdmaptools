@@ -3,6 +3,7 @@ from skimage import io
 import h5py
 import os
 from scipy.stats import mode
+from collections import OrderedDict
 
 
 # Working at the beamline...
@@ -17,6 +18,9 @@ try:
 except ModuleNotFoundError:
     print('failed.')
     pass
+
+
+supported_xrd_dets = ['dexela', 'merlin']
 
 
 # Wrapper for all load data options...
@@ -83,7 +87,7 @@ def load_tiled_data(scan_id=-1,
     else:
         detectors = [detector.name if type(detector) is not str else str(detector).lower()
                      for detector in detectors]
-    xrd_dets = [detector for detector in detectors if detector in ['merlin', 'dexela']]
+    xrd_dets = [detector for detector in detectors if detector in supported_xrd_dets]
 
     scan_md = _load_scan_metadata(bs_run)
     scan_md.update(_load_baseline_metadata(bs_run))
@@ -101,6 +105,15 @@ def load_tiled_data(scan_id=-1,
         print(f'Loading data from {key}...', end='', flush=True)
         data_dict[key] = np.array(bs_run['stream0']['data'][key])
         print('done!')
+    
+    if 'dark' in bs_run:
+        for detector in xrd_dets:
+            if f'{detector}_image' in bs_run['dark']['data']:
+                print(f'Loading data from {detector}_dark...', end='', flush=True)
+                dark = np.array(bs_run['dark']['data'][f'{detector}_image'])
+                dark = dark.squeeze().reshape(-1, *dark.shape[-2:])
+                data_dict[f'{detector}_dark'] = np.median(dark, axis=0)
+                print('done!')
 
     out = [data_dict, scan_md]
 
@@ -128,7 +141,7 @@ def load_db_data(scan_id=-1,
     else:
         detectors = [detector.name if type(detector) is not str else str(detector)
                      for detector in detectors]
-    xrd_dets = [detector for detector in detectors if detector in ['merlin', 'dexela']]
+    xrd_dets = [detector for detector in detectors if detector in supported_xrd_dets]
 
     scan_md = _load_scan_metadata(bs_run)
     scan_md.update(_load_baseline_metadata(bs_run))
@@ -146,6 +159,15 @@ def load_db_data(scan_id=-1,
         d = bs_run.data(key, stream_name='stream0', fill=True)
         data_dict[key] = np.array(list(d))
         print('done!')
+
+    if 'dark' in bs_run:
+        for detector in xrd_dets:
+            if f'{detector}_image' in bs_run['dark']['data']:
+                print(f'Loading data from {detector}_dark...', end='', flush=True)
+                dark = np.array(bs_run['dark']['data'][f'{detector}_image'])
+                dark = dark.squeeze().reshape(-1, *dark.shape[-2:])
+                data_dict[f'{detector}_dark'] = np.median(dark, axis=0)
+                print('done!')
 
     out = [data_dict, scan_md]
     
@@ -180,26 +202,57 @@ def manual_load_data(scan_id=-1,
     scan_md.update(_load_baseline_metadata(bs_run))
     vprint(f'Manually loading data for scan {scan_md["scan_id"]}...')
 
+    xrd_dets = [detector for detector in scan_md['detectors'] if detector in supported_xrd_dets]
+
+    # Add default data keys
+    if data_keys is None:
+        data_keys = ['enc1', 'enc2', 'xs_fluor', 'i0', 'i0_time', 'im', 'it']
+
+    # Append XRD data keys
+    for det in xrd_dets:
+        data_keys.append(f'{det}_image')
+
+    # Get relevant hdf_information
+    r_paths, r_specs = _get_resources(bs_run, data_keys)
+
     # Get relevant hdf information
-    data_keys, resource_keys, xrd_dets = _get_resource_keys(bs_run,
-                                                  data_keys=data_keys,
-                                                  detectors=detectors,
-                                                  returns=['xrd_dets'])                             
-    r_paths = _get_resource_paths(bs_run, resource_keys)
+    # data_keys, resource_keys, xrd_dets = _get_resource_keys(bs_run,
+    #                                               data_keys=data_keys,
+    #                                               detectors=detectors,
+    #                                               returns=['xrd_dets'])                             
+    # r_paths = _get_resource_paths(bs_run, resource_keys)
     # print(data_keys)
     # print(r_paths.keys())
 
     # Do not search for empty data
     # Will eliminate redundant xpress3 keys
-    for key in list(r_paths.keys()):
-        if len(r_paths[key]) == 0:
-            del r_paths[key]
+    # for key in list(r_paths.keys()):
+    #     if len(r_paths[key]) == 0:
+    #         del r_paths[key]
     # print(r_paths.keys())
 
     # Load data
     _empty_lists = [[] for _ in range(len(data_keys))]
     data_dict = dict(zip(data_keys, _empty_lists))
     dropped_rows, broken_rows = [], []
+
+    # Parse r_paths
+    supp_dict = {}
+    if 'dark' in r_paths:
+        # Only dexela uses dark-field
+        with h5py.File(r_paths['dark']['dexela_image'][0]) as f:
+            dark = f['entry/data/data'][:].squeeze()
+            dark = dark.reshape((-1, *dark.shape[-2:]))
+            supp_dict['dexela_dark'] = np.median(dark, axis=0)
+    if 'stream0' in r_paths:
+        r_paths = r_paths['stream0']
+        r_specs = r_specs['stream0']
+    elif 'primary' in r_paths:
+        r_paths = r_paths['primary']
+        r_specs = r_specs['primary']
+    
+    # Convert from data_key keys to spec keys
+    r_paths = {r_specs[key] : r_paths[key] for key in r_paths}
     
     # These are all essentially handlers with more conditionals for fixing data
     # Encoders
@@ -295,6 +348,7 @@ def manual_load_data(scan_id=-1,
                                   dropped_rows,
                                   broken_rows,
                                   repair_method=repair_method)
+    data_dict.update(supp_dict)
 
     out = [data_dict, scan_md]
 
@@ -368,6 +422,14 @@ def _load_scan_metadata(bs_run, keys=None):
         if key == 'energy':
             energy = bs_run['baseline']['data']['energy_energy'][0]
             scan_md['energy'] = np.round(energy, 3)
+    
+    # Unpack detector metatdata if available
+    if ('detectors' in scan_md
+        and isinstance(scan_md['detectors'], dict)):
+        for det_key, det_md in scan_md['detectors'].items():
+            for md_key, md_value in det_md.items():
+                scan_md[f'{det_key}_{md_key}'] = md_value
+        scan_md['detectors'] = list(scan_md['detectors'].keys())
 
     return scan_md
 
@@ -551,78 +613,136 @@ def _repair_data_dict(data_dict,
     return data_dict
 
 
-def _get_resource_paths(bs_run, resource_keys):
+# def _get_resource_paths(bs_run, resource_keys):
 
-    docs = list(bs_run.documents())
+#     docs = list(bs_run.documents())
 
-    # Create dictionary of empty lists
-    _empty_lists = [[] for _ in range(len(resource_keys))]
-    resource_paths = dict(zip(resource_keys, _empty_lists))
+#     # Create dictionary of empty lists
+#     _empty_lists = [[] for _ in range(len(resource_keys))]
+#     resource_paths = dict(zip(resource_keys, _empty_lists))
     
-    for doc in docs:
-        if doc[0] == 'resource':
-            r_key = doc[1]['spec']
-            if r_key in resource_keys:
-                resource_paths[r_key].append(doc[1]['resource_path'])
+#     for doc in docs:
+#         if doc[0] == 'resource':
+#             r_key = doc[1]['spec']
+#             if r_key in resource_keys:
+#                 resource_paths[r_key].append(doc[1]['resource_path'])
 
-    return resource_paths
+#     return resource_paths
 
 
-def _get_resource_keys(bs_run,
-                       data_keys=None,
-                       detectors=None,
-                       returns=None):
+# def _get_resource_keys(bs_run,
+#                        data_keys=None,
+#                        detectors=None,
+#                        returns=None):
     
-    # Find detectors if not specified
-    if detectors is None:
-        detectors = bs_run.start['scan']['detectors']
-    else:
-        detectors = [detector.name if type(detector) is not str else str(detector)
-                     for detector in detectors]
-    xrd_dets = [detector for detector in detectors if detector in ['merlin', 'dexela']]
+#     # Find detectors if not specified
+#     if detectors is None:
+#         detectors = bs_run.start['scan']['detectors']
+#     else:
+#         detectors = [detector.name if type(detector) is not str else str(detector)
+#                      for detector in detectors]
+#     xrd_dets = [detector for detector in detectors if detector in ['merlin', 'dexela']]
 
-    # Add default data keys
-    if data_keys is None:
-        data_keys = ['enc1', 'enc2', 'xs_fluor', 'i0', 'i0_time', 'im', 'it']
+#     # Add default data keys
+#     if data_keys is None:
+#         data_keys = ['enc1', 'enc2', 'xs_fluor', 'i0', 'i0_time', 'im', 'it']
 
-    # Append XRD data keys
-    for detector in xrd_dets:
-        data_keys.append(f'{detector}_image')
+#     # Append XRD data keys
+#     for detector in xrd_dets:
+#         data_keys.append(f'{detector}_image')
 
-    # Determine actual resource keys
-    resource_keys = []
-    if any(key in ['enc1', 'enc2', 'enc3'] for key in data_keys):
-        resource_keys.append('ZEBRA_HDF51')
+#     # Determine actual resource keys
+#     resource_keys = []
+#     if any(key in ['enc1', 'enc2', 'enc3'] for key in data_keys):
+#         resource_keys.append('ZEBRA_HDF51')
 
-    if any(key in ['i0', 'im', 'it'] for key in data_keys):
-        resource_keys.append('SIS_HDF51')
+#     if any(key in ['i0', 'im', 'it'] for key in data_keys):
+#         resource_keys.append('SIS_HDF51')
 
-    if any(key in ['xs_fluor'] for key in data_keys):
-        # There must have been a type somehwere...
-        # Multiple keys will be handled later
-        resource_keys.append('XSP3_FLY') # After ca. Feb. 2024
-        resource_keys.append('XPS3_FLY') # before ca. Feb. 2024
+#     if any(key in ['xs_fluor'] for key in data_keys):
+#         # There must have been a type somehwere...
+#         # Multiple keys will be handled later
+#         resource_keys.append('XSP3_FLY') # After ca. Feb. 2024
+#         resource_keys.append('XPS3_FLY') # before ca. Feb. 2024
 
-    if any(key in ['dexela_image'] for key in data_keys):
-        resource_keys.append('DEXELA_FLY_V1')
+#     if any(key in ['dexela_image'] for key in data_keys):
+#         resource_keys.append('DEXELA_FLY_V1')
 
-    # Not sure if this is correct???
-    if any(key in ['merlin_image'] for key in data_keys):
-        # Not sure why there are two...
-        resource_keys.append('MERLIN_FLY_V1')
-        resource_keys.append('MERLIN_FLY_STREAM_V1')
+#     # Not sure if this is correct???
+#     if any(key in ['merlin_image'] for key in data_keys):
+#         # Not sure why there are two...
+#         resource_keys.append('MERLIN_FLY_V1')
+#         resource_keys.append('MERLIN_FLY_STREAM_V1')
 
-    # Check for issues:
-    if len(resource_keys) < 1:
-        raise ValueError('No valid data resources requested.')
+#     # Check for issues:
+#     if len(resource_keys) < 1:
+#         raise ValueError('No valid data resources requested.')
 
-    out = [data_keys, resource_keys]
+#     out = [data_keys, resource_keys]
 
-    if returns is not None:
-        if 'xrd_dets' in returns or returns == 'xrd_dets':
-            out.append(xrd_dets)
+#     if returns is not None:
+#         if 'xrd_dets' in returns or returns == 'xrd_dets':
+#             out.append(xrd_dets)
 
-    return out
+#     return out
+
+
+def _get_resources(bs_run, data_keys):
+
+    stream_uids = {}
+    descriptors = []
+    event_pages = []
+    resources = {}
+
+    for name, doc in bs_run.documents():
+        
+        # Add all streams with data_keys matching those requested
+        if (name == 'descriptor'
+            and any([key in data_keys for key in doc['data_keys'].keys()])):
+            descriptors.append((
+                doc['uid'],
+                doc['name'],
+                {key : doc['data_keys'][key]['shape'] for key in data_keys if key in doc['data_keys']}
+            ))
+            stream_uids[doc['uid']] = doc['name']
+    
+        # Add all event_pages with data_keys matching those requested
+        if (name == 'event_page'
+            and any([key in data_keys for key in doc['data'].keys()])):
+            event_pages.append((
+                doc['descriptor'],
+                doc['seq_num'][0],
+                {key : doc['data'][key][0].split('/')[0] for key in data_keys if key in doc['data']}
+            ))
+
+        # Add all resouces. Cannot distinguish yet
+        if name == 'resource':
+            resources[doc['uid']] = (
+                doc['spec'],
+                doc['resource_path']
+            )
+
+    # Build container
+    r_paths, r_specs = {}, {}
+    for uid, name, shapes in descriptors:
+        data_dict = {}
+        for key in shapes:
+            data_dict[key] = [None,] * sum([page[0] == uid for page in event_pages])
+        r_paths[name] = data_dict
+        r_specs[name] = {key : None for key in shapes}
+
+    # Populate container with uids
+    for uid, seq_num, resource_uids in event_pages:
+        for key, resource_uid in resource_uids.items():
+            r_paths[stream_uids[uid]][key][seq_num - 1] = resources[resource_uid][1]
+            r_specs[stream_uids[uid]][key] = resources[resource_uid][0]
+    
+    # Reduce duplicates
+    for name, path_dict in r_paths.items():
+        for data_key, paths in path_dict.items():
+            path_dict[data_key] = list(OrderedDict.fromkeys(paths))
+
+    return r_paths, r_specs
 
 ###########################
 ### Data Pre-processing ###
@@ -1009,9 +1129,7 @@ def load_step_rc_data(scan_id=-1,
         'scan_uid' : bs_run.start['uid'],
         'beamline' : bs_run.start['beamline_id'],
         'scantype' : bs_run.start['scan']['type'],
-        'detectors' : bs_run.start['scan']['detectors'],
-        # 'energy' : bs_run.start['scan']['energy'],
-        # 'theta' : bs_run.start['scan']['theta'],
+        'detectors' : [det for det in bs_run.start['scan']['detectors']],
         'dwell' : bs_run.start['scan']['dwell'],
         'start_time' : bs_run.start['time_str']
     }
@@ -1027,7 +1145,7 @@ def load_step_rc_data(scan_id=-1,
 
     # Find area detectors
     xrd_dets = [det for det in scan_md['detectors']
-                if det in ['merlin', 'dexela']]   
+                if det in supported_xrd_dets]   
 
     data_keys = [
         'sclr_i0',
@@ -1091,20 +1209,45 @@ def load_step_rc_data(scan_id=-1,
     # Convert from mdeg to deg
     data_dict['theta'] /= 1000
 
+    # Get relevant hdf_information
+    r_paths, r_specs = _get_resources(bs_run, ['xs_fluor', *[f'{det}_image' for det in supported_xrd_dets]])
+
+    # Parse r_paths
+    supp_dict = {}
+    if 'dark' in r_paths:
+        # Only dexela uses dark-field
+        with h5py.File(r_paths['dark']['dexela_image'][0]) as f:
+            supp_dict['dexela_dark'] = np.median(f['entry/data/data'][:], axis=0)
+    if 'stream0' in r_paths:
+        r_paths = r_paths['stream0']
+        r_specs = r_specs['stream0']
+    elif 'primary' in r_paths:
+        r_paths = r_paths['primary']
+        r_specs = r_specs['primary']
+    
+    # Convert from data_key keys to spec keys
+    r_paths = {r_specs[key] : r_paths[key] for key in r_paths}
+
     # Dexela images saved differently with step rc
     # Grap all paths regardless if requested
     # No support for merlin just yet
-    r_paths = _get_resource_paths(bs_run, ['TPX_HDF5', 'XSP3_FLY'])
+    # r_paths = _get_resource_paths(bs_run, ['AD_HDF5', 'TPX_HDF5', 'XSP3_FLY'])
     
     key = 'dexela_image'
     if key in data_keys:
         vprint('Loading dexela...')
-        for r_path in r_paths['TPX_HDF5']:
-            with h5py.File(r_path, 'r') as f:
-                data_dict[key].append(np.asarray(f['entry/data/data']))
-
+        if 'AD_HDF5' in r_paths:
+            for r_path in r_paths['AD_HDF5']:
+                with h5py.File(r_path, 'r') as f:
+                    data_dict[key].append(np.asarray(f['entry/data/data']))
+        # Incorrect spec, but left in for backwards compatibility
+        elif 'TPX_HDF5' in r_paths:
+            for r_path in r_paths['AD_HDF5']:
+                with h5py.File(r_path, 'r') as f:
+                    data_dict[key].append(np.asarray(f['entry/data/data']))
+    
     key = 'xs_fluor'
-    if 'xs_fluor' in data_keys:
+    if key in data_keys:
         if len(r_paths['XSP3_FLY']) > 0:
             vprint('Loading xspress3...')
             for r_path in r_paths['XSP3_FLY']:
@@ -1118,6 +1261,7 @@ def load_step_rc_data(scan_id=-1,
 
     # Update data_keys
     data_keys = list(data_dict.keys())
+    data_dict.update(supp_dict)
 
     out = [data_dict, scan_md]
 
@@ -1160,17 +1304,6 @@ def save_step_rc_data(scan_id=-1,
         del data_dict[f'{det}_image']
     if 'xs_fluor' in data_keys:
         data_keys.remove('xs_fluor')
-    # # Check and extract xrf data
-    # if 'xs_fluor' in data_keys:
-    #     xrf_data = np.asarray(data_dict['xs_fluor'])
-    #     if xrf_data.size == 0:
-    #         xrf_data = None
-    #     else:
-    #         xrf_data = xrf_data.squeeze().sum(axis=1)
-    #     data_keys.remove('xs_fluor')
-    #     del data_dict['xs_fluor']
-    # else:
-    #     xrf_data = None
 
     if filenames is None:
         filenames = []
@@ -1542,3 +1675,4 @@ def generate_scan_logfile(start_id,
                                 scan_detectors,
                                 scan_inputs):
             log.write(f'{scan_id}\t{scan_type}\t{scan_status}\t{scan_detector}\t{scan_input}\n')
+
