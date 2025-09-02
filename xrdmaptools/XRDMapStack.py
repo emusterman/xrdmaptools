@@ -533,30 +533,46 @@ class XRDMapStack(list):
                          rocking_axis=None,
                          **kwargs):
 
-        if wd is None:
-            wd = [os.getcwd(),] * len(hdf_filenames)
-        elif isinstance(wd, str):
-            wd = [wd,] * len(hdf_filenames)
+        # Setup working directories
+        if wd is None or xdms_wd is None:
+            if wd is None and xdms_wd is None:
+                wd = os.getcwd()
+                xdms_wd = wd
+            elif wd is None:
+                wd = xdms_wd
+            elif xdms_wd is None:
+                xdms_wd = wd
         
-        if xdms_wd is None:
-            xdms_wd = wd[0]
+        # Check working directories and their immediate subdirectories for files
+        all_wd = [wd, xdms_wd] + [x.path for x in os.scandir(wd) if x.is_dir()]
+        if wd != xdms_wd:
+            all_wd += [x.path for x in os.scandir(xdms_wd) if x.is_dir()]
 
-        # Check that each file exists
-        for filename, wdi in zip(hdf_filenames, wd):
-            path = pathify(wdi, filename, '.h5')
-            if not os.path.exists(path):
-                err_str = f'File {path} cannot be found.'
-                raise FileNotFoundError(err_str)
+        for d in all_wd:
+            for filename in hdf_filenames:
+                path = pathify(d, filename, '.h5')
+                if not os.path.exists(path):
+                    warn_str = (f'File {path} cannot be found. Checking'
+                                + ' another directory for files.')
+                    orint(warn_str)
+                    break
+            else:
+                wd = d
+        else:
+            err_str = ('One or more files is missing from each '
+                       + 'attempted directory in:\t'
+                       + '\t'.join(all_wd))
+            raise FileNotFoundError(err_str)
+
         
         xrdmap_list = []
-        for hdf_filename, wdi in timed_iter(zip(hdf_filenames,
-                                                wd),
-                                            total=len(hdf_filenames),
-                                            iter_name='xrdmap'):
+        for hdf_filename in timed_iter(hdf_filenames,
+                                       total=len(hdf_filenames),
+                                       iter_name='xrdmap'):
             xrdmap_list.append(
                 XRDMap.from_hdf(
                     hdf_filename,
-                    wd=wdi,
+                    wd=wd,
                     dask_enabled=dask_enabled,
                     image_data_key=image_data_key,
                     integration_data_key=integration_data_key,
@@ -615,7 +631,6 @@ class XRDMapStack(list):
             shifts = None
         rocking_axis = input_dict['base_md'].pop('rocking_axis')
         xdms_extra_metadata = input_dict.pop('xdms_extra_metadata')
-        # xdms_hdf = input_dict.pop('xdms_hdf')
 
         xdms_extra_attrs = {}
         if input_dict['vector_dict'] is not None:
@@ -625,16 +640,44 @@ class XRDMapStack(list):
         
         if input_dict['spots_3D'] is not None:
             xdms_extra_attrs['spots_3D'] = input_dict.pop('spots_3D')
-
         
+        # Check working directories and their immediate subdirectories for files
+        xdms_wd = wd
+        hdf_wd = [os.path.dirname(path) for path in hdf_path]
+        hdf_filenames = [os.path.basename(path) for path in hdf_path]
+
+        all_wd = [wd] # Start with designated wd
+        for d in hdf_wd:
+            if d not in all_wd:
+                # Then try each unique wd of individual files
+                all_wd.append(d) 
+        # Then try all possible subdirectories
+        all_wd += [x.path for x in os.scandir(wd) if x.is_dir()]
+        
+        for d in all_wd:
+            for filename in hdf_filenames:
+                path = pathify(d, filename, '.h5')
+                if not os.path.exists(path):
+                    warn_str = (f'File {path} cannot be found. Checking'
+                                + ' another directory for files.')
+                    orint(warn_str)
+                    break
+            else:
+                wd = d
+        else:
+            err_str = ('One or more files is missing from each '
+                       + 'attempted directory in:\t'
+                       + '\t'.join(all_wd))
+            raise FileNotFoundError(err_str)
+
         xrdmap_list = []
-        for hdf_path_i in timed_iter(hdf_path, iter_name='xrdmap'):
+        for filename in timed_iter(hdf_filenames, iter_name='xrdmap'):
             hdf_filename_i = os.path.basename(hdf_path_i)
             wd_i = os.path.dirname(hdf_path_i)
             xrdmap_list.append(
                 XRDMap.from_hdf(
                     hdf_filename_i,
-                    wd=wd_i,
+                    wd=wd,
                     dask_enabled=dask_enabled,
                     image_data_key=image_data_key,
                     integration_data_key=integration_data_key,
@@ -648,7 +691,7 @@ class XRDMapStack(list):
             )
 
         inst = cls(stack=xrdmap_list,
-                   wd=wd,
+                   wd=xdms_wd,
                    rocking_axis=rocking_axis,
                    shifts=shifts,
                    xdms_filename=xdms_hdf_filename[:-3],
@@ -996,10 +1039,17 @@ class XRDMapStack(list):
         # Check for hdf and initialize if new            
         if not os.path.exists(self.xdms_hdf_path):
             # Initialize base structure
-            initialize_xrdmapstack_hdf(self, self.xdms_hdf_path) 
-
-        # Clear hdf for protection
-        self.xdms_hdf = None
+            initialize_xrdmapstack_hdf(self, self.xdms_hdf_path)
+            # Clear hdf for protection
+            self.xdms_hdf = None            
+        else:
+            # Update hdf_path information
+            @XRDMapStack._protect_xdms_hdf()
+            def save_attrs(self):
+                overwrite_attr(self.xdms_hdf[self._hdf_type].attrs,
+                            'hdf_path',
+                            getattr(self, self.hdf_path))
+            save_attrs(self)
 
         if save_current:
             self.save_current_xrdmapstack_hdf()
