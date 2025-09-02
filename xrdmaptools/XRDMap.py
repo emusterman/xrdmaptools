@@ -153,6 +153,19 @@ class XRDMap(XRDBaseScan):
             if not os.path.exists(wd):
                 err_str = f'Cannot find directory {wd}'
                 raise OSError(err_str)
+
+        # Get scantype information from check...
+        if broker == 'manual':
+            temp_broker = 'tiled'
+        else:
+            temp_broker = broker
+        scantype = get_scantype(scan_id,
+                                broker=temp_broker)
+        if scantype not in ['XRF_FLY', 'XRF_STEP']:
+            err_str = (f"Scan of type {scantype} not currently "
+                       + "supported. Scan type must be 'XRF_FLY' or "
+                       + "'XRF_STEP'.")
+            raise RuntimeError(err_str)
     
         # No fluorescence key
         pos_keys = ['enc1', 'enc2']
@@ -173,6 +186,7 @@ class XRDMap(XRDBaseScan):
                                         'xrd_dets'],
                             repair_method=repair_method)
 
+        # Extract main image_data
         xrd_data = [data_dict[f'{xrd_det}_image']
                     for xrd_det in xrd_dets]
 
@@ -184,6 +198,7 @@ class XRDMap(XRDBaseScan):
         sclr_dict = {key:value for key, value in data_dict.items()
                      if key in sclr_keys}
 
+        # Determine null_map
         if 'null_map' in data_dict.keys():
             null_map = data_dict['null_map']
         else:
@@ -207,29 +222,39 @@ class XRDMap(XRDBaseScan):
                 extra_md[key] = scan_md[key]
         
         xrdmaps = []
-        for i, xrd_data_i in enumerate(xrd_data):
-            xrdmap = cls(scan_id=scan_md['scan_id'],
-                         wd=wd,
-                         filename=filenames[i],
-                         image_data=xrd_data_i,
-                         null_map=null_map,
-                         energy=scan_md['energy'],
-                         dwell=scan_md['dwell'],
-                         theta=scan_md['theta'],
-                         poni_file=poni_file,
-                         sclr_dict=sclr_dict,
-                         pos_dict=pos_dict,
-                         beamline=scan_md['beamline_id'],
-                         facility='NSLS-II',
-                         scan_input=scan_md['scan_input'],
-                         time_stamp=scan_md['time_str'],
-                         extra_metadata=extra_md,
-                         save_hdf=save_hdf,
-                         dask_enabled=dask_enabled,
-                         **kwargs
-                         )
+        for i, (image_data, det) in enumerate(zip(xrd_data, xrd_dets)):
+            xdm = cls(scan_id=scan_md['scan_id'],
+                      wd=wd,
+                      filename=filenames[i],
+                      image_data=image_data,
+                      null_map=null_map,
+                      energy=scan_md['energy'],
+                      dwell=scan_md['dwell'],
+                      theta=scan_md['theta'],
+                      poni_file=poni_file,
+                      sclr_dict=sclr_dict,
+                      pos_dict=pos_dict,
+                      beamline=scan_md['beamline_id'],
+                      facility='NSLS-II',
+                      scan_input=scan_md['scan_input'],
+                      time_stamp=scan_md['time_str'],
+                      extra_metadata=extra_md,
+                      save_hdf=save_hdf,
+                      dask_enabled=dask_enabled,
+                      **kwargs
+                      )
             
-            xrdmaps.append(xrdmap)
+            # Check for dark-field. Save but do not apply correction.
+            if f'{det}_dark' in data_dict:
+                note_str = 'Automatic dark-field found'
+                if save_hdf:
+                    note_str += ' and written to disk'
+                note_str += f' for {det}.'
+                xdm.dark_field = data_dict[f'{det}_dark'] # Could be passed as extra_attrs
+                xdm.save_images(images='dark_field', units='counts')
+                print(note_str)
+            
+            xrdmaps.append(xdm)
 
         print(f'{cls.__name__} loaded!')
         if len(xrdmaps) > 1:
