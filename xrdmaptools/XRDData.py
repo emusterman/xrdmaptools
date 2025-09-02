@@ -437,10 +437,10 @@ class XRDData:
                                            return_stored=True)[0]
                 else:
                     self._hdf_store = None
-                    print(('WARNING: Dask Enabled \n'
+                    print(('NOTE: Dask Enabled \n'
                           + 'A temporary hdf storage dataset will be '
                           + 'generated when applying the first '
-                          + 'correction: dark_field.'))
+                          + 'correction.'))
         
         # Shared with child classes
         self.ai = ai
@@ -890,7 +890,7 @@ class XRDData:
                 else:
                     warn_str = (f'WARNING: Requested image_data_key'
                         + f'({image_data_key}) not found in hdf. '
-                        + 'Proceding without changes...')
+                        + 'proceeding without changes...')
                     print(warn_str)
                     return
 
@@ -1035,7 +1035,7 @@ class XRDData:
                 else:
                     warn_str = (f'WARNING: Requested integration_data_key'
                         + f'({integration_data_key}) not found in hdf. '
-                        + 'Proceding without changes...')
+                        + 'proceeding without changes...')
                     print(warn_str)
                     return
 
@@ -1259,17 +1259,79 @@ class XRDData:
                         + 'already applied!')
             apply_correction = False
         
+        # Check exit state
         if apply_correction:
-            return False
+            pass
         elif override:
             warn_str += ('\nOverriding warning and correcting '
                          + f'{correction} anyway.')
             print(warn_str)
-            return False
         else:
             warn_str += f'\nProceeding without changes.'
             print(warn_str)
-            return True
+        
+        # Exit and check for first correction if it will be applied
+        if apply_correction or override:
+            self._check_first_correction()
+            return False # Correction will be applied
+        else:
+            return True # Correction will not be applied
+    
+
+    def _check_first_correction(self):
+        """
+        Check and prepare data for future processing and record certain
+        initial state values.
+        """
+
+        if any([c for c in self.corrections.values()]):
+            return
+        
+        print('Preparing data for corrections...')
+
+        # Grab values from "raw" images
+        if self.title == 'raw':
+            # Saturated pixels
+            if (not hasattr(self, 'saturated_pixels')
+                or self.saturated_pixels is None
+                or len(self.saturated_pixels) == 0):
+                self.track_saturated_pixels(verbose=False)
+
+            # Null map.
+            # TODO: Get this to work with dask
+            if (not hasattr(self, 'null_map')
+                and not self._dask_enabled):
+                self.construct_null_map()
+        
+        # Check for the start of corrections with dask.
+        # Otherwise keep lazily loaded...
+        if self._dask_enabled and self._hdf_store is None:
+            print(('Dask enabled. Upcasting data and generating a '
+                   + 'temporary dataset for performing corrections.\n'
+                   + 'This may take a while...'))
+
+            # Upcast before writing to hdf
+            self.images = self.images.astype(np.float32)
+            self._hdf_store = self.hdf.require_dataset(
+                        f'{self._hdf_type}/image_data/_temp_images',
+                        shape=self.images.shape,
+                        dtype=np.float32,
+                        chunks=self._chunks,
+                        compression_opts=4,
+                        compression='gzip') # This may slow it down
+
+            # Might be best NOT to call this to preserve previous data
+            self.images = da.store(self.images,
+                                   self._hdf_store,
+                                   compute=True,
+                                   return_stored=True)[0]
+        
+        else:
+            if not np.issubdtype(self.dtype, np.floating):
+                self.dtype = np.float32
+            else:
+                if self.dtype not in [np.float64, np.float32]:
+                    self.dtype = np.float32
 
 
     ### Initial image corrections ###
@@ -1353,7 +1415,6 @@ class XRDData:
         does not already exist.
         """
 
-
         if self._check_correction('dark_field', override=override):
             return
         elif dark_field is None:
@@ -1370,55 +1431,6 @@ class XRDData:
         
         # Store internally
         self.dark_field = dark_field
-
-        # Check for saturated pixels
-        if (not hasattr(self, 'saturated_pixels')
-            or self.saturated_pixels is None
-            or len(self.saturated_pixels) == 0):
-            self.track_saturated_pixels(verbose=False)
-
-        # Check for the start of corrections with dask.
-        # Otherwise keep lazily loaded...
-        if self._dask_enabled and self._hdf_store is None:
-            print(('Dask enabled. Upcasting data and generating a '
-                   + 'temporary dataset for performing corrections.\n'
-                   + 'This may take a while...'))
-
-            # Upcast before writing to hdf
-            self.images = self.images.astype(np.float32)
-            self._hdf_store = self.hdf.require_dataset(
-                        f'{self._hdf_type}/image_data/_temp_images',
-                        shape=self.images.shape,
-                        dtype=np.float32,
-                        chunks=self._chunks,
-                        compression_opts=4,
-                        compression='gzip') # This may slow it down
-
-            # Might be best NOT to call this to preserve previous data
-            self.images = da.store(self.images,
-                                   self._hdf_store,
-                                   compute=True,
-                                   return_stored=True)[0]
-        
-        else:
-            # Check for upcasting. Will probably upcast data
-
-            # Convert from integer to float if necessary
-            if (np.issubdtype(self.dtype, np.integer)
-                and np.issubdtype(self.dark_field.dtype, np.floating)):
-                self.dtype = self.dark_field.dtype
-
-            # Switch to greater precision if necessary
-            elif self.dark_field.dtype > self.dtype:
-                self.dtype = self.dark_field.dtype
-            
-            # Switch to int if uint and values will go negative
-            elif check_precision(self.dtype)[0].min >= 0:
-                # Not sure how to decide which int precision
-                # Trying to save memory if possible
-                if np.max(self.dark_field) > np.min(self.images):
-                    # Upcast to final size
-                    self.dtype = np.float32
         
         print('Correcting dark-field...', end='', flush=True)
         self.images -= self.dark_field
@@ -3362,8 +3374,6 @@ class XRDData:
         # Maps and images will not be chunked
         if images is None or images.ndim != 4:
             chunks = None
-
-
 
         dask_flag=False
         if isinstance(images, da.core.Array):
