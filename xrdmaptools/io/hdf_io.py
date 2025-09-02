@@ -447,7 +447,7 @@ def _load_xrd_hdf_integration_data(base_grp,
                             + f'not match loaded integration data map shape of '
                             + f'{integration_data.shape[:2]}.'
                             + '\nAssuming original map shape is from '
-                            + 'image_data and proceding without changes.')
+                            + 'image_data and proceeding without changes.')
                 print(warn_str)
                 # map_shape = integration_data.shape[:2]
 
