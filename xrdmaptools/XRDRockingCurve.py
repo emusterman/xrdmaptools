@@ -17,7 +17,8 @@ from xrdmaptools.utilities.math import (
     wavelength_2_energy
 )
 from xrdmaptools.utilities.utilities import (
-    generate_intensity_mask
+    generate_intensity_mask,
+    copy_docstring
 )
 from xrdmaptools.crystal.rsm import map_2_grid
 from xrdmaptools.geometry.geometry import (
@@ -146,14 +147,14 @@ class XRDRockingCurve(XRDBaseScan):
             if data_ndim == 3: # Most likely
                 if np.any(data_shape == 1):
                     err_str = (f'image_data shape is {data_shape}. '
-                            + 'For 3D data, no axis should equal 1.')
+                               + 'For 3D data, no axis should equal 1.')
                     raise ValueError(err_str)
             # This will work with standard hdf formatting
             elif data_ndim == 4: 
                 if np.all(data_shape[:2] == 1):
                     err_str = (f'image_data shape is {data_shape}. '
-                            + 'For 4D data, first two axes cannot '
-                            + 'both equal 1.')
+                               + 'For 4D data, first two axes cannot '
+                               + 'both equal 1.')
                     raise ValueError(err_str)
                 elif (data_shape[0] == 1 or data_shape[1] != 1):
                     image_data = image_data.swapaxes(0, 1)
@@ -161,8 +162,8 @@ class XRDRockingCurve(XRDBaseScan):
                     pass
                 else:
                     err_str = (f'image_data shape is {data_shape}. '
-                            + 'For 4D data, one of the first two '
-                            + 'axes must equal 1.')
+                               + 'For 4D data, one of the first two '
+                               + 'axes must equal 1.')
                     raise ValueError(err_str)
             else:
                 err_str = (f'Unable to parse image_data with '
@@ -428,12 +429,14 @@ class XRDRockingCurve(XRDBaseScan):
 
 
     def set_calibration(self, *args, **kwargs):
+        __doc__ = super().__doc__
         super().set_calibration(*args,
                                 energy=self.energy[0],
                                 **kwargs)    
     
 
     def save_current_hdf(self, verbose=False):
+        __doc__ = super().__doc__
         super().save_current_hdf(verbose=verbose) # no inputs!
 
         # Vectorized_data
@@ -714,7 +717,7 @@ class XRDRockingCurve(XRDBaseScan):
                           q_arr=None):
         
         """
-        
+        lorem ipsum
         """
         
         if q_arr is None:
@@ -892,49 +895,6 @@ class XRDRockingCurve(XRDBaseScan):
     def find_2D_blobs(self, *args, **kwargs):
         XRDMap.find_2D_blobs(self, *args, **kwargs)
 
-    # Same as XRDMap.find_blobs()
-    # def find_2D_blobs(self,
-    #                   threshold_method='minimum',
-    #                   multiplier=5,
-    #                   size=3,
-    #                   expansion=10,
-    #                   override_rescale=False):
-    #     """
-
-    #     """
-    
-    #     # Cleanup images as necessary
-    #     self._dask_2_numpy()
-    #     if not self.corrections['rescaled'] and not override_rescale:
-    #         warn_str = ("Finding blobs assumes images scaled between 0"
-    #                     + " and around 100. Current images have not "
-    #                     + "been rescaled. Apply this correction or "
-    #                     + "set 'override_rescale' to True in order to"
-    #                     + " continue. Proceeding without changes.")
-    #         print(warn_str)
-    #         return
-
-    #     # Search each image for significant spots
-    #     blob_mask_list = find_blobs(
-    #                         self.images,
-    #                         mask=self.mask,
-    #                         threshold_method=threshold_method,
-    #                         multiplier=multiplier,
-    #                         size=size,
-    #                         expansion=expansion)
-        
-    #     self.blob_masks = np.asarray(
-    #                         blob_mask_list).reshape(self.shape)
-
-    #     # Save blob_masks to hdf
-    #     self.save_images(images='blob_masks',
-    #                      title='_blob_masks',
-    #                      units='bool',
-    #                      extra_attrs={
-    #                         'threshold_method' : threshold_method,
-    #                         'size' : size,
-    #                         'multiplier' : multiplier,
-    #                         'expansion' : expansion})
         
     # Uncommon
     def find_3D_blobs(self,
@@ -1079,7 +1039,8 @@ class XRDRockingCurve(XRDBaseScan):
 
         """
 
-        print('Saving 3D spots to hdf...', end='', flush=True)
+        print('Saving 3D spots to the HDF file...',
+              end='', flush=True)
         hdf_str = f'{self._hdf_type}/reflections'
         self.spots_3D.to_hdf(self.hdf_path,
                              key=f'{hdf_str}/spots_3D',
