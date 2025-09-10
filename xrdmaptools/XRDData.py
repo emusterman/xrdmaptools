@@ -56,9 +56,9 @@ class XRDData:
     image_shape : iterable length 2, optional
         Shape of last two axes in image_data (image_y, image_x).
     map_labels : iterable length 2, optional
-        Labels passed to HDF for map axes. Defaults to 'map_y_ind' and
-        'map_x_ind' for XRDMap, and 'rocking_ind' and 'null_ind' for 
-        XRDRockingCurve.
+        Labels passed to HDF file for map axes. Defaults to 'map_y_ind'
+        and 'map_x_ind' for XRDMap, and 'rocking_ind' and 'null_ind'
+        for XRDRockingCurve.
     dtype : dtype, optional
         Images and integrations will be converted to this data type if
         given.
@@ -98,14 +98,15 @@ class XRDData:
     ------
     ValueError if insufficient information is provided to construct
     instance.
-    ValueError if HDF functionality is intended, but hdf_type if not
-    given.
+    ValueError if HDF file functionality is intended, but hdf_type if
+    not given.
     TypeError if image_data is not given as supported type.
     ValueError if image_data cannot be constructed into 4D data.
     ValueError if integration_data cannot be constructed into 3D data.
     ValueError if HDF file information cannot be properly resolved.
     ValueError if map_labels is not length two.
-    RuntimeError if Dask is enabled without providing an active HDF.
+    RuntimeError if Dask is enabled without providing an active HDF
+    file.
 
     Methods
     -------
@@ -186,7 +187,9 @@ class XRDData:
             # Fully defined inputs
             if map_shape is not None and image_shape is not None:
                 dataset_shape = (*map_shape, *image_shape)
-                if dataset_shape != image_data.shape:
+                if dataset_shape == image_data.shape:
+                    self.images = image_data
+                else:
                     note_str = ('NOTE: Reshaping image_data to '
                                 + f'designated shape {dataset_shape}.')
                     print(note_str)
@@ -350,7 +353,7 @@ class XRDData:
                 hdf_path = hdf.filename
             except ValueError:
                 err_str = ('XRDData cannot be instantiated with '
-                           + 'closed hdf file!')
+                           + 'closed HDF file!')
                 raise ValueError(err_str)
         self.hdf = hdf
         self.hdf_path = hdf_path
@@ -389,7 +392,8 @@ class XRDData:
             if not check_hdf_current_images(f'{self.title}_images',
                                             self.hdf_path,
                                             self.hdf):
-                print('Writing images to hdf...', end='', flush=True)
+                print('Writing images to HDF file...',
+                      end='', flush=True)
                 self.save_images(units='counts')
                 print('done!')
                 
@@ -401,7 +405,7 @@ class XRDData:
         if dask_enabled:
             if self.hdf_path is None and self.hdf is None:
                 err_str = ('Cannot have dask enabled processing '
-                           + 'without specifying hdf file!')
+                           + 'without specifying HDF file!')
                 raise RuntimeError(err_str)
             elif self.hdf is None:
                 # Open and leave open hdf file object
@@ -438,8 +442,8 @@ class XRDData:
                 else:
                     self._hdf_store = None
                     print(('NOTE: Dask Enabled \n'
-                          + 'A temporary hdf storage dataset will be '
-                          + 'generated when applying the first '
+                          + 'A temporary HDF file storage dataset will'
+                          + ' be generated when applying the first '
                           + 'correction.'))
         
         # Shared with child classes
@@ -812,6 +816,15 @@ class XRDData:
 
     # Opens and closes hdf to ensure self.hdf can be used safely
     def _protect_hdf(pandas=False):
+        """
+        Decorator for safely opening and closing HDF files.
+
+        Parameters
+        ----------
+        pandas : bool, optional
+            Flag to alter behavior for the pandas.DataFrame.to_hdf
+            function, which requires a closed h5py.File object.
+        """
         def protect_hdf_inner(func):
             @functools.wraps(func)
             def protector(self, *args, **kwargs):
@@ -889,7 +902,7 @@ class XRDData:
                     image_data_key = f'_{image_data_key}'
                 else:
                     warn_str = (f'WARNING: Requested image_data_key'
-                        + f'({image_data_key}) not found in hdf. '
+                        + f'({image_data_key}) not found in HDF file. '
                         + 'proceeding without changes...')
                     print(warn_str)
                     return
@@ -904,7 +917,7 @@ class XRDData:
                     img_keys.append(key)
             if len(img_keys) < 1:
                 raise RuntimeError('Could not find recent image data'
-                                   + 'from hdf.')
+                                   + 'from HDF.')
             time_stamps = [ttime.mktime(ttime.strptime(x))
                            for x in time_stamps]
             image_data_key = img_keys[np.argmax(time_stamps)]
@@ -1034,8 +1047,8 @@ class XRDData:
                     integration_data_key = f'_{integration_data_key}'
                 else:
                     warn_str = (f'WARNING: Requested integration_data_key'
-                        + f'({integration_data_key}) not found in hdf. '
-                        + 'proceeding without changes...')
+                        + f'({integration_data_key}) not found in HDF '
+                        + 'file. Proceeding without changes...')
                     print(warn_str)
                     return
 
@@ -1049,7 +1062,7 @@ class XRDData:
                     int_keys.append(key)
             if len(int_keys) < 1:
                 err_str = ('Could not find recent '
-                           + 'integration data from hdf.')
+                           + 'integration data from HDF file.')
                 raise RuntimeError(err_str)
             time_stamps = [ttime.mktime(ttime.strptime(x))
                            for x in time_stamps]
@@ -1141,7 +1154,7 @@ class XRDData:
             if self.hdf is None:
                 if self.hdf_path is None:
                     err_str = ('Cannot convert images from numpy to '
-                               + 'dask without specifying hdf file!')
+                               + 'dask without specifying HDF file!')
                     raise RuntimeError(err_str)
                 else:
                     err_str = ('Trying to convert images to dask, '
@@ -1210,7 +1223,7 @@ class XRDData:
         """
         if self.hdf is not None:
             # Should this raise errors or just ping warnings
-            note_str = ('NOTE: HDF is already open. '
+            note_str = ('NOTE: HDF file is already open. '
                         + 'Proceeding without changes.')
             print(note_str)
             return
@@ -1531,7 +1544,7 @@ class XRDData:
             2D or 4D array matching the image shape or dataset shape to
             be subtracted from images. Internal air_scatter attribute
             is used unless specified. A median image of 4D air_scatter
-            will be and stored interanally and written to HDF.
+            will be and stored interanally and written to HDF file.
         applied_corrections : dict, optional
             A dictionary with keys included in the internal correction
             dictionary of any corrections already applied to the
@@ -2725,7 +2738,7 @@ class XRDData:
                     return
 
             else:
-                print('Loading (raw_images) from hdf...')
+                print('Loading (raw_images) from HDF file...')
                 hdf_str = f'{self._hdf_type}/image_data/raw_images'
                 raw_images = self.hdf[hdf_str]
             
@@ -2785,8 +2798,8 @@ class XRDData:
         image corrections are disabled unless override is called. 
         
         If dask is not enabled, this method will write the final images
-        to the HDF if 'save images' is True. If dask is enabled, the
-        temporary dataset in the HDF file is renamed to the final
+        to the HDF file if 'save images' is True. If dask is enabled,
+        the temporary dataset in the HDF file is renamed to the final
         images while still acting as the temporary storage location.
         Finally, any not applied corrections and the dataset size are
         called.
@@ -2814,7 +2827,7 @@ class XRDData:
 
         if save_images:
             if self.hdf_path is None and self.hdf is None:
-                ostr = ('No hdf file specified. '
+                ostr = ('No HDF file specified. '
                         + 'Images will not be saved.')
                 print(ostr)
             else:
@@ -3297,7 +3310,8 @@ class XRDData:
                     title = 'empty_images'
                     images = None
                 else:
-                    err_str = 'Must provide images to write to hdf.'
+                    err_str = ('Must provide images to write to HDF '
+                               + 'file.')
                     raise AttributeError(err_str)
             else:
                 images = self.images
@@ -3493,7 +3507,8 @@ class XRDData:
         if integrations is None:
             if (not hasattr(self, 'integrations')
                 or self.integrations is None):
-                err_str = 'Must provide integrations to write to hdf.'
+                err_str = ('Must provide integrations to write to HDF '
+                           + 'file.')
                 raise AttributeError(err_str)
             integrations = self.integrations
             if title is None:
