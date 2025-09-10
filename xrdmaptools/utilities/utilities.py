@@ -263,6 +263,25 @@ def deprecated(func):
     return new_func
 
 
+def copy_docstring(copy_func, sep='\n'):
+    """
+    Append another function's docstring to the decorated function.
+    """
+
+    if copy_func.__doc__ is not None:
+        docstr = copy_func.__doc__
+    else:
+        docstr = ""
+
+    def _decorator(func):
+        if func.__doc__ is None:
+            func.__doc__ = docstr
+        else:
+            func.__doc__ = sep.join([func.__doc__, docstr])
+        return func
+    return _decorator
+
+
 def _check_dict_key(dict, key):
     return key in dict.keys() and key is not None
 
