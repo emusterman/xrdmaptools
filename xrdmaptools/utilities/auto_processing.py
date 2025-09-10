@@ -80,7 +80,7 @@ def standard_process_xdm(scan_id,
     xdm.integrate1D_map()
 
     # Find blobs
-    xdm.find_blobs(threshold_method='minimum',
+    xdm.find_blobs(filter_method='minimum',
                    multiplier=5,
                    size=3,
                    expansion=10)
@@ -151,7 +151,7 @@ def standard_process_rsm(scan_id,
         rsm.finalize_images()
 
     # Find blobs
-    rsm.find_2D_blobs(threshold_method='minimum',
+    rsm.find_2D_blobs(filter_method='minimum',
                       multiplier=5,
                       size=3,
                       expansion=10)
