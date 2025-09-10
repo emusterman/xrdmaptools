@@ -24,7 +24,8 @@ from xrdmaptools.utilities.utilities import (
     _check_dict_key,
     get_int_vector_map,
     get_max_vector_map,
-    get_num_vector_map
+    get_num_vector_map,
+    copy_docstring
 )
 from xrdmaptools.io.hdf_io import (
     initialize_xrdmapstack_hdf,
@@ -94,17 +95,17 @@ class XRDMapStack(list):
     xdms_filename : str, optional
         Custom file name if not provided. Defaults to include scan IDs.
     xdms_hdf_filename : str, optional
-        Custom file name of hdf file. Defaults to include the filename
-        parameter if not provided.
+        Custom file name of the HDF file. Defaults to include the
+        filename parameter if not provided.
     xdms_hdf : 
         h5py File instance. Will be used to derive hdf_filename and hdf
         path location if provided.
     save_hdf : bool, optional
-        If False, this flag disables all hdf read/write functions.
+        If False, this flag disables all HDF file read/write functions.
         True by default.
     xdms_extra_metadata : dict, optional
         Dictionary of extra metadata to be stored with the XRD data.
-        Extra metadata will be written to the hdf file if enabled, but
+        Extra metadata will be written to the HDF file if enabled, but
         is not intended to be interacted with during normal data
         processing.
     xdms_extra_attrs : dict, optional
@@ -532,6 +533,9 @@ class XRDMapStack(list):
                          load_vector_maps=False, # Load emtpy datasets
                          rocking_axis=None,
                          **kwargs):
+        """
+
+        """
 
         # Setup working directories
         if wd is None or xdms_wd is None:
@@ -608,6 +612,9 @@ class XRDMapStack(list):
                  image_shape=None,
                  **kwargs
                  ):
+        """
+
+        """
 
         if wd is None:
             wd = os.getcwd()
@@ -615,10 +622,10 @@ class XRDMapStack(list):
         xdms_hdf_path = pathify(wd, xdms_hdf_filename, '.h5')
         if not os.path.exists(xdms_hdf_path):
             # Should be redundant...
-            raise FileNotFoundError(f'No hdf file at {xdms_hdf_path}.')
+            raise FileNotFoundError(f'No HDF file at {xdms_hdf_path}.')
         
         # File exists, attempt to load data!
-        print('Loading data from hdf file...')
+        print('Loading data from the HDF file...')
         input_dict = load_xrdmapstack_hdf(
                             os.path.basename(xdms_hdf_path),
                             os.path.dirname(xdms_hdf_path),
@@ -714,6 +721,9 @@ class XRDMapStack(list):
     def _get_iterated_method(method,
                              variable_inputs=False,
                              timed_iterator=False):
+        """
+
+        """
 
         # Select iterator
         if timed_iterator:
@@ -775,7 +785,10 @@ class XRDMapStack(list):
         
         # Generate decorated wrapper of original method docstring
         doc = f'Iterated wrapper of XRDMap.{method} method:\n'
-        doc += getattr(XRDMap, method).__doc__
+        if getattr(XRDMap, method).__doc__:
+            doc += getattr(XRDMap, method).__doc__
+        else:
+            print(f'{method} is missing a docstring!')
         iterated_method.__doc__ = doc
         
         return iterated_method
@@ -838,6 +851,9 @@ class XRDMapStack(list):
     ########################################################
     
     def _get_verbatim_method(method):
+        """
+
+        """
 
         def verbatim_method(self, *args, **kwargs):
             getattr(self[0], method)(*args, **kwargs)
@@ -871,9 +887,14 @@ class XRDMapStack(list):
 
 
     def _modify_pseudo_inherited_plot(func, verbatim=True):
+        """
 
+        """
+
+        @copy_docstring(func)
         @return_plot_wrapper
         def modified_plot(self, *args, **kwargs):
+
             xdms_title = None
             if 'title' in kwargs:
                 xdms_title = kwargs.pop('title')
@@ -911,24 +932,35 @@ class XRDMapStack(list):
     ### Pseudo-inherited XRDRockingCurve Functions ###
     ##################################################
 
-    def get_sampled_edges(self, *args, **kwargs):
-        return XRDRockingCurve.get_sampled_edges(self, *args, **kwargs)
+    # def get_sampled_edges(self, *args, **kwargs):
+    #     __doc__ = XRDRockingCurve.get_sampled_edges.__doc__
+    #     return XRDRockingCurve.get_sampled_edges(self, *args, **kwargs)
 
-
-    def _set_rocking_axis(self, *args, **kwargs):
-        return XRDRockingCurve._set_rocking_axis(self, *args, **kwargs)
+    # @copy_docstring(XRDRockingCurve._set_rocking_axis)
+    # def _set_rocking_axis(self, *args, **kwargs):
+    #     return XRDRockingCurve._set_rocking_axis(self, *args, **kwargs)
 
     
-    def _title_with_scan_id(self, *args, **kwargs):
-        return XRDRockingCurve._title_with_scan_id(self,
-                                                   *args,
-                                                   **kwargs)  
+    # @copy_docstring(XRDRockingCurve._title_with_scan_id)
+    # def _title_with_scan_id(self, *args, **kwargs):
+    #     __doc__ = XRDRockingCurve._title_with_scan_id.__doc__
+    #     return XRDRockingCurve._title_with_scan_id(self,
+    #                                                *args,
+    #                                                **kwargs)  
 
 
-    def plot_sampled_volume_outline(self, *args, **kwargs):
-        return XRDRockingCurve.plot_sampled_volume_outline(self,
-                                                    *args,
-                                                    **kwargs)
+    # @copy_docstring(XRDRockingCurve.plot_sampled_volume_outline)
+    # def plot_sampled_volume_outline(self, *args, **kwargs):
+    #     __doc__ = XRDRockingCurve.plot_sampled_volume_outline.__doc__
+    #     return XRDRockingCurve.plot_sampled_volume_outline(self,
+    #                                                 *args,
+    #                                                 **kwargs)
+    
+    get_sampled_edges = XRDRockingCurve.get_sampled_edges
+    _set_rocking_axis = XRDRockingCurve._set_rocking_axis
+    _title_with_scan_id = XRDRockingCurve._title_with_scan_id
+    plot_sampled_volume_outline = XRDRockingCurve.plot_sampled_volume_outline
+
 
     ################################
     ### XRDMapStack HDF Methods  ###
@@ -937,6 +969,15 @@ class XRDMapStack(list):
     # Re-defined from XRDData class
     # New names and no dask concerns
     def _protect_xdms_hdf(pandas=False):
+        """
+        Decorator for safely opening and closing HDF files.
+
+        Parameters
+        ----------
+        pandas : bool, optional
+            Flag to alter behavior for the pandas.DataFrame.to_hdf
+            function, which requires a closed h5py.File object.
+        """
         def protect_hdf_inner(func):
             @functools.wraps(func)
             def protector(self, *args, **kwargs):
@@ -970,42 +1011,51 @@ class XRDMapStack(list):
             return protector
         return protect_hdf_inner
 
-    
-    # Closes any active reference to xdms_hdf
-    def close_xdms_hdf(self):
-        if self.xdms_hdf is not None:
-            self.xdms_hdf.close()
-            self.xdms_hdf = None
-        
 
     # Opens an active reference to xdms
     def open_xdms_hdf(self):
+        """
+
+        """
         if self.xdms_hdf is not None:
             # Should this raise errors or just ping warnings
-            note_str = ('NOTE: hdf is already open. '
+            note_str = ('NOTE: the HDF file is already open. '
                         + 'Proceeding without changes.')
             print(note_str)
             return
         else:
             self.xdms_hdf = h5py.File(self.xdms_hdf_path, 'a')
+    
 
+    # Closes any active reference to xdms_hdf
+    def close_xdms_hdf(self):
+        """
+
+        """
+        if self.xdms_hdf is not None:
+            self.xdms_hdf.close()
+            self.xdms_hdf = None
+        
 
     def start_saving_xrdmapstack_hdf(self,
                                      xdms_hdf=None,
                                      xdms_hdf_filename=None,
                                      xdms_hdf_path=None,
                                      save_current=False):
+        """
+
+        """
         
         # Check for previous iterations
         if ((hasattr(self, 'xdms_hdf')
              and self.xdms_hdf is not None)
             or (hasattr(self, 'xdms_hdf_path')
                 and self.xdms_hdf_path is not None)):
-            warn_str = ('WARNING: Trying to save to hdf, but a '
-                        'file or location has already been specified!'
-                        '\nSwitching save files or locations should '
-                        'use the "switch_xrdmapstack_hdf" function.'
-                        '\nProceeding without changes.')
+            warn_str = ('WARNING: Trying to save to the HDF file, but '
+                        'a file or location has already been '
+                        'specified!\nSwitching save files or locations'
+                        ' should use the "switch_xrdmapstack_hdf" '
+                        'function.\nProceeding without changes.')
             print(warn_str)
             return
 
@@ -1059,11 +1109,14 @@ class XRDMapStack(list):
     # Calls several other save functions
     @_protect_xdms_hdf()
     def save_current_xrdmapstack_hdf(self):
+        """
+
+        """
         
         if self.xdms_hdf_path is None:
-            print('WARNING: Changes cannot be written to hdf without '
-                  + 'first indicating a file location.\nProceeding '
-                  + 'without changes.')
+            print('WARNING: Changes cannot be written to the HDF file '
+                  + 'without first indicating a file location.'
+                  + '\nProceeding without changes.')
             return
 
         # Save stacked vector_map
@@ -1079,6 +1132,10 @@ class XRDMapStack(list):
     
     # Ability to toggle hdf saving and proceed without writing to disk.
     def stop_saving_xrdmapstack_hdf(self):
+        """
+
+        """
+
         self.close_xdms_hdf()
         self.xdms_hdf_path = None
     
@@ -1089,19 +1146,23 @@ class XRDMapStack(list):
                              xdms_hdf_path=None,
                              xdms_hdf_filename=None,
                              save_current=False):
+        """
+
+        """
 
         # Check to make sure the change is appropriate and correct.
         # Not sure if this should raise and error or just print a warning
         if xdms_hdf is None and xdms_hdf_path is None:
             ostr = ('Neither xdms_hdf nor xdms_hdf_path were provided. '
-                     + '\nCannot switch hdf save locations without '
-                     + 'providing alternative.')
+                     + '\nCannot switch the HDF file save locations '
+                     + 'without providing alternative location.')
             print(ostr)
             return
         
         elif xdms_hdf == self.xdms_hdf:
-            ostr = (f'WARNING: provided hdf ({self.xdms_hdf.filename})'
-                    + ' is already the current save location. '
+            ostr = (f'WARNING: provided HDF file '
+                    + f'({self.xdms_hdf.filename}) is already the '
+                    + 'current save location. '
                     + '\nProceeding without changes')
             print(ostr)
             return
@@ -1131,6 +1192,9 @@ class XRDMapStack(list):
     
 
     def repackage_without_images(self):
+        """
+
+        """
 
         # Checks
         if not hasattr(self, 'xdms_vector_map') or self.xdms_vector_map is None:
@@ -1161,6 +1225,10 @@ class XRDMapStack(list):
 
     @property
     def _swapped_xdms_axes(self):
+        """
+
+        """
+
         # Check if all axes are the same
         if (not (all(self._swapped_axes)
                  or all([not _ for _ in self._swapped_axes]))):
@@ -1179,7 +1247,10 @@ class XRDMapStack(list):
 
     # Internal function for swapping XRDMapStack-specific mapped attributes
     # Does not interact with individual maps; use swap_axes instead
-    def _swap_xdms_axes(self):   
+    def _swap_xdms_axes(self):
+        """
+
+        """
 
         # Update vector map and related data
         if (hasattr(self, 'xdms_vector_map')
@@ -1199,6 +1270,11 @@ class XRDMapStack(list):
     
     # Wrapper for XRDMapStack swapped axes for consistency
     def _check_xdms_swapped_axes(func):
+        """
+        Decorator for transposing data with swapped fast and slow axes
+        after read operations and before write operations to maintain
+        consistent data shape.
+        """
         @functools.wraps(func)
         def wrapped(self, *args, **kwargs):
 
@@ -1227,6 +1303,9 @@ class XRDMapStack(list):
                              xdms_vector_map=None,
                              edges=None,
                              rewrite_data=False):
+        """
+
+        """
 
         # Check input
         if xdms_vector_map is None:
@@ -1262,6 +1341,9 @@ class XRDMapStack(list):
                                          vecto_map_info_title,
                                          rewrite_data=True,
                                          extra_attrs=None):
+        """
+
+        """
 
         XRDMap._save_vector_map(self, # this might break
                                 self.xdms_hdf,
@@ -1283,6 +1365,9 @@ class XRDMapStack(list):
     @_check_xdms_swapped_axes
     @XRDBaseScan._protect_hdf()
     def load_vector_map(self):
+        """
+
+        """
         XRDBaseScan._load_vectors(self.xdms_hdf)
 
 
@@ -1298,6 +1383,9 @@ class XRDMapStack(list):
     def sort_by_attr(self,
                      attr,
                      reverse=False):
+        """
+
+        """
         
         # Check for attr
         for i, xrdmap in enumerate(self):
@@ -1357,6 +1445,9 @@ class XRDMapStack(list):
                            # Input must be xrdmap and kwarglists
                            batched_functions, 
                            **kwarglists):
+        """
+
+        """
 
         # Check and fix karglists
         for key, kwarg in kwarglists.items():
@@ -1382,6 +1473,9 @@ class XRDMapStack(list):
 
     # Invalid with shifts??
     def stack_2D_spots(self):
+        """
+
+        """
     
         all_spots_list = []
         for xrdmap in self:
@@ -1421,6 +1515,9 @@ class XRDMapStack(list):
 
     
     def pixel_2D_spots(self, map_indices):
+        """
+
+        """
         pixel_spots = self.spots[
                     (self.spots['map_x'] == map_indices[1])
                      & (self.spots['map_y'] == map_indices[0])].copy()
@@ -1436,6 +1533,9 @@ class XRDMapStack(list):
                    map_stack,
                    method='correlation', # Default first map may not be the best
                    **kwargs):
+        """
+
+        """
 
         method = method.lower()
 
@@ -1460,6 +1560,9 @@ class XRDMapStack(list):
                                   shifts=None,
                                   map_shape=None,
                                   plotme=False):
+        """
+
+        """
 
         # Check inputs
         if shifts is None:
@@ -1574,6 +1677,9 @@ class XRDMapStack(list):
                           vector_maps=None,
                           virtual_masks=None,
                           rewrite_data=False):
+        """
+
+        """
 
         # Check inputs
         if virtual_masks is None:
@@ -1678,6 +1784,9 @@ class XRDMapStack(list):
                       label_int_method='sum',
                       verbose=False,
                       save_to_hdf=True):
+        """
+
+        """
 
         if not hasattr(self, 'xdms_vector_map'):
             err_str = ("Vectors maps have not yet been combined for "
@@ -1831,6 +1940,9 @@ class XRDMapStack(list):
                            save_to_hdf=True,
                            verbose=False,
                            half_mask=True):
+        """
+
+        """
 
         if not hasattr(self, 'spots_3D') or self.spots_3D is None:
             err_str = 'Spots must be found before they can be indexed.'
@@ -1928,6 +2040,10 @@ class XRDMapStack(list):
     
 
     def pixel_3D_spots(self, map_indices, copied=True):
+        """
+
+        """
+
         return XRDMap._pixel_spots(self.spots_3D,
                                    map_indices,
                                    copied=copied)
@@ -1936,7 +2052,12 @@ class XRDMapStack(list):
     @_check_xdms_swapped_axes
     @_protect_xdms_hdf(pandas=True)
     def save_3D_spots(self, extra_attrs=None):
-        print('Saving 3D spots to hdf...', end='', flush=True)
+        """
+
+        """
+
+        print('Saving 3D spots to the HDF file...',
+              end='', flush=True)
         hdf_str = f'{self._hdf_type}/reflections/'
         self.spots_3D.to_hdf(self.xdms_hdf_path,
                              key=f'{hdf_str}/spots_3D',
@@ -1956,6 +2077,9 @@ class XRDMapStack(list):
                       key='intensity',
                       save_spots=False,
                       save_metadata=True):
+        """
+
+        """
         
         XRDBaseScan._trim_spots(self.spots_3D,
                                 remove_less=remove_less,
@@ -2018,6 +2142,9 @@ class XRDMapStack(list):
 
     # Disable q-space plotting
     def plot_q_space(*args, **kwargs):
+        """
+
+        """
         err_str = ('Q-space plotting not supported for '
                    + 'XRDMapStack, since Ewald sphere and/or '
                    + 'crystal orientation changes during scanning.')
@@ -2034,6 +2161,9 @@ class XRDMapStack(list):
                        title_scan_id=True,
                        **kwargs,
                        ):
+        """
+
+        """
 
         if slider_vals is None:
             if self.rocking_axis == 'energy':
@@ -2081,6 +2211,9 @@ class XRDMapStack(list):
                              map_kw=None,
                              title_scan_id=True,
                              **kwargs):
+        """
+
+        """
         
         # Python doesn't play well with mutable default kwargs
         if dyn_kw is None:
