@@ -58,7 +58,7 @@ class XRDBaseScan(XRDData):
     class adds general utility analyzing and interpreting XRD data 
     without any assumptions or special considerations for the 
     individual experiment type. This class also lays the groundwork for
-    hdf file read/write capabilities.
+    the HDF file read/write capabilities.
 
     Parameters
     ----------
@@ -73,7 +73,7 @@ class XRDBaseScan(XRDData):
         Custom file name if not provided. Defaults to include scan ID
         and child class type.
     hdf_filename : str, optional
-        Custom file name of hdf file. Defaults to include the filename
+        Custom file name of HDF file. Defaults to include the filename
         parameter if not provided.
     hdf : h5py File, optional
         h5py File instance. Will be used to derive hdf_filename and hdf
@@ -104,7 +104,7 @@ class XRDBaseScan(XRDData):
     check_init_sets : bool, optional
         Flag to disable overwriting of AzimuthalIntegrator calibration
         parameters and scaler and position dictionaries. Only intended
-        to be True when loading for hdf file, default is False.
+        to be True when loading for HDF file, default is False.
     tth_resolution : float, optional
         Resolution of scattering angles for 1D image integrations and
         the x-axis of 2D image integrations. 0.01 degrees by default
@@ -135,11 +135,11 @@ class XRDBaseScan(XRDData):
         first acquired. Defaults to current time if not given.
     extra_metadata : dict, optional
         Dictionary of extra metadata to be stored with the XRD data.
-        Extra metadata will be written to the hdf file if enabled, but
+        Extra metadata will be written to the HDF file if enabled, but
         is not intended to be interacted with during normal data
         processing.
     save_hdf : bool, optional
-        If False, this flag disables all hdf read/write functions.
+        If False, this flag disables all HDF file read/write functions.
         True by default.
     dask_enabled : bool, optional
         Flag to indicate whether the image data should be lazily loaded
@@ -153,7 +153,8 @@ class XRDBaseScan(XRDData):
     
     Raises
     ------
-    ValueError 
+    ValueError if dask is enabled without providing HDF file
+    information.
     """
 
     # Class variables
@@ -219,7 +220,7 @@ class XRDBaseScan(XRDData):
         if not save_hdf:
             if dask_enabled:
                 err_str = ('Enabling dask requires an '
-                           + 'hdf file for storage.')
+                           + 'HDF file for storage.')
                 raise ValueError(err_str)
             else:
                 self.hdf_path = None
@@ -376,8 +377,9 @@ class XRDBaseScan(XRDData):
         """
         Instantiate class from data in HDF file.
 
-        Loads data from HDF file of correct HDF type to instantiate
-        class. This method will work with different child classes.
+        Loads data from HDF file of correct HDF file type to
+        instantiate class. This method will work with different child
+        classes.
 
         Parameters
         ----------
@@ -425,7 +427,7 @@ class XRDBaseScan(XRDData):
         hdf_path = pathify(wd, hdf_filename, '.h5')
         
         # File exists, attempt to load data
-        print('Loading data from hdf file...')
+        print('Loading data from HDF file...')
         input_dict = load_xrdbase_hdf(
                         os.path.basename(hdf_path),
                         cls._hdf_type,
@@ -560,8 +562,8 @@ class XRDBaseScan(XRDData):
         wd : path str, optional
             Path to images file. Default is current working directory.
         title : str, optional
-            Custom title used to title HDF datasets when saving. Will
-            be updated to default value after processing.
+            Custom title used to title HDF file datasets when saving.
+            Will be updated to default value after processing.
         dask_enabled : bool, optional
             Flag to indicate whether the image data should be lazily
             loaded as a Dask array. Default is False.
@@ -904,9 +906,9 @@ class XRDBaseScan(XRDData):
                          save_current=False,
                          verbose=True):
         """
-        Start saving data to HDF.
+        Start saving data to HDF file.
 
-        If HDF does not already exist, a new version will be 
+        If HDF file does not already exist, a new version will be 
         initialized from current scan parameters. Default naming and
         path will be used when not provided.
 
@@ -922,8 +924,8 @@ class XRDBaseScan(XRDData):
             file.
         dask_enabled : bool, optional
             Flag to indicate if images are lazily loaded. If true, a
-            temporary reference inside the HDF will be opened. False by
-            default.
+            temporary reference inside the HDF file will be opened.
+            False by default.
         save_current : bool, optional
             Flag to indicate if the current iteration of the data
             should be saved immediately. This will call the
@@ -939,7 +941,7 @@ class XRDBaseScan(XRDData):
              and self.hdf is not None)
             or (hasattr(self, 'hdf_path')
                 and self.hdf_path is not None)):
-            os_str = ('WARNING: Trying to save to hdf, but a '
+            os_str = ('WARNING: Trying to save to HDF file, but a '
                       'file or location has already been specified!'
                       '\nSwitching save files or locations should '
                       'use the "switch_hdf" function.'
@@ -993,11 +995,11 @@ class XRDBaseScan(XRDData):
     # Calls several other save functions
     def save_current_hdf(self, verbose=False):
         """
-        Save the current version of all data to the HDF.
+        Save the current version of all data to the HDF file.
 
         Call several individual save functions to save current data to
-        HDF. If HDF is not already specified internally, this function
-        will only print a warning.
+        HDF file. If the HDF file is not already specified internally,
+        this function will only print a warning.
 
         Parameters
         ----------
@@ -1007,9 +1009,9 @@ class XRDBaseScan(XRDData):
         """
         
         if self.hdf_path is None:
-            print('WARNING: Changes cannot be written to hdf without '
-                  + 'first indicating a file location.\nProceeding '
-                  + 'without changes.')
+            print('WARNING: Changes cannot be written to HDF file '
+                  + 'without first indicating a file location.'
+                  + '\nProceeding without changes.')
             return # Hard-coded even though all should pass
 
         if hasattr(self, 'images') and self.images is not None:
@@ -1040,10 +1042,10 @@ class XRDBaseScan(XRDData):
     # Ability to toggle hdf saving and proceed without writing to disk.
     def stop_saving_hdf(self):
         """
-        Stop saving data to HDF.
+        Stop saving data to HDF file.
 
-        This data will disable automatic saving to the HDF and will
-        remove the the path information from the instance.
+        This data will disable automatic saving to the HDF file and
+        will remove the the path information from the instance.
 
         Raises
         ------
@@ -1052,10 +1054,10 @@ class XRDBaseScan(XRDData):
 
         if self._dask_enabled:
             err_str = ('WARNING: Image data is lazy loaded. Stopping '
-                       + 'or switching hdf is likely to cause '
-                       + 'problems.\nSave progress and close the hdf '
-                       + 'with "close_hdf" function before changing '
-                       + 'save location.')
+                       + 'or switching HDF files is likely to cause '
+                       + 'problems.\nSave progress and close the HDF '
+                       + 'file with "close_hdf" function before '
+                       + 'changing save location.')
             raise RuntimeError(err_str)
         
         self.close_hdf()
@@ -1071,11 +1073,11 @@ class XRDBaseScan(XRDData):
                    save_current=False,
                    verbose=True):
         """
-        Switch the HDF save location.
+        Switch the HDF file save location.
 
-        Change the HDF write location from one file to another. This
-        method can be used to initialize and copy the data to another
-        file.
+        Change the HDF file write location from one file to another.
+        This method can be used to initialize and copy the data to
+        another file.
 
         Parameters
         ----------
@@ -1087,8 +1089,8 @@ class XRDBaseScan(XRDData):
             Path used for writing the new HDF file.
         dask_enabled : bool, optional
             Flag to indicate if images are lazily loaded. If true, a
-            temporary reference inside the HDF will be opened. False by
-            default.
+            temporary reference inside the HDF file will be opened.
+            False by default.
         save_current : bool, optional
             Flag to indicate if the current iteration of the data
             should be saved immediately. This will call the
@@ -1158,7 +1160,7 @@ class XRDBaseScan(XRDData):
         calibration data must match the image shape of the instance
         or can be interpretted as some form of simple binning. If 
         successful, the calibration data will be modified to the
-        instance image shape and written to the HDF if available.
+        instance image shape and written to the HDF file if available.
 
         Parameters
         ----------
@@ -1172,9 +1174,9 @@ class XRDBaseScan(XRDData):
             Directory of poni_file if provided as path string. If None,
             the working directory of the instance will be used.
         check_init_sets : bool, optional
-            Conditional flag to disable writing the calibration
-            information to the HDF when loading from the HDF. False by 
-            default and typical usage.
+            Conditional flag to disable rewriting the calibration
+            information to the HDF file when loading from the HDF file.
+            False by default and typical usage.
 
         Raises
         ------
@@ -1271,16 +1273,14 @@ class XRDBaseScan(XRDData):
     def save_calibration(self, 
                          check_init_sets=False):
         """
-        Writes calibration data to HDF.
-
-        Writes calibration data to HDF if available.
+        Write calibration data to the HDF file if available.
 
         Parameters
         ----------
         check_init_sets : bool
-            Conditional flag to disable writing the calibration
-            information to the HDF when loading from the HDF. False by 
-            default and typical usage.
+            Conditional flag to disable rewriting the calibration
+            information to the HDF file when loading from the HDF file.
+            False by default and typical usage.
         """
         
         if check_init_sets:
@@ -1354,6 +1354,13 @@ class XRDBaseScan(XRDData):
             tth_resolution.
         intensity : Numpy.ndarray
             1D array of intensity values with the same shape as tth.
+
+        Raises
+        ------
+        AttributeError if the calibration information has not been
+        loaded.
+        ValueError if there is insufficient information to determine
+        the scattering angle binning.
         """
 
         if not hasattr(self, 'ai') or self.ai is None:
@@ -1434,7 +1441,6 @@ class XRDBaseScan(XRDData):
             or polarization_factor as these corrections are handled
             elsewhere.
 
-
         Returns
         -------
         intensity : Numpy.ndarray
@@ -1447,6 +1453,13 @@ class XRDBaseScan(XRDData):
         chi : Numpy.ndarray
             1D array of chi, azimuthal angle, values with length
             matching the chi_num and first axis of intensity.
+
+        Raises
+        ------
+        AttributeError if the calibration information has not been
+        loaded.
+        ValueError if there is insufficient information to determine
+        the scattering or azimuthal angles binning.
         """
 
         if not hasattr(self, 'ai') or self.ai is None:
@@ -1560,11 +1573,11 @@ class XRDBaseScan(XRDData):
     @XRDData._protect_hdf()
     def save_reciprocal_positions(self):
         """
-        Write reciprocal positions to HDF file.
+        Write reciprocal positions to the HDF file.
 
         Writes internally storedd reciprocal positions (scattering
-        angle as tth and azimuthal angle as chi) to HDF if hdf_path has
-        been specified.
+        angle as tth and azimuthal angle as chi) to the HDF file if
+        hdf_path has been specified.
         """
 
         if self.tth is None:
@@ -1625,8 +1638,8 @@ class XRDBaseScan(XRDData):
         Set the scaler dictionary attribute.
 
         Set the internal scaler dictionary attribute used for
-        normalization along with the scaler units. If an HDF location
-        is specified, these values will be written to the HDF.
+        normalization along with the scaler units. If an HDF file
+        is specified, these values will be written to the file.
 
         Parameters
         ----------
@@ -1638,9 +1651,9 @@ class XRDBaseScan(XRDData):
         scaler_units : str, optional
             Units of the scaler measurements. 'counts' by default.
         check_init_sets : bool, optional
-            Conditional flag to disable writing the scaler information
-            to the HDF when loading from the HDF. False by default and
-            typical usage.
+            Conditional flag to disable rewriting the scaler
+            information to the HDF file  when loading from the HDF
+            file. False by default and typical usage.
         """
 
         # Store sclr_dict as attribute
@@ -1764,7 +1777,7 @@ class XRDBaseScan(XRDData):
 
         Remove the energy dependence from the specified scaler values
         in the scaler dictionary and write a new set of energy-
-        corrected values. Write these new values to the HDF if
+        corrected values. Write these new values to the HDF file if
         available. The energy correction is based on the internal
         energy attribute.
 
@@ -1833,9 +1846,9 @@ class XRDBaseScan(XRDData):
 
         Convert the scaler values measured by an ion chamber from the
         scaler dictionary into photon flux (photons / sec). Write these
-        new values into the scaler dictionary and write to the HDF if
-        avaiable. The conversion supersedes the benefit of correcting
-        the scaler values for energy.
+        new values into the scaler dictionary and write to the HDF file
+        if avaiable. The conversion supersedes the benefit of
+        correcting the scaler values for energy.
 
         Parameters
         ----------
@@ -1934,26 +1947,26 @@ class XRDBaseScan(XRDData):
                       unit_name,
                       check_init_sets=False):
         """
-        Write a scaler or position dictionary to the HDF.
+        Write a scaler or position dictionary to the HDF file.
 
         Combined function for writing a scaler or position dictionary
-        to the HDF if available.
+        to the HDF file if available.
 
         Parameters
         ----------
         group_name : str
-            Name of HDF group where to write the data.
+            Name of the HDF file group where to write the data.
         map_dict : dict of arrays
-            Dictionary of arrays to write to the HDF. Each array will
-            be saved as a dataset named after its respective key under
-            the group defined by the group_name parameter.
+            Dictionary of arrays to write to the HDF file. Each array
+            will be saved as a dataset named after its respective key
+            under the group defined by the group_name parameter.
         unit_name : str
             Units used for the dictionary values. These will be written
             as an attribute of the group.
         check_init_sets : bool, optional
-            Conditional flag to disable writing the dictionary
-            information to the HDF when loading from the HDF. False by
-            default and typical usage.  
+            Conditional flag to disable rewriting the dictionary
+            information to the HDF file when loading from the HDF file.
+            False by default and typical usage.  
         """
 
         if check_init_sets:
@@ -2136,9 +2149,9 @@ class XRDBaseScan(XRDData):
     @XRDData._protect_hdf()
     def save_phases(self, verbose=True):
         """
-        Write phases to the HDF.
+        Write phases to the HDF file.
 
-        Write all phases in the phase dictionary to the HDF if
+        Write all phases in the phase dictionary to the HDF file if
         available. Phases are saved into a phase_list group which will
         be created if it does not already exist.
 
@@ -2162,7 +2175,7 @@ class XRDBaseScan(XRDData):
                 phase.save_to_hdf(phase_grp)
 
             if verbose:
-                print('Phases saved in hdf.')
+                print('Phases saved in the HDF file.')
 
 
     def select_phases(self,
@@ -2219,7 +2232,8 @@ class XRDBaseScan(XRDData):
             Flag to indicate if phases will be selected. If true, phase
             values at zero when the plot is closed will be
             automatically removed from the phase dictionary and
-            remaining phases will be written to the HDF if available.
+            remaining phases will be written to the HDF file if
+            available.
     
         Raises
         ------
@@ -2331,9 +2345,9 @@ class XRDBaseScan(XRDData):
         """
         Internal function for saving vector maps.
 
-        Internal function for writing vector maps to HDF if
+        Internal function for writing vector maps to the HDF file if
         available. Calls XRDBaseScan._save_vectors() functions for each
-        pixel of the map. Creates a group within the HDF named
+        pixel of the map. Creates a group within the HDF file named
         'vector_map_title' with datasets for each pixel
         containing vectors.
 
@@ -2415,9 +2429,9 @@ class XRDBaseScan(XRDData):
         """
         Internal function for saving rocking curve vectorizations.
 
-        Internal function for writing rocking curve vectorizations to HDF if
-        available. Creates a group within the HDF named
-        'vectorized_data' with datasets for vectors and edges.
+        Internal function for writing rocking curve vectorizations to
+        the HDF file if available. Creates a group within the HDF file
+        named 'vectorized_data' with datasets for vectors and edges.
 
         Parameters
         ----------
@@ -2488,7 +2502,7 @@ class XRDBaseScan(XRDData):
         Smaller internal function for saving vectors.
 
         Internal function called individually by other functions
-        for writing vector data to the HDF if availble. Not
+        for writing vector data to the HDF file if availble. Not
         intended to be called on its own.
 
         Parameters
@@ -2561,7 +2575,8 @@ class XRDBaseScan(XRDData):
 
         Internal function called individually by other functions
         for writing the edges of sampled reciprocal space volume
-        to the HDF if availble. Not intended to be called on its own.
+        to the HDF file if availble. Not intended to be called on its
+        own.
 
         Parameters
         ----------
@@ -2639,7 +2654,7 @@ class XRDBaseScan(XRDData):
     def _parse_vector_dict(vector_dict):
         """
         Internal function for parsing vector dictionary
-        from when instantiating from HDF.
+        from when instantiating from the HDF file.
         """
 
         vector_attrs = {}
@@ -2679,7 +2694,7 @@ class XRDBaseScan(XRDData):
     def _load_vectors(self,
                       hdf):
         """
-        Internal function for loading vectors from HDF.
+        Internal function for loading vectors from the HDF file.
 
         This function is called by other externally facing
         load_vectors functions.
