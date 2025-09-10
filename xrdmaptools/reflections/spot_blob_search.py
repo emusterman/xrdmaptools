@@ -59,7 +59,7 @@ def resize_blobs(blob_image, distance=0):
 
 def blob_search(scaled_image,
                 mask=None,
-                threshold_method='gaussian',
+                filter_method='gaussian',
                 multiplier=5,
                 size=3,
                 expansion=None):
@@ -80,13 +80,13 @@ def blob_search(scaled_image,
 
     # Setup filter for the images
     # Works okay, could take no inputs...
-    if str(threshold_method).lower() in ['gaussian', 'gauss']:
+    if str(filter_method).lower() in ['gaussian', 'gauss']:
         image_filter = lambda image : gaussian_filter(image, sigma=size)
     # Works best
-    elif str(threshold_method).lower() in ['minimum', 'min']:
+    elif str(filter_method).lower() in ['minimum', 'min']:
         image_filter = lambda image : minimum_filter(gaussian_filter(image, sigma=1), size=size)
     # Gaussian is better and faster
-    elif str(threshold_method).lower() in ['median', 'med']:
+    elif str(filter_method).lower() in ['median', 'med']:
         image_filter = lambda image : median_filter(image, size=size)
     else:
         raise ValueError('Unknown threshold method requested.')
@@ -161,7 +161,7 @@ def spot_search(scaled_image,
 
 def blob_spot_search(scaled_image,
                      mask=None,
-                     threshold_method='gaussian',
+                     filter_method='gaussian',
                      multiplier=5,
                      size=3,
                      min_distance=3,
@@ -172,7 +172,7 @@ def blob_spot_search(scaled_image,
      blurred_image) = blob_search(
         scaled_image,
         mask=mask,
-        threshold_method=threshold_method,
+        filter_method=filter_method,
         multiplier=multiplier,
         size=size,
         expansion=0 # Do not expand until after spot search!
@@ -285,7 +285,7 @@ def blob_spot_search(scaled_image,
 # Parallelized function to find only blobs in 4D images
 def find_blobs(images,
                mask=None,
-               threshold_method='gaussian',
+               filter_method='gaussian',
                multiplier=5,
                size=3,
                expansion=None):
@@ -295,7 +295,7 @@ def find_blobs(images,
     def dask_blob_search(image):
         blob_mask, _ = blob_search(image,
                             mask=mask,
-                            threshold_method=threshold_method,
+                            filter_method=filter_method,
                             multiplier=multiplier,
                             size=size,
                             expansion=expansion)
@@ -326,7 +326,7 @@ def find_blobs(images,
 # Parallelized function to find blobs and spots in 4D images
 def find_blobs_spots(images,
                      mask=None,
-                     threshold_method='gaussian',
+                     filter_method='gaussian',
                      multiplier=5,
                      size=3,
                      expansion=None,
@@ -338,7 +338,7 @@ def find_blobs_spots(images,
         spots, blob_mask, _ = blob_spot_search(
                             image,
                             mask=mask,
-                            threshold_method=threshold_method,
+                            filter_method=filter_method,
                             multiplier=multiplier,
                             size=size,
                             min_distance=min_distance,
@@ -411,7 +411,7 @@ def find_blobs_spots(images,
 #         if isinstance(image, da.core.Array):
 #             image = image.compute()
 
-#         output = dask_spot_search(image, mask=mask, threshold_method=threshold_method,
+#         output = dask_spot_search(image, mask=mask, filter_method=filter_method,
 #                                                 multiplier=multiplier, size=size)
 #         delayed_list.append(output)
 
