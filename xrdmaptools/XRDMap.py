@@ -15,15 +15,19 @@ import functools
 from xrdmaptools.XRDBaseScan import XRDBaseScan
 from xrdmaptools.utilities.utilities import (
     pathify,
-    _check_dict_key
-)
+    _check_dict_key,
+    copy_docstring
+    )
 # from xrdmaptools.io.hdf_io import _load_xrd_hdf_vectorized_map_data
 from xrdmaptools.io.hdf_utils import (
     check_attr_overwrite,
     overwrite_attr,
     get_large_map_slices
-)
-from xrdmaptools.io.db_io import load_data
+    )
+from xrdmaptools.io.db_io import (
+    load_data,
+    get_scantype
+    )
 from xrdmaptools.reflections.spot_blob_indexing import _initial_spot_analysis
 from xrdmaptools.reflections.SpotModels import GaussianFunctions
 from xrdmaptools.reflections.spot_blob_search import (
@@ -136,15 +140,51 @@ class XRDMap(XRDBaseScan):
                 broker='manual',
                 wd=None,
                 filename=None,
-                poni_file=None,
-                data_keys=None,
                 save_hdf=True,
-                dask_enabled=False,
+                data_keys=None,
                 repair_method='fill',
                 **kwargs):
 
         """
+        Instantiate from data in database.
 
+        Load data and metadata from database to create a new instance.
+        This will copy, compile, and write the raw data into a single
+        HDF by default.
+
+        Parameters
+        ----------
+        scan_id : int, optional
+            Scan ID of scan to load data from database. -1 by default
+            which loads from the most recent scan.
+        broker : {"manual", "tiled", "databroker"}, optional
+            Broker/method used to load the data. "manual" will load
+            data directly from raw HDF files, while "tiled" and
+            "databroker" use their respective libraries. "manual" by
+            default.
+        wd : path str, optional
+            Working directly used to write HDF file if saved. Uses
+            current working directory if none provided.
+        filename : str, optional
+            Filename used used to write HDF file if saved. Uses
+            "scan<scan_id>_xrdmap.h5" by default.
+        save_hdf : bool, optional
+            Flag to enable writing data to HDF file. True by default.
+        data_keys : list, optional
+            List of data keys to be loaded into the instance. Not all
+            data keys are supported or will be used. ['enc1', 'enc2',
+            'i0', 'i0_time', 'im', 'it'] be default along with any
+            either the merlin or dexela area detectors if used.
+        repair_method : {"fill", "flatten", "replace"}, optional
+            Repair method used for missing data if data broker is
+            "manual". "fill" auto-pads missing pixels with zero and is
+            the default option. This also matches the behavior when
+            broker is "tiled". "flatten" will flatten the entire
+            dataset into a single line and is not recommended.
+            "replace" will replace rows with missing data by the
+            previously full row, matching the behavior of pyXRF.
+        kwargs : dict, optional
+            Other keyward arguments passed to __init__.
         """
         
         if wd is None:
@@ -183,7 +223,7 @@ class XRDMap(XRDBaseScan):
                             detectors=None,
                             data_keys=data_keys,
                             returns=['data_keys',
-                                        'xrd_dets'],
+                                     'xrd_dets'],
                             repair_method=repair_method)
 
         # Extract main image_data
@@ -226,12 +266,12 @@ class XRDMap(XRDBaseScan):
             xdm = cls(scan_id=scan_md['scan_id'],
                       wd=wd,
                       filename=filenames[i],
+                      save_hdf=save_hdf,
                       image_data=image_data,
                       null_map=null_map,
                       energy=scan_md['energy'],
                       dwell=scan_md['dwell'],
                       theta=scan_md['theta'],
-                      poni_file=poni_file,
                       sclr_dict=sclr_dict,
                       pos_dict=pos_dict,
                       beamline=scan_md['beamline_id'],
@@ -239,8 +279,6 @@ class XRDMap(XRDBaseScan):
                       scan_input=scan_md['scan_input'],
                       time_stamp=scan_md['time_str'],
                       extra_metadata=extra_md,
-                      save_hdf=save_hdf,
-                      dask_enabled=dask_enabled,
                       **kwargs
                       )
             
@@ -271,7 +309,31 @@ class XRDMap(XRDBaseScan):
                            final_dtype=np.float32,
                            new_directory=True):
         """
+        Fracture single large map into smaller maps.
 
+        Fracture a large map by slicing along spatial dimensions to
+        create a mosaic of smaller, more manageable datasets. Maps
+        must be unprocessed and lazily loaded (dask enabled) to perform
+        this function.
+
+        Parameters
+        ----------
+        approx_new_map_size : float, optional
+            Approximate new map size in GB targeted by the slicing
+            routine. Real values can be larger, so smaller values
+            can be safer. 10 GB by default.
+        final_dtype : float, optional
+            Final datatype of anticipated maps. Numpy.float32 by
+            default. 
+        new_directory : bool, optional
+            Flag to write new subdirectory. True by default.
+        
+        Raises
+        ------
+        ValueError if maps have any level of processing or are not
+        lazily loaded.
+        RuntimeError if the approximate map size requested is about
+        the same size as the current map.
         """
 
         if not self._dask_enabled:
@@ -373,7 +435,7 @@ class XRDMap(XRDBaseScan):
                 extra_metadata=self.extra_metadata,
                 save_hdf=True,
                 # Keeping everything lazy causes some inconsistencies
-                #dask_enabled=True 
+                dask_enabled=False
             )
         
         print('Finished fracturing maps.')
@@ -385,6 +447,11 @@ class XRDMap(XRDBaseScan):
     # Re-writing save functions which 
     # will be affected by swapped axes
     def _check_swapped_axes(func):
+        """
+        Decorator for transposing data with swapped fast and slow axes
+        after read operations and before write operations to maintain
+        consistent data shape.
+        """
         @functools.wraps(func)
         def wrapped(self, *args, **kwargs):
 
@@ -420,10 +487,8 @@ class XRDMap(XRDBaseScan):
                             XRDBaseScan.save_sclr_pos)
 
     
+    @copy_docstring(XRDBaseScan.save_current_hdf)
     def save_current_hdf(self, verbose=False):
-        """
-
-        """
 
         super().save_current_hdf(verbose=verbose)
 
@@ -446,7 +511,6 @@ class XRDMap(XRDBaseScan):
             and (hasattr(self, 'edges')
              and self.edges is not None)):
             self.save_vector_map(rewrite_data=True)
-
     
     
     ##################
@@ -461,21 +525,86 @@ class XRDMap(XRDBaseScan):
         
 
     def integrate1D_map(self,
-                        tth_num=None,
                         tth_resolution=None,
+                        tth_num=None,
                         unit='2th_deg',
                         mask=None,
                         return_values=False,
                         save_to_hdf=True,
                         **kwargs):
         """
+        Integrate every 2D pattern in the map into 1D patterns.
+        
+        Iterate through every 2D pattern in the map calling the
+        integrate1D_image function to integrate each pattern into 1D.
+        These patterns are returned, stored internally as the
+        "integrations" attribute, and/or written to the HDF file
+        depeding on the keyword arguments. Writing to the HDF file only
+        occurs if the file is available as the "integration_data"
+        group, which is create if it does not already exist.
 
+        Parameters
+        ----------
+        tth_resolution : float, optional
+            Scattering angle, two theta, resolution of the integrated
+            1D pattern in keyword 'unit' units. This number is used
+            with the measured scattering angle extent to determine
+            the tth_num number of bins given to the integration. By
+            default this number uses the instance tth_resolution which
+            defaults to 0.01 degrees.
+        tth_num : int, optional
+            Direct number of bins of scattering angle to transform the
+            2D image into a 1D pattern. This value is None by default
+            and determined by the tth_resolution parameter. If
+            provided, this number will be used over tth_resolution.
+        unit : str, optional
+            Units of the 1D integration. This string is used by the
+            internal pyFAI integration function and by default is
+            '2th_deg' for degrees.
+        mask : 2D Numpy.ndarray matching the image shape, optional
+            Mask passed over images to ignore specified pixels form the
+            integration. No pixels are ignored by default
+        return_values : bool, optional
+            Flag controlling if the data will be returned or stored. If
+            True, then data will be returned. If False, data will be
+            stored internally as the "integrations" attribute and
+            written to the HDF file. False by default.
+        save_to_hdf : bool, optional
+            Flag to control if data is written to the HDF file. Only
+            used when return_values is False. True, by default.
+        **kwargs : optional,
+            Other keyword arguments passed to the pyFAI integration
+            function. These should not include the correctSolidAngle
+            or polarization_factor as these corrections are handled
+            elsewhere.
+
+        Returns
+        -------
+        integrations : Numpy.ndarray with shape (map_y, map_x, tth_num)
+            3D array matching the map shape and tth_num of integration
+            intensities.
+        tth : Numpy.ndarray
+            1D array of two theta, scattering angle, values with length
+            matching the tth_num either given or determined by
+            tth_resolution.
+        tth_range : tuple of length 2
+            Tuple with first index as the minimum of tth and the second
+            as the maximum of tth.
+        tth_resolution : float
+            Resolution of tth.
+        
+        Raises
+        ------
+        AttributeError if the calibration information has not been
+        loaded.
+        ValueError if there is insufficient information to determine
+        the scattering angle binning.
         """
         
-        if not hasattr(self, 'ai'):
-            err_str = ('Images cannot be calibrated without '
-                       + 'any calibration files!')
-            raise RuntimeError(err_str)
+        if not hasattr(self, 'ai') or self.ai is None:
+            err_str = ('Cannot integrate images without first loading '
+                       + 'the calibration information.')
+            raise AttributeError(err_str)
         
         if tth_resolution is None:
             tth_resolution = self.tth_resolution
@@ -507,7 +636,7 @@ class XRDMap(XRDBaseScan):
                 or mask.shape == self.image_shape):
                 pass
             else:
-                err_str = (f'mask shape {mask.shape} does not match '
+                err_str = (f'Mask shape {mask.shape} does not match '
                            + f'images {self.image.shape}')
                 raise ValueError(err_str)
         
@@ -534,10 +663,9 @@ class XRDMap(XRDBaseScan):
         if return_values:
             return (integrated_map1d,
                     tth,
-                    [np.min(self.tth), np.max(self.tth)],
+                    (np.min(self.tth), np.max(self.tth)),
                     tth_resolution)
 
-        # Reshape into (map_x, map_y, tth)
         self.integrations = integrated_map1d
         
         # Save a few potentially useful parameters
@@ -556,20 +684,70 @@ class XRDMap(XRDBaseScan):
     # Briefly doubles memory. No Dask support
     # TODO: change corrections, reset projections, update map_title, etc. from XRDData
     def integrate2D_map(self,
-                        tth_num=None,
                         tth_resolution=None,
-                        chi_num=None,
+                        tth_num=None,
                         chi_resolution=None,
+                        chi_num=None,
                         unit='2th_deg',
                         **kwargs):
         """
+        Integrate every 2D pattern in the map into 2D cake plots.
 
+        Iterate through every 2D pattern in the map calling the
+        integrate2D_image function to integrate each pattern into 2D
+        cake plots. These plots are stored internally by deleting the
+        old images and replacing the "images" attribute with the new
+        2D cake plots. The two-theta and azimuthal angles corresponding
+        to the cake plots axes are written to the HDF if available.
+
+        Parameters
+        ----------
+        tth_resolution : float, optional
+            Scattering angle, two theta, resolution of the integrated
+            2D cake plot in keyword 'unit' units. This number is used
+            with the measured scattering angle extent to determine
+            the tth_num number of bins given to the integration. By
+            default this number uses the instance tth_resolution which
+            defaults to 0.01 degrees.
+        tth_num : int, optional
+            Direct number of bins of scattering angle to transform the
+            2D image into a 2D cake plot. This value is None by default
+            and determined by the tth_resolution parameter. If
+            provided, this number will be used over tth_resolution.
+        chi_resolution : float, optional
+            Azimuthal angle, chi, resolution of the integrated
+            2D cake plot in keyword 'unit' units. This number is used
+            with the measured azimuthal angle extent to determine
+            the chi_num number of bins given to the integration. By
+            default this number uses the instance chi_resolution which
+            defaults to 0.05 degrees.
+        chi_num : int, optional
+            Direct number of bins of azimuthal angle to transform the
+            2D image into a 2D cake plot. This value is None by default
+            and determined by the chi_resolution parameter. If
+            provided, this number will be used over chi_resolution.
+        unit : str, optional
+            Units of the 2D radial and azimuthal directions. This
+            string is used by the internal pyFAI integration function
+            and by default is '2th_deg' for degrees.
+        **kwargs : optional,
+            Other keyword arguments passed to the pyFAI integration
+            function. These should not include the correctSolidAngle
+            or polarization_factor as these corrections are handled
+            elsewhere.
+
+        Raises
+        ------
+        AttributeError if the calibration information has not been
+        loaded.
+        ValueError if there is insufficient information to determine
+        the scattering or azimuthal angles binning.
         """
         
-        if (not hasattr(self, 'ai') or self.ai is None):
-            err_str = ('Images cannot be calibrated without '
-                       + 'any calibration files!')
-            raise RuntimeError(err_str)
+        if not hasattr(self, 'ai') or self.ai is None:
+            err_str = ('Cannot integrate images without first loading '
+                       + 'the calibration information.')
+            raise AttributeError(err_str)
         
         if tth_resolution is None:
             tth_resolution = self.tth_resolution
@@ -651,7 +829,25 @@ class XRDMap(XRDBaseScan):
                       position_units=None,
                       check_init_sets=False):
         """
+        Set the position dictionary attribute.
 
+        Set the internal position dictionary attribute along with the
+        position units. If an HDF file is specified, these values will
+        be written to the file.
+
+        Parameters
+        ----------
+        pos_dict : dict of Numpy arrays
+            Dictionary of Numpy arrays matching the shape of the first
+            two dimensions of images (map shape). Each array is
+            associated with the position values along the map by the
+            keys.
+        position_units : str, optional
+            Units of the position measurements. 'μm' by default.
+        check_init_sets : bool, optional
+            Conditional flag to disable rewriting the position
+            information to the HDF file when loading from the HDF file.
+            False by default and typical usage.
         """
 
         # Re-work dictionary keys into stable format
@@ -686,9 +882,48 @@ class XRDMap(XRDBaseScan):
                             check_init_sets=check_init_sets)
 
     
-    def map_extent(self, map_x=None, map_y=None):
+    def map_extent(self,
+                   map_x=None,
+                   map_y=None,
+                   with_step=False):
         """
+        Get the map extent for plotting.
 
+        This function will determine the map extent passed to the
+        extent keyward argument for plotting images with Matplotlib.
+        These values are derived from the internal position dictionary
+        if not provided explicitly and are the extents of the positions
+        with a half step size appended to each end if requested.
+
+        Parameters
+        ----------
+        map_x : Numpy.ndarray matching the map shape, optional
+            2D array of x-positions with the units of the internally
+            stored position units. By default this value will be
+            derived from the internal position dictionary.
+        map_y : Numpy.ndarray matching the map shape, optional
+            2D array of y-positions with the units of the internally
+            stored position units. By default this value will be
+            derived from the internal position dictionary.
+        with_step : bool, optional
+            Flag to append the map extends by a half step in both
+            directions. This allows the return to be passed directly
+            to Matplotlib extent keyward argument for plotting images.
+
+        Returns
+        -------
+        map_extent : tuple
+            Tuple of (min_x, max_x, max_y, min_y) for maps without
+            swapped axes, or (min_y, max_y, max_x, min_x) with swapped
+            axes. If with_step is True, and half step will be appended
+            in both directions for both axes.
+
+        Raises
+        ------
+        AttributeError if XRDMap is missing the position dictionary or
+        'map_x' or 'map_y' is not provided.
+        ValueError if map_x or map_y is not provided and cannot be
+        interpretted from the position dictionary.
         """
 
         if ((map_x is None or map_y is None)
@@ -719,28 +954,34 @@ class XRDMap(XRDBaseScan):
                 err_str = ('Cannot find known key '
                            + 'for map_y coordinates.')
                 raise ValueError(err_str)
-
+        
+        x_step, y_step = 0, 0
         # Determine fast scanning direction for map extent
         if (np.mean(np.diff(map_x, axis=1))
             > np.mean(np.diff(map_x, axis=0))):
             # Fast x-axis. Standard orientation.
             #print('Fast x-axis!')
+            if with_step:
+                x_step = np.mean(np.diff(map_x, axis=1))
+                y_step = np.mean(np.diff(map_y, axis=0))
             map_extent = [
-                np.mean(map_x[:, 0]),
-                np.mean(map_x[:, -1]),
-                np.mean(map_y[-1]), # reversed
-                np.mean(map_y[0]) # reversed
+                np.mean(map_x[:, 0]) - (x_step / 2),
+                np.mean(map_x[:, -1]) + (x_step / 2),
+                np.mean(map_y[-1]) + (y_step / 2), # reversed
+                np.mean(map_y[0]) - (y_step / 2)# reversed
             ] # [min_x, max_x, max_y, min_y] reversed y for matplotlib
         else: # Fast y-axis. Consider swapping axes???
-            #print('Fast y-axis!')
+            if with_step:
+                x_step = np.mean(np.diff(map_x, axis=0))
+                y_step = np.mean(np.diff(map_y, axis=1))
             map_extent = [
-                np.mean(map_y[:, 0]), # reversed
-                np.mean(map_y[:, -1]), # reversed
-                np.mean(map_x[-1]),
-                np.mean(map_x[0])
+                np.mean(map_y[:, 0]) - (y_step / 2), # reversed
+                np.mean(map_y[:, -1]) + (y_step / 2), # reversed
+                np.mean(map_x[-1]) + (x_step / 2),
+                np.mean(map_x[0]) - (x_step / 2)
             ] # [min_y, max_y, max_x, min_x] reversed x for matplotlib
         
-        return map_extent
+        return tuple(map_extent)
 
 
     # Convenience function for loading scalers and positions
@@ -750,7 +991,30 @@ class XRDMap(XRDBaseScan):
                             wd=None,
                             position_units=None):
         """
+        Load positions and scaler dictionaries from a text file.
 
+        This function loads the map parameters from the output of the
+        io.db_io.save_map_parameters function. This is intended to
+        support loading map parameters after loading images from a 4D
+        image stack. If the data is loaded is loaded using the
+        'from_db' method, this function is not needed.
+
+        Parameters
+        ----------
+        filename : str
+
+        wd : path string, optional
+            Path where the file can be found. Will use the internal
+            working directory if not provided.
+        position_units : string, optional
+            The posiiton units assigned to the values loaded in the
+            parameter text file. The default value used by the
+            'set_positions' function will be used if not given.
+        
+        Note
+        ----
+        This function is not commonly used. Loading the data with the
+        'from_db' method will load map parameters by default.
         """ 
         
         if wd is None:
@@ -779,7 +1043,21 @@ class XRDMap(XRDBaseScan):
                   update_flag=True,
                   ):
         """
+        Swap the mapped axes.
 
+        This method transposes all internal data to swap the mapped
+        axes. Data stored in the HDF file will only be stored in the
+        original form it was acquired. If the internal "_swapped_axes"
+        flag is True, the this data will be swapped when reading from
+        or writing to the HDF file.
+
+        Parameters
+        ----------
+        update_flag : bool, optional
+            Flag whether to toggle the internal "_swapped_axes" flag.
+            This flag controls whether the swapped_axes function is
+            called when reading and writing attributes affected by the
+            swapped spatial axes.
         """     
 
         if self._dask_enabled and self.title != 'final':
@@ -861,11 +1139,37 @@ class XRDMap(XRDBaseScan):
         save_swapped_axes(self)
 
 
+    # TODO: Add interpolation from position dictionary without scan
+    # input
     def interpolate_positions(self,
                               scan_input=None,
                               check_init_sets=False):
         """
+        Interpolate mapped positions onto a regular grid.
 
+        This method generates new entries in the position dicitionary
+        (as "interp_x" and "interp_y") for the nominal mapped positions
+        on a regular grid. This method uses the "scan_input" attribute
+        to interpolate the nominal mapped positions assuming a
+        [xstart, xend, xnum, ystart, yend, ynum] format. New position
+        dictionary values are stored internall and written to the HDF
+        file if available. 
+
+        Parameters
+        ----------
+        scan_input : iterable, optional
+            Iterable of form [xstart, xend, xnum, ystart, yend, ynum].
+            If this parameter is not provided, the internal
+            "scan_input" attribute will ber used instead, if available.
+        check_init_sets : bool, optional
+            Flag whether to overwrite data in the HDF file if available.
+            By default this is set to False and should only be True
+            when instantiating from the HDF file.
+
+        Raises
+        ------
+        ValueError if scan_input is not provided and internal attribute
+        is not available.
         """
 
         if scan_input is None:
@@ -918,13 +1222,61 @@ class XRDMap(XRDBaseScan):
     #######################
 
     def find_blobs(self,
-                   threshold_method='minimum',
+                   filter_method="minimum",
                    multiplier=5,
                    size=3,
                    expansion=10,
                    override_rescale=False):
         """
+        Find significant blobs in the images.
 
+        Find the significant pixels in each image around each blob.
+        Blobs are determined as every pixel in a smoothed image above
+        some threshold value. Images are smoothed based on the filter
+        method and size. Threshold values are determined by the
+        standard deviation of all image values below 0.01 multiplied by
+        the multiplier value. Significant pixels can then be expanded
+        by a specified amount.
+
+        The resulting masks are stored internally and written the HDF
+        file if available as "blob_masks" in the "image_data" group.
+
+        Parameters
+        ----------
+        filter_method : {"minimum", "gaussian", "median"}, optional
+            Determines which filter method will be used from the
+            scipy.ndimage module. The "minimum" filter will also call a
+            small gaussian filter in order to avoid outliers. The
+            minimum filter is used by default.
+        multiplier
+            The value multiplied by the standard deviation of the
+            thresholded image noise used as the cutoff threshold of the
+            smoothed images. This is the main tuning parameter for blob
+            selection. Higher values lead to smaller and fewer blobs.
+            By default this is 5.
+        size : float or int, optional
+            The size argument passed to the smoothing filter in pixel
+            units. For "minimum" and "median" filters, this number
+            should be an integer. For the "gaussian" filter, this
+            number is the sigma value and can be a float. This value
+            has a more complex relationship with the size and number
+            of found blobs. By defaul this number is 3.
+        expansion : int, optional
+            How many pixels to expand beyond the thresholded pixels. By
+            default this number is 10.
+        override_rescale : bool, optional
+            Flag to override the internal check to ensure images have
+            been rescaled before searching for blobs.
+
+
+        Note
+        ----
+        This function can only be performed on images after the
+        "rescale_images" correction has been applied under the
+        assumption that the 100 and 0 are the maximum and minimum
+        measureable pixel intensities. This means the 0.01 value
+        for determining the background noise is about 0.01% of the
+        measurable intensity on the detector.
         """
     
         # Cleanup images as necessary
@@ -942,7 +1294,7 @@ class XRDMap(XRDBaseScan):
         blob_mask_list = find_blobs(
                             self.images,
                             mask=self.mask,
-                            threshold_method=threshold_method,
+                            filter_method=filter_method,
                             multiplier=multiplier,
                             size=size,
                             expansion=expansion)
@@ -955,14 +1307,14 @@ class XRDMap(XRDBaseScan):
                          title='_blob_masks',
                          units='bool',
                          extra_attrs={
-                            'threshold_method' : threshold_method,
+                            'filter_method' : filter_method,
                             'size' : size,
                             'multiplier' : multiplier,
                             'expansion' : expansion})
         
 
     def find_spots(self,
-                   threshold_method='minimum',
+                   filter_method='minimum',
                    multiplier=5,
                    size=3,
                    expansion=10,
@@ -970,7 +1322,65 @@ class XRDMap(XRDBaseScan):
                    radius=10,
                    override_rescale=False):
         """
+        Find spots and their surrounding blobs in the images.
 
+        This function first finds blobs like the "find_blobs" function.
+        Within the blobs, maxima will be marked as spots, and 
+        surrounding pixels within the radius will be used to
+        approximate the spot characteristics (e.g., height, intensity,
+        center of mass, etc.).
+
+        Found blobs will be stored internally and written the HDF
+        file if available as "blob_masks" in the "image_data" group.
+        Found spots and their approximated characteristics will be 
+        stored internally as "spots" and written to the HDF file in the
+        "reflections" group.
+
+        Parameters
+        ----------
+        filter_method : {"minimum", "gaussian", "median"}, optional
+            Determines which filter method will be used from the
+            scipy.ndimage module. The "minimum" filter will also call a
+            small gaussian filter in order to avoid outliers. The
+            minimum filter is used by default.
+        multiplier
+            The value multiplied by the standard deviation of the
+            thresholded image noise used as the cutoff threshold of the
+            smoothed images. This is the main tuning parameter for blob
+            selection. Higher values lead to smaller and fewer blobs.
+            By default this is 5.
+        size : float or int, optional
+            The size argument passed to the smoothing filter in pixel
+            units. For "minimum" and "median" filters, this number
+            should be an integer. For the "gaussian" filter, this
+            number is the sigma value and can be a float. This value
+            has a more complex relationship with the size and number
+            of found blobs. By defaul this number is 3.
+        expansion : int, optional
+            How many pixels to expand beyond the thresholded pixels. By
+            default this number is 10.
+        min_distance : int, optional
+            Minimum separation distance in pixels between maxima used
+            as spots.
+        radius : int, optional
+            Radius in pixels around each found spots used to
+            approximate the spot characteristics. By default the radius
+            is 10.
+        override_rescale : bool, optional
+            Flag to override the internal check to ensure images have
+            been rescaled before searching for blobs.
+
+        Note
+        ----
+        Spots should only be found for XRDMaps that will not be
+        compared to other XRDMaps in a rotation or energy series.
+
+        This function can only be performed on images after the
+        "rescale_images" correction has been applied under the
+        assumption that the 100 and 0 are the maximum and minimum
+        measureable pixel intensities. This means the 0.01 value
+        for determining the background noise is about 0.01% of the
+        measurable intensity on the detector.
         """
         
         if (hasattr(self, 'blob_masks')
@@ -995,7 +1405,7 @@ class XRDMap(XRDBaseScan):
         spot_list, blob_mask_list = find_blobs_spots(
                     self.images,
                     mask=self.mask,
-                    threshold_method=threshold_method,
+                    filter_method=filter_method,
                     multiplier=multiplier,
                     size=size,
                     expansion=expansion,
@@ -1023,7 +1433,7 @@ class XRDMap(XRDBaseScan):
                          title='_blob_masks',
                          units='bool',
                          extra_attrs={
-                            'threshold_method' : threshold_method,
+                            'filter_method' : filter_method,
                             'size' : size,
                             'multiplier' : multiplier,
                             'expansion' : expansion})
@@ -1032,8 +1442,28 @@ class XRDMap(XRDBaseScan):
     def recharacterize_spots(self,
                              radius=10):
         """
+        Recharacterize spots.
 
+        Re-approximate the spot characteristics. This method will
+        remove old approximate spot characteristics.
+
+        Parameters
+        ----------
+        radius : int, optional
+            Radius in pixels around each found spots used to
+            approximate the spot characteristics. By default the
+            radius is 10.
+        
+        Raises
+        ------
+        AttributeError if XRDMap does not already have spots.
         """
+
+        # Check for spots
+        if (not hasattr(self, "spots")
+            or not isinstance(self.spots, pd.DataFrame)):
+            err_str = "XRDMap is missing 'spots' attribute."
+            raise AttributeError(err_str)
 
         # Remove spot guesses
         print('Removing spot guess characteristics...')
@@ -1060,7 +1490,47 @@ class XRDMap(XRDBaseScan):
                   max_dist=0.5,
                   sigma=1):
         """
+        Fit found spots with a SpotModel.
 
+        Use a SpotModel to fit found spots and better determine their
+        characteristics. Blobs are segmented and spots are combined to
+        fit several small clusters of spots within the image instead of
+        every spot at once. Approximate spot parameters are used as the 
+        intitial values for fitting.
+        
+        The internally stored spots attributed and HDF dataset, are
+        expanded with the fit characteristics.
+
+        Parameters
+        ----------
+        SpotModel : SpotModel
+            SpotModel object from the reflections.SpotModels module
+            used to fit spots. Available models are GaussianFunctions,
+            LorentzFunctions, and PseudoVoigtFunctions.
+        max_dist : float, optional
+            Distance in pixels used to associate nearby spots for
+            combined spot fitting. Larger value will attempt to fit
+            more spots simultaneously yielding better fits, but will
+            take more time. By default this value is 0.5.
+        sigma : float, optional
+            Sigma in pixel units of a guassian filter used to segment
+            blobs. Larger values will result in larger segments and
+            attempts to fit more spots simultaneously yielding better
+            fits, but will take more time. By defualt this value is 1.
+
+        Raises
+        ------
+        AttributeError if spots have not already been determined.
+
+        Note
+        ----
+        Monochromatic XRD which produces individual spots instead of
+        powder rings lacks the availability of orientations to fully
+        describe a crystal lattice. Detailed individual spot fitting
+        of this partial dataset will not provide more information.
+        Consider acquiring single XRD patterns (XRDRockingCurve) or
+        full maps (XRDMapStack) though a series of sample rotations and
+        incident X-ray energies instead.
         """
 
         # Find spots in self or from hdf
@@ -1070,7 +1540,7 @@ class XRDMap(XRDBaseScan):
                 keep_hdf = self.hdf is not None
 
                 if 'reflections' in self.hdf[self._hdf_type].keys():
-                    print('Loading reflection spots from hdf...',
+                    print('Loading reflection spots from the HDF file...',
                           end='', flush=True)
                     self.close_hdf()
                     spots = pd.read_hdf(
@@ -1107,7 +1577,19 @@ class XRDMap(XRDBaseScan):
     def initial_spot_analysis(self,
                               SpotModel=None):
         """
+        Expanded spot analsysis.
 
+        Expanded spot analysis based on a SpotModel. Approximate spot
+        significance and reciprocal space positions are determined and
+        appended to the spots attribute.
+
+        Parameters
+        ----------
+        SpotModel : SpotModel, optional
+            SpotModel object from the reflections.SpotModels module
+            used to fit spots. Available models are GaussianFunctions,
+            LorentzFunctions, and PseudoVoigtFunctions.
+            GaussianFunctions are used by default.
         """
 
         if SpotModel is None and hasattr(self, 'spot_model'):
@@ -1125,7 +1607,13 @@ class XRDMap(XRDBaseScan):
                    key='guess_int',
                    save_spots=False):
         """
+        Trim all spots below some value.
 
+        Trim the spots dataframe with any value in a certain key
+        below some cutoff.
+
+        Paramters
+        ---------
         """
         
         self._trim_spots(self.spots,
@@ -1138,7 +1626,11 @@ class XRDMap(XRDBaseScan):
     
     def _remove_spot_vals(self, drop_keys=[], drop_tags=[]):
         """
+        Internal function for removing spot characterisitics.
 
+        Parameters
+        ----------
+        drop_keys : list, optional
         """
 
 
@@ -1200,7 +1692,7 @@ class XRDMap(XRDBaseScan):
 
         """
 
-        print('Saving spots to hdf...', end='', flush=True)
+        print('Saving spots to the HDF file...', end='', flush=True)
         hdf_str = f'{self._hdf_type}/reflections'
         self.spots.to_hdf(
                         self.hdf_path,
@@ -1226,6 +1718,10 @@ class XRDMap(XRDBaseScan):
                            verbose=False):
         """
 
+        Note
+        ----
+        XRDMaps should only be vectorized when compared to other maps
+        in a rotation or energy series.
         """
 
         # Check required data
@@ -1448,7 +1944,7 @@ class XRDMap(XRDBaseScan):
             raise ValueError(err_str)
         
         if map_extent is None:
-            map_extent = self.map_extent()
+            map_extent = self.map_extent(with_step=True)
         if position_units is None:
             position_units = self.position_units
 
@@ -1511,11 +2007,11 @@ class XRDMap(XRDBaseScan):
             map_kw['title'] = 'Max Detector Intensity'
         if not _check_dict_key(map_kw, 'x_ticks'):
             map_kw['x_ticks'] = np.round(np.linspace(
-                *self.map_extent()[:2],
+                *self.map_extent()[:2], # without step
                 self.map_shape[1]), 2)
         if not _check_dict_key(map_kw, 'y_ticks'):
             map_kw['y_ticks'] = np.round(np.linspace(
-                *self.map_extent()[2:],
+                *self.map_extent()[2:], # without step
                 self.map_shape[0]), 2)
         if hasattr(self, 'position_units'):
             if not _check_dict_key(map_kw, 'x_label'):
@@ -1578,11 +2074,11 @@ class XRDMap(XRDBaseScan):
             map_kw['title'] = 'Max Detector Intensity'
         if not _check_dict_key(map_kw, 'x_ticks'):
             map_kw['x_ticks'] = np.round(np.linspace(
-                *self.map_extent()[:2],
+                *self.map_extent()[:2], # without step
                 self.map_shape[1]), 2)
         if not _check_dict_key(map_kw, 'y_ticks'):
             map_kw['y_ticks'] = np.round(np.linspace(
-                *self.map_extent()[2:],
+                *self.map_extent()[2:], # without step
                 self.map_shape[0]), 2)
         if hasattr(self, 'position_units'):
             if not _check_dict_key(map_kw, 'x_label'):
@@ -1693,11 +2189,11 @@ class XRDMap(XRDBaseScan):
             map_kw['title'] = 'Max Integration Intensity'
         if not _check_dict_key(map_kw, 'x_ticks'):
             map_kw['x_ticks'] = np.round(np.linspace(
-                *self.map_extent()[:2],
+                *self.map_extent()[:2], # without step
                 self.map_shape[1]), 2)
         if not _check_dict_key(map_kw, 'y_ticks'):
             map_kw['y_ticks'] = np.round(np.linspace(
-                *self.map_extent()[2:],
+                *self.map_extent()[2:], # without step
                 self.map_shape[0]), 2)
         if hasattr(self, 'position_units'):
             if not _check_dict_key(map_kw, 'x_label'):
@@ -1838,11 +2334,11 @@ class XRDMap(XRDBaseScan):
             map_kw['title'] = 'Max Detector Intensity'
         if not _check_dict_key(map_kw, 'x_ticks'):
             map_kw['x_ticks'] = np.round(np.linspace(
-                *self.map_extent()[:2],
+                *self.map_extent()[:2], # without step
                 self.map_shape[1]), 2)
         if not _check_dict_key(map_kw, 'y_ticks'):
             map_kw['y_ticks'] = np.round(np.linspace(
-                *self.map_extent()[2:],
+                *self.map_extent()[2:], # without step
                 self.map_shape[0]), 2)
         if hasattr(self, 'position_units'):
             if not _check_dict_key(map_kw, 'x_label'):
