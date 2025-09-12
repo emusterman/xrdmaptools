@@ -1011,8 +1011,8 @@ class XRDMap(XRDBaseScan):
             parameter text file. The default value used by the
             'set_positions' function will be used if not given.
         
-        Note
-        ----
+        Notes
+        -----
         This function is not commonly used. Loading the data with the
         'from_db' method will load map parameters by default.
         """ 
@@ -1269,8 +1269,8 @@ class XRDMap(XRDBaseScan):
             been rescaled before searching for blobs.
 
 
-        Note
-        ----
+        Notes
+        -----
         This function can only be performed on images after the
         "rescale_images" correction has been applied under the
         assumption that the 100 and 0 are the maximum and minimum
@@ -1370,8 +1370,8 @@ class XRDMap(XRDBaseScan):
             Flag to override the internal check to ensure images have
             been rescaled before searching for blobs.
 
-        Note
-        ----
+        Notes
+        -----
         Spots should only be found for XRDMaps that will not be
         compared to other XRDMaps in a rotation or energy series.
 
@@ -1522,8 +1522,8 @@ class XRDMap(XRDBaseScan):
         ------
         AttributeError if spots have not already been determined.
 
-        Note
-        ----
+        Notes
+        -----
         Monochromatic XRD which produces individual spots instead of
         powder rings lacks the availability of orientations to fully
         describe a crystal lattice. Detailed individual spot fitting
@@ -1614,6 +1614,21 @@ class XRDMap(XRDBaseScan):
 
         Paramters
         ---------
+        remove_less : float, optional
+            Cutoff value used for deciding which spots to trim. Default
+            is 0.01.
+        key : str, optional
+            Key in dataframe to compare with the remove_less value.
+            "guess_int" by default.
+        save_spots : bool, optional
+            Flag to save trimmed spots to HDF file if available.
+            Saving new spots may distort the meaning of any metadata
+            saved along with the original spots.
+
+        Raises
+        ------
+        KeyError if the key parameter is not within the
+            spots.
         """
         
         self._trim_spots(self.spots,
@@ -1630,7 +1645,12 @@ class XRDMap(XRDBaseScan):
 
         Parameters
         ----------
-        drop_keys : list, optional
+        drop_keys : list of str, optional
+            List of specific keys in the spots DataFrame to remove.
+            Empty by default.
+        drop_tags : list of str, optional
+            List of tags where any key in the spots DataFrame
+            containing one of these tags will be removed.
         """
 
 
@@ -1644,7 +1664,7 @@ class XRDMap(XRDBaseScan):
 
     def remove_spot_guesses(self):
         """
-
+        Remove all guess characteristics from spots.
         """
 
         self._remove_spot_vals(drop_tags=['guess'])
@@ -1652,7 +1672,7 @@ class XRDMap(XRDBaseScan):
 
     def remove_spot_fits(self):
         """
-
+        Remove all fit characteristics from spots.
         """
 
         self._remove_spot_vals(drop_tags=['fit'])
@@ -1663,8 +1683,38 @@ class XRDMap(XRDBaseScan):
                      map_indices,
                      copied=True):
         """
+        Internal function for creating a spots DataFrame from a single
+        mapped pixel.
 
+        Parameters
+        ----------
+        spots : Pandas DataFrame
+            Spots DataFrame which will be parsed to a single mapped
+            pixel. The spots DataFrame should "map_x" and "map_y" keys.
+        map_indices : iterable ("map_y", "map_x")
+            Indices of mapped pixel to return spots.
+        copied : bool, optional
+            Flag to signal whether the returned pixel spots is a subset
+            of the original spots DataFrame, or a copy of this view.
+            True by default.
+
+        Returns
+        -------
+        pixel_spots : Pandas DataFrame
+            A subset of the spots DataFrame matching the mapped
+            indices. If there are no spots within the pixel, a
+            DataFrame with the columns of spots, but without any rows
+            will be returned.
+
+        Raises
+        ------
+        KeyError if mapped indices are not in spots DataFrame.
         """
+
+        if 'map_x' not in spots or 'map_y' not in spots:
+            err_str = f'Mapped indices are not in spots.'
+            raise KeyError(err_str)
+
         pixel_spots = spots[(spots['map_x'] == map_indices[1])
                             & (spots['map_y'] == map_indices[0])]
         
@@ -1677,7 +1727,28 @@ class XRDMap(XRDBaseScan):
 
     def pixel_spots(self, map_indices, copied=True):
         """
+        Get spots from a single map pixel.
+    
+        Parameters
+        ----------
+        map_indices : iterable ("map_y", "map_x")
+            Indices of mapped pixel to return spots.
+        copied : bool, optional
+            Flag to signal whether the returned pixel spots is a subset
+            of the original spots DataFrame, or a copy of this view.
+            True by default.
 
+        Returns
+        -------
+        pixel_spots : Pandas DataFrame
+            A subset of the spots DataFrame matching the mapped
+            indices. If there are no spots within the pixel, a
+            DataFrame with the columns of spots, but without any rows
+            will be returned.
+
+        Raises
+        ------
+        KeyError if mapped indices are not in spots DataFrame.
         """
 
         return self._pixel_spots(self.spots,
@@ -1689,7 +1760,13 @@ class XRDMap(XRDBaseScan):
     @XRDBaseScan._protect_hdf(pandas=True)
     def save_spots(self, extra_attrs=None):
         """
+        Save spots to the HDF file if available.
 
+        Parameters
+        ----------
+        extra_attrs : dict, optional
+            Dictionary of extra metadata that will be written into the
+            attributes of the reflections group in the HDF file.
         """
 
         print('Saving spots to the HDF file...', end='', flush=True)
@@ -1714,14 +1791,43 @@ class XRDMap(XRDBaseScan):
     def vectorize_map_data(self,
                            image_data_key='recent',
                            keep_images=False,
-                           rewrite_data=False,
+                           rewrite_data=True,
                            verbose=False):
         """
+        Convert blobs into 3D reciprocal space vectors.
 
-        Note
-        ----
+        Convert each pixel inside of found blobs into a list of 3D
+        reciprocal space vectors. Each pixel is assigned it's q-space
+        coordinates and intensity. The map of vectors is then stored
+        internally and written to the HDF file if available as 
+        "vector_map".
+
+        Parameters
+        ----------
+        image_data_key : str, optional
+            Image dataset to load from the HDF file if images are not
+            already loaded. Loads the most recently saved images by
+            default.
+        keep_images : bool, optional
+            Flag to keep or remove images after vectorization. Images
+            are removed by default.
+        rewrite_data : bool, optional,
+            Flag to determine the behavior of overwriting previously
+            written vector maps. False by default, preserving previously
+            written data.
+        verbose : bool, optional 
+            Flag to determine the function's verbosity. False
+            by default.
+
+        Raises
+        ------
+        AttributeError if "blob_masks" attribute does not exist and
+        cannot be loaded from the HDF File.
+
+        Notes
+        -----
         XRDMaps should only be vectorized when compared to other maps
-        in a rotation or energy series.
+        in a rotation or energy/wavelength series.
         """
 
         # Check required data
@@ -1778,7 +1884,32 @@ class XRDMap(XRDBaseScan):
                         rewrite_data=False,
                         verbose=False):
         """
+        Save the vector map to the HDF file.
 
+        Parameters
+        ----------
+        vector_map : Numpy.ndarray of objects
+            Numpy array sharing the map shape. Each index
+            contains a list of vectors or empty list.
+        edges : list, optional
+            List of lists of vectors defining the edges of the 
+            sampled reciprocal space volume. These will be written
+            into their own 'edges' group. Previous data will be
+            rewritten according to the rewrite_data flag. By default
+            no edges will be passed and nothing will be written. Only
+            used by XRDMapStack.
+        rewrite_data : bool, optional,
+            Flag to determine the behavior of overwriting previously
+            written vector maps. False by default, preserving previously
+            written data.
+        verbose : bool, optional 
+            Flag to determine the function's verbosity. False
+            by default.
+
+        Raises
+        ------
+        AttributeError if "vector_map" is not provided and not and
+        attribute of XRDMap.
         """
 
         # Check input
@@ -1808,7 +1939,7 @@ class XRDMap(XRDBaseScan):
     @XRDBaseScan._protect_hdf()
     def load_vector_map(self):
         """
-
+        Load the vector map from the HDF file.
         """
 
         self._load_vectors(self.hdf)
@@ -1831,7 +1962,39 @@ class XRDMap(XRDBaseScan):
                     include_positions=False,
                     include_full_data=False):
         """
+        Load XRF data from a PyXRF file.
 
+        Load the XRF data from an associated PyXRF HDF file into the
+        local instance. Data is stored in an internal "xrf" attribute
+        as a dictionary of elemental fitting maps, scalers, positions,
+        and full spectra. The path of the PyXRF HDF file is written
+        to the XRDMap HDF file for easier loading for future
+        instantiations.
+
+        Parameters
+        ----------
+        wd : path str, optional
+            Working directory of PyXRF HDF file. The function
+            will use the same working directory as the XRDMap.
+        xrf_name : str, optional
+            Name of the PyXRF HDF file. The default filename assigned
+            by PyXRF using the XRDMap scan ID will be used by default.
+        include_scalers : bool, optional
+            Flag to indicate if the scaler information will be loaded.
+            This information should be duplicates of the internal
+            scaler dictionary. False by default.
+        include_positions : bool, optional
+            Flag to indicate if the position information will be
+            loaded. this information should be duplicates of the
+            internal position dictionary. False by default.
+        include_full_data : bool, optional
+            Flag to indicate if the full XRF spectra should be loaded.
+            False by default.
+        
+        Raises
+        ------
+        FileNotFoundError if the indicated file cannot be found at the
+        specified working directory.
         """
 
         # Look for path if no information is provided
@@ -1930,7 +2093,52 @@ class XRDMap(XRDBaseScan):
                  title_scan_id=True,
                  **kwargs):
         """
+        Plot a map.
 
+        Map plotting function for any map matching the XRDMap map
+        shape.
+
+        Parameters
+        ----------
+        map_values : 2D Numpy.ndarray matching the map shape
+            Values to be plotted as a map.
+        map_extent : iterable, optional
+            Mapped extent as an iterable with (min_x, max_x, max_y,
+            min_y) values. By default the result of the internal
+            "map_extent" method.
+        position_units : str, optional
+            Position units of the map_exent. Internal position units
+            are used by default.
+        title : str, optional
+            Title of the map. By default "Custom Map" will be used.
+        fig : Matplotlib Figure instance, optional
+            Figure to be used for plotting. Must be given
+            ax. None by default, generating an new plot.
+        ax : Matplotlib Axes instance, optional
+            Axes to be used for plotting. Must be given with
+            fig. None by default, generating a new plot.
+        title_scan_id : bool, optional
+            Flag dictating if the plot title will be 
+            prepended with the data scan ID. True by 
+            default.
+        kwargs : dict, optional
+            Dictionary of keyword arguments passed to
+            the internal Matplotlib.pyplot.imshow function.
+
+        Returns
+        -------
+        No returns by default. Only returned if return_plot
+        keyword argument is True.
+
+        fig : Matplotlib Figure instance
+            Figure of plot.
+        ax : Matplotlib Axes instance, optional
+            Individual axes of plot.
+
+        Raises
+        ------
+        ValueError if the map_values array does not match the XRDMap
+        map shape.
         """
         
         map_values = np.asarray(map_values)
@@ -1970,7 +2178,61 @@ class XRDMap(XRDBaseScan):
                              title_scan_id=True,
                              **kwargs):
         """
+        Plot an interactive map of images.
 
+        Plot an interactive map, where each mapped pixel shows its
+        associated 2D XRD pattern.
+
+        Parameters
+        ----------
+        dyn_kw : dict, optional
+            Dictionary of keyword arguments passed for dynamic
+            plotting. Empty by default, and the values will be filled
+            with the relevant instance parameters.
+
+            Useful Keywords:
+                vmin : float, optional
+                    Starting maximum value for dynamic colormap.            
+                vmax : float, optional
+                    Starting minimum value for dynamic colormap.
+
+        map_kw : dict, optional
+            Dictionary of keyword arguments passed for the map
+            plotting. Empty by default, and the values will be filled
+            with the relevant instance parameters.
+
+            Useful Keywords:
+                map : 2D Numpy.ndarray matching the map shape, optional
+                    Values to be plotted as a map.
+                title : str, optional
+                    Title of map plot.
+                vmin : float, optional
+                    Starting minimum value for map colormap.
+                vmax : float, optional
+                    Starting maximum value for map colormap.
+        
+        title_scan_id : bool, optional
+            Flag dictating if the plot title will be 
+            prepended with the data scan ID. True by 
+            default.
+        kwargs : dict, optional
+            Dictionary of keyword arguments passed to interactive
+            plotting function.
+        
+        Returns
+        -------
+        No returns by default. Only returned if return_plot
+        keyword argument is True.
+
+        fig : Matplotlib Figure instance
+            Figure of plot.
+        ax : Matplotlib Axes instance, optional
+            Individual axes of plot.
+        
+        Raises
+        ------
+        ValueError if images for plotting dynamic XRD patterns cannot
+        be found or are of the wrong shape.
         """
         
         # Python doesn't play well with mutable default kwargs
@@ -2041,7 +2303,69 @@ class XRDMap(XRDBaseScan):
                                          title_scan_id=True,
                                          **kwargs):
         """
+        Plot an interactive map of integrations.
 
+        Plot an interactive map, where each mapped pixel shows its
+        associated 1D XRD pattern integration.
+
+        Parameters
+        ----------
+        dyn_kw : dict, optional
+            Dictionary of keyword arguments passed for dynamic
+            plotting. Empty by default, and the values will be filled
+            with the relevant instance parameters.
+
+            Useful Keywords:
+                y_min : float, optional
+                    Starting maximum y-value (intensity) for dynamic
+                    plot.            
+                y_max : float, optional
+                    Starting minimum y-value (intensity) for dynamic
+                    plot.
+                x_min : float, optional
+                    Starting maximum x-value (scattering angle) for
+                    dynamic plot.            
+                x_max : float, optional
+                    Starting minimum x-value (scattering angle) for
+                    dynamic plot.
+
+        map_kw : dict, optional
+            Dictionary of keyword arguments passed for the map
+            plotting. Empty by default, and the values will be filled
+            with the relevant instance parameters.
+
+            Useful Keywords:
+                map : 2D Numpy.ndarray matching the map shape, optional
+                    Values to be plotted as a map.
+                title : str, optional
+                    Title of map plot.
+                vmin : float, optional
+                    Starting minimum value for map colormap.
+                vmax : float, optional
+                    Starting maximum value for map colormap.
+
+        title_scan_id : bool, optional
+            Flag dictating if the plot title will be 
+            prepended with the data scan ID. True by 
+            default.
+        kwargs : dict, optional
+            Dictionary of keyword arguments passed to the interactive
+            plotting function.
+        
+        Returns
+        -------
+        No returns by default. Only returned if return_plot
+        keyword argument is True.
+
+        fig : Matplotlib Figure instance
+            Figure of plot.
+        ax : Matplotlib Axes instance, optional
+            Individual axes of plot.
+        
+        Raises
+        ------
+        ValueError if integrations for plotting dynamic XRD patterns
+        cannot be found or are of the wrong shape.
         """
         
         # Python doesn't play well with mutable default kwargs
@@ -2107,7 +2431,67 @@ class XRDMap(XRDBaseScan):
                                title_scan_id=True,
                                **kwargs):
         """
+        Plot an interactive map of a 1D window sum.
 
+        Draw a window across the maximum 1D integration and plot a map
+        of the sum within this window.
+
+        Parameters
+        ----------
+        dyn_kw : dict, optional
+            Dictionary of keyword arguments passed for dynamic
+            plotting. Empty by default, and the values will be filled
+            with the relevant instance parameters.
+
+            Useful Keywords:
+                y_min : float, optional
+                    Starting maximum y-value (intensity) for dynamic
+                    plot.            
+                y_max : float, optional
+                    Starting minimum y-value (intensity) for dynamic
+                    plot.
+                x_min : float, optional
+                    Starting maximum x-value (scattering angle) for
+                    dynamic plot.            
+                x_max : float, optional
+                    Starting minimum x-value (scattering angle) for
+                    dynamic plot.
+
+        map_kw : dict, optional
+            Dictionary of keyword arguments passed for the map
+            plotting. Empty by default, and the values will be filled
+            with the relevant instance parameters.
+
+            Useful Keywords:
+                title : str, optional
+                    Title of map plot.
+                vmin : float, optional
+                    Starting minimum value for map colormap.
+                vmax : float, optional
+                    Starting maximum value for map colormap.
+
+        title_scan_id : bool, optional
+            Flag dictating if the plot title will be 
+            prepended with the data scan ID. True by 
+            default.
+        kwargs : dict, optional
+            Dictionary of keyword arguments passed to the interactive
+            plotting function.
+        
+        Returns
+        -------
+        No returns by default. Only returned if return_plot
+        keyword argument is True.
+
+        fig : Matplotlib Figure instance
+            Figure of plot.
+        ax : Matplotlib Axes instance, optional
+            Individual axes of plot.
+        
+        Raises
+        ------
+        ValueError if integrations for plotting dynamic XRD patterns
+        cannot be found or are of the wrong shape.
         """
         
         dyn_kw, map_kw = self._prepare_1D_window_plot(
@@ -2132,7 +2516,67 @@ class XRDMap(XRDBaseScan):
                                title_scan_id=True,
                                **kwargs):
         """
+        Plot an interactive map of a 1D window center of mass.
 
+        Draw a window across the maximum 1D integration and plot a map
+        of the center of mass within this window.
+
+        Parameters
+        ----------
+        dyn_kw : dict, optional
+            Dictionary of keyword arguments passed for dynamic
+            plotting. Empty by default, and the values will be filled
+            with the relevant instance parameters.
+
+            Useful Keywords:
+                y_min : float, optional
+                    Starting maximum y-value (intensity) for dynamic
+                    plot.            
+                y_max : float, optional
+                    Starting minimum y-value (intensity) for dynamic
+                    plot.
+                x_min : float, optional
+                    Starting maximum x-value (scattering angle) for
+                    dynamic plot.            
+                x_max : float, optional
+                    Starting minimum x-value (scattering angle) for
+                    dynamic plot.
+
+        map_kw : dict, optional
+            Dictionary of keyword arguments passed for the map
+            plotting. Empty by default, and the values will be filled
+            with the relevant instance parameters.
+
+            Useful Keywords:
+                title : str, optional
+                    Title of map plot.
+                vmin : float, optional
+                    Starting minimum value for map colormap.
+                vmax : float, optional
+                    Starting maximum value for map colormap.
+
+        title_scan_id : bool, optional
+            Flag dictating if the plot title will be 
+            prepended with the data scan ID. True by 
+            default.
+        kwargs : dict, optional
+            Dictionary of keyword arguments passed to the interactive
+            plotting function.
+        
+        Returns
+        -------
+        No returns by default. Only returned if return_plot
+        keyword argument is True.
+
+        fig : Matplotlib Figure instance
+            Figure of plot.
+        ax : Matplotlib Axes instance, optional
+            Individual axes of plot.
+        
+        Raises
+        ------
+        ValueError if integrations for plotting dynamic XRD patterns
+        cannot be found or are of the wrong shape.
         """
 
         dyn_kw, map_kw = self._prepare_1D_window_plot(
@@ -2156,7 +2600,27 @@ class XRDMap(XRDBaseScan):
                                 map_kw=None,
                                 title_scan_id=True):
         """
+        Internal function for preparing 1D windowed plots.
 
+        Parameters
+        ----------
+        dyn_kw : dict, optional
+            Dictionary of keyword arguments passed for dynamic
+            plotting. Empty by default, and the values will be filled
+            with the relevant instance parameters.
+        map_kw : dict, optional
+            Dictionary of keyword arguments passed for the map
+            plotting. Empty by default, and the values will be filled
+            with the relevant instance parameters.
+        title_scan_id : bool, optional
+            Flag dictating if the plot title will be 
+            prepended with the data scan ID. True by 
+            default.
+
+        Raises
+        ------
+        ValueError if integrations for plotting dynamic XRD patterns
+        cannot be found or are of the wrong shape.
         """
         
         # Python doesn't play well with mutable default kwargs
@@ -2226,7 +2690,59 @@ class XRDMap(XRDBaseScan):
                                title_scan_id=True,
                                **kwargs):
         """
+        Plot an interactive map of a 2D window sum.
 
+        Draw a window across the maximum 2D image and plot a map of the
+        sum within this window.
+
+        Parameters
+        ----------
+        dyn_kw : dict, optional
+            Dictionary of keyword arguments passed for dynamic
+            plotting. Empty by default, and the values will be filled
+            with the relevant instance parameters.
+
+            Useful Keywords:
+                vmin : float, optional
+                    Starting maximum value for dynamic colormap.            
+                vmax : float, optional
+                    Starting minimum value for dynamic colormap.
+
+        map_kw : dict, optional
+            Dictionary of keyword arguments passed for the map
+            plotting. Empty by default, and the values will be filled
+            with the relevant instance parameters.
+
+            Useful Keywords:
+                title : str, optional
+                    Title of map plot.
+                vmin : float, optional
+                    Starting minimum value for map colormap.
+                vmax : float, optional
+                    Starting maximum value for map colormap.
+
+        title_scan_id : bool, optional
+            Flag dictating if the plot title will be 
+            prepended with the data scan ID. True by 
+            default.
+        kwargs : dict, optional
+            Dictionary of keyword arguments passed to the interactive
+            plotting function.
+        
+        Returns
+        -------
+        No returns by default. Only returned if return_plot
+        keyword argument is True.
+
+        fig : Matplotlib Figure instance
+            Figure of plot.
+        ax : Matplotlib Axes instance, optional
+            Individual axes of plot.
+        
+        Raises
+        ------
+        ValueError if images for plotting dynamic XRD patterns
+        cannot be found or are of the wrong shape.
         """
         
         dyn_kw, map_kw = self._prepare_2D_window_plot(
@@ -2251,7 +2767,60 @@ class XRDMap(XRDBaseScan):
                                    title_scan_id=True,
                                    **kwargs):
         """
+        Plot an interactive map of a 2D window scattering angle center
+        of mass.
 
+        Draw a window across the maximum 2D image and plot a map of the
+        scattering angle center of mass within this window.
+
+        Parameters
+        ----------
+        dyn_kw : dict, optional
+            Dictionary of keyword arguments passed for dynamic
+            plotting. Empty by default, and the values will be filled
+            with the relevant instance parameters.
+
+            Useful Keywords:
+                vmin : float, optional
+                    Starting maximum value for dynamic colormap.            
+                vmax : float, optional
+                    Starting minimum value for dynamic colormap.
+
+        map_kw : dict, optional
+            Dictionary of keyword arguments passed for the map
+            plotting. Empty by default, and the values will be filled
+            with the relevant instance parameters.
+
+            Useful Keywords:
+                title : str, optional
+                    Title of map plot.
+                vmin : float, optional
+                    Starting minimum value for map colormap.
+                vmax : float, optional
+                    Starting maximum value for map colormap.
+
+        title_scan_id : bool, optional
+            Flag dictating if the plot title will be 
+            prepended with the data scan ID. True by 
+            default.
+        kwargs : dict, optional
+            Dictionary of keyword arguments passed to the interactive
+            plotting function.
+        
+        Returns
+        -------
+        No returns by default. Only returned if return_plot
+        keyword argument is True.
+
+        fig : Matplotlib Figure instance
+            Figure of plot.
+        ax : Matplotlib Axes instance, optional
+            Individual axes of plot.
+        
+        Raises
+        ------
+        ValueError if images for plotting dynamic XRD patterns
+        cannot be found or are of the wrong shape.
         """
         
         dyn_kw, map_kw = self._prepare_2D_window_plot(
@@ -2277,7 +2846,61 @@ class XRDMap(XRDBaseScan):
                                    title_scan_id=True,
                                    **kwargs):
         """
+        Plot an interactive map of a 2D window azimuthal angle center
+        of mass.
 
+        Draw a window across the maximum 2D image and plot a map of the
+        azimuthal angle center of mass within this window.
+    
+
+            Parameters
+        ----------
+        dyn_kw : dict, optional
+            Dictionary of keyword arguments passed for dynamic
+            plotting. Empty by default, and the values will be filled
+            with the relevant instance parameters.
+
+            Useful Keywords:
+                vmin : float, optional
+                    Starting maximum value for dynamic colormap.            
+                vmax : float, optional
+                    Starting minimum value for dynamic colormap.
+
+        map_kw : dict, optional
+            Dictionary of keyword arguments passed for the map
+            plotting. Empty by default, and the values will be filled
+            with the relevant instance parameters.
+
+            Useful Keywords:
+                title : str, optional
+                    Title of map plot.
+                vmin : float, optional
+                    Starting minimum value for map colormap.
+                vmax : float, optional
+                    Starting maximum value for map colormap.
+
+        title_scan_id : bool, optional
+            Flag dictating if the plot title will be 
+            prepended with the data scan ID. True by 
+            default.
+        kwargs : dict, optional
+            Dictionary of keyword arguments passed to the interactive
+            plotting function.
+        
+        Returns
+        -------
+        No returns by default. Only returned if return_plot
+        keyword argument is True.
+
+        fig : Matplotlib Figure instance
+            Figure of plot.
+        ax : Matplotlib Axes instance, optional
+            Individual axes of plot.
+        
+        Raises
+        ------
+        ValueError if images for plotting dynamic XRD patterns
+        cannot be found or are of the wrong shape.
         """
         
         dyn_kw, map_kw = self._prepare_2D_window_plot(
@@ -2301,7 +2924,27 @@ class XRDMap(XRDBaseScan):
                                 map_kw=None,
                                 title_scan_id=True):
         """
+        Internal function for preparing 2D windowed plots.
 
+        Parameters
+        ----------
+        dyn_kw : dict, optional
+            Dictionary of keyword arguments passed for dynamic
+            plotting. Empty by default, and the values will be filled
+            with the relevant instance parameters.
+        map_kw : dict, optional
+            Dictionary of keyword arguments passed for the map
+            plotting. Empty by default, and the values will be filled
+            with the relevant instance parameters.
+        title_scan_id : bool, optional
+            Flag dictating if the plot title will be 
+            prepended with the data scan ID. True by 
+            default.
+
+        Raises
+        ------
+        ValueError if images for plotting dynamic XRD patterns
+        cannot be found or are of the wrong shape.
         """
         
         # Python doesn't play well with mutable default kwargs
@@ -2369,7 +3012,62 @@ class XRDMap(XRDBaseScan):
     def plot_waterfall(self, **kwargs):
         
         """
+        Generate waterfall plot integrated along a map axis.
 
+        Sum all integrations along a mapped axis and plot the results
+        as a waterfall plot.
+
+        Parameters
+        ----------
+        axis : int, optional
+            Axis for integrating the data. Only 0 and 1 are
+            allowed. 0 by default.
+        integration_method : str, optional
+            Method for integrating data. Accepts 'sum' or 'max'
+            along the axis of integration. 'max' by default.
+        v_offset : float, optional
+            Relative vertical offset value of each integration.
+            0 will have no offset, 1 will offset each integration
+            by the maximum integration range preventing any overlap.
+            0.25 by default.
+        tth : iterable, optional
+            Two theta scattering angle of the integration data.
+            Must have the same length as the integration data.
+            None by default and will look for an internal tth attribute,
+            or use a simple range if unavaible.
+        units : str, optional
+            Units of two theta scattering angle. None by default
+            and will use an internal scattering_angle attribute if 
+            available.
+        cmap : str, optional
+            Colormap for distinguishing integrations. None by default
+            and all integrations will be black.
+        fig : Matplotlib Figure instance, optional
+            Figure to be used for plotting. Must be given
+            ax. None by default, generating an new plot.
+        ax : Matplotlib Axes instance, optional
+            Axes to be used for plotting. Must be given with
+            fig. None by default, generating a new plot.
+        title_scan_id : bool, optional
+            Flag dictating if the plot title will be 
+            prepended with the data scan ID. True by 
+            default.
+        kwargs : dict, optional
+            Dictionary of keyword arguments passed to
+            the internal Matplotlib.pyplot.plot function.
+
+        Returns
+        -------
+        fig : Matplotlib Figure instance
+            Figure of plot.
+        ax : Matplotlib Axes instance, optional
+            Individual axes of plot.
+
+        Raises
+        ------
+        AttributeError for data without integrations.
+        ValueError if the integration method is not
+            acceptable.
         """
 
         if 'axis' in kwargs:
