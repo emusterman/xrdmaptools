@@ -230,10 +230,8 @@ class XRDRockingCurve(XRDBaseScan):
 
 
     # Overwrite parent function
+    @copy_docstring(XRDBaseScan.__str__)
     def __str__(self):
-        """
-
-        """
         ostr = (f'{self._hdf_type}:  scan_id={self.scan_id}, '
                 + f'energy_range={min(self.energy):.3f}'
                 + f'-{max(self.energy):.3f}, '
@@ -242,10 +240,8 @@ class XRDRockingCurve(XRDBaseScan):
     
 
     # Modify parent function
+    @copy_docstring(XRDBaseScan.__repr__)
     def __repr__(self):
-        """
-
-        """
         lines = XRDBaseScan.__repr__(self).splitlines(True)
         lines[4] = (f'\tEnergy Range:\t\t{min(self.energy):.3f}'
                     + f'-{max(self.energy):.3f} keV\n')
@@ -427,16 +423,15 @@ class XRDRockingCurve(XRDBaseScan):
     ### Re-Written Methods ###
     ##########################
 
-
+    @copy_docstring(XRDBaseScan.set_calibration)
     def set_calibration(self, *args, **kwargs):
-        __doc__ = super().__doc__
         super().set_calibration(*args,
                                 energy=self.energy[0],
                                 **kwargs)    
     
 
+    @copy_docstring(XRDBaseScan.save_current_hdf)
     def save_current_hdf(self, verbose=False):
-        __doc__ = super().__doc__
         super().save_current_hdf(verbose=verbose) # no inputs!
 
         # Vectorized_data
@@ -467,11 +462,44 @@ class XRDRockingCurve(XRDBaseScan):
                 broker='manual',
                 wd=None,
                 filename=None,
-                poni_file=None,
                 save_hdf=True,
-                repair_method='fill'):
+                repair_method='fill',
+                **kwargs):
         """
+        Instantiate from data in database.
 
+        Load data and metadata from database to create a new instance.
+        This will copy, compile, and write the raw data into a single
+        HDF by default.
+
+        Parameters
+        ----------
+        scan_id : int, optional
+            Scan ID of scan to load data from database. -1 by default
+            which loads from the most recent scan.
+        broker : {"manual", "tiled", "databroker"}, optional
+            Broker/method used to load the data. "manual" will load
+            data directly from raw HDF files, while "tiled" and
+            "databroker" use their respective libraries. "manual" by
+            default.
+        wd : path str, optional
+            Working directly used to write HDF file if saved. Uses
+            current working directory if none provided.
+        filename : str, optional
+            Filename used used to write HDF file if saved. Uses
+            "scan<scan_id>_xrdmap.h5" by default.
+        save_hdf : bool, optional
+            Flag to enable writing data to HDF file. True by default.
+        repair_method : {"fill", "flatten", "replace"}, optional
+            Repair method used for missing data if data broker is
+            "manual". "fill" auto-pads missing pixels with zero and is
+            the default option. This also matches the behavior when
+            broker is "tiled". "flatten" will flatten the entire
+            dataset into a single line and is not recommended.
+            "replace" will replace rows with missing data by the
+            previously full row, matching the behavior of pyXRF.
+        kwargs : dict, optional
+            Other keyward arguments passed to __init__.
         """
         
         if wd is None:
@@ -613,7 +641,6 @@ class XRDRockingCurve(XRDBaseScan):
                       dwell=scan_md['dwell'],
                       # Not nominal values - those would be fine.
                       theta=data_dict['theta'],
-                      poni_file=poni_file,
                       sclr_dict=sclr_dict,
                       beamline='5-ID (SRX)',
                       facility='NSLS-II',
@@ -621,7 +648,8 @@ class XRDRockingCurve(XRDBaseScan):
                       extra_metadata=extra_md,
                       save_hdf=save_hdf,
                       null_map=null_map,
-                      rocking_axis=rocking_axis
+                      rocking_axis=rocking_axis,
+                      **kwargs
                       )
             
             # Check for dark-field. Save but do not apply correction.
@@ -644,7 +672,26 @@ class XRDRockingCurve(XRDBaseScan):
                                  filename=None,
                                  wd=None):
         """
+        Load scaler dictionaries from a text file.
 
+        This function loads the scaler parameters from the output of
+        the io.db_io.save_map_parameters function without the encoder
+        values. This is intended to support loading parameters after
+        loading images from a 4D image stack. If the data is loaded
+        using the 'from_db' method, this function is not needed.
+
+        Parameters
+        ----------
+        filename : str
+            Name of text file with parameters.
+        wd : path string, optional
+            Path where the file can be found. Will use the internal
+            working directory if not provided.
+        
+        Notes
+        -----
+        This function is not commonly used. Loading the data with the
+        'from_db' method will load parameters by default.
         """
         
         if wd is None:
@@ -671,42 +718,6 @@ class XRDRockingCurve(XRDBaseScan):
 
         self.energy = energy
         self.set_scalers(sclr_dict)
-    
-
-    def load_metadata_from_txt(self,
-                               filename=None,
-                               wd=None):
-        """
-
-        """
-
-        if wd is None:
-            wd = self.wd
-
-        if filename is None:
-            mask = [(str(self.scan_id) in file
-                    and 'metadata' in file)
-                    for file in os.listdir(wd)]
-            filename = np.asarray(os.listdir(wd))[mask][0]
-
-        with open(f'{wd}{filename}', 'r') as f:
-            json_str = f.read()
-            md = json.loads(json_str)
-        
-        base_md = {key:value for key, value in md.items()
-                   if key in ['scan_id', 'theta', 'dwell']}
-        extra_md = {key:value for key, value in md.items()
-                    if key not in base_md.keys()}
-        if 'scan_id' in base_md.keys():
-            base_md['scan_id'] = base_md['scan_id']
-            del base_md['scan_id']
-        
-        base_md['scan_id'] = (f"{np.min(base_md['scan_id'])}"
-                             + f"-{np.max(base_md['scan_id'])}")
-        
-        for key, value in base_md.items():
-            setattr(self, key, value)
-        setattr(self, 'extra_metadata', extra_md)
         
 
     ################################################
@@ -717,7 +728,24 @@ class XRDRockingCurve(XRDBaseScan):
                           q_arr=None):
         
         """
-        lorem ipsum
+        Find the edges of the measured 3D reciprocal space volume.
+
+        Determine the edge image pixels of the measured 3D reciprocal
+        space volume and store them internally as lists of vectors
+        for each of the 12 (4 for first image, 4 for last image, and 4
+        for image corners) edges.
+
+        Parameters
+        ----------
+        q_arr : Numpy.ndarray of shape (N, 3)
+            Array of N rotations or energies/wavlengths matching the
+            number of images. None by default and the internal q_arr
+            attribute is used.
+
+        Raises
+        ------
+        AttributeError if q_arr is not provided and does not exist in
+        the current instance.
         """
         
         if q_arr is None:
@@ -755,15 +783,39 @@ class XRDRockingCurve(XRDBaseScan):
 
 
     def vectorize_images(self,
-                         override_blob_search=False,
                          rewrite_data=False,
                          verbose=False):
         """
-        
+        Convert 2D blobs into 3D reciprocal space vectors.
+
+        Convert each pixel inside of 2D blobs into a list of 3D
+        reciprocal space vectors. Each pixel is assigned it's q-space
+        coordinates and intensity. The vectors are then stored
+        internally and written to the HDF file if available as 
+        "vectors".
+
+        Parameters
+        ----------
+        rewrite_data : bool, optional,
+            Flag to determine the behavior of overwriting previously
+            written vector maps. False by default, preserving previously
+            written data.
+        verbose : bool, optional 
+            Flag to determine the function's verbosity. False
+            by default.
+
+        Raises
+        ------
+        AttributeError if "blob_masks" attribute does not exist and
+        cannot be loaded from the HDF File.
+
+        Notes
+        -----
+        XRDMaps should only be vectorized when compared to other maps
+        in a rotation or energy/wavelength series.
         """
 
-        if (not override_blob_search
-            and not hasattr(self, 'blob_masks')):
+        if not hasattr(self, 'blob_masks'):
             err_str = ('Must find 2D blobs first to avoid '
                        + 'overly large datasets.')
             raise ValueError(err_str)
@@ -827,7 +879,31 @@ class XRDRockingCurve(XRDBaseScan):
                      rewrite_data=False,
                      verbose=False):
         """
+        Save the vectors to the HDF file.
 
+        Parameters
+        ----------
+        vectors : list or Numpy.ndarray
+            List or Numpy.ndarray of vectors to be written.
+        edges : list, optional
+            List of lists of vectors defining the edges of the 
+            sampled reciprocal space volume. These will be written
+            into their own 'edges' group. Previous data will be
+            rewritten according to the rewrite_data flag. By default
+            no edges will be passed and nothing will be written. Only
+            used by XRDMapStack.
+        rewrite_data : bool, optional,
+            Flag to determine the behavior of overwriting previously
+            written vector maps. False by default, preserving previously
+            written data.
+        verbose : bool, optional 
+            Flag to determine the function's verbosity. False
+            by default.
+
+        Raises
+        ------
+        AttributeError if "vectors" is not provided and not and
+        attribute of XRDMap.
         """
 
         # Check input
@@ -860,7 +936,7 @@ class XRDRockingCurve(XRDBaseScan):
     @XRDBaseScan._protect_hdf()
     def load_vectors(self):
         """
-
+        Load the vectors from the HDF file.
         """
 
         self._load_vectors(self.hdf)
@@ -892,8 +968,9 @@ class XRDRockingCurve(XRDBaseScan):
         return int_mask
 
 
+    @copy_docstring(XRDBaseScan._find_blobs)
     def find_2D_blobs(self, *args, **kwargs):
-        XRDMap.find_2D_blobs(self, *args, **kwargs)
+        super()._find_blobs(self, *args, **kwargs)
 
         
     # Uncommon

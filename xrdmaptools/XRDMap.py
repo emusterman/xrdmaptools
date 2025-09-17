@@ -986,23 +986,23 @@ class XRDMap(XRDBaseScan):
 
     # Convenience function for loading scalers and positions
     # from standard map_parameters text file
-    def load_map_parameters(self,
-                            filename,
-                            wd=None,
-                            position_units=None):
+    def load_map_parameters_from_txt(self,
+                                     filename,
+                                     wd=None,
+                                     position_units=None):
         """
         Load positions and scaler dictionaries from a text file.
 
         This function loads the map parameters from the output of the
         io.db_io.save_map_parameters function. This is intended to
         support loading map parameters after loading images from a 4D
-        image stack. If the data is loaded is loaded using the
-        'from_db' method, this function is not needed.
+        image stack. If the data is loaded using the 'from_db' method,
+        this function is not needed.
 
         Parameters
         ----------
         filename : str
-
+            Name of text file with map parameters.
         wd : path string, optional
             Path where the file can be found. Will use the internal
             working directory if not provided.
@@ -1221,96 +1221,9 @@ class XRDMap(XRDBaseScan):
     ### Blobs and Spots ###
     #######################
 
-    def find_blobs(self,
-                   filter_method="minimum",
-                   multiplier=5,
-                   size=3,
-                   expansion=10,
-                   override_rescale=False):
-        """
-        Find significant blobs in the images.
-
-        Find the significant pixels in each image around each blob.
-        Blobs are determined as every pixel in a smoothed image above
-        some threshold value. Images are smoothed based on the filter
-        method and size. Threshold values are determined by the
-        standard deviation of all image values below 0.01 multiplied by
-        the multiplier value. Significant pixels can then be expanded
-        by a specified amount.
-
-        The resulting masks are stored internally and written the HDF
-        file if available as "blob_masks" in the "image_data" group.
-
-        Parameters
-        ----------
-        filter_method : {"minimum", "gaussian", "median"}, optional
-            Determines which filter method will be used from the
-            scipy.ndimage module. The "minimum" filter will also call a
-            small gaussian filter in order to avoid outliers. The
-            minimum filter is used by default.
-        multiplier
-            The value multiplied by the standard deviation of the
-            thresholded image noise used as the cutoff threshold of the
-            smoothed images. This is the main tuning parameter for blob
-            selection. Higher values lead to smaller and fewer blobs.
-            By default this is 5.
-        size : float or int, optional
-            The size argument passed to the smoothing filter in pixel
-            units. For "minimum" and "median" filters, this number
-            should be an integer. For the "gaussian" filter, this
-            number is the sigma value and can be a float. This value
-            has a more complex relationship with the size and number
-            of found blobs. By defaul this number is 3.
-        expansion : int, optional
-            How many pixels to expand beyond the thresholded pixels. By
-            default this number is 10.
-        override_rescale : bool, optional
-            Flag to override the internal check to ensure images have
-            been rescaled before searching for blobs.
-
-
-        Notes
-        -----
-        This function can only be performed on images after the
-        "rescale_images" correction has been applied under the
-        assumption that the 100 and 0 are the maximum and minimum
-        measureable pixel intensities. This means the 0.01 value
-        for determining the background noise is about 0.01% of the
-        measurable intensity on the detector.
-        """
-    
-        # Cleanup images as necessary
-        self._dask_2_numpy()
-        if not self.corrections['rescaled'] and not override_rescale:
-            warn_str = ("Finding blobs assumes images scaled between 0"
-                        + " and around 100. Current images have not "
-                        + "been rescaled. Apply this correction or "
-                        + "set 'override_rescale' to True in order to"
-                        + " continue.\nProceeding without changes.")
-            print(warn_str)
-            return
-
-        # Search each image for significant spots
-        blob_mask_list = find_blobs(
-                            self.images,
-                            mask=self.mask,
-                            filter_method=filter_method,
-                            multiplier=multiplier,
-                            size=size,
-                            expansion=expansion)
-        
-        self.blob_masks = np.asarray(
-                                blob_mask_list).reshape(self.shape)
-
-        # Save blob_masks to hdf
-        self.save_images(images='blob_masks',
-                         title='_blob_masks',
-                         units='bool',
-                         extra_attrs={
-                            'filter_method' : filter_method,
-                            'size' : size,
-                            'multiplier' : multiplier,
-                            'expansion' : expansion})
+    @copy_docstring(XRDBaseScan._find_blobs)
+    def find_blobs(self, *args, **kwargs):
+        super()._find_blobs(self, *args, **kwargs)
         
 
     def find_spots(self,
