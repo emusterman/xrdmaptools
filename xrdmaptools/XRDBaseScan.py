@@ -23,7 +23,8 @@ from xrdmaptools.utilities.utilities import (
     delta_array,
     pathify,
     _check_dict_key,
-    generate_intensity_mask
+    generate_intensity_mask,
+    copy_docstring
 )
 from xrdmaptools.io.hdf_io import (
     initialize_xrdbase_hdf,
@@ -299,15 +300,8 @@ class XRDBaseScan(XRDData):
 
     
     # Overwrite parent functions
+    @copy_docstring(XRDData.__str__)
     def __str__(self):
-        """
-        A simple represenation of the class.
-
-        Returns
-        -------
-        outstring : str
-            A simple representation of the class.
-        """
         ostr = (f'{self._hdf_type}:  scan_id={self.scan_id}, '
                 + f'energy={self.energy}, '
                 + f'shape={self.images.shape}')
@@ -315,17 +309,8 @@ class XRDBaseScan(XRDData):
 
 
     # Overwrite parent function
+    @copy_docstring(XRDData.__repr__)
     def __repr__(self):
-        """
-        A nice representation of the class with relevant information.
-
-        Returns
-        -------
-        outstring : str
-            A nice representation of the class with relevant
-            information.
-        """
-
         # Native info
         ostr = f'{self._hdf_type}:'
         ostr += f'\n\tFacility:\t{self.facility}'
@@ -597,6 +582,61 @@ class XRDBaseScan(XRDData):
                    wd=wd,
                    title=title,
                    **kwargs)
+        
+
+    def load_metadata_from_txt(self,
+                               filename=None,
+                               wd=None):
+        """
+        Load metadata from a text file.
+
+        This function loads the scaler parameters from the output of
+        the io.db_io.save_scan_md function values. This is intended to
+        support loading metadata after loading images from a 4D image
+        stack. If the data is loaded using the 'from_db' method, this
+        function is not needed.
+
+        Parameters
+        ----------
+        filename : str
+            Name of text file with parameters.
+        wd : path string, optional
+            Path where the file can be found. Will use the internal
+            working directory if not provided.
+        
+        Notes
+        -----
+        This function is not commonly used. Loading the data with the
+        'from_db' method will load metadata by default.
+        """
+
+        if wd is None:
+            wd = self.wd
+
+        if filename is None:
+            mask = [(str(self.scan_id) in file
+                    and 'metadata' in file)
+                    for file in os.listdir(wd)]
+            filename = np.asarray(os.listdir(wd))[mask][0]
+
+        with open(f'{wd}{filename}', 'r') as f:
+            json_str = f.read()
+            md = json.loads(json_str)
+        
+        base_md = {key:value for key, value in md.items()
+                   if key in ['scan_id', 'theta', 'dwell']}
+        extra_md = {key:value for key, value in md.items()
+                    if key not in base_md.keys()}
+        if 'scan_id' in base_md.keys():
+            base_md['scan_id'] = base_md['scan_id']
+            del base_md['scan_id']
+        
+        base_md['scan_id'] = (f"{np.min(base_md['scan_id'])}"
+                             + f"-{np.max(base_md['scan_id'])}")
+        
+        for key, value in base_md.items():
+            setattr(self, key, value)
+        setattr(self, 'extra_metadata', extra_md)
     
     
     ##################
@@ -844,10 +884,11 @@ class XRDBaseScan(XRDData):
     @property
     def q_arr(self):
         """
-        Get 3D vector coordinates is reciprocal space (q-space) for 
+        Get 3D vector coordinates in reciprocal space (q-space) for 
         every pixel in image with shape (image_shape, 3). These values
-        are detemined from tth_arr, chi_arr, and wavelength parameters.
-        This array is cached and can be cleared by deleting.
+        are detemined from scattering and azimuthal angles, incident
+        X-ray energy, and stage rotation. This array is cached and can
+        be cleared by deleting.
         """
 
         if hasattr(self, '_q_arr'):
@@ -866,8 +907,9 @@ class XRDBaseScan(XRDData):
                                wavelength=self.wavelength,
                                stage_rotation=theta,
                                degrees=self.polar_units == 'deg')
-            self._q_arr = q_arr.astype(self.dtype)
-            # self._q_arr = q_arr
+            self._q_arr = q_arr.astype(self.dtype) # makes a copy
+            # delete the old
+            del q_arr
 
             return self._q_arr
 
@@ -880,7 +922,7 @@ class XRDBaseScan(XRDData):
         """
         Internal function for deleting chached arrays related to
         detector calibration. Useful when changing incident X-ray
-        energy/wavelength, sample rotation (theta) or detector
+        energy/wavelength, sample rotation (theta), or detector
         calibration parameters.
         """
 
@@ -2718,9 +2760,101 @@ class XRDBaseScan(XRDData):
             setattr(self, key, value)
 
 
-    #################################
-    ### Generalized Spot Analysis ###
-    #################################
+    ################################
+    ### Blobs and Spots Analysis ###
+    ################################
+
+    def _find_blobs(self,
+                    filter_method="minimum",
+                    multiplier=5,
+                    size=3,
+                    expansion=10,
+                    override_rescale=False):
+        """
+        Find significant blobs in the images.
+
+        Find the significant pixels in each image around each blob.
+        Blobs are determined as every pixel in a smoothed image above
+        some threshold value. Images are smoothed based on the filter
+        method and size. Threshold values are determined by the
+        standard deviation of all image values below 0.01 multiplied by
+        the multiplier value. Significant pixels can then be expanded
+        by a specified amount.
+
+        The resulting masks are stored internally and written the HDF
+        file if available as "blob_masks" in the "image_data" group.
+
+        Parameters
+        ----------
+        filter_method : {"minimum", "gaussian", "median"}, optional
+            Determines which filter method will be used from the
+            scipy.ndimage module. The "minimum" filter will also call a
+            small gaussian filter in order to avoid outliers. The
+            minimum filter is used by default.
+        multiplier
+            The value multiplied by the standard deviation of the
+            thresholded image noise used as the cutoff threshold of the
+            smoothed images. This is the main tuning parameter for blob
+            selection. Higher values lead to smaller and fewer blobs.
+            By default this is 5.
+        size : float or int, optional
+            The size argument passed to the smoothing filter in pixel
+            units. For "minimum" and "median" filters, this number
+            should be an integer. For the "gaussian" filter, this
+            number is the sigma value and can be a float. This value
+            has a more complex relationship with the size and number
+            of found blobs. By defaul this number is 3.
+        expansion : int, optional
+            How many pixels to expand beyond the thresholded pixels. By
+            default this number is 10.
+        override_rescale : bool, optional
+            Flag to override the internal check to ensure images have
+            been rescaled before searching for blobs.
+
+
+        Notes
+        -----
+        This function can only be performed on images after the
+        "rescale_images" correction has been applied under the
+        assumption that the 100 and 0 are the maximum and minimum
+        measureable pixel intensities. This means the 0.01 value
+        for determining the background noise is about 0.01% of the
+        measurable intensity on the detector.
+        """
+    
+        # Cleanup images as necessary
+        self._dask_2_numpy()
+        if not self.corrections['rescaled'] and not override_rescale:
+            warn_str = ("Finding blobs assumes images scaled between 0"
+                        + " and around 100. Current images have not "
+                        + "been rescaled. Apply this correction or "
+                        + "set 'override_rescale' to True in order to"
+                        + " continue.\nProceeding without changes.")
+            print(warn_str)
+            return
+
+        # Search each image for significant spots
+        blob_mask_list = find_blobs(
+                            self.images,
+                            mask=self.mask,
+                            filter_method=filter_method,
+                            multiplier=multiplier,
+                            size=size,
+                            expansion=expansion)
+        
+        self.blob_masks = np.asarray(
+                                blob_mask_list).reshape(self.shape)
+
+        # Save blob_masks to hdf
+        self.save_images(images='blob_masks',
+                         title='_blob_masks',
+                         units='bool',
+                         extra_attrs={
+                            'filter_method' : filter_method,
+                            'size' : size,
+                            'multiplier' : multiplier,
+                            'expansion' : expansion})
+    
     
     # Wrapped for child classes
     @staticmethod
@@ -3071,8 +3205,8 @@ class XRDBaseScan(XRDData):
         tth : iterable, optional
             Two theta scattering angle of the integration data.
             Must have the same length as the integration data.
-            None by default and will look for an internal tth attribute, or
-            use a simple range if unavaible.
+            None by default and will look for an internal tth attribute,
+            or use a simple range if unavaible.
         units : str, optional
             Units of two theta scattering angle. None by default
             and will use an internal scattering_angle attribute if 
