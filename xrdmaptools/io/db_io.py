@@ -213,23 +213,7 @@ def manual_load_data(scan_id=-1,
         data_keys.append(f'{det}_image')
 
     # Get relevant hdf_information
-    r_paths, r_specs = _get_resources(bs_run, data_keys)
-
-    # Get relevant hdf information
-    # data_keys, resource_keys, xrd_dets = _get_resource_keys(bs_run,
-    #                                               data_keys=data_keys,
-    #                                               detectors=detectors,
-    #                                               returns=['xrd_dets'])                             
-    # r_paths = _get_resource_paths(bs_run, resource_keys)
-    # print(data_keys)
-    # print(r_paths.keys())
-
-    # Do not search for empty data
-    # Will eliminate redundant xpress3 keys
-    # for key in list(r_paths.keys()):
-    #     if len(r_paths[key]) == 0:
-    #         del r_paths[key]
-    # print(r_paths.keys())
+    r_paths, r_specs, r_shapes = _get_resources(bs_run, data_keys)
 
     # Load data
     _empty_lists = [[] for _ in range(len(data_keys))]
@@ -247,12 +231,15 @@ def manual_load_data(scan_id=-1,
     if 'stream0' in r_paths:
         r_paths = r_paths['stream0']
         r_specs = r_specs['stream0']
+        r_shapes = r_shapes['stream0']
     elif 'primary' in r_paths:
         r_paths = r_paths['primary']
         r_specs = r_specs['primary']
+        r_shapes = r_shapes['primary']
     
     # Convert from data_key keys to spec keys
     r_paths = {r_specs[key] : r_paths[key] for key in r_paths}
+    spec_shapes = {r_specs[key] : r_shapes[key] for key in r_shapes}
     
     # These are all essentially handlers with more conditionals for fixing data
     # Encoders
@@ -266,7 +253,9 @@ def manual_load_data(scan_id=-1,
                     data_dict[key].append(np.array(f[key]))
         # Stack data into array
         for key in enc_keys:
-            dr_rows, br_rows = _flag_broken_rows(data_dict[key], key)
+            dr_rows, br_rows = _flag_broken_rows(data_dict[key],
+                                                 key,
+                                                 expected_shape=spec_shapes[r_key])
             dropped_rows += dr_rows
             broken_rows += br_rows
 
@@ -294,7 +283,9 @@ def manual_load_data(scan_id=-1,
         for key in ['i0', 'im', 'it', 'i0_time']:
             if key not in data_dict:
                 continue
-            dr_rows, br_rows = _flag_broken_rows(data_dict[key], key)
+            dr_rows, br_rows = _flag_broken_rows(data_dict[key],
+                                                 key,
+                                                 expected_shape=spec_shapes[r_key])
             dropped_rows += dr_rows
             broken_rows += br_rows
 
@@ -307,7 +298,9 @@ def manual_load_data(scan_id=-1,
                 with h5py.File(r_path, 'r') as f:
                     data_dict[key].append(np.array(f['entry/data/data']))
             # Stack data into array
-            dr_rows, br_rows = _flag_broken_rows(data_dict[key], key)
+            dr_rows, br_rows = _flag_broken_rows(data_dict[key],
+                                                 key,
+                                                 expected_shape=spec_shapes[r_key])
             dropped_rows += dr_rows
             broken_rows += br_rows
             break
@@ -321,7 +314,9 @@ def manual_load_data(scan_id=-1,
             f = h5py.File(r_path, 'r')
             data_dict[key].append(f['entry/data/data'])
         # Stack data into array
-        dr_rows, br_rows = _flag_broken_rows(data_dict[key], key)
+        dr_rows, br_rows = _flag_broken_rows(data_dict[key],
+                                                key,
+                                                expected_shape=spec_shapes[r_key])
         dropped_rows += dr_rows
         broken_rows += br_rows
 
@@ -335,7 +330,9 @@ def manual_load_data(scan_id=-1,
                 with h5py.File(r_path, 'r') as f:
                     data_dict[key].append(np.array(f['entry/data/data']))
             # Stack data into array
-            dr_rows, br_rows = _flag_broken_rows(data_dict[key], key)
+            dr_rows, br_rows = _flag_broken_rows(data_dict[key],
+                                                 key,
+                                                 expected_shape=spec_shapes[r_key])
             dropped_rows += dr_rows
             broken_rows += br_rows
             break
@@ -347,7 +344,8 @@ def manual_load_data(scan_id=-1,
     data_dict = _repair_data_dict(data_dict,
                                   dropped_rows,
                                   broken_rows,
-                                  repair_method=repair_method)
+                                  repair_method=repair_method,
+                                  shape_dict=r_shapes)
     data_dict.update(supp_dict)
 
     out = [data_dict, scan_md]
@@ -460,19 +458,20 @@ def _load_baseline_metadata(bs_run, keys=None):
     return baseline_md
 
 
-def _flag_broken_rows(data_list, msg):
+def _flag_broken_rows(data_list, msg, expected_shape=None):
     # Majority of row shapes
-    mode_shape = tuple(mode([d.shape for d in data_list])[0])
+    if expected_shape is None:
+        expected_shape = tuple(mode([d.shape for d in data_list])[0])
 
     dropped_rows, broken_rows = [], []
     for row, d in enumerate(data_list):
         # Check for image shape issues
-        if d.ndim == 4 and d.shape[-2:] != mode_shape[-2:]:
+        if d.ndim == 4 and d.shape[-2:] != expected_shape[-2:]:
             print(f'WARNING: {msg} data from row {row} has an incorrect image shape.')
             dropped_rows.append(row)
             broken_rows.append(row)
-        elif d.shape[0] != mode_shape[0]:
-            print(f'WARNING: {msg} data from row {row} captured only {d.shape[0]}/{mode_shape[0]} points.')
+        elif d.shape[0] != expected_shape[0]:
+            print(f'WARNING: {msg} data from row {row} captured only {d.shape[0]}/{expected_shape[0]} points.')
             broken_rows.append(row)
 
     return dropped_rows, broken_rows
@@ -481,10 +480,15 @@ def _flag_broken_rows(data_list, msg):
 def _repair_data_dict(data_dict,
                       dropped_rows,
                       broken_rows,
-                      repair_method='replace'):
+                      repair_method='replace',
+                      shape_dict=None):
     if repair_method.lower() not in ['flatten', 'fill', 'replace']:
-            raise ValueError('Only "flatten", "fill", and "replace" repair methods are supported.')
-        
+        err_str = 'Only "flatten", "fill", and "replace" repair methods are supported.'
+        raise ValueError()
+    if repair_method.lower() == 'fill' and shape_dict is None:
+        err_str = 'repair_method of "fill" requires a shape_dict input.'
+        raise ValueError(err_str)
+
     keys = list(data_dict.keys())
 
     # Check data shape
@@ -547,49 +551,63 @@ def _repair_data_dict(data_dict,
 
         # Only Fill data for broken rows
         elif repair_method == 'fill':
-            data_dict['null_map'][row] = np.zeros(len(list(data_dict.values())[0][last_good_row]),\
+            data_dict['null_map'][row] = np.zeros(len(list(data_dict.values())[0][last_good_row]),
                                                   dtype=np.bool_)
+
             if row in broken_rows:
-                if last_good_row == -1:
-                    queued_rows.append(row)
-                else:
-                    for key in keys:
-                        filled_pts = (len(data_dict[key][last_good_row])
-                                     - len(data_dict[key][row]))
-                        if filled_pts > 0:
-                            print(f'Filled {filled_pts} points in row {row} for {key}.')
+                for key in keys:
+                    filled_pts = shape_dict[key][0] - len(data_dict[key][row])
+                    if filled_pts > 0:
+                        print(f'Filled {filled_pts} points in row {row} for {key}.')
 
-                            zero_row = np.zeros_like(np.asarray(data_dict[key][last_good_row]))
-                            #print(f'{zero_row.shape=}')
+                        zero_row = np.zeros(shape_dict[key])
 
-                            data_dict['null_map'][row][-filled_pts:] = (
-                                                            [True,] * filled_pts)
+                        data_dict['null_map'][row][-filled_pts:] = (
+                                                        [True,] * filled_pts)
 
-                            zero_row[:len(data_dict[key][row])] = data_dict[key][row]
-                            data_dict[key][row] = zero_row
+                        zero_row[:len(data_dict[key][row])] = data_dict[key][row]
+                        data_dict[key][row] = zero_row
+
+            # if row in broken_rows:
+            #     if last_good_row == -1:
+            #         queued_rows.append(row)
+            #     else:
+            #         for key in keys:
+            #             filled_pts = (len(data_dict[key][last_good_row])
+            #                          - len(data_dict[key][row]))
+            #             if filled_pts > 0:
+            #                 print(f'Filled {filled_pts} points in row {row} for {key}.')
+
+            #                 zero_row = np.zeros_like(np.asarray(data_dict[key][last_good_row]))
+
+            #                 data_dict['null_map'][row][-filled_pts:] = (
+            #                                                 [True,] * filled_pts)
+
+            #                 zero_row[:len(data_dict[key][row])] = data_dict[key][row]
+            #                 data_dict[key][row] = zero_row
                     
-            else:
-                last_good_row = row
-                if len(queued_rows) > 0:
-                    for q_row in queued_rows:
-                        for key in keys:
-                            filled_pts = (len(data_dict[key][last_good_row])
-                                        - len(data_dict[key][q_row]))
-                            if filled_pts > 0:
-                                print(f'Filled {filled_pts} points in row {q_row} for {key}.')
+            # else:
+            #     last_good_row = row
+            #     if len(queued_rows) > 0:
+            #         for q_row in queued_rows:
+            #             for key in keys:
+            #                 filled_pts = (len(data_dict[key][last_good_row])
+            #                             - len(data_dict[key][q_row]))
+            #                 if filled_pts > 0:
+            #                     print(f'Filled {filled_pts} points in row {q_row} for {key}.')
 
-                                zero_row = np.zeros_like(np.asarray(
-                                                            data_dict[key][last_good_row]
-                                                            ))
+            #                     zero_row = np.zeros_like(np.asarray(
+            #                                                 data_dict[key][last_good_row]
+            #                                                 ))
 
-                                data_dict['null_map'][q_row][-filled_pts:] = (
-                                                            [True,] * filled_pts)
+            #                     data_dict['null_map'][q_row][-filled_pts:] = (
+            #                                                 [True,] * filled_pts)
                                 
-                                zero_row[:len(data_dict[key][q_row])] = np.asarray(
-                                                                            data_dict[key][q_row]
-                                                                            )
-                                data_dict[key][q_row] = zero_row
-                        queued_rows = []           
+            #                     zero_row[:len(data_dict[key][q_row])] = np.asarray(
+            #                                                                 data_dict[key][q_row]
+            #                                                                 )
+            #                     data_dict[key][q_row] = zero_row
+            #             queued_rows = []           
         
         else:
             raise ValueError('Unknown repair method indicated.')
@@ -611,80 +629,6 @@ def _repair_data_dict(data_dict,
             data_dict[key] = np.asarray(data_dict[key])
     
     return data_dict
-
-
-# def _get_resource_paths(bs_run, resource_keys):
-
-#     docs = list(bs_run.documents())
-
-#     # Create dictionary of empty lists
-#     _empty_lists = [[] for _ in range(len(resource_keys))]
-#     resource_paths = dict(zip(resource_keys, _empty_lists))
-    
-#     for doc in docs:
-#         if doc[0] == 'resource':
-#             r_key = doc[1]['spec']
-#             if r_key in resource_keys:
-#                 resource_paths[r_key].append(doc[1]['resource_path'])
-
-#     return resource_paths
-
-
-# def _get_resource_keys(bs_run,
-#                        data_keys=None,
-#                        detectors=None,
-#                        returns=None):
-    
-#     # Find detectors if not specified
-#     if detectors is None:
-#         detectors = bs_run.start['scan']['detectors']
-#     else:
-#         detectors = [detector.name if type(detector) is not str else str(detector)
-#                      for detector in detectors]
-#     xrd_dets = [detector for detector in detectors if detector in ['merlin', 'dexela']]
-
-#     # Add default data keys
-#     if data_keys is None:
-#         data_keys = ['enc1', 'enc2', 'xs_fluor', 'i0', 'i0_time', 'im', 'it']
-
-#     # Append XRD data keys
-#     for detector in xrd_dets:
-#         data_keys.append(f'{detector}_image')
-
-#     # Determine actual resource keys
-#     resource_keys = []
-#     if any(key in ['enc1', 'enc2', 'enc3'] for key in data_keys):
-#         resource_keys.append('ZEBRA_HDF51')
-
-#     if any(key in ['i0', 'im', 'it'] for key in data_keys):
-#         resource_keys.append('SIS_HDF51')
-
-#     if any(key in ['xs_fluor'] for key in data_keys):
-#         # There must have been a type somehwere...
-#         # Multiple keys will be handled later
-#         resource_keys.append('XSP3_FLY') # After ca. Feb. 2024
-#         resource_keys.append('XPS3_FLY') # before ca. Feb. 2024
-
-#     if any(key in ['dexela_image'] for key in data_keys):
-#         resource_keys.append('DEXELA_FLY_V1')
-
-#     # Not sure if this is correct???
-#     if any(key in ['merlin_image'] for key in data_keys):
-#         # Not sure why there are two...
-#         resource_keys.append('MERLIN_FLY_V1')
-#         resource_keys.append('MERLIN_FLY_STREAM_V1')
-
-#     # Check for issues:
-#     if len(resource_keys) < 1:
-#         raise ValueError('No valid data resources requested.')
-
-#     out = [data_keys, resource_keys]
-
-#     if returns is not None:
-#         if 'xrd_dets' in returns or returns == 'xrd_dets':
-#             out.append(xrd_dets)
-
-#     return out
 
 
 def _get_resources(bs_run, data_keys):
@@ -723,13 +667,14 @@ def _get_resources(bs_run, data_keys):
             )
 
     # Build container
-    r_paths, r_specs = {}, {}
+    r_paths, r_specs, r_shapes = {}, {}, {}
     for uid, name, shapes in descriptors:
         data_dict = {}
         for key in shapes:
             data_dict[key] = [None,] * sum([page[0] == uid for page in event_pages])
         r_paths[name] = data_dict
         r_specs[name] = {key : None for key in shapes}
+        r_shapes[name] = shapes
 
     # Populate container with uids
     for uid, seq_num, resource_uids in event_pages:
@@ -742,7 +687,7 @@ def _get_resources(bs_run, data_keys):
         for data_key, paths in path_dict.items():
             path_dict[data_key] = list(OrderedDict.fromkeys(paths))
 
-    return r_paths, r_specs
+    return r_paths, r_specs, r_shapes
 
 ###########################
 ### Data Pre-processing ###
@@ -1044,10 +989,10 @@ def save_map_parameters(scan_id=-1,
                                               returns=['data_keys'])
 
     _save_map_parameters(data_dict,
-                        scan_md['scan_id'],
-                        data_keys=[],
-                        wd=wd,
-                        filename=filename)
+                         scan_md['scan_id'],
+                         data_keys=[],
+                         wd=wd,
+                         filename=filename)
 
 
 # Function to load and save scan metatdata
@@ -1210,7 +1155,7 @@ def load_step_rc_data(scan_id=-1,
     data_dict['theta'] /= 1000
 
     # Get relevant hdf_information
-    r_paths, r_specs = _get_resources(bs_run, ['xs_fluor', *[f'{det}_image' for det in supported_xrd_dets]])
+    r_paths, r_specs, r_shapes = _get_resources(bs_run, ['xs_fluor', *[f'{det}_image' for det in supported_xrd_dets]])
 
     # Parse r_paths
     supp_dict = {}
