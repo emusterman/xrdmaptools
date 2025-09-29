@@ -269,7 +269,7 @@ def manual_load_data(scan_id=-1,
         time_key = None
         for r_path in r_paths[r_key]:
             with h5py.File(r_path, 'r') as f:
-                if time_key is None:
+                if 'time' in sclr_keys:
                     time_key = [key for key in f.keys() if 'time' in key][0]
                     sclr_keys[sclr_keys.index('time')] = time_key
                     data_dict[time_key] = []
@@ -315,8 +315,8 @@ def manual_load_data(scan_id=-1,
             data_dict[key].append(f['entry/data/data'])
         # Stack data into array
         dr_rows, br_rows = _flag_broken_rows(data_dict[key],
-                                                key,
-                                                expected_shape=spec_shapes[r_key])
+                                             key,
+                                             expected_shape=spec_shapes[r_key])
         dropped_rows += dr_rows
         broken_rows += br_rows
 
@@ -1308,7 +1308,7 @@ def load_extended_energy_rc_data(start_id,
         scan_mds.append(scan_md)
     
     # Create empty dicts
-    all_data_keys = list(data_dicts[0].keys())
+    all_data_keys = [key for key in data_dicts[0].keys() if 'dark' not in key]
     _empty_lists = [[] for _ in range(len(all_data_keys))]
     all_data_dict = dict(zip(all_data_keys, _empty_lists))
 
@@ -1334,6 +1334,10 @@ def load_extended_energy_rc_data(start_id,
     # Convert md to arrays for consistency with hdf format
     for key in all_md_dict.keys():
         all_md_dict[key] = np.asarray(all_md_dict[key])
+    
+    for key in data_dicts[0].keys():
+        if 'dark' in key:
+            all_data_dict[key] = data_dicts[0][key]
     
     out = [all_data_dict, all_md_dict]
 
@@ -1426,7 +1430,7 @@ def load_flying_angle_rc_data(scan_id=-1,
     data_keys = [
         'i0',
         'im',
-        'it'
+        'it',
     ]
 
     if extra_data_keys is not None:
