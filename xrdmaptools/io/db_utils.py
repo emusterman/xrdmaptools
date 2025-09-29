@@ -1,9 +1,8 @@
 # This entire module is to separate the make_xrdmap_hdf to avoid circular imports
 # I could not figure another way around this...
 
-
 # Local imports
-from ..XRDMap import XRDMap
+from xrdmaptools import XRDMap
 
 # A very convenient wrapper without returning the class
 def make_xrdmap_hdf(scan_id=-1,
