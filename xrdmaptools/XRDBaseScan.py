@@ -51,6 +51,7 @@ from xrdmaptools.plot.geometry import (
 from xrdmaptools.plot.analysis import plot_waterfall
 from xrdmaptools.geometry.geometry import *
 from xrdmaptools.crystal.Phase import Phase, phase_selector
+from xrdmaptools.reflections.spot_blob_search import find_blobs
 
 
 class XRDBaseScan(XRDData):
@@ -2855,7 +2856,7 @@ class XRDBaseScan(XRDData):
                             'multiplier' : multiplier,
                             'expansion' : expansion})
     
-    
+
     # Wrapped for child classes
     @staticmethod
     def _trim_spots(spots,
