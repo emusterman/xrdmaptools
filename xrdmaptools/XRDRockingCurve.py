@@ -193,6 +193,11 @@ class XRDRockingCurve(XRDBaseScan):
                            'null_ind'],
             **xrdbasekwargs
             )
+        
+        # Null map may need to be reshaped
+        if hasattr(self, 'null_map') and self.null_map is not None:
+            if self.null_map.shape != self.map_shape:
+                self.null_map = self.null_map.reshape(self.map_shape)        
 
         # Check for changes. Wavelength will depend on energy
         if (np.all(~np.isnan(self.energy))
@@ -970,7 +975,7 @@ class XRDRockingCurve(XRDBaseScan):
 
     @copy_docstring(XRDBaseScan._find_blobs)
     def find_2D_blobs(self, *args, **kwargs):
-        super()._find_blobs(self, *args, **kwargs)
+        super()._find_blobs(*args, **kwargs)
 
         
     # Uncommon
@@ -1588,15 +1593,15 @@ class XRDRockingCurve(XRDBaseScan):
         # Parse inputs
         if spots_3D is not None:
             if isinstance(spots_3D, pd.DataFrame):
-                q_vectors = spots_3D[['qx', 'qy', 'qz']]
-                intensity = spots_3D['intensity']
+                q_vectors = spots_3D[['qx', 'qy', 'qz']].values
+                intensity = spots_3D['intensity'].values
                 default_title = '3D Spots'
                 skip = 1
                 kwargs['alpha'] = 1
-            elif (hasattr(self, spots_3D)
+            elif (hasattr(self, 'spots_3D')
                   and self.spots_3D is not None):
-                q_vectors = self.spots_3D[['qx', 'qy', 'qz']]
-                intensity = self.spots_3D['intensity']
+                q_vectors = self.spots_3D[['qx', 'qy', 'qz']].values
+                intensity = self.spots_3D['intensity'].values
                 default_title = '3D Spots'
                 skip = 1
                 kwargs['alpha'] = 1
@@ -1620,13 +1625,13 @@ class XRDRockingCurve(XRDBaseScan):
                 intensity = self.vectors[:, -1]
             else:
                 intensity = np.zeros(len(q_vectors),
-                                    dtype=q_vectors.dtype)
+                                     dtype=q_vectors.dtype)
 
         if edges is None and hasattr(self, 'edges'):
             edges = self.edges
 
         fig, ax = plot_3D_scatter(q_vectors,
-                                  intensity,
+                                  colors=intensity,
                                   skip=skip,
                                   edges=edges,
                                   **kwargs)
