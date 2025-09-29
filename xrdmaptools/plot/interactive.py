@@ -5,7 +5,7 @@ from mpl_toolkits.mplot3d.art3d import Path3DCollection
 from matplotlib.widgets import SpanSelector, RectangleSelector
 
 # Local imports
-from . import config
+from xrdmaptools.plot import config
 
 """
 Preliminary interactive plotting for scanning XRD maps from SRX beamline.
