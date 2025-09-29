@@ -190,33 +190,72 @@ def plot_azimuth(image, tth_arr, chi_arr, tth_range, chi_range=None, plotme=True
         ax.plot(bins[:-1], n)
         fig.show()
 
-    return n, bins, np.max(image[tth_mask])
+    return n, bins, np.sum(image[tth_mask])
 
 from scipy.stats import circmean
 from xrdmaptools.utilities.math import arbitrary_center_of_mass
 from xrdmaptools.utilities.utilities import Iterable2D
-def plot_hsv(xdm):
+def plot_hsv(xdm, tth_range, normalize=True):
 
-    hsv_plot = np.zeros((*xdm.map_shape, 3))
-    
-    max_full = np.max(xdm.images)
-    print(max_full)
+    hsv_map = np.zeros((*xdm.map_shape, 3))
+    int_map = np.zeros(xdm.map_shape)
 
     for indices in tqdm(Iterable2D(xdm.map_shape)):
 
         # n, bins, max_int = plot_azimuth(xdm.images[indices], xdm.tth_arr, xdm.chi_arr, tth_range=(11.8, 12.3), plotme=False, bins=180)
-        n, bins, max_int = plot_azimuth(xdm.images[indices], xdm.tth_arr, xdm.chi_arr, tth_range=(10.15, 10.3), plotme=False, bins=180)
+        # n, bins, max_int = plot_azimuth(xdm.images[indices], xdm.tth_arr, xdm.chi_arr, tth_range=(10.15, 10.3), plotme=False, bins=180)
+        n, bins, sum_int = plot_azimuth(xdm.images[indices], xdm.tth_arr, xdm.chi_arr, tth_range=tth_range, plotme=False, bins=180)
         
         bins -= np.min(bins)
 
         com = arbitrary_center_of_mass(n, bins[:-1])[0]
-
         hsv = np.asarray(plt.cm.hsv(com / np.max(bins))[:3])
-        # hsv *= (max_int / max_full)
 
-        hsv_plot[indices] = hsv
+        hsv_map[indices] = hsv
+        int_map[indices] = sum_int
     
-    return hsv_plot
+    if normalize:
+        int_map -= np.min(int_map)
+        int_map /= np.max(int_map)
+        # hsv_map = (hsv_map.T * int_map).T # I do not like this
+    
+    return hsv_map, int_map
+
+
+def plot_hsv2(xdm, tth_range, normalize=True):
+
+    hsv_map = np.zeros(xdm.map_shape)
+    var_map = np.zeros(xdm.map_shape)
+    int_map = np.zeros(xdm.map_shape)
+
+    for indices in tqdm(Iterable2D(xdm.map_shape)):
+        n, bins, sum_int = plot_azimuth(xdm.images[indices], xdm.tth_arr, xdm.chi_arr, tth_range=tth_range, plotme=False, bins=180)
+
+        com = arbitrary_center_of_mass(n, bins[:-1])[0]
+
+        
+        avg = np.average(bins[1:], weights=n)
+        var = np.average((bins[1:] - avg)**2, weights=n)
+
+        if com < bins.min() or com > bins.max():
+            com = np.nan
+
+        hsv_map[indices] = com
+        var_map[indices] = var
+        int_map[indices] = sum_int
+    
+    alpha = None
+    if normalize:
+        int_map -= np.min(int_map)
+        int_map /= np.max(int_map)
+        alpha = int_map
+    
+    return hsv_map, var_map, int_map
+
+    fig, ax = plt.subplots(dpi=300)
+    im = ax.imshow(hsv_map, alpha=alpha, cmap='jet')
+    fig.colorbar(im, ax=ax)
+    fig.show()
 
 
 
