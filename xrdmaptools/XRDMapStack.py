@@ -14,6 +14,7 @@ from matplotlib import patches
 from matplotlib.collections import PatchCollection
 from tqdm import tqdm
 from tqdm.dask import TqdmCallback
+import matplotlib.pyplot as plt
 
 from xrdmaptools.XRDBaseScan import XRDBaseScan
 from xrdmaptools.XRDMap import XRDMap
@@ -562,6 +563,7 @@ class XRDMapStack(list):
                     break
             else:
                 wd = d
+                break
         else:
             err_str = ('One or more files is missing from each '
                        + 'attempted directory in:\t'
@@ -667,23 +669,22 @@ class XRDMapStack(list):
                 if not os.path.exists(path):
                     warn_str = (f'File {path} cannot be found. Checking'
                                 + ' another directory for files.')
-                    orint(warn_str)
+                    print(warn_str)
                     break
             else:
                 wd = d
+                break
         else:
             err_str = ('One or more files is missing from each '
-                       + 'attempted directory in:\t'
+                       + 'attempted directory in:\n'
                        + '\t'.join(all_wd))
             raise FileNotFoundError(err_str)
 
         xrdmap_list = []
         for filename in timed_iter(hdf_filenames, iter_name='xrdmap'):
-            hdf_filename_i = os.path.basename(hdf_path_i)
-            wd_i = os.path.dirname(hdf_path_i)
             xrdmap_list.append(
                 XRDMap.from_hdf(
-                    hdf_filename_i,
+                    filename,
                     wd=wd,
                     dask_enabled=dask_enabled,
                     image_data_key=image_data_key,
@@ -1086,19 +1087,21 @@ class XRDMapStack(list):
                                              '.h5',
                                              check_exists=False)
 
-        # Check for hdf and initialize if new            
+        # Check for hdf and initialize if new
+               
         if not os.path.exists(self.xdms_hdf_path):
             # Initialize base structure
             initialize_xrdmapstack_hdf(self, self.xdms_hdf_path)
             # Clear hdf for protection
             self.xdms_hdf = None            
         else:
+            self.xdms_hdf = None
             # Update hdf_path information
             @XRDMapStack._protect_xdms_hdf()
             def save_attrs(self):
                 overwrite_attr(self.xdms_hdf[self._hdf_type].attrs,
                             'hdf_path',
-                            getattr(self, self.hdf_path))
+                            self.hdf_path)
             save_attrs(self)
 
         if save_current:
@@ -1616,6 +1619,7 @@ class XRDMapStack(list):
 
         if plotme:
             fig, ax = plt.subplots()
+            grid_colors = plt.cm.jet(np.linspace(0, 1, len(self)))
 
         # Contruct virtual masks of full grids to fill virtual grid
         virtual_masks = []
@@ -1639,9 +1643,9 @@ class XRDMapStack(list):
 
             if plotme:
                 ax.scatter(xxi.flatten(),
-                        yyi.flatten(),
-                        s=5,
-                        color=grid_colors[i])
+                           yyi.flatten(),
+                           s=5,
+                           color=grid_colors[i])
 
         # Store parameter. Write to hdf?
         self.virtual_masks = virtual_masks
