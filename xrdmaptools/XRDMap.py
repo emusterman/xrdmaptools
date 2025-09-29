@@ -31,7 +31,6 @@ from xrdmaptools.io.db_io import (
 from xrdmaptools.reflections.spot_blob_indexing import _initial_spot_analysis
 from xrdmaptools.reflections.SpotModels import GaussianFunctions
 from xrdmaptools.reflections.spot_blob_search import (
-    find_blobs,
     find_blobs_spots,
     find_spot_stats,
     make_stat_df,
@@ -1223,7 +1222,7 @@ class XRDMap(XRDBaseScan):
 
     @copy_docstring(XRDBaseScan._find_blobs)
     def find_blobs(self, *args, **kwargs):
-        super()._find_blobs(self, *args, **kwargs)
+        super()._find_blobs(*args, **kwargs)
         
 
     def find_spots(self,
@@ -1915,20 +1914,31 @@ class XRDMap(XRDBaseScan):
             and xrf_name is None
             and self.xrf_path is not None):
             xrf_path = self.xrf_path
+
+            if not os.path.exists(xrf_path):
+                raise FileNotFoundError(f"{xrf_path} does not exist.")
         else:
             if wd is None:
                 wd = self.wd
-
-            # Try default name for SRX
-            if xrf_name is None:
-                xrf_name =  f'scan2D_{self.scan_id}_xs_sum8ch'
             
-            xrf_path = pathify(wd, xrf_name, '.h5')        
+            # Try various filenames
+            for fname in [xrf_name,
+                          f'scan2D_{self.scan_id}_xs_sum8ch',
+                          f'autorun_scan2D_{self.scan_id}_xs_sum8ch']:
+                if fname is None:
+                    continue
 
-        if not os.path.exists(xrf_path): # redundant!
-            raise FileNotFoundError(f"{xrf_path} does not exist.")
-        else:
-            self.xrf_path = xrf_path
+                xrf_path = pathify(wd, fname, '.h5',
+                                   check_exists=False)
+
+                if os.path.exists(xrf_path):
+                    self.xrf_path = xrf_path
+                    break
+            else:
+                err_str = (f"Could not find a suitable file in {wd} "
+                           + f" for scan {self.scan_id} without more "
+                           + "information.")
+                raise FileNotFoundError(err_str)
 
         # Load the data
         xrf = {}
