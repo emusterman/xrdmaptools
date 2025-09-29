@@ -36,8 +36,8 @@ except ModuleNotFoundError:
 
 def standard_process_xdm(scan_id,
                          wd,
-                         dark_field,
-                         poni_file,
+                         dark_field=None,
+                         poni_file=None,
                          swapped_axes=False):
 
     if not isinstance(scan_id, XRDMap):
@@ -54,12 +54,12 @@ def standard_process_xdm(scan_id,
     if xdm.title == 'raw':
         # Basic corrections
         xdm.correct_dark_field(dark_field)
-        xdm.correct_air_scatter(xdm.med_image, applied_corrections=xdm.corrections)
         xdm.correct_scaler_energies(scaler_key='i0')
         xdm.convert_scalers_to_flux(scaler_key='i0')
         xdm.correct_scaler_energies(scaler_key='im')
         xdm.convert_scalers_to_flux(scaler_key='im')
         xdm.normalize_scaler()
+        xdm.correct_air_scatter(xdm.med_image, applied_corrections=xdm.corrections)
         xdm.correct_outliers(tolerance=10)
 
         # Geometric corrections
@@ -270,11 +270,11 @@ def auto_process_xdm(start_id,
             print(f'Processing scan {scan_id}...')
 
             # Find most recent dark field prior to this scan ID
-            dark_list = os.listdir(f'{wd}dark_fields/')
-            dark_scan_ids = [int(name[4:10]) for name in dark_list]
-            dark_diff_list = scan_id - np.array(dark_scan_ids, dtype=float)
-            dark_ind = np.nonzero(dark_diff_list > 0)[0][np.argmin(dark_diff_list[dark_diff_list > 0])]
-            dark_field = io.imread(f'{wd}dark_fields/{dark_list[dark_ind]}')
+            # dark_list = os.listdir(f'{wd}dark_fields/')
+            # dark_scan_ids = [int(name[4:10]) for name in dark_list]
+            # dark_diff_list = scan_id - np.array(dark_scan_ids, dtype=float)
+            # dark_ind = np.nonzero(dark_diff_list > 0)[0][np.argmin(dark_diff_list[dark_diff_list > 0])]
+            # dark_field = io.imread(f'{wd}dark_fields/{dark_list[dark_ind]}')
 
             # Find most recent poni_file prior to this scan ID
             poni_list = [file for file in os.listdir(f'{wd}calibrations/') if file[-4:] == 'poni']
@@ -285,8 +285,8 @@ def auto_process_xdm(start_id,
 
             xdm = standard_process_xdm(scan_id,
                                        wd,
-                                       dark_field,
-                                       poni_file,
+                                    #    dark_field,
+                                       poni_file=poni_file,
                                        swapped_axes=swapped_axes)
 
             print('Waiting 1 min to check for next scan...')
