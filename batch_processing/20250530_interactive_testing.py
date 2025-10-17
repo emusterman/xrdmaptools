@@ -7,6 +7,10 @@ from matplotlib.widgets import EllipseSelector, RectangleSelector
 
 from xrdmaptools.plot.interactive import _check_missing_key, _figsize, _dpi, _update_map, _set_globals, _update_axes
 
+def pixel_spots(spots, indices):
+    ps = spots[((spots['map_x'] == indices[1]) & (spots['map_y'] == indices[0]))]
+    return ps
+
 def static_window_stats_2D_plot(dyn_kw={},
                                 map_kw={},
                                 cmap='viridis',
@@ -251,9 +255,10 @@ def build_tracking_map(spots_3D):
             chi = pixel_df.iloc[ind]['chi']
             q_mag = pixel_df.iloc[ind]['q_mag']
             q_vec = pixel_df.iloc[ind][['qx', 'qy', 'qz']].values
-            # if np.abs(q_mag - 5.15628987) < 0.025:
-            if np.abs(q_mag - 4.1422022472) < 0.025:
+            if np.abs(q_mag - 5.15628987) < 0.025:
+            # if np.abs(q_mag - 4.1422022472) < 0.025:
             # if np.abs(q_mag - 4.22354026) < 0.025:
+            # if np.abs(q_mag - 5.18799) < 0.025:
                 mag_map[indices] = q_mag
                 phi_map[indices] = vector_angle([0, 0, -1], q_vec, degrees=True)
                 chi_map[indices] = vector_angle([-1, 0], q_vec[:-1], degrees=True)
