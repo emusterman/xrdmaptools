@@ -367,8 +367,10 @@ class XRDData:
                 dtype = self.integrations.dtype
             else:
                 dtype = None
-        self._dtype = dtype
-
+            self._dtype = dtype
+        else:
+            self.dtype = dtype # Convert
+        
         # Get corrections
         self.build_correction_dictionary(corrections)
 
@@ -1324,7 +1326,7 @@ class XRDData:
                    + 'This may take a while...'))
 
             # Upcast before writing to hdf
-            self.images = self.images.astype(np.float32)
+            self.dtype = np.float32
             self._hdf_store = self.hdf.require_dataset(
                         f'{self._hdf_type}/image_data/_temp_images',
                         shape=self.images.shape,
@@ -1443,7 +1445,7 @@ class XRDData:
             raise ValueError(err_str)
         
         # Store internally
-        self.dark_field = dark_field
+        self.dark_field = np.asarray(dark_field, dtype=self.dtype)
         
         print('Correcting dark-field...', end='', flush=True)
         self.images -= self.dark_field
@@ -1516,7 +1518,8 @@ class XRDData:
                 correction = (np.median(self.images)
                               - np.mean(flat_field))
             
-            self.flat_field = flat_field + correction
+            self.flat_field = np.asarray(flat_field + correction,
+                                         dtype=self.dtype)
             self.images /= self.flat_field
 
             self.save_images(images='flat_field')
@@ -1621,7 +1624,7 @@ class XRDData:
         
         print('Correcting air scatter...', end='', flush=True)
         # Copy and change type of air scatter as needed
-        air_scatter = air_scatter.astype(self.dtype)
+        air_scatter = np.asarray(air_scatter, dtype=self.dtype)
 
         if (self.corrections['dark_field']
             and not applied_corrections['dark_field']):
@@ -1778,11 +1781,21 @@ class XRDData:
                                  'energy_corrected_im',
                                  'i0',
                                  'im']:
+                    # Check if scaler exists and if it is not all
+                    # the same value.
                     if sclr_key in self.sclr_dict.keys():
-                        scaler_arr = self.sclr_dict[sclr_key]
-                        break
-                    else:
-                        sclr_key = None
+                        if np.std(self.sclr_dict[sclr_key]) == 0:
+                            warn_str = ("WARNING: Found scaler key "
+                                        +  f"{sclr_key}, but there is "
+                                        + "not variation across "
+                                        + "measured values. Looking "
+                                        + "for another scaler key.")
+                            print(warn_str)
+                            continue
+                        else:
+                            scaler_arr = self.sclr_dict[sclr_key]
+                            break
+
                 if sclr_key is None:
                     # Hope for the best
                     sclr_key = list(self.sclr_dict.keys())[0]
@@ -1805,7 +1818,7 @@ class XRDData:
             sclr_key = 'input'
 
         # Check shape everytime
-        scaler_arr = np.asarray(scaler_arr)
+        scaler_arr = np.asarray(scaler_arr, dtype=self.dtype)
         if scaler_arr.shape != self.map_shape:
             if 1 not in self.map_shape:
                 err_str = (f'Scaler array of shape {scaler_arr.shape}'
@@ -1868,7 +1881,7 @@ class XRDData:
             return
 
         if mask is not None:
-            self.defect_mask = np.asarray(mask).astype(np.bool_)
+            self.defect_mask = np.asarray(mask, dtype=np.bool_)
         else:
             mask = np.ones_like(self.min_image, dtype=np.bool_)
             mask *= ((self.min_image >= min_bounds[0])
@@ -1969,7 +1982,7 @@ class XRDData:
             raise AttributeError(err_str)
 
         # In radians
-        tth_arr = self.ai.twoThetaArray().astype(self.dtype)
+        tth_arr = self.ai.twoThetaArray()
 
         # Static area detector. Seems to work well
         lorentz_correction = 1 / np.sin(tth_arr / 2)
@@ -1978,7 +1991,8 @@ class XRDData:
             lorentz_correction *= np.cos(tth_arr / 2)
         
         # Save and apply Lorentz corrections
-        self.lorentz_correction = lorentz_correction
+        self.lorentz_correction = np.asarray(lorentz_correction,
+                                             dtype=self.dtype)
         self.save_images(images='lorentz_correction')
     
         if apply:
@@ -2053,9 +2067,9 @@ class XRDData:
         #                polarization * np.cos(2.0 * (chi_arr)) * (1.0 - cos2_tth))
 
         # From pyFAI
-        polar = self.ai.polarization(
-                    factor=polarization).astype(self.dtype)
-        self.polarization_correction = polar
+        polar = self.ai.polarization(factor=polarization)
+        self.polarization_correction = np.asarray(polar,
+                                                  dtype=self.dtype)
         self.save_images(images='polarization_correction')
         
         if apply:
@@ -2115,9 +2129,9 @@ class XRDData:
         # 'SA = pixel1 * pixel2 / dist^2 * cos(incidence)^3'
 
         # From pyFAI
-        solidangle_correction = self.ai.solidAngleArray().astype(
-                                                    self.dtype)
-        self.solidangle_correction = solidangle_correction
+        solidangle_correction = self.ai.solidAngleArray()
+        self.solidangle_correction = np.asarray(solidangle_correction,
+                                                dtype=self.dtype)
         self.save_images(images='solidangle_correction')
         
         if apply:
@@ -2224,7 +2238,8 @@ class XRDData:
                 x = np.sqrt(xi**2 + yi**2)
 
             abs_arr = np.exp(-x / a)
-            self.absorption_correction = abs_arr
+            self.absorption_correction = np.asarray(abs_arr,
+                                                    dtype=self.dtype)
             # Not sure about saving this...
             self.save_images(images='absorption_correction')
 
@@ -2331,13 +2346,15 @@ class XRDData:
                 ostr = ('Estimating background with '
                         + 'rolling ball method.')
                 print(ostr)
-                self.background = rolling_ball(self.images, **kwargs)
+                self.background = rolling_ball(self.images,
+                                        **kwargs).astype(self.dtype)
                 self.background_method = 'rolling ball'
 
             elif method in ['spline', 'spline fit', 'spline_fit']:
                 raise NotImplementedError(f'{method} not full supported.')
                 print('Estimating background with spline fit.')
-                self.background = fit_spline_bkg(self, **kwargs)
+                self.background = fit_spline_bkg(self,
+                                        **kwargs).astype(self.dtype)
                 self.background_method = 'spline'
 
             elif method in ['poly', 'poly fit', 'poly_fit']:
@@ -2346,7 +2363,8 @@ class XRDData:
                 warn_str = ('WARNING: This method is slow and '
                             + 'not very accurate.')
                 print(warn_str)
-                self.background = fit_poly_bkg(self, **kwargs)
+                self.background = fit_poly_bkg(self,
+                                        **kwargs).astype(self.dtype)
                 self.background_method = 'polynomial'
 
             elif method in ['Gaussian', 'gaussian', 'gauss']:
@@ -2355,18 +2373,24 @@ class XRDData:
                         + 'unavailable for this method.')
                 print(ostr)
                 self.background = masked_gaussian_background(
-                                                    self.images,
-                                                    **kwargs)
+                                        self.images,
+                                        **kwargs).astype(self.dtype)
                 self.background_method = 'gaussian'
+                if not inplace and type(self.background) != self.dtype:
+                    self.background = self.background.astype(
+                                                        self.dtype)
 
             elif method in ['Bruckner', 'bruckner']:
                 print('Estimating background with Bruckner algorithm.')
                 self.background = masked_bruckner_background(
-                                                    self.images,
-                                                    mask=self.mask,
-                                                    inplace=inplace,
-                                                    **kwargs)
-                self.background_method = 'bruckner'
+                                        self.images,
+                                        mask=self.mask,
+                                        inplace=inplace,
+                                        **kwargs)
+                self.background_method = 'bruckner'                        
+                if not inplace and type(self.background) != self.dtype:
+                    self.background = self.background.astype(
+                                                        self.dtype)
 
             elif method in ['none']:
                 print('No background correction will be used.')
@@ -2442,7 +2466,7 @@ class XRDData:
                 print('No background to remove.')
                 return
         else:
-            self.background = background
+            self.background = np.asarray(background, dtype=self.dtype)
             
         print('Removing background...', end='', flush=True)
         self.images -= self.background
@@ -2524,7 +2548,7 @@ class XRDData:
 
         polar_mask = (image != 0)
 
-        self.polar_mask = polar_mask
+        self.polar_mask = np.asarray(polar_mask, dtype=np.bool_)
     
 
     def rescale_images(self,
@@ -2693,7 +2717,7 @@ class XRDData:
                 raw_max_val -= var_func(self.background)
         # All other corrections are isolated within the image
 
-        return raw_max_val
+        return raw_max_val.astype(self.dtype)
 
 
     @_protect_hdf()
