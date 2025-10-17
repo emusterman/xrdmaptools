@@ -8,7 +8,7 @@ from collections import OrderedDict
 
 # Working at the beamline...
 try:
-    print('Connecting to databrokers...', end='', flush=True)
+    print('Connecting to database...', end='', flush=True)
     from tiled.client import from_profile
     from databroker.v1 import Broker
 
@@ -166,7 +166,7 @@ def load_db_data(scan_id=-1,
                 print(f'Loading data from {detector}_dark...', end='', flush=True)
                 dark = np.array(bs_run['dark']['data'][f'{detector}_image'])
                 dark = dark.squeeze().reshape(-1, *dark.shape[-2:])
-                data_dict[f'{detector}_dark'] = np.median(dark, axis=0)
+                data_dict[f'{detector}_dark'] = np.median(dark, axis=0, dtype=np.float32)
                 print('done!')
 
     out = [data_dict, scan_md]
@@ -560,7 +560,8 @@ def _repair_data_dict(data_dict,
                     if filled_pts > 0:
                         print(f'Filled {filled_pts} points in row {row} for {key}.')
 
-                        zero_row = np.zeros(shape_dict[key])
+                        zero_row = np.zeros(shape_dict[key],
+                                            dtype=data_dict[key][row].dtype)
 
                         data_dict['null_map'][row][-filled_pts:] = (
                                                         [True,] * filled_pts)
@@ -638,7 +639,7 @@ def _get_resources(bs_run, data_keys):
     event_pages = []
     resources = {}
 
-    for name, doc in bs_run.documents():
+    for i, (name, doc) in enumerate(bs_run.documents()):
         
         # Add all streams with data_keys matching those requested
         if (name == 'descriptor'
@@ -1162,7 +1163,9 @@ def load_step_rc_data(scan_id=-1,
     if 'dark' in r_paths:
         # Only dexela uses dark-field
         with h5py.File(r_paths['dark']['dexela_image'][0]) as f:
-            supp_dict['dexela_dark'] = np.median(f['entry/data/data'][:], axis=0)
+            supp_dict['dexela_dark'] = np.median(f['entry/data/data'][:],
+                                                 axis=0,
+                                                 dtype=np.float32)
     if 'stream0' in r_paths:
         r_paths = r_paths['stream0']
         r_specs = r_specs['stream0']
