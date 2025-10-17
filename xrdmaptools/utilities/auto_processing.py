@@ -17,7 +17,7 @@ from xrdmaptools.utilities.math import tth_2_q
 
 # Working at the beamline...
 try:
-    print('Connecting to databrokers...', end='', flush=True)
+    print('Connecting to database...', end='', flush=True)
     from tiled.client import from_profile
     c = from_profile('srx')
     print('done!')
@@ -38,82 +38,153 @@ def standard_process_xdm(scan_id,
                          wd,
                          dark_field=None,
                          poni_file=None,
-                         swapped_axes=False):
+                         air_scatter=True,
+                         save_final_images=True,
+                         nullify_bad_rows=False,
+                         swapped_axes=False,
+                         reprocess=False):
 
+    proc_dict = {
+        'images' : True,
+        'integrations' : True,
+        'blobs' : True,
+        'vectors' : True
+    }
     if not isinstance(scan_id, XRDMap):
         if os.path.exists(f'{wd}xrdmaps/scan{scan_id}_xrdmap.h5'):
             print('File found! Loading from HDF...')
-            xdm = XRDMap.from_hdf(f'scan{scan_id}_xrdmap.h5',
-                                  wd=f'{wd}xrdmaps/', image_data_key='raw', swapped_axes=swapped_axes)
+            
+            load_kwargs = {
+                'wd' : f'{wd}xrdmaps/',
+                'image_data_key' : 'raw',
+                'swapped_axes' : swapped_axes
+            }
+            if not reprocess:
+                temp_hdf = h5py.File(f'{wd}xrdmaps/scan{scan_id}_xrdmap.h5')
+                if 'final_images' in temp_hdf['xrdmap/image_data']:
+                    proc_dict['images'] = False
+                    load_kwargs['image_data_key'] = 'final'
+                if 'integration_data' in temp_hdf['xrdmap'] and 'final_integrations' in temp_hdf['xrdmap/integration_data']:
+                    proc_dict['integrations'] = False
+                    load_kwargs['integration_data_key'] = None
+                if '_blob_masks' in temp_hdf['xrdmap/image_data']:
+                    proc_dict['blobs'] = False
+                if 'vectorized_map' in temp_hdf['xrdmap']:
+                    proc_dict['vectors'] = False
+                temp_hdf.close()
+            
+            print(proc_dict)
+            if any(proc_dict.values()):
+                xdm = XRDMap.from_hdf(f'scan{scan_id}_xrdmap.h5',
+                                      **load_kwargs)
+            else:
+                xdm = None
         else:
             print('Loading data from server...')
             xdm = XRDMap.from_db(scan_id, wd=f'{wd}xrdmaps/', swapped_axes=swapped_axes)
     else:
+        # TODO: Look for processing conditions
         xdm = scan_id
     
-    if xdm.title == 'raw':
+    if proc_dict['images']:
         # Basic corrections
+        print(f'Initial dtype is {xdm.dtype}')
+        if xdm.images.dtype != np.float32:
+            print(f'WARNING: Initial data type is WRONG: {xdm.images.dtype}')
+            print('Trying to downcasting data to np.float32')
+            xdm.images = xdm.images.astype(np.float32)
+            xdm._dtype = xdm.images.dtype
         xdm.correct_dark_field(dark_field)
+        print(f'After dark-field dtype is {xdm.dtype}')
         xdm.correct_scaler_energies(scaler_key='i0')
         xdm.convert_scalers_to_flux(scaler_key='i0')
         xdm.correct_scaler_energies(scaler_key='im')
         xdm.convert_scalers_to_flux(scaler_key='im')
         xdm.normalize_scaler()
-        xdm.correct_air_scatter(xdm.med_image, applied_corrections=xdm.corrections)
+        if air_scatter == False:
+            pass
+        elif isinstance(air_scatter, np.ndarray):
+            xdm.correct_air_scatter(air_scatter)
+        elif air_scatter == True:
+            xdm.correct_air_scatter(xdm.med_image, applied_corrections=xdm.corrections)
+        else:
+            err_str = 'Error handling air_scatter. Designate array, None, or bool.'
+            raise RuntimeError(err_str)
         xdm.correct_outliers(tolerance=10)
+        print(f'Basic corrected dtype is {xdm.dtype}')
 
         # Geometric corrections
         xdm.set_calibration(poni_file, wd=f'{wd}calibrations/')
         xdm.apply_polarization_correction()
         xdm.apply_solidangle_correction()
+        print(f'Geometric dtype is {xdm.dtype}')
 
         # Background correction
         xdm.estimate_background(method='bruckner',
                                 binning=8,
                                 min_prominence=0.1)
-        
+        print(f'Background-subtracted dtype is {xdm.dtype}')
+
         # Rescale and saving
         xdm.rescale_images(arr_max=xdm.estimate_saturated_pixel())
-        xdm.finalize_images()
+        if save_final_images:
+            print(f'Final dtype is {xdm.dtype}')
+            if xdm.images.dtype != xdm.dtype:
+                print('WARNING: Data was somehow upcast!!!!')
+                print('Trying to downcasting data to np.float32')
+                xdm.images = xdm.images.astype(xdm.dtype)
+                xdm._dtype = xdm.images.dtype
+            xdm.finalize_images()
+
+    # Remove enitire bad rows
+    if nullify_bad_rows and xdm is not None:
+        bad_rows = np.any(xdm.null_map, axis=1)
+        xdm.images[bad_rows] = 0  
 
     # Integrate map
-    xdm.integrate1D_map()
+    if proc_dict['integrations']:
+        xdm.integrate1D_map()
 
     # Find blobs
-    xdm.find_blobs(filter_method='minimum',
-                   multiplier=5,
-                   size=3,
-                   expansion=10)
-    
+    if proc_dict['blobs']:
+        xdm.find_blobs(filter_method='minimum',
+                    multiplier=5,
+                    size=3,
+                    expansion=10)
+
     # Vectorize blobs
-    xdm.vectorize_map_data()
+    if proc_dict['vectors']:
+        xdm.vectorize_map_data()
 
     # Convert to 1D integrations
-    tth, intensity = xdm.integrate1D_image(xdm.max_image)
-    q = tth_2_q(tth, wavelength=xdm.wavelength)
+    if xdm is not None:
+        tth, intensity = xdm.integrate1D_image(xdm.max_image)
+        q = tth_2_q(tth, wavelength=xdm.wavelength)
 
-    np.savetxt(f'{wd}/max_1D_integrations/scan{xdm.scan_id}_max_1D_integration.txt',
-               np.asarray([q, tth, intensity]))
-    fig, ax = xdm.plot_integration(intensity, tth=tth, title='Max Integration', return_plot=True)
-    fig.savefig(f'{wd}max_1D_integrations/scan{xdm.scan_id}_max_integration.png')
-    plt.close('all')
+        np.savetxt(f'{wd}/max_1D_integrations/scan{xdm.scan_id}_max_1D_integration.txt',
+                np.asarray([q, tth, intensity]))
+        fig, ax = xdm.plot_integration(intensity, tth=tth, title='Max Integration', return_plot=True)
+        fig.savefig(f'{wd}max_1D_integrations/scan{xdm.scan_id}_max_integration.png')
+        plt.close('all')
 
-    io.imsave(f'{wd}integrated_maps/scan{xdm.scan_id}_max_map.tif', xdm.max_map)
+        io.imsave(f'{wd}integrated_maps/scan{xdm.scan_id}_max_map.tif', xdm.max_map)
 
-    images = xdm.images.copy()
-    xdm.dump_images()
-    images[~xdm.blob_masks] = 0
-    blob_sum_map = np.sum(images, axis=(2, 3))
+        images = xdm.images.copy()
+        xdm.dump_images()
+        images[~xdm.blob_masks] = 0
+        blob_sum_map = np.sum(images, axis=(2, 3))
 
-    io.imsave(f'{wd}integrated_maps/scan{xdm.scan_id}_blob_sum.tif', blob_sum_map)
+        io.imsave(f'{wd}integrated_maps/scan{xdm.scan_id}_blob_sum.tif', blob_sum_map)
 
     return xdm
 
 
 def standard_process_rsm(scan_id,
                          wd,
-                         dark_field,
-                         poni_file):
+                         dark_field=None,
+                         poni_file=None,
+                         air_scatter=True,
+                         save_final_images=True):
 
     if not isinstance(scan_id, XRDRockingCurve):
         if os.path.exists(f'{wd}reciprocal_space_maps/scan{scan_id}_rsm.h5'):
@@ -134,6 +205,15 @@ def standard_process_rsm(scan_id,
         rsm.correct_scaler_energies(scaler_key='im')
         rsm.convert_scalers_to_flux(scaler_key='im')
         rsm.normalize_scaler()
+        if air_scatter == False:
+            pass
+        elif isinstance(air_scatter, np.ndarray):
+            rsm.correct_air_scatter(air_scatter)
+        elif air_scatter == True:
+            rsm.correct_air_scatter(rsm.med_image, applied_corrections=rsm.corrections)
+        else:
+            err_str = 'Error handling air_scatter. Designate array, None, or bool.'
+            raise RuntimeError(err_str)
         rsm.correct_outliers(tolerance=10)
 
         # Geometric corrections
@@ -203,7 +283,7 @@ def prepare_standard_directories(wd):
 def auto_process_xdm(start_id,
                      stop_id=None,
                      wd=None,
-                     swapped_axes=False):
+                     **kwargs):
 
     # Prepare save locations
     prepare_standard_directories(wd)
@@ -287,7 +367,7 @@ def auto_process_xdm(start_id,
                                        wd,
                                     #    dark_field,
                                        poni_file=poni_file,
-                                       swapped_axes=swapped_axes)
+                                       **kwargs)
 
             print('Waiting 1 min to check for next scan...')
             ttime.sleep(60)
