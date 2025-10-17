@@ -244,7 +244,7 @@ class XRDMap(XRDBaseScan):
             null_map = None
 
         if len(xrd_data) > 1:
-            filenames = [f'scan{scan_md["scan_id"]}_{det}_xrd.h5'
+            filenames = [f'scan{scan_md["scan_id"]}_{det}_xrdmap.h5'
                          for det in xrd_dets]
         else:
             filenames = [filename]
