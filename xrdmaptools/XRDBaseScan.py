@@ -6,7 +6,7 @@ import scipy
 import pandas as pd
 from pyFAI.io import ponifile
 from enum import IntEnum # Only for ponifile orientation
-from pyFAI.azimuthalIntegrator import AzimuthalIntegrator
+
 import time as ttime
 import matplotlib.pyplot as plt
 from collections import OrderedDict
@@ -14,6 +14,12 @@ import dask.array as da
 import skimage.io as io
 from dask_image import imread as dask_io
 from tqdm import tqdm
+
+try:
+    from pyFAI.integrator.azimuth import AzimuthalIntegrator
+except ModuleNotFoundError:
+    from pyFAI.azimuthalIntegrator import AzimuthalIntegrator
+
 
 # Local imports
 from xrdmaptools.XRDData import XRDData
@@ -182,6 +188,7 @@ class XRDBaseScan(XRDData):
                  chi=None, # Used when loading from hdf
                  beamline='5-ID (SRX)',
                  facility='NSLS-II',
+                 detector='',
                  scan_input=None,
                  time_stamp=None,
                  extra_metadata=None,
@@ -203,6 +210,7 @@ class XRDBaseScan(XRDData):
 
         self.beamline = beamline
         self.facility = facility
+        self.detector = detector
         if time_stamp is None:
             time_stamp = ttime.ctime()
         self.time_stamp = time_stamp
@@ -317,7 +325,9 @@ class XRDBaseScan(XRDData):
         ostr += f'\n\tFacility:\t{self.facility}'
         ostr += f'\n\tBeamline:\t{self.beamline}'
         if self.scan_id is not None:
-            ostr += f'\n\tscan_id:\t\t{self.scan_id}'
+            ostr += f'\n\tScan_id:\t{self.scan_id}'
+        if hasattr(self, 'detector') and self.detector != '':
+            ostr += f'\n\tDetector:\t{self.detector}'
         ostr += f'\n\tEnergy:\t\t{self.energy} keV'
         if self.hdf_path is not None:
             ostr += f'\n\tHDF Path:\t{self.hdf_path}\n'
