@@ -252,7 +252,7 @@ class XRDMap(XRDBaseScan):
         extra_md = {}
         for key in scan_md.keys():
             if key not in ['scan_id',
-                           'beamline',
+                           'beamline_id',
                            'energy',
                            'dwell',
                            'theta',
@@ -275,6 +275,7 @@ class XRDMap(XRDBaseScan):
                       pos_dict=pos_dict,
                       beamline=scan_md['beamline_id'],
                       facility='NSLS-II',
+                      detector=det,
                       scan_input=scan_md['scan_input'],
                       time_stamp=scan_md['time_str'],
                       extra_metadata=extra_md,
