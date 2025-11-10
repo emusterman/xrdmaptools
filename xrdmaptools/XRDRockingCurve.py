@@ -609,7 +609,7 @@ class XRDRockingCurve(XRDBaseScan):
         extra_md = {}
         for key in scan_md.keys():
             if key not in ['scan_id',
-                           'beamline',
+                           'beamline_id',
                            'energy',
                            'dwell',
                            'theta',
@@ -647,8 +647,9 @@ class XRDRockingCurve(XRDBaseScan):
                       # Not nominal values - those would be fine.
                       theta=data_dict['theta'],
                       sclr_dict=sclr_dict,
-                      beamline='5-ID (SRX)',
+                      beamline=scan_md['beamline_id'],
                       facility='NSLS-II',
+                      detector=det,
                       # time_stamp=scan_md['time_str'],
                       extra_metadata=extra_md,
                       save_hdf=save_hdf,
