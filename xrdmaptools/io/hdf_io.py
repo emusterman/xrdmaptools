@@ -24,6 +24,7 @@ def initialize_xrdbase_hdf(xrdbase,
         base_grp.attrs['scan_id'] = xrdbase.scan_id
         base_grp.attrs['beamline'] = xrdbase.beamline #'5-ID (SRX)'
         base_grp.attrs['facility'] = xrdbase.facility #'NSLS-II'
+        base_grp.attrs['detector'] = xrdbase.detector #'dexela'
         base_grp.attrs['energy'] = xrdbase.energy
         base_grp.attrs['wavelength'] = xrdbase.wavelength
         base_grp.attrs['theta'] = xrdbase.theta
@@ -702,6 +703,7 @@ def initialize_xrdmapstack_hdf(xrdmapstack,
         base_grp.attrs['scan_id'] = xrdmapstack.scan_id
         base_grp.attrs['beamline'] = xrdmapstack.beamline #'5-ID (SRX)'
         base_grp.attrs['facility'] = xrdmapstack.facility #'NSLS-II'
+        base_grp.attrs['detector'] = xrdmapstack.detector #'dexela'
         base_grp.attrs['energy'] = xrdmapstack.energy
         base_grp.attrs['wavelength'] = xrdmapstack.wavelength
         base_grp.attrs['theta'] = xrdmapstack.theta
