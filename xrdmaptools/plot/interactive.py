@@ -7,6 +7,13 @@ from matplotlib.widgets import SpanSelector, RectangleSelector
 # Local imports
 from xrdmaptools.plot import config
 
+# config = lambda : None
+# config.figsize = (5, 5)
+# config.ext_figsize = (12, 5)
+# config.dpi = 200
+# config.cmap = 'viridis'
+# config.div_cmap = 'Spectral'
+
 """
 Preliminary interactive plotting for scanning XRD maps from SRX beamline.
 Ultimate goal is to allow for quick preliminary analysis during beamtime to allow diagnostic and on-the-fly testing and analysis. 
