@@ -16,7 +16,7 @@ from dask_image import imread as dask_io
 from tqdm import tqdm
 
 try:
-    from pyFAI.integrator.azimuth import AzimuthalIntegrator
+    from pyFAI.integrator.azimuthal import AzimuthalIntegrator
 except ModuleNotFoundError:
     from pyFAI.azimuthalIntegrator import AzimuthalIntegrator
 
