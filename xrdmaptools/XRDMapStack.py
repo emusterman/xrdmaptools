@@ -351,6 +351,7 @@ class XRDMapStack(list):
     # Universal attributes
     beamline = _universal_property_constructor('beamline')
     facility = _universal_property_constructor('facility')
+    detector = _universal_property_constructor('detector')
     shape = _universal_property_constructor('shape')
     image_shape = _universal_property_constructor('image_shape')
     map_shape = _universal_property_constructor('map_shape')
@@ -932,30 +933,6 @@ class XRDMapStack(list):
     ##################################################
     ### Pseudo-inherited XRDRockingCurve Functions ###
     ##################################################
-
-    # def get_sampled_edges(self, *args, **kwargs):
-    #     __doc__ = XRDRockingCurve.get_sampled_edges.__doc__
-    #     return XRDRockingCurve.get_sampled_edges(self, *args, **kwargs)
-
-    # @copy_docstring(XRDRockingCurve._set_rocking_axis)
-    # def _set_rocking_axis(self, *args, **kwargs):
-    #     return XRDRockingCurve._set_rocking_axis(self, *args, **kwargs)
-
-    
-    # @copy_docstring(XRDRockingCurve._title_with_scan_id)
-    # def _title_with_scan_id(self, *args, **kwargs):
-    #     __doc__ = XRDRockingCurve._title_with_scan_id.__doc__
-    #     return XRDRockingCurve._title_with_scan_id(self,
-    #                                                *args,
-    #                                                **kwargs)  
-
-
-    # @copy_docstring(XRDRockingCurve.plot_sampled_volume_outline)
-    # def plot_sampled_volume_outline(self, *args, **kwargs):
-    #     __doc__ = XRDRockingCurve.plot_sampled_volume_outline.__doc__
-    #     return XRDRockingCurve.plot_sampled_volume_outline(self,
-    #                                                 *args,
-    #                                                 **kwargs)
     
     get_sampled_edges = XRDRockingCurve.get_sampled_edges
     _set_rocking_axis = XRDRockingCurve._set_rocking_axis
