@@ -79,8 +79,8 @@ class GaussianFunctions(SpotModelBase):
     # Useful parameters
     name = 'Gaussian'
     abbr = 'gauss'
-    #par_1d = ['amp', 'x0', 'fwhm']
-    #par_2d = ['amp', 'x0', 'y0', 'fwhm_x', 'fwhm_y', 'theta']
+    par_1d = SpotModelBase.par_1d
+    par_2d = SpotModelBase.par_2d
     par_3d = ['amp', 'x0', 'y0', 'z0',
               'fwhm_x', 'fwhm_y','fwhm_z',
               'theta', 'phi']
@@ -186,8 +186,8 @@ class LorentzianFunctions(SpotModelBase):
     # Useful parameters
     name = 'Lorentzian'
     abbr = 'lorentz'
-    #par_1d = ['amp', 'x0', 'fwhm']
-    #par_2d = ['amp', 'x0', 'y0', 'fwhm_x', 'fwhm_y', 'theta']
+    par_1d = SpotModelBase.par_1d
+    par_2d = SpotModelBase.par_2d
 
     @staticmethod
     # @njit
