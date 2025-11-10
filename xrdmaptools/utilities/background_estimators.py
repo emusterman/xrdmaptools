@@ -521,7 +521,7 @@ def masked_bruckner_image_background(image, size, iterations, mask, min_prominen
             # print(f'Background converged after {i + 1} iterations!')
             break
     else:
-        print(f'Background fialed to converge after {iterations} iterations!')
+        print(f'Background failed to converge after {iterations} iterations!')
 
     return min_image
 
