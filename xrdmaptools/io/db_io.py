@@ -20,7 +20,7 @@ except ModuleNotFoundError:
     pass
 
 
-supported_xrd_dets = ['dexela', 'merlin']
+supported_xrd_dets = ['dexela', 'merlin', 'eiger']
 
 
 # Wrapper for all load data options...
@@ -336,8 +336,34 @@ def manual_load_data(scan_id=-1,
             dropped_rows += dr_rows
             broken_rows += br_rows
             break
+    
+    # Eiger
+    for r_key in ['AD_HDF5']:
+        if r_key in r_paths.keys():
+            vprint('Loading eiger...')
+            key = 'eiger_image'
+            for row_i, r_path in enumerate(r_paths[r_key]):
+                f = h5py.File(r_path, 'r')
+                row_data = f['entry/data/data']
+                dropped_inds = np.array(f['entry/instrument/NDAttributes/NDArrayUniqueId'][:])
+                # Built-in eiger fixes first
+                filled_pts = spec_shapes[r_key][0] - len(dropped_inds)
+                if filled_pts > 0:
+                    print(f'Auto-filled {filled_pts} points in row {row_i} for {key}.')
+                    full_row = np.zeros(spec_shapes[r_key], dtype=row_data.dtype)
+                    full_row[dropped_inds] = row_data
+                    row_data = full_row
+                    del full_row
+                data_dict[key].append(row_data)
 
-    # return data_dict
+            # Stack data into array
+            dr_rows, br_rows = _flag_broken_rows(data_dict[key],
+                                                 key,
+                                                 expected_shape=spec_shapes[r_key])
+            dropped_rows += dr_rows
+            broken_rows += br_rows
+            break
+
     # Repair data
     dropped_rows = sorted(list(np.unique(dropped_rows)))
     broken_rows = sorted(list(np.unique(broken_rows)))
@@ -567,48 +593,7 @@ def _repair_data_dict(data_dict,
                                                         [True,] * filled_pts)
 
                         zero_row[:len(data_dict[key][row])] = data_dict[key][row]
-                        data_dict[key][row] = zero_row
-
-            # if row in broken_rows:
-            #     if last_good_row == -1:
-            #         queued_rows.append(row)
-            #     else:
-            #         for key in keys:
-            #             filled_pts = (len(data_dict[key][last_good_row])
-            #                          - len(data_dict[key][row]))
-            #             if filled_pts > 0:
-            #                 print(f'Filled {filled_pts} points in row {row} for {key}.')
-
-            #                 zero_row = np.zeros_like(np.asarray(data_dict[key][last_good_row]))
-
-            #                 data_dict['null_map'][row][-filled_pts:] = (
-            #                                                 [True,] * filled_pts)
-
-            #                 zero_row[:len(data_dict[key][row])] = data_dict[key][row]
-            #                 data_dict[key][row] = zero_row
-                    
-            # else:
-            #     last_good_row = row
-            #     if len(queued_rows) > 0:
-            #         for q_row in queued_rows:
-            #             for key in keys:
-            #                 filled_pts = (len(data_dict[key][last_good_row])
-            #                             - len(data_dict[key][q_row]))
-            #                 if filled_pts > 0:
-            #                     print(f'Filled {filled_pts} points in row {q_row} for {key}.')
-
-            #                     zero_row = np.zeros_like(np.asarray(
-            #                                                 data_dict[key][last_good_row]
-            #                                                 ))
-
-            #                     data_dict['null_map'][q_row][-filled_pts:] = (
-            #                                                 [True,] * filled_pts)
-                                
-            #                     zero_row[:len(data_dict[key][q_row])] = np.asarray(
-            #                                                                 data_dict[key][q_row]
-            #                                                                 )
-            #                     data_dict[key][q_row] = zero_row
-            #             queued_rows = []           
+                        data_dict[key][row] = zero_row        
         
         else:
             raise ValueError('Unknown repair method indicated.')
@@ -916,7 +901,7 @@ def save_xrd_tifs(scan_id=-1,
 
 # Function to load and save composite pattern as tif
 def save_composite_pattern(scan_id=-1,
-                           broker='tiled',
+                           broker='manual',
                            method='sum',
                            subtract=None,
                            detectors=None,
@@ -933,7 +918,15 @@ def save_composite_pattern(scan_id=-1,
                                                         repair_method='flatten')
 
     xrd_data = [data_dict[f'{xrd_det}_image'] for xrd_det in xrd_dets]
-    
+
+    # Mask out eiger hot pixels
+    # May have some redundant operations
+    for xrd, det in zip(xrd_data, xrd_dets):
+        if det == 'eiger':
+            xrd = np.asarray(xrd)
+            mask = np.min(xrd, axis=range(xrd.ndim - 2)) == 2**32 - 1 # Saturated 32 bit unsigned integer
+            xrd[..., mask] = 0
+
     comps = make_composite_pattern(xrd_data, method=method, subtract=subtract)
 
     _save_composite_pattern(comps,
@@ -947,7 +940,7 @@ def save_composite_pattern(scan_id=-1,
 
 # Function to load and save calibration pattern as tif
 def save_calibration_pattern(scan_id=-1,
-                             broker='tiled',
+                             broker='manual',
                              detectors=None,
                              data_keys=[], 
                              wd=None):
@@ -1073,7 +1066,7 @@ def load_step_rc_data(scan_id=-1,
     scan_md = {
         'scan_id' : bs_run.start['scan_id'],
         'scan_uid' : bs_run.start['uid'],
-        'beamline' : bs_run.start['beamline_id'],
+        'beamline_id' : bs_run.start['beamline_id'],
         'scantype' : bs_run.start['scan']['type'],
         'detectors' : [det for det in bs_run.start['scan']['detectors']],
         'dwell' : bs_run.start['scan']['dwell'],
@@ -1091,7 +1084,7 @@ def load_step_rc_data(scan_id=-1,
 
     # Find area detectors
     xrd_dets = [det for det in scan_md['detectors']
-                if det in supported_xrd_dets]   
+                if det in supported_xrd_dets]
 
     data_keys = [
         'sclr_i0',
@@ -1165,35 +1158,67 @@ def load_step_rc_data(scan_id=-1,
         with h5py.File(r_paths['dark']['dexela_image'][0]) as f:
             supp_dict['dexela_dark'] = np.median(f['entry/data/data'][:],
                                                  axis=0,
-                                                 dtype=np.float32)
+                                                 ).astype(np.float32)
     if 'stream0' in r_paths:
         r_paths = r_paths['stream0']
         r_specs = r_specs['stream0']
+        r_shapes = r_shapes['stream0']
     elif 'primary' in r_paths:
         r_paths = r_paths['primary']
         r_specs = r_specs['primary']
+        r_shapes = r_shapes['primary']
     
-    # Convert from data_key keys to spec keys
-    r_paths = {r_specs[key] : r_paths[key] for key in r_paths}
+    # key = 'dexela_image'
+    # if key in data_keys:
+    #     vprint('Loading dexela...')
+    #     if 'AD_HDF5' in r_paths:
+    #         for r_path in r_paths['AD_HDF5']:
+    #             with h5py.File(r_path, 'r') as f:
+    #                 data_dict[key].append(np.asarray(f['entry/data/data']))
+    #     # Incorrect spec, but left in for backwards compatibility
+    #     elif 'TPX_HDF5' in r_paths:
+    #         for r_path in r_paths['AD_HDF5']:
+    #             with h5py.File(r_path, 'r') as f:
+    #                 data_dict[key].append(np.asarray(f['entry/data/data']))
 
-    # Dexela images saved differently with step rc
-    # Grap all paths regardless if requested
-    # No support for merlin just yet
-    # r_paths = _get_resource_paths(bs_run, ['AD_HDF5', 'TPX_HDF5', 'XSP3_FLY'])
-    
+    # Dexela
     key = 'dexela_image'
     if key in data_keys:
         vprint('Loading dexela...')
-        if 'AD_HDF5' in r_paths:
-            for r_path in r_paths['AD_HDF5']:
-                with h5py.File(r_path, 'r') as f:
-                    data_dict[key].append(np.asarray(f['entry/data/data']))
-        # Incorrect spec, but left in for backwards compatibility
-        elif 'TPX_HDF5' in r_paths:
-            for r_path in r_paths['AD_HDF5']:
+        if r_specs[key] in ['AD_HDF5' or 'TPX_HDF5']:
+            for r_path in r_paths[key]:
                 with h5py.File(r_path, 'r') as f:
                     data_dict[key].append(np.asarray(f['entry/data/data']))
     
+    # Merlin
+    key = 'merlin_image'
+    if key in data_keys:
+        vprint('Loading merlin...')
+        if r_specs[key] in ['AD_HDF5' or 'TPX_HDF5']:
+            for r_path in r_paths[key]:
+                with h5py.File(r_path, 'r') as f:
+                    data_dict[key].append(np.asarray(f['entry/data/data']))
+
+    # Eiger
+    key = 'eiger_image'
+    if key in data_keys:
+        vprint('Loading eiger...')
+        if r_specs[key] in ['AD_HDF5']:
+            for r_path in r_paths[key]:
+                with h5py.File(r_path, 'r') as f:
+                    row_data = np.asarray(f['entry/data/data'])
+                    dropped_inds = np.array(f['entry/instrument/NDAttributes/NDArrayUniqueId'][:])
+                    # Built-in eiger fixes
+                    filled_pts = r_shapes[key][0] - len(dropped_inds)
+                    if filled_pts > 0:
+                        print(f'Auto-filled {filled_pts} points for {key}.')
+                        full_row = np.zeros(r_shapes[key], dtype=row_data.dtype)
+                        full_row[dropped_inds] = row_data
+                        row_data = full_row
+                        del full_row
+                    data_dict[key].append(row_data)
+    
+    # xpress3
     key = 'xs_fluor'
     if key in data_keys:
         if len(r_paths['XSP3_FLY']) > 0:
@@ -1205,7 +1230,6 @@ def load_step_rc_data(scan_id=-1,
             vprint('WARNING: xspress3 data requested, but none found.')
             del data_dict['xs_fluor']
 
-    # No Merlin support...
 
     # Update data_keys
     data_keys = list(data_dict.keys())
@@ -1567,7 +1591,6 @@ def generate_scan_logfile(start_id,
     scan_statuses = []
     scan_detectors = []
     scan_inputs = []
-
 
     for scan_id in id_list:
         try:
