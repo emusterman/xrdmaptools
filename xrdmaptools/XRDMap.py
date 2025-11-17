@@ -141,6 +141,7 @@ class XRDMap(XRDBaseScan):
                 filename=None,
                 save_hdf=True,
                 data_keys=None,
+                xrd_dets=None,
                 repair_method='fill',
                 **kwargs):
 
@@ -221,6 +222,7 @@ class XRDMap(XRDBaseScan):
                             broker=broker,
                             detectors=None,
                             data_keys=data_keys,
+                            xrd_dets=xrd_dets,
                             returns=['data_keys',
                                      'xrd_dets'],
                             repair_method=repair_method)
@@ -238,10 +240,13 @@ class XRDMap(XRDBaseScan):
                      if key in sclr_keys}
 
         # Determine null_map
-        if 'null_map' in data_dict.keys():
-            null_map = data_dict['null_map']
-        else:
-            null_map = None
+        null_maps = []
+        for det in xrd_dets:
+            null_key = f'{det}_null_map'
+            if null_key in data_dict:
+                null_maps.append(data_dict[null_key])
+            else:
+                null_maps.append(None)
 
         if len(xrd_data) > 1:
             filenames = [f'scan{scan_md["scan_id"]}_{det}_xrdmap.h5'
@@ -267,7 +272,7 @@ class XRDMap(XRDBaseScan):
                       filename=filenames[i],
                       save_hdf=save_hdf,
                       image_data=image_data,
-                      null_map=null_map,
+                      null_map=null_maps[i],
                       energy=scan_md['energy'],
                       dwell=scan_md['dwell'],
                       theta=scan_md['theta'],
