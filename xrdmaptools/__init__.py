@@ -22,17 +22,17 @@ __date__ = "03/14/2024" # MM/DD/YYYY
 __version__ = '0.1.0'
 
 
-submodules = [
+__submodules__ = [
     'crystal',
     'geometry',
     'io',
     'reflections',
     'utilities',
-    'plot'
+    'plot',
+    'gui'
 ]
 
-# This is required for wildcard (*) imports
-__all__ = submodules + [
+__base_classes__ = [
     'XRDData',
     'XRDBaseScan',
     'XRDMap',
@@ -41,13 +41,23 @@ __all__ = submodules + [
 ]
 
 
-def __dir__():
-    return __all__
+# This is required for wildcard (*) imports
+__all__ = [s for s in dir() if not s.startswith('_')]
+__all__ += __submodules__ + __base_classes__
 
 
-# Bring class objects one level up for convenience
-from .XRDData import XRDData
-from .XRDBaseScan import XRDBaseScan
-from .XRDMap import XRDMap
-from .XRDRockingCurve import XRDRockingCurve
-from .XRDMapStack import XRDMapStack
+# Import submodules as necessary
+def __getattr__(attr):
+    import importlib
+
+    if attr in __base_classes__:
+        mod = importlib.import_module(f'{__name__}.{attr}')
+        # Base classes are brought up one level for convenience
+        globals()[attr] = getattr(mod, attr)
+        return globals()[attr]   
+    elif attr in __submodules__:
+        mod = importlib.import_module(f'{__name__}.{attr}')
+        return mod
+    else:
+        err_str = f"module {__name__} has no attribute {attr}"
+        raise AttributeError(err_str)
