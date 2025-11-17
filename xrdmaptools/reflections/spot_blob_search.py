@@ -31,7 +31,9 @@ from xrdmaptools.utilities.math import (
 )
 from xrdmaptools.utilities.utilities import (
     label_nearest_spots,
+    iterative_background
 )
+
 from xrdmaptools.geometry.geometry import (
     estimate_image_coords,
     estimate_polar_coords,
@@ -57,26 +59,17 @@ def resize_blobs(blob_image, distance=0):
     return resize_mask
 
 
-def blob_search(scaled_image,
+def blob_search(image,
                 mask=None,
-                filter_method='gaussian',
+                filter_method='minimum',
                 multiplier=5,
                 size=3,
                 expansion=None):
     
     if mask is None or np.all(mask):
-       temp_mask = np.ones_like(scaled_image, dtype=np.bool_)
+       temp_mask = np.ones_like(image, dtype=np.bool_)
     else:
         temp_mask = mask
-
-    # Estimate individual image offset and noise
-    pseudo_blob_mask = scaled_image < 0.01
-    pseudo_blob_mask *= temp_mask
-    image_noise = np.std(scaled_image[pseudo_blob_mask])
-    image_offset = np.median(scaled_image[pseudo_blob_mask])
-
-    # Mask image
-    mask_thresh = image_offset + multiplier * image_noise
 
     # Setup filter for the images
     # Works okay, could take no inputs...
@@ -93,11 +86,11 @@ def blob_search(scaled_image,
     
     if mask is not None:
         # Smooth image to reduce noise contributions
-        zero_image = np.copy(scaled_image)
+        zero_image = np.copy(image)
         zero_image[~temp_mask] = 0 # should be redundant
         zero_filter = image_filter(zero_image)
         
-        div_image = np.ones_like(scaled_image)
+        div_image = np.ones_like(image)
         div_image[~temp_mask] = 0
         filter_div = image_filter(div_image)
         
@@ -106,16 +99,23 @@ def blob_search(scaled_image,
         temp_mask[np.isnan(blurred_image)] = False
         # Clear image from masked values. Should not matter....
         blurred_image[~temp_mask] = 0
-
-        # Create mask for peak search
-        blob_mask = blurred_image > mask_thresh
-        blob_mask *= temp_mask
+    
     else:
-        zero_image = np.copy(scaled_image)
+        zero_image = np.copy(image)
         zero_image[~temp_mask] = 0 # should be redundant
         blurred_image = image_filter(zero_image)
 
-        blob_mask = blurred_image > mask_thresh
+    # Create and trim mask
+    blob_mask = iterative_background(blurred_image,
+                                     multiplier=multiplier)
+    # blob_mask = blurred_image > mask_thresh
+    blob_mask[~temp_mask] = 0
+
+    if (expansion is not None
+        and expansion != 0
+        and np.any(blob_mask)):
+        blob_mask = resize_blobs(blob_mask, distance=expansion)
+        blob_mask[~temp_mask] = 0
 
     # Exclude edges from analysis
     # They can be erroneous from filters
@@ -124,12 +124,85 @@ def blob_search(scaled_image,
     blob_mask[:, 0] = 0
     blob_mask[:, -1] = 0
 
-    if (expansion is not None
-        and expansion != 0
-        and np.any(blob_mask)):
-        blob_mask = resize_blobs(blob_mask, distance=expansion)
-
     return blob_mask, blurred_image
+
+
+# def blob_search(scaled_image,
+#                 mask=None,
+#                 filter_method='minimum',
+#                 multiplier=5,
+#                 size=3,
+#                 expansion=None):
+    
+#     if mask is None or np.all(mask):
+#        temp_mask = np.ones_like(scaled_image, dtype=np.bool_)
+#     else:
+#         temp_mask = mask
+
+#     # Estimate individual image offset and noise
+#     pseudo_blob_mask = scaled_image < 0.01
+#     pseudo_blob_mask *= temp_mask
+#     image_noise = np.std(scaled_image[pseudo_blob_mask])
+#     image_offset = np.median(scaled_image[pseudo_blob_mask])
+
+#     # Mask image
+#     mask_thresh = image_offset + multiplier * image_noise
+
+#     # Setup filter for the images
+#     # Works okay, could take no inputs...
+#     if str(filter_method).lower() in ['gaussian', 'gauss']:
+#         image_filter = lambda image : gaussian_filter(image, sigma=size)
+#     # Works best
+#     elif str(filter_method).lower() in ['minimum', 'min']:
+#         image_filter = lambda image : minimum_filter(gaussian_filter(image, sigma=1), size=size)
+#     # Gaussian is better and faster
+#     elif str(filter_method).lower() in ['median', 'med']:
+#         image_filter = lambda image : median_filter(image, size=size)
+#     else:
+#         raise ValueError('Unknown threshold method requested.')
+    
+#     if mask is not None:
+#         # Smooth image to reduce noise contributions
+#         zero_image = np.copy(scaled_image)
+#         zero_image[~temp_mask] = 0 # should be redundant
+#         zero_filter = image_filter(zero_image)
+        
+#         div_image = np.ones_like(scaled_image)
+#         div_image[~temp_mask] = 0
+#         filter_div = image_filter(div_image)
+        
+#         blurred_image = zero_filter / filter_div
+#         # Clean up some NaNs from median filters
+#         temp_mask[np.isnan(blurred_image)] = False
+#         # Clear image from masked values. Should not matter....
+#         blurred_image[~temp_mask] = 0
+
+#         # Create mask for peak search
+#         blob_mask = blurred_image > mask_thresh
+#         blob_mask *= temp_mask
+#     else:
+#         zero_image = np.copy(scaled_image)
+#         zero_image[~temp_mask] = 0 # should be redundant
+#         blurred_image = image_filter(zero_image)
+
+#         blob_mask = blurred_image > mask_thresh
+
+#     if (expansion is not None
+#         and expansion != 0
+#         and np.any(blob_mask)):
+#         blob_mask = resize_blobs(blob_mask, distance=expansion)
+    
+#     if mask is not None:
+#         blob_mask[~mask] = 0
+
+#     # Exclude edges from analysis
+#     # They can be erroneous from filters
+#     blob_mask[0] = 0
+#     blob_mask[-1] = 0
+#     blob_mask[:, 0] = 0
+#     blob_mask[:, -1] = 0
+
+#     return blob_mask, blurred_image
 
 
 def spot_search(scaled_image,
@@ -193,93 +266,6 @@ def blob_spot_search(scaled_image,
         blob_mask = resize_blobs(blob_mask, distance=expansion)
 
     return spots, blob_mask, blurred_image
-
-
-# # Must take scaled images!!!
-# def old_spot_search(scaled_image,
-#                 mask=None,
-#                 threshold_method='gaussian',
-#                 multiplier=5,
-#                 size=3,
-#                 min_distance=3,
-#                 expansion=None,
-#                 plotme=False):
-    
-#     """
-#     Returns spots in image coordinates.
-#     """
-
-#     if mask is None:
-#        mask = (scaled_image != 0)
-
-#     # Estimate individual image offset and noise
-#     pseudo_peak_mask = scaled_image < 0.01
-#     pseudo_peak_mask *= mask
-#     image_noise = np.std(scaled_image[pseudo_peak_mask])
-#     image_offset = np.median(scaled_image[pseudo_peak_mask])
-
-#     # Mask image
-#     mask_thresh = image_offset + multiplier * image_noise
-
-#     # Setup filter for the images
-#     # Works okay, could take no inputs...
-#     if str(threshold_method).lower() in ['gaussian', 'gauss']:
-#         image_filter = lambda image : gaussian_filter(image, sigma=size)
-#     # Works best
-#     elif str(threshold_method).lower() in ['minimum', 'min']:
-#         image_filter = lambda image : minimum_filter(gaussian_filter(image, sigma=1), size=size)
-#     # Gaussian is better and faster
-#     elif str(threshold_method).lower() in ['median', 'med']:
-#         image_filter = lambda image : median_filter(image, size=size)
-#     else:
-#         raise ValueError('Unknown threshold method requested.')
-    
-#     # Smooth image to reduce noise contributions
-#     zero_image = np.copy(scaled_image)
-#     zero_image[~mask] = 0 # should be redundant
-#     gauss_zero = image_filter(zero_image)
-
-#     div_image = np.ones_like(scaled_image)
-#     div_image[~mask] = 0
-#     gauss_div = image_filter(div_image)
-
-#     thresh_img = gauss_zero / gauss_div
-#     # Clean up some NaNs from median filters
-#     mask[np.isnan(thresh_img)] = False
-#     # Clear image from masked values. Should not matter....
-#     thresh_img[~mask] = 0
-
-#     # Create mask for peak search
-#     peak_mask = thresh_img > mask_thresh
-#     peak_mask *= mask
-
-#     # Exclude edges from analysis
-#     # They can be erroneous from filters
-#     peak_mask[0] = 0
-#     peak_mask[-1] = 0
-#     peak_mask[:, 0] = 0
-#     peak_mask[:, -1] = 0
-
-#     spots = peak_local_max(thresh_img,
-#                            #threshold_rel=image_noise,
-#                            min_distance=min_distance, # in pixel units...
-#                            labels=peak_mask,
-#                            num_peaks_per_label=np.inf)
-    
-#     # Expand blobs for better fitting
-#     if expansion is not None:
-#         peak_mask = expand_labels(peak_mask, distance=expansion)
-    
-#     if plotme:
-#         fig, ax = plt.subplots(1, 1, figsize=(9, 6), dpi=200)
-
-#         im = ax.imshow(scaled_image * mask, vmin=np.min([mask_thresh, 0]), vmax=10 * mask_thresh, aspect='auto')
-#         fig.colorbar(im, ax=ax)
-#         ax.scatter(spots[:, 1], spots[:, 0], s=1, c='r')
-
-#         fig.show()
-
-#     return spots, peak_mask, thresh_img
 
 
 # Parallelized function to find only blobs in 4D images
@@ -373,62 +359,6 @@ def find_blobs_spots(images,
         blob_mask_list.append(proc[1])
     
     return spot_list, blob_mask_list
-
-
-# # Old parallelized function for finding blobs and spots in xrddata
-# # Deprecated
-# def old_find_spots(xrddata,
-#                mask=None,
-#                threshold_method='gaussian',
-#                multiplier=5,
-#                size=3,
-#                expansion=None):
-
-#     # Converient way to iterate through image map
-#     iter_image = xrddata.images.reshape(xrddata.num_images, *xrddata.images.shape[-2:])
-
-#     # Dask wrapper to work wtih spot search function
-#     @dask.delayed
-#     def dask_spot_search(image,
-#                          mask=mask,
-#                          threshold_method=threshold_method,
-#                          multiplier=multiplier,
-#                          size=size,
-#                          expansion=expansion):
-        
-#         spots, spot_mask, thresh_image = spot_search(image,
-#                                                 mask=mask,
-#                                                 threshold_method=threshold_method,
-#                                                 multiplier=multiplier,
-#                                                 size=size,
-#                                                 expansion=expansion)
-#         return spots, spot_mask, # thesh_image
-
-#     # Create list of delayed tasks
-#     delayed_list = []
-#     for image in iter_image:
-#         # Convert dask to numpy arrays
-#         if isinstance(image, da.core.Array):
-#             image = image.compute()
-
-#         output = dask_spot_search(image, mask=mask, filter_method=filter_method,
-#                                                 multiplier=multiplier, size=size)
-#         delayed_list.append(output)
-
-#     # Process delayed tasks with callback
-#     print('Searching images for spots...')
-#     with TqdmCallback(tqdm_class=tqdm):
-#         proc_list = dask.compute(*delayed_list)
-
-#     # Separate outputs of original spot search function
-#     spot_list, mask_list = [], []
-#     #thresh_image_list = []
-#     for proc in proc_list:
-#         spot_list.append(proc[0])
-#         mask_list.append(proc[1])
-#         #thresh_image_list.append(proc[2])
-    
-#     return spot_list, mask_list, #thresh_image_list
 
 
 def spot_stats(spot, image, tth_arr, chi_arr, radius=5):
@@ -778,160 +708,6 @@ def fit_spots(xrdmap, SpotModel, max_dist=0.75, sigma=1):
     fit_succ = sum(~np.isnan(xrdmap.spots["fit_r_squared"]))
     num_spots = len(xrdmap.spots)
     print(f'Successfully fit {fit_succ} / {num_spots} spots ( {100 * fit_succ / num_spots:.1f} % ).')
-
-
-# # Deprecated
-# def prepare_fit_spots(xrdmap, max_dist=0.75, sigma=1):
-#     map_shape = xrdmap.map_shape
-
-#     @dask.delayed
-#     def delayed_segment_blobs(xrdmap,
-#                               map_indices,
-#                               mask,
-#                               blurred_image,
-#                               max_dist=max_dist):
-#         return segment_blobs(xrdmap,
-#                              map_indices,
-#                              mask,
-#                              blurred_image,
-#                              max_dist=max_dist)
-
-#     delayed_list = []
-#     print('Scheduling blob segmentation for spot fits...')
-#     for index in tqdm(range(xrdmap.num_images)):
-#         indices = np.unravel_index(index, map_shape)
-#         mask = xrdmap.blob_masks[indices]
-#         image = xrdmap.images[indices]
-
-#         if isinstance(image, da.core.Array):
-#             image = image.compute()
-            
-#         # Hard-coded sigma in pixel units. Not the best...
-#         blurred_image = gaussian_filter(median_filter(image, size=2), sigma=sigma)
-        
-#         spot_fits = delayed_segment_blobs(xrdmap,
-#                                           indices,
-#                                           mask,
-#                                           blurred_image,
-#                                           max_dist)
-#         delayed_list.append(spot_fits)
-
-#     print('Segmenting blobs for spot fits...')
-#     with TqdmCallback(tqdm_class=tqdm):
-#         result_list = dask.compute(*delayed_list)
-
-#     # Clean up the output list
-#     spot_fit_info_list = []
-#     for result in result_list:
-#         if result is not None:
-#             spot_fit_info_list.extend(result)
-
-#     return spot_fit_info_list
-
-
-# # Deprecated
-# def old_fit_spots(xrdmap, spot_fit_info_list, SpotModel):
-
-#     # Check for azimuthal discontinuities
-#     _, max_arr, shifted = modular_azimuthal_shift(xrdmap.chi_arr)
-
-#     # Add fit results columns 
-#     nan_list = [np.nan,] * len(xrdmap.spots)
-#     guess_labels = ['height',
-#                     'cen_tth',
-#                     'cen_chi',
-#                     'fwhm_tth',
-#                     'fwhm_chi']
-#     guess_labels = [f'guess_{guess_label}' for guess_label in guess_labels]
-#     fit_labels = ['amp',
-#                   'tth0',
-#                   'chi0',
-#                   'fwhm_tth',
-#                   'fwhm_chi',
-#                   'theta',
-#                   'offset',
-#                   'r_squared']
-#     fit_labels = [f'fit_{fit_label}' for fit_label in fit_labels]
-#     for fit_label in fit_labels:
-#         xrdmap.spots[fit_label] = nan_list
-
-#     @dask.delayed
-#     def delayed_fit(xrdmap, fit):
-
-#         fit_int = fit[0]
-#         fit_x = fit[1] # tth
-#         fit_y = fit[2] # chi
-
-#         # Shift azimuthal disconinuity
-#         fit_y, _, _ = modular_azimuthal_shift(fit_y, max_arr=max_arr, force_shift=shifted)
-
-#         spots_df = xrdmap.spots.iloc[fit[3]]
-#         num_spots = len(spots_df)
-
-#         if len(fit_int) / (6 * len(spots_df)) <= 1.5:
-#             #print(f'More unknowns than pixels in blob {blob_num}!')
-#             return [np.nan,] * (6 * len(spots_df) + 2) # Fit variables plus offset and r_squared
-
-#         p0 = [np.min(fit_int)] # Guess offset
-#         for index in spots_df.index:
-#             p0.extend(list(spots_df.loc[index][guess_labels].values))
-#             p0.append(0) # theta
-
-#         # Shift azimuthal discontinuity, only guess cen_chi
-#         p0[3::5], _, _ = modular_azimuthal_shift(p0[3::5], max_arr=max_arr, force_shift=shifted)
-
-#         bounds = generate_bounds(p0[1:], SpotModel.func_2d, tth_step=None, chi_step=None)
-#         bounds[0].insert(0, -np.inf) # offset lower bound
-#         bounds[1].insert(0, np.max(fit_int)) # offset upper bound
-
-#         try:
-#             popt, _ = curve_fit(SpotModel.multi_2d, [fit_x, fit_y], fit_int, p0=p0, bounds=bounds)
-#             r_squared = compute_r_squared(fit_int, SpotModel.multi_2d([fit_x, fit_y], *popt))
-#             #print(f'done! R² is {r_squared:.4f}')
-#         except RuntimeError:
-#             #print('Fitting failed!')
-#             popt = [np.nan,] * len(p0)
-#             r_squared = np.nan
-
-#         # Write updates to dataframe|
-#         offset = popt[0]
-#         fit_arr = np.array(popt[1:]).reshape(num_spots, 6)
-
-#         # Reshift azimuthal discontinuities
-#         fit_arr[:, 2] = modular_azimuthal_reshift(fit_arr[:, 2], max_arr=max_arr)
-
-#         for i, spot_index in enumerate(spots_df.index):
-#             xrdmap.spots.loc[spot_index, fit_labels] = [*fit_arr[i], offset, r_squared]
-
-#     # Scheduling delayed fits
-#     delayed_list = []
-#     for fit in spot_fit_info_list:
-#         delayed_list.append(delayed_fit(xrdmap, fit))
-
-#     # Computation
-#     print('Fitting spots in blobs...')
-#     with TqdmCallback(tqdm_class=tqdm):
-#             dask.compute(*delayed_list)
-
-#     fit_succ = sum(~np.isnan(xrdmap.spots["fit_r_squared"]))
-#     num_spots = len(xrdmap.spots)
-#     print(f'Successfully fit {fit_succ} / {num_spots} spots ( {100 * fit_succ / num_spots:.1f} % ).')
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 ####################
