@@ -44,37 +44,6 @@ def iterative_outlier_correction(images, size=2, tolerance=0.5):
 
 
 
-# def iterative_outlier_correction(images, size=2, tolerance=2):
-#     # Assumption is that the image axes are the last two
-
-#     images = np.asarray(images)
-#     image_shape = images.shape[-2:]
-#     set_shape = images.shape[:-2]
-
-#     num_pixels_replaced = 0
-#     for index in tqdm(range(np.prod(set_shape))):
-#         indices = np.unravel_index(index, set_shape)
-
-#         image = images[indices]
-
-#         if isinstance(images, da.core.Array):
-#             med_image = dask_ndi.median_filter(image, size=size)
-#         else:
-#             med_image = ndi.median_filter(image, size=size)
-
-#         ratio_image = np.abs(image / med_image)
-#         replace_mask = (ratio_image > tolerance)
-
-#         # better way to do this?
-#         image[replace_mask] = 0
-#         med_image[~replace_mask] = 0
-#         images += med_image
-
-#         num_pixels_replaced += np.sum(replace_mask)
-
-#     return images
-
-
 # OPTIMIZE ME: copies a lot of data
 # Iterative approach might be faster, with Numba and Dask?
 def find_outlier_pixels(images, size=2, tolerance=2):
@@ -122,30 +91,6 @@ def find_outlier_pixels(images, size=2, tolerance=2):
     #    data[index] = med_image[index]
 
     return images
-
-
-#def old_find_outlier_pixels(data, size=2, tolerance=3, significance=None):
-#    """
-#   data        (arr)   Input 2D image. Cannot handle higher dimensional data yet...   
-#   size        (float) Size of median window. 2 by default only accounts for nearest neighbor pixels
-#   tolerance   (float) Multiplier value above which to consider a pixel as an outlier. By default 3 times the median value
-#   signficance (float) Signficance value below which to ignore contributions from noise fluctuations. 
-#                        Set to 5 * data standard deviation. Causes issues with Bragg peaks currently.
-#    TODO better account for significance. Better account for multidimensional data...
-#    """
-#
-#    med_img = ndi.median_filter(data, size=size, mode='mirror')
-#
-#    ratio_img = np.abs(data / med_img)
-#    diff_img = np.abs(data - med_img)
-#
-#    if significance is None:
-#        significance = 5 * np.std(data)
-#
-#    replace_mask = (ratio_img > tolerance) & (diff_img > significance)
-#    fixed_img = np.copy(data)
-#    fixed_img[replace_mask] = med_img[replace_mask]
-#    return fixed_img
 
 
 def rebin(arr, new_shape=None, bin_size=(2, 2), method='sum', keep_range=False):
@@ -203,25 +148,5 @@ def iter_rescale_array(arr, lower=0, upper=1, arr_min=None, arr_max=None):
     with TqdmCallback(desc='Computing...', tqdm_class=tqdm):
         dask.compute(*arr.ravel())
         
-
-
-
-"""def rebin(arr, new_shape, method='sum'):
-    # TODO: Generalize further based on binning number and not image shape...
-    shape = (new_shape[0], arr.shape[0] // new_shape[0],
-             new_shape[1], arr.shape[1] // new_shape[1])
-    if method == 'sum':
-        return arr.reshape(shape).sum(-1).sum(1)
-    elif method == 'mean':
-        return arr.reshape(shape).mean(-1).mean(1)
-    else:
-        raise IOError('Must input a valid method for rebinning')
-
-
-def rebin_2(arr, new_shape):
-    new_shape = (arr.shape[0] // 2, arr.shape[1] // 2)
-    shape = (new_shape[0], arr.shape[0] // new_shape[0],
-             new_shape[1], arr.shape[1] // new_shape[1])
-    return arr.reshape(shape).sum(-1).sum(1)"""
 
 
