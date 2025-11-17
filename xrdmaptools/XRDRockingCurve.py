@@ -578,10 +578,14 @@ class XRDRockingCurve(XRDBaseScan):
         sclr_dict = {key:value for key, value in data_dict.items()
                      if key in sclr_keys}
 
-        if 'null_map' in data_dict.keys():
-            null_map = data_dict['null_map']
-        else:
-            null_map = None
+        # Determine null_map
+        null_maps = []
+        for det in xrd_dets:
+            null_key = f'{det}_null_map'
+            if null_key in data_dict:
+                null_maps.append(data_dict[null_key])
+            else:
+                null_maps.append(None)
         
         if filename is None:
             if len(xrd_data) < 1:
@@ -653,7 +657,7 @@ class XRDRockingCurve(XRDBaseScan):
                       # time_stamp=scan_md['time_str'],
                       extra_metadata=extra_md,
                       save_hdf=save_hdf,
-                      null_map=null_map,
+                      null_map=null_maps[i],
                       rocking_axis=rocking_axis,
                       **kwargs
                       )
