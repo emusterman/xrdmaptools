@@ -7,23 +7,17 @@ import time as ttime
 import matplotlib.pyplot as plt
 
 # Local imports
-from xrdmaptools.XRDRockingCurve import XRDRockingCurve
-from xrdmaptools.XRDMap import XRDMap
-from xrdmaptools.XRDMapStack import XRDMapStack
-from xrdmaptools.io.db_io import *
-from xrdmaptools.utilities.utilities import pathify
-from xrdmaptools.utilities.math import tth_2_q
+from .. import XRDRockingCurve
+from .. import XRDMap
+from .. import XRDMapStack
+from ..io.db_io import c, _load_tiled_catalog
+from .utilities import pathify
+from .math import tth_2_q
 
+# Load database if not already. This may fail...
+if c is None:
+    _load_tiled_catalog()
 
-# Working at the beamline...
-try:
-    print('Connecting to database...', end='', flush=True)
-    from tiled.client import from_profile
-    c = from_profile('srx')
-    print('done!')
-except ModuleNotFoundError:
-    print('failed.')
-    pass
 
 
 # TODO:
@@ -39,19 +33,30 @@ def standard_process_xdm(scan_id,
                          dark_field=None,
                          poni_file=None,
                          air_scatter=True,
-                         save_final_images=True,
-                         nullify_bad_rows=False,
+                         proc_dict=None,
                          swapped_axes=False,
                          reprocess=False):
 
-    proc_dict = {
+    
+    # Standard. Rewrite as needed
+    _proc_dict = {
         'images' : True,
+        'save_images' : True,
+        'nullify_bad_rows' : False,
         'integrations' : True,
         'blobs' : True,
-        'vectors' : True
+        'vectors' : True,
+        'maximums' : True
     }
+    _proc_dict.update(proc_dict or {})
+
     if not isinstance(scan_id, XRDMap):
-        if os.path.exists(f'{wd}xrdmaps/scan{scan_id}_xrdmap.h5'):
+        if isinstance(scan_id, str):
+            fname = scan_id
+        else:
+            fname = f'scan{int(scan_id)}_xrdmap.h5'
+
+        if os.path.exists(f'{wd}xrdmaps/{fname}'):
             print('File found! Loading from HDF...')
             
             load_kwargs = {
@@ -60,42 +65,43 @@ def standard_process_xdm(scan_id,
                 'swapped_axes' : swapped_axes
             }
             if not reprocess:
-                temp_hdf = h5py.File(f'{wd}xrdmaps/scan{scan_id}_xrdmap.h5')
+                temp_hdf = h5py.File(f'{wd}xrdmaps/{fname}')
                 if 'final_images' in temp_hdf['xrdmap/image_data']:
-                    proc_dict['images'] = False
+                    _proc_dict['images'] = False
+                    _proc_dict['save_images'] = False
                     load_kwargs['image_data_key'] = 'final'
                 if 'integration_data' in temp_hdf['xrdmap'] and 'final_integrations' in temp_hdf['xrdmap/integration_data']:
-                    proc_dict['integrations'] = False
+                    _proc_dict['integrations'] = False
                     load_kwargs['integration_data_key'] = None
                 if '_blob_masks' in temp_hdf['xrdmap/image_data']:
-                    proc_dict['blobs'] = False
+                    _proc_dict['blobs'] = False
                 if 'vectorized_map' in temp_hdf['xrdmap']:
-                    proc_dict['vectors'] = False
+                    _proc_dict['vectors'] = False
                 temp_hdf.close()
+
+                if all([os.path.exists(p) for p in [f'{wd}/max_1D_integrations/scan{fname[4:10]}_max_1D_integration.txt',
+                                                    f'{wd}max_1D_integrations/scan{fname[4:10]}_max_integration.png',
+                                                    f'{wd}integrated_maps/scan{fname[4:10]}_max_map.tif',
+                                                    f'{wd}integrated_maps/scan{fname[4:10]}_blob_sum.tif']]):
+                    _proc_dict['maximums'] = False
             
-            print(proc_dict)
-            if any(proc_dict.values()):
-                xdm = XRDMap.from_hdf(f'scan{scan_id}_xrdmap.h5',
-                                      **load_kwargs)
+            if any(_proc_dict.values()):
+                xdm = XRDMap.from_hdf(fname, **load_kwargs)
             else:
                 xdm = None
         else:
-            print('Loading data from server...')
-            xdm = XRDMap.from_db(scan_id, wd=f'{wd}xrdmaps/', swapped_axes=swapped_axes)
+            if not isinstance(scan_id, str):
+                print('Loading data from server...')
+                xdm = XRDMap.from_db(scan_id, wd=f'{wd}xrdmaps/', swapped_axes=swapped_axes)
+            else:
+                raise ValueError(f'Scan ID must be string not {scan_id}')
     else:
         # TODO: Look for processing conditions
         xdm = scan_id
     
-    if proc_dict['images']:
+    if _proc_dict['images']:
         # Basic corrections
-        print(f'Initial dtype is {xdm.dtype}')
-        if xdm.images.dtype != np.float32:
-            print(f'WARNING: Initial data type is WRONG: {xdm.images.dtype}')
-            print('Trying to downcasting data to np.float32')
-            xdm.images = xdm.images.astype(np.float32)
-            xdm._dtype = xdm.images.dtype
         xdm.correct_dark_field(dark_field)
-        print(f'After dark-field dtype is {xdm.dtype}')
         xdm.correct_scaler_energies(scaler_key='i0')
         xdm.convert_scalers_to_flux(scaler_key='i0')
         xdm.correct_scaler_energies(scaler_key='im')
@@ -111,24 +117,20 @@ def standard_process_xdm(scan_id,
             err_str = 'Error handling air_scatter. Designate array, None, or bool.'
             raise RuntimeError(err_str)
         xdm.correct_outliers(tolerance=10)
-        print(f'Basic corrected dtype is {xdm.dtype}')
 
         # Geometric corrections
         xdm.set_calibration(poni_file, wd=f'{wd}calibrations/')
         xdm.apply_polarization_correction()
         xdm.apply_solidangle_correction()
-        print(f'Geometric dtype is {xdm.dtype}')
 
         # Background correction
         xdm.estimate_background(method='bruckner',
                                 binning=8,
                                 min_prominence=0.1)
-        print(f'Background-subtracted dtype is {xdm.dtype}')
 
         # Rescale and saving
         xdm.rescale_images(arr_max=xdm.estimate_saturated_pixel())
-        if save_final_images:
-            print(f'Final dtype is {xdm.dtype}')
+        if _proc_dict['save_images']:
             if xdm.images.dtype != xdm.dtype:
                 print('WARNING: Data was somehow upcast!!!!')
                 print('Trying to downcasting data to np.float32')
@@ -137,27 +139,27 @@ def standard_process_xdm(scan_id,
             xdm.finalize_images()
 
     # Remove enitire bad rows
-    if nullify_bad_rows and xdm is not None:
+    if _proc_dict['nullify_bad_rows'] and xdm is not None:
         bad_rows = np.any(xdm.null_map, axis=1)
         xdm.images[bad_rows] = 0  
 
     # Integrate map
-    if proc_dict['integrations']:
+    if _proc_dict['integrations']:
         xdm.integrate1D_map()
 
     # Find blobs
-    if proc_dict['blobs']:
+    if _proc_dict['blobs']:
         xdm.find_blobs(filter_method='minimum',
-                    multiplier=5,
-                    size=3,
-                    expansion=10)
+                       multiplier=5,
+                       size=3,
+                       expansion=10)
 
     # Vectorize blobs
-    if proc_dict['vectors']:
+    if _proc_dict['vectors']:
         xdm.vectorize_map_data()
 
     # Convert to 1D integrations
-    if xdm is not None:
+    if _proc_dict['maximums'] and xdm is not None:
         tth, intensity = xdm.integrate1D_image(xdm.max_image)
         q = tth_2_q(tth, wavelength=xdm.wavelength)
 
@@ -245,7 +247,7 @@ def standard_process_rsm(scan_id,
     return rsm
 
 
-def find_most_recent_dark_field(dark_wd, shape=None):
+def find_most_recent_dark_field(scan_id, dark_wd, shape=None):
     dark_list = os.listdir(dark_wd)
     dark_scan_ids = [int(name[4:10]) for name in dark_list]
     dark_diff_list = scan_id - np.array(dark_scan_ids, dtype=float)
@@ -255,8 +257,10 @@ def find_most_recent_dark_field(dark_wd, shape=None):
     return dark_field
 
 
-def find_most_recent_calibration(calibration_wd):
+def find_most_recent_calibration(scan_id, calibration_wd, detector=None):
     poni_list = [file for file in os.listdir(calibration_wd) if file[-4:] == 'poni']
+    if detector is not None:
+        poni_list = [file for file in poni_list if detector in file]
     poni_scan_ids = [int(name[4:10]) for name in poni_list if name[-4:] == 'poni']
     poni_diff_list = scan_id - np.array(poni_scan_ids, dtype=float)
     poni_ind = np.nonzero(poni_diff_list > 0)[0][np.argmin(poni_diff_list[poni_diff_list > 0])]
@@ -284,6 +288,10 @@ def auto_process_xdm(start_id,
                      stop_id=None,
                      wd=None,
                      **kwargs):
+
+    # Check for database
+    if c is None:
+        _load_tiled_catalog()
 
     # Prepare save locations
     prepare_standard_directories(wd)
