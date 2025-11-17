@@ -6,20 +6,59 @@ from scipy.stats import mode
 from collections import OrderedDict
 
 
+# Database variables
+c, db = None, None
+
+
 # Working at the beamline...
-try:
-    print('Connecting to database...', end='', flush=True)
-    from tiled.client import from_profile
-    from databroker.v1 import Broker
+def _load_tiled_catalog():
+    global c
+    if c is None:
+        print('Connecting to database...', end='', flush=True)
+        try:
+            from tiled.profiles import ProfileNotFound
+        except ModuleNotFoundError:
+            print('failed.')
+            err_str = ('Cannot load tiled catalog at this time. '
+                       + 'Try another database.')
+            raise ModuleNotFoundError(err_str)        
 
-    c = from_profile('srx')
-    db = Broker.named('srx')
-    print('done!')
-except ModuleNotFoundError:
-    print('failed.')
-    pass
+        try:
+            from tiled.client import from_profile
+            c = from_profile('srx')
+            print('done!')
+        except (ModuleNotFoundError, ProfileNotFound):
+            print('failed.')
+            err_str = ('Cannot load tiled catalog at this time. '
+                    + 'Try another database.')
+            raise RuntimeError(err_str)
 
 
+
+def _load_databroker():
+    global db
+    if db is None:
+        print('Connecting to database...', end='', flush=True)
+        try:
+            from tiled.profiles import ProfileNotFound
+        except ModuleNotFoundError:
+            print('failed.')
+            err_str = ('Cannot load tiled catalog at this time. '
+                       + 'Try another database.')
+            raise ModuleNotFoundError(err_str)   
+        
+        try:
+            from databroker.v1 import Broker
+            db = Broker.named('srx')
+            print('done!')
+        except (ModuleNotFoundError, ProfileNotFound):
+            print('failed.')
+            err_str = ('Cannot load databroker catalog at this time. '
+                       + 'Try another database.')
+            raise RuntimeError(err_str)
+
+
+# Useful detectors
 supported_xrd_dets = ['dexela', 'merlin', 'eiger']
 
 
@@ -29,36 +68,43 @@ def load_data(scan_id=-1,
               broker='manual',
               detectors=None,
               data_keys=None,
+              xrd_dets=None,
               returns=None,
               repair_method='replace',
               verbose=True):
 
     # Load data from tiled
     if str(broker).lower() in ['tiled']:
+        _load_tiled_catalog()
         bs_run = c[int(scan_id)]
 
         out = load_tiled_data(scan_id=scan_id,
                               detectors=detectors,
                               data_keys=data_keys,
+                              xrd_dets=xrd_dets,
                               returns=returns,
                               verbose=verbose)
 
     # Load data from databroker
     elif str(broker).lower() in ['db', 'databroker', 'broker']:
+        _load_databroker()
         bs_run = db[int(scan_id)]
 
         out = load_db_data(scan_id=scan_id, 
                            detectors=detectors,
                            data_keys=data_keys,
+                           xrd_dets=xrd_dets,
                            returns=returns,
                            verbose=verbose)
     
     # Load data manually
     elif str(broker).lower() in ['manual']:
         try:
+            _load_tiled_catalog()
             bs_run = c[int(scan_id)] # defualt basic data from tiled for future proofing
             broker = 'tiled'
         except: # what error should this throw???
+            _load_databroker()
             bs_run = db[int(scan_id)]
             broker = 'db'
 
@@ -66,6 +112,7 @@ def load_data(scan_id=-1,
                                broker=broker,
                                detectors=detectors,
                                data_keys=data_keys,
+                               xrd_dets=xrd_dets,
                                returns=returns,
                                repair_method=repair_method,
                                verbose=verbose)
@@ -77,17 +124,21 @@ def load_data(scan_id=-1,
 def load_tiled_data(scan_id=-1,
                     detectors=None,
                     data_keys=None,
+                    xrd_dets=None,
                     returns=None,
                     verbose=True):
     
+    _load_tiled_catalog()
     bs_run = c[int(scan_id)]
 
+    # Load detectors
     if detectors is None:
         detectors = bs_run.start['scan']['detectors']
     else:
-        detectors = [detector.name if type(detector) is not str else str(detector).lower()
+        detectors = [detector.name if type(detector) is not str else str(detector)
                      for detector in detectors]
-    xrd_dets = [detector for detector in detectors if detector in supported_xrd_dets]
+    if xrd_dets is None:
+        xrd_dets = [detector for detector in detectors if detector in supported_xrd_dets]    
 
     scan_md = _load_scan_metadata(bs_run)
     scan_md.update(_load_baseline_metadata(bs_run))
@@ -131,17 +182,21 @@ def load_tiled_data(scan_id=-1,
 def load_db_data(scan_id=-1,
                  detectors=None,
                  data_keys=None,
+                 xrd_dets=None,
                  returns=None,
                  verbose=True):
 
+    _load_databroker()
     bs_run = db[int(scan_id)]
 
+    # Load detectors
     if detectors is None:
         detectors = bs_run.start['scan']['detectors']
     else:
         detectors = [detector.name if type(detector) is not str else str(detector)
                      for detector in detectors]
-    xrd_dets = [detector for detector in detectors if detector in supported_xrd_dets]
+    if xrd_dets is None:
+        xrd_dets = [detector for detector in detectors if detector in supported_xrd_dets]
 
     scan_md = _load_scan_metadata(bs_run)
     scan_md.update(_load_baseline_metadata(bs_run))
@@ -186,6 +241,7 @@ def manual_load_data(scan_id=-1,
                      broker='tiled',
                      data_keys=None,
                      detectors=None,
+                     xrd_dets=None,
                      returns=None,
                      repair_method='replace',
                      verbose=True):
@@ -194,15 +250,24 @@ def manual_load_data(scan_id=-1,
     vprint = print if verbose else lambda *a, **k: None
 
     if str(broker).lower() in ['tiled']:
+        _load_tiled_catalog()
         bs_run = c[int(scan_id)]
     elif str(broker).lower() in ['db', 'databroker', 'broker']:
+        _load_databroker()
         bs_run = db[int(scan_id)]
+
+    # Load detectors
+    if detectors is None:
+        detectors = bs_run.start['scan']['detectors']
+    else:
+        detectors = [detector.name if type(detector) is not str else str(detector)
+                     for detector in detectors]
+    if xrd_dets is None:
+        xrd_dets = [detector for detector in detectors if detector in supported_xrd_dets]      
 
     scan_md = _load_scan_metadata(bs_run)
     scan_md.update(_load_baseline_metadata(bs_run))
     vprint(f'Manually loading data for scan {scan_md["scan_id"]}...')
-
-    xrd_dets = [detector for detector in scan_md['detectors'] if detector in supported_xrd_dets]
 
     # Add default data keys
     if data_keys is None:
@@ -210,7 +275,10 @@ def manual_load_data(scan_id=-1,
 
     # Append XRD data keys
     for det in xrd_dets:
+        # Data
         data_keys.append(f'{det}_image')
+        # Null map
+        data_keys.append(f'{det}_null_map')
 
     # Get relevant hdf_information
     r_paths, r_specs, r_shapes = _get_resources(bs_run, data_keys)
@@ -348,13 +416,16 @@ def manual_load_data(scan_id=-1,
                 dropped_inds = np.array(f['entry/instrument/NDAttributes/NDArrayUniqueId'][:])
                 # Built-in eiger fixes first
                 filled_pts = spec_shapes[r_key][0] - len(dropped_inds)
+                null_row = np.zeros(spec_shapes[r_key], dtype=np.bool_)
                 if filled_pts > 0:
                     print(f'Auto-filled {filled_pts} points in row {row_i} for {key}.')
                     full_row = np.zeros(spec_shapes[r_key], dtype=row_data.dtype)
                     full_row[dropped_inds] = row_data
+                    null_row[dropped_inds] = True
                     row_data = full_row
                     del full_row
                 data_dict[key].append(row_data)
+                data_dict['eiger_null_map'].append(null_row)
 
             # Stack data into array
             dr_rows, br_rows = _flag_broken_rows(data_dict[key],
@@ -391,10 +462,12 @@ def get_scantype(scan_id=-1,
                  broker='tiled'):
     # Load data from tiled
     if str(broker).lower() in ['tiled']:
+        _load_tiled_catalog()
         bs_run = c[int(scan_id)]
 
     # Load data from databroker
     elif str(broker).lower() in ['db', 'databroker', 'broker']:
+        _load_databroker()
         bs_run = db[int(scan_id)]
 
     else:
@@ -515,7 +588,13 @@ def _repair_data_dict(data_dict,
         err_str = 'repair_method of "fill" requires a shape_dict input.'
         raise ValueError(err_str)
 
-    keys = list(data_dict.keys())
+    # Get keys
+    keys, null_keys = [], []
+    for k in data_dict.keys():
+        if 'null_map' in k:
+            null_keys.append(k)
+        else:
+            keys.append(k)
 
     # Check data shape
     num_rows = -1
@@ -527,8 +606,10 @@ def _repair_data_dict(data_dict,
 
     # Add key to track filled images
     if repair_method == 'fill':
-        # Generate map with first two indices of shape of first key. Should be map_shape
-        data_dict['null_map'] = [[] for _ in range(num_rows)]
+        # Fill null maps with placeholders
+        for k in null_keys:
+            if len(data_dict[k]) == 0:
+                data_dict[k] = [[] for _ in range(num_rows)]
 
     # Check to see if there are any repairs
     if len(dropped_rows) > 0 or len(broken_rows) > 0:
@@ -577,7 +658,9 @@ def _repair_data_dict(data_dict,
 
         # Only Fill data for broken rows
         elif repair_method == 'fill':
-            data_dict['null_map'][row] = np.zeros(len(list(data_dict.values())[0][last_good_row]),
+            for k in null_keys:
+                if len(data_dict[k][row]) == 0:
+                    data_dict[k][row] = np.zeros(len(list(data_dict.values())[0][last_good_row]),
                                                   dtype=np.bool_)
 
             if row in broken_rows:
@@ -588,12 +671,12 @@ def _repair_data_dict(data_dict,
 
                         zero_row = np.zeros(shape_dict[key],
                                             dtype=data_dict[key][row].dtype)
-
-                        data_dict['null_map'][row][-filled_pts:] = (
-                                                        [True,] * filled_pts)
-
                         zero_row[:len(data_dict[key][row])] = data_dict[key][row]
-                        data_dict[key][row] = zero_row        
+                        data_dict[key][row] = zero_row
+
+                        null_key = f'{key.split('_')[0]}_null_map'
+                        if null_key in null_keys:
+                            data_dict[null_key][row][-filled_pts:] = [True,] * filled_pts
         
         else:
             raise ValueError('Unknown repair method indicated.')
@@ -1061,6 +1144,7 @@ def load_step_rc_data(scan_id=-1,
     # Setup verbosity
     vprint = print if verbose else lambda *a, **k: None
     
+    _load_tiled_catalog()
     bs_run = c[int(scan_id)]
 
     scan_md = {
@@ -1313,6 +1397,7 @@ def load_extended_energy_rc_data(start_id,
                                  extra_data_keys=None,
                                  returns=None):
 
+    _load_tiled_catalog()
     all_scan_ids = list(range(int(start_id),
                               int(end_id) + 1))
     energy_rc_ids = [scan_id for scan_id in all_scan_ids
@@ -1477,6 +1562,7 @@ def load_flying_angle_rc_data(scan_id=-1,
                    repair_method=repair_method)
 
     # Interpolate angular positions
+    _load_tiled_catalog()
     thetas = np.linspace(*c[int(scan_id)].start['scan']['scan_input'][:3])
     #thetas = thetas.reshape(map_shape)
     thetas /= 1000 # mdeg to deg
@@ -1576,6 +1662,8 @@ def generate_scan_logfile(start_id,
 
     if wd is None:
         raise ValueError('No defualt wd and none specified. Please define wd.')
+
+    _load_tiled_catalog()
 
     if end_id == -1:
         bs_run = c[-1]
