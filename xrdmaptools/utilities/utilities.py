@@ -324,6 +324,34 @@ get_max_vector_map = lambda vm : get_vector_map_feature(vm, feature_function=np.
 get_num_vector_map = lambda vm : get_vector_map_feature(vm, dtype=int)
 
 
+def iterative_background(data, multiplier=5, max_iter=100):
+
+    # Bkg subtraction
+    data = data - np.mean(data)
+    old_mask = data > multiplier * np.std(data)
+
+    counter = 0
+    while True:
+        # print(f'{counter=}')
+        # Nothing is above the noise
+        if not np.any(old_mask):
+            return old_mask           
+        
+        # Rose criterion
+        mask = data > multiplier * np.std(data[~old_mask])
+
+        # The masks have converged
+        if np.all(mask == old_mask):
+            return mask
+        # Max iterations have been reached
+        elif counter >= max_iter:
+            return mask
+        # Iterate again
+        else:
+            old_mask = mask
+            counter += 1
+
+
 # Class for timing large for loops with lots of print statements that do not play nicely with tqdm
 # There probably is a way to do this with tqdm, but I have used variations of this method several times
 # Example:
@@ -503,3 +531,6 @@ class memory_iter(object):
             out_len = len(self.iterable)
 
         return out_len
+
+
+
