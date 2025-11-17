@@ -1764,7 +1764,8 @@ class XRDMapStack(list):
                       subsample=1,
                       label_int_method='sum',
                       verbose=False,
-                      save_to_hdf=True):
+                      save_to_hdf=True,
+                      rewrite_data=True):
         """
 
         """
