@@ -448,6 +448,33 @@ class XRDData:
                           + ' be generated when applying the first '
                           + 'correction.'))
         
+        # Setup baseline extents
+        self._raw_value_range = None
+        if hasattr(self, 'detector'):
+            if self.detector.lower() == 'dexela':
+                self._raw_value_range = (0, 2**14 - 1)
+            elif self.detector.lower() == 'merlin':
+                pass # TODO: What are these values
+            elif self.detector.lower() == 'eiger':
+                self._raw_value_range = (0, 2**32 - 1)
+        if self._raw_value_range is None:
+            if np.issubdtype(self.dtype, np.integer):
+                self._raw_value_range = (np.iinfo(self.dtype).min,
+                                         np.iinfo(self.dtype).max)
+            elif np.issubdtype(self.dtype, np.floating):
+                self._raw_value_range = (np.finfo(self.dtype).min,
+                                         np.finfo(self.dtype).max)
+            # Check for not full bit-depth
+            if (self.images is not None
+                and self._raw_value_range is not None):
+                # min_val = np.min(self.images)
+                max_val = np.max(self.images)
+                self._raw_value_range[1] = np.min([self._raw_value_range[1],
+                                                   max_value])
+        # Final defaults
+        if self._raw_value_range is None:
+            self._raw_value_range = (-np.inf, np.inf)
+        
         # Shared with child classes
         self.ai = ai
         self.sclr_dict = sclr_dict
@@ -532,11 +559,18 @@ class XRDData:
         return Iterable2D(self.map_shape)
 
     
-    def _projection_factory(property_name, function, axes):
+    def _projection_factory(property_name, function):
         """
         Internal function for constructing projection properties from
         images.
         """
+
+        projection = property_name.split('_')[-1]
+        if projection not in {'image', 'map'}:
+            err_str = ("Projections only supported for 'image' and "
+                       + "'map'.")
+            raise ValueError(err_str) 
+
         property_name = f'_{property_name}' # This line is crucial! 
         def get_projection(self):
             if hasattr(self, property_name):
@@ -551,25 +585,32 @@ class XRDData:
                 # Compute any scheduled operations
                 self._dask_2_dask()
 
-                # More complicated to account for masked values
-                if np.any(self.mask != 1) and axes != (0, 1):
-
-                    # Mask away discounted pixels
-                    val = function(self.images[..., self.mask],
-                                   axis=-1).astype(self.dtype)
-
-                    if self._dask_enabled:
-                        val = val.compute()
-
-                    setattr(self, property_name, val)
+                # Discount ignored values
+                if (hasattr(self, 'null_map')
+                    and self.null_map is not None):
+                    map_mask = ~self.null_map
                 else:
-                    # dtype may cause overflow errors
-                    val = function(self.images,
-                                   axis=axes).astype(self.dtype)
+                    map_mask = np.ones(self.map_shape, dtype=np.bool_)
+                if hasattr(self, 'mask') and self.mask is not None:
+                    mask = self.mask
+                else:
+                    mask = np.ones(self.image_shape, dtype=np.bool_)
+
+                if projection == 'image':
+                    val = function(self.images[map_mask],
+                                   axis=0).astype(self.dtype)
                     if self._dask_enabled:
                         val = val.compute()
-                    setattr(self, property_name, val)
+                    val[~mask] = 0
                 
+                elif projection == 'map':
+                    val = function(self.images[..., mask],
+                                   axis=-1).astype(self.dtype)
+                    if self._dask_enabled:
+                        val = val.compute()
+                    val[~map_mask] = 0
+
+                setattr(self, property_name, val)                
                 return getattr(self, property_name)
 
         def del_projection(self):
@@ -578,22 +619,22 @@ class XRDData:
         return property(get_projection, None, del_projection)
 
 
-    min_map = _projection_factory('min_map', np.min, (2, 3))
-    min_image = _projection_factory('min_image', np.min, (0, 1))
+    min_map = _projection_factory('min_map', np.min)
+    min_image = _projection_factory('min_image', np.min)
 
-    max_map = _projection_factory('max_map', np.max, (2, 3))
-    max_image = _projection_factory('max_image', np.max, (0, 1))
+    max_map = _projection_factory('max_map', np.max)
+    max_image = _projection_factory('max_image', np.max)
 
-    med_map = _projection_factory('med_map', np.median, (2, 3))
-    med_image = _projection_factory('med_image', np.median, (0, 1))
+    med_map = _projection_factory('med_map', np.median)
+    med_image = _projection_factory('med_image', np.median)
 
     # Will not be accurate at default dtype of np.uint16
-    mean_map = _projection_factory('mean_map', np.mean, (2, 3))
-    mean_image = _projection_factory('mean_image', np.mean, (0, 1))
+    mean_map = _projection_factory('mean_map', np.mean)
+    mean_image = _projection_factory('mean_image', np.mean)
 
     # May cause overflow errors
-    sum_map = _projection_factory('sum_map', np.sum, (2, 3))
-    sum_image = _projection_factory('sum_image', np.sum, (0, 1))
+    sum_map = _projection_factory('sum_map', np.sum)
+    sum_image = _projection_factory('sum_image', np.sum)
 
 
     # Adaptively saves for whatever the current processing state
@@ -1352,7 +1393,7 @@ class XRDData:
     ### Initial image corrections ###
 
     def track_saturated_pixels(self,
-                               saturated_value=16383,
+                               saturated_value=None,
                                verbose=True):
         """
         Identify and track saturated pixels.
@@ -1368,7 +1409,7 @@ class XRDData:
         saturated_value : uint, optional
             Image pixel values above or equal to this value will be
             considered saturated. By default this value is set to the
-            saturated value for the dexela detector, 2¹⁴ - 1.
+            saturated value of the internal _raw_value_range attribute.
         verbose : bool, optional
             Flag to indicate if the function should be verbose or
             silent. True by default.
@@ -1386,6 +1427,9 @@ class XRDData:
         
         if verbose:
             print('Tracking saturated pixels...')
+        
+        if saturated_value is None:
+            saturated_value = self._raw_value_range[1]
         
         indices = np.nonzero(self.images >= saturated_value)
         self.saturated_pixels = np.asarray(indices).T
@@ -1845,8 +1889,8 @@ class XRDData:
     # No correction for defect mask,
     # since it is used whenever mask is called
     def apply_defect_mask(self,
-                          min_bounds=(-np.inf, 0),
-                          max_bounds=(0, np.inf),
+                          min_bounds=None,
+                          max_bounds=None,
                           mask=None,
                           override=False):
         """
@@ -1863,11 +1907,13 @@ class XRDData:
         min_bounds : tuple, optional
             Tuple defining the (lower bound, upper bound) range of
             acceptable pixel values for the minimum projected image. By
-            defualt these values are (-infinity, zero).
+            default these values are -infinity and the internal maximum
+            raw pixel value.
         max_bounds : tuple, optional
             Tuple defining the (lower bound, upper bound) range of
             acceptable pixel values for the maximum projected image. By
-            default these values are (0, infinity).
+            default these values are the internal minimum raw pixel
+            value and inifinity.
         mask : 2D array, optional
             Starting mask to use when comparing bounds. Must match
             image shape and truthy values are pixels that will be
@@ -1879,15 +1925,27 @@ class XRDData:
         
         if self._check_correction('pixel_defects', override=override):
             return
+        
+        if min_bounds is None:
+            min_bounds = (-np.inf, self._raw_value_range[1])
+        if max_bounds is None:
+            max_bounds = (self._raw_value_range[0], np.inf)
 
         if mask is not None:
             self.defect_mask = np.asarray(mask, dtype=np.bool_)
         else:
+            # Base
             mask = np.ones_like(self.min_image, dtype=np.bool_)
-            mask *= ((self.min_image >= min_bounds[0])
-                     & (self.min_image <= min_bounds[1]))
-            mask *= ((self.max_image >= max_bounds[0])
-                     & (self.max_image <= max_bounds[1]))
+
+            # Minimum of min_image
+            mask *= self.min_image > min_bounds[0]
+            # Maximum of min_image
+            mask *= self.min_image < min_bounds[1]
+            # Minimum of max_image
+            mask *= self.max_image > max_bounds[0]
+            # Maximum of max_image
+            mask *= self.max_image < max_bounds[1]
+
             self.defect_mask = mask
 
         # Write mask to disk
@@ -2636,7 +2694,7 @@ class XRDData:
     # for comparison with other datasets
     def estimate_saturated_pixel(self,
                                  # Saturated value from detector 
-                                 raw_max_val=(2**14 - 1), 
+                                 saturated_value=None, 
                                  method='median'):
         """
         Estimate the maximum value of current images.
@@ -2649,9 +2707,9 @@ class XRDData:
 
         Parameters
         ----------
-        raw_max_val : float, optional
+        saturated_value : float, optional
             Maximum possible raw value from detector. By default this
-            value is the maximum of a 14 bit color depth detector.
+            is the maximum of the internal _raw_value_range attribute.
         method : str, optional
             String describing either 'median' or 'minimum' function
             used to estimate the value of applied corrections. 'median'
@@ -2671,13 +2729,16 @@ class XRDData:
         # even if unlikely in dataset
         if method.lower() in ['minimum', 'min']: 
             var_func = np.min
+
+        if saturated_value is None:
+            saturated_value = self._raw_value_range[1]
         
         if self.corrections['dark_field']:
-            raw_max_val -= np.median(self.dark_field)
+            saturated_value -= np.median(self.dark_field)
         if self.corrections['flat_field']:
-            raw_max_val /= np.median(self.flat_field)
+            saturated_value /= np.median(self.flat_field)
         if self.corrections['air_scatter']:
-            raw_max_val -= np.median(self.air_scatter)
+            saturated_value -= np.median(self.air_scatter)
         
         if self.corrections['scaler_intensity']:
             if (hasattr(self, 'scaler_map')
@@ -2700,24 +2761,24 @@ class XRDData:
                 err_str = ('Not enough information to estimate '
                            + 'scaler contribution!')
                 raise ValueError(err_str)
-            raw_max_val /= np.median(scaler_map)
+            saturated_value /= np.median(scaler_map)
 
         if self.corrections['lorentz']:
-            raw_max_val /= var_func(self.lorentz_correction)
+            saturated_value /= var_func(self.lorentz_correction)
         if self.corrections['polarization']:
-            raw_max_val /= var_func(self.polarization_correction)
+            saturated_value /= var_func(self.polarization_correction)
         if self.corrections['solid_angle']:
-            raw_max_val /= var_func(self.solidangle_correction)
+            saturated_value /= var_func(self.solidangle_correction)
         if self.corrections['absorption']:
-            raw_max_val /- var_func(self.absorption_correction)
+            saturated_value /- var_func(self.absorption_correction)
         # Assuming the minimum background will be very close to zero
         if self.corrections['background']:
             if (hasattr(self, 'background')
                 and self.background is not None):
-                raw_max_val -= var_func(self.background)
+                saturated_value -= var_func(self.background)
         # All other corrections are isolated within the image
 
-        return raw_max_val.astype(self.dtype)
+        return saturated_value.astype(self.dtype)
 
 
     @_protect_hdf()
@@ -2783,31 +2844,53 @@ class XRDData:
     
     def nullify_images(self, verbose=True):
         """
-        Nullify images based on null map attribute.
+        Nullify images based on null map and mask attributes.
 
         Nullify images by setting all pixel values to zero based on the 
-        internal 'null_map' attribute. This allows entire images to be
-        discounted from later analysis.
+        internal 'null_map' and 'mask' attributes. This allows pixel
+        values to be discounted from later analysis.
         """
 
-        if not hasattr(self, 'null_map') and self.null_map is not None:
+        # Check for null map
+        HAS_NULL_MAP = True
+        if not hasattr(self, 'null_map') or self.null_map is None:
+            HAS_NULL_MAP = False
             if verbose:
-                err_str = 'XRDData does not have null_map attribute.'
-                raise AttributeError(err_str)
-            else:
-                return
-        elif not np.any(self.null_map):
+                warn_str = 'XRDData does not have null_map attribute.'
+                print('WARNING: ' + warn_str)
+
+        # Apply null_map
+        if not np.any(self.null_map):
             if verbose:
                 note_str = ('Null map is empty, there are no missing '
-                            + 'pixels. Proceeding without changes')
+                            + 'pixels.')
                 print(note_str)
-            return
-
-        for attr in ['images', 'blob_masks', 'integrations']:
-            if hasattr(self, attr) and getattr(self, attr) is not None:
-                # This should all be done in place
-                getattr(self, attr)[self.null_map] = 0
+        else:
+            for attr in ['images', 'blob_masks', 'integrations']:
+                if (hasattr(self, attr)
+                    and getattr(self, attr) is not None):
+                    # This should all be done in place
+                    getattr(self, attr)[self.null_map] = 0
         
+        # Check for mask
+        HAS_MASK = True
+        if not hasattr(self, 'mask') or self.mask is None:
+            HAS_MASK = False
+            if verbose:
+                warn_str = 'XRDData does not have mask attribute.'
+                print('WARNING: ' + warn_str)
+
+        if np.all(self.mask):
+            if verbose:
+                note_str = ('No pixels excluded by mask.')
+                print(note_str)
+        else:
+            for attr in ['images', 'blob_masks']:
+                if (hasattr(self, attr)
+                    and getattr(self, attr) is not None):
+                    # This should all be done in place
+                    getattr(self, attr)[..., ~self.mask] = 0
+
         self.reset_projections()
         
 
