@@ -41,31 +41,6 @@ def masked_filter(xrddata, filter, mask=None, **kwargs):
     return overlap
 
 
-# def masked_gaussian_background(image_map,
-#                                sigma=100,
-#                                mask=None):
-
-#     if mask is None:
-#         mask = np.empty_like(image_map, dtype=np.bool_)
-#         mask[:, :] = xrddata.mask
-#     elif mask.ndim == 2:
-#         image_mask = mask.copy()
-#         mask = np.empty_like(image_map, dtype=np.bool_)
-#         mask[:, :] = image_mask
-
-#     zero_image = image_map.copy() # Not good for memory!
-#     zero_image[~mask] = 0 # should be redundant
-#     gauss_zero = gaussian_filter(zero_image, sigma=(0, 0, sigma, sigma))
-
-#     div_image = np.ones_like(image_map)
-#     div_image[~mask] = 0
-#     gauss_div = gaussian_filter(div_image, sigma=(0, 0, sigma, sigma))
-
-#     overlap = gauss_zero / gauss_div
-#     overlap[~mask] = 0
-    
-#     return overlap
-
 def masked_gaussian_background(image_map,
                                sigma=100,
                                mask=None,
@@ -212,95 +187,6 @@ def fit_spline_bkg(xrddata, mask=None, sparsity=0.5, s=5000):
     return bkg_map
 
 
-# # OPTIMIZE ME: numba and/or dask delayed
-# def masked_bruckner_background(xrddata, size=10, max_iterations=100,
-#                                binning=2, min_prominence=0.1,
-#                                mask=None, verbose=False):
-
-#     image_shape = xrddata.images.shape[-2:]
-
-#     # Determine mask
-#     if mask is None:
-#         if np.any(xrddata.mask != 1):
-#             mask = xrddata.mask
-#         else:
-#             mask = np.ones(image_shape, dtype=np.bool_)
-#             print('WARNING: No mask could be constructed.')
-
-#     if binning is not None:
-#         new_shape = tuple(i // binning for i in image_shape)
-#         mask = resize(mask, new_shape)
-#     else:
-#         new_shape = image_shape
-
-#     # Divisor image for ignoring mask contributions
-#     div_image = np.ones(new_shape)
-#     div_image[~mask] = 0
-#     div_filter = uniform_filter(div_image, size=size)
-    
-#     bkg_map = np.zeros_like(xrddata.images)
-
-#     # Cycle through all map images. TODO: Parallelize this
-#     for index in tqdm(range(xrddata.num_images)):
-#         indices = np.unravel_index(index, xrddata.map_shape)
-        
-#         # Initial image
-#         init_image = np.copy(xrddata.images[indices])
-#         init_image = resize(init_image, new_shape)
-
-#         # remove outliers
-#         #init_image = median_filter(init_image, size=1)
-
-#         # Chop off high intensity signals and grab stats
-#         init_min = np.min(init_image[mask])
-#         init_avg = np.mean(init_image[mask])
-#         #init_std = np.std(init_image[mask])
-#         init_med = np.median(init_image[mask])
-#         #init_max = np.max(init_image[mask])
-#         init_thresh = init_avg + 2 * (init_avg - init_min)
-#         init_mask = (init_image >= init_thresh)
-#         init_image[init_mask] = init_thresh
-
-#         # remove masked pixels for good measure
-#         init_image[~mask] = 0
-
-#         old_image = np.copy(init_image)
-
-#         # Filter before iterative approach
-#         zero_image = np.copy(old_image)
-#         #return zero_image, mask
-#         zero_image[~mask] = 0 # should be redundant
-#         zero_filter = uniform_filter(zero_image, size=size)
-
-#         old_image = zero_filter / div_filter
-#         old_image[~mask] = 0
-
-#         # Bruckner Algorithm
-#         for i in range(max_iterations):
-#             zero_image = np.copy(old_image)
-#             zero_image[~mask] = 0 # should be redundant
-#             zero_filter = uniform_filter(zero_image, size=size)
-
-#             avg_image = zero_filter / div_filter
-#             avg_image[~mask] = 0    
-
-#             min_image = np.min(np.array([old_image, avg_image]), axis=0)
-            
-#             if np.max(np.abs(old_image - min_image)) > (min_prominence * init_med):
-#                 old_image = np.copy(min_image)
-#             else:
-#                 if verbose:
-#                     print(f'Background converged after {i + 1} iterations!')
-#                 break
-
-#             if (i == max_iterations - 1) & verbose:
-#                 print('Max number of iterations reached.')
-        
-#         bkg_map[indices] = resize(min_image, image_shape)
-
-#     return bkg_map
-
-
 # OPTIMIZE ME: numba and/or dask delayed
 def masked_bruckner_background(image_map,
                                size=10,
@@ -321,13 +207,15 @@ def masked_bruckner_background(image_map,
 
     if binning is not None:
         new_shape = tuple(i // binning for i in image_shape)
-        mask = resize(mask, new_shape)
+        down_mask = resize(mask, new_shape, anti_aliasing=False)
+        up_mask = resize(down_mask.astype(np.float32), image_shape, anti_aliasing=False)
     else:
         new_shape = image_shape
+        down_mask = mask
 
     # Divisor image for ignoring mask contributions
     div_image = np.ones(new_shape)
-    div_image[~mask] = 0
+    div_image[~down_mask] = 0
     div_filter = uniform_filter(div_image, size=size)
 
     if not inplace:
@@ -339,40 +227,37 @@ def masked_bruckner_background(image_map,
         
         # Initial image
         init_image = np.copy(image_map[indices])
-        init_image = resize(init_image, new_shape)
+        init_image = resize(init_image, new_shape, anti_aliasing=False)
 
         # Chop off high intensity signals and grab stats
-        init_min = np.min(init_image[mask])
-        init_avg = np.mean(init_image[mask])
-        #init_std = np.std(init_image[mask])
-        init_med = np.median(init_image[mask])
-        #init_max = np.max(init_image[mask])
+        init_min = np.min(init_image[down_mask])
+        init_avg = np.mean(init_image[down_mask])
+        init_med = np.median(init_image[down_mask])
         init_thresh = init_avg + 2 * (init_avg - init_min)
         init_mask = (init_image >= init_thresh)
         init_image[init_mask] = init_thresh
 
         # remove masked pixels for good measure
-        init_image[~mask] = 0
+        init_image[~down_mask] = 0
 
         old_image = np.copy(init_image)
 
         # Filter before iterative approach
         zero_image = np.copy(old_image)
-        #return zero_image, mask
-        zero_image[~mask] = 0 # should be redundant
+        zero_image[~down_mask] = 0 # should be redundant
         zero_filter = uniform_filter(zero_image, size=size)
 
         old_image = zero_filter / div_filter
-        old_image[~mask] = 0
+        old_image[~down_mask] = 0
 
         # Bruckner Algorithm
         for i in range(max_iterations):
             zero_image = np.copy(old_image)
-            zero_image[~mask] = 0 # should be redundant
+            zero_image[~down_mask] = 0 # should be redundant
             zero_filter = uniform_filter(zero_image, size=size)
 
             avg_image = zero_filter / div_filter
-            avg_image[~mask] = 0    
+            avg_image[~down_mask] = 0    
 
             min_image = np.min(np.array([old_image, avg_image]), axis=0)
             
@@ -386,14 +271,20 @@ def masked_bruckner_background(image_map,
             if (i == max_iterations - 1) & verbose:
                 print('Max number of iterations reached.')
         
-        if inplace:
-            image_map[indices] -= resize(min_image, image_shape)
+        # Upcast image
+        if binning is not None:
+            up_image = resize(min_image, image_shape, anti_aliasing=False) / up_mask
+            up_image[~mask] = 0
+            up_image.astype(image_map.dtype)
         else:
-            bkg_map[indices] = resize(min_image, image_shape)
+            up_image = min_image
+        
+        if inplace:
+            image_map[indices] -= up_image
+        else:
+            bkg_map[indices] = up_image
     
-    if inplace:
-        return
-    else:
+    if not inplace:
         return bkg_map
 
 
