@@ -15,6 +15,7 @@ import skimage.io as io
 from dask_image import imread as dask_io
 from tqdm import tqdm
 
+
 try:
     from pyFAI.integrator.azimuthal import AzimuthalIntegrator
 except ModuleNotFoundError:
@@ -134,6 +135,9 @@ class XRDBaseScan(XRDData):
         String to record the beamline where the XRD data was acquired.
     facility : str, optional
         String to record the facility where the XRD data was acquired.
+    detector : str, optional
+        Name of area detector used for data collection. This helps to
+        determine some default values.
     scan_input : iterable, optional
         List of input parameters for the scan generating the XRD data.
         Should be given as [xstart, xend, xnum, ystart, yend, ynum, *].
