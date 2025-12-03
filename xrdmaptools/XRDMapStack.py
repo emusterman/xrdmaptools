@@ -16,9 +16,10 @@ from tqdm import tqdm
 from tqdm.dask import TqdmCallback
 import matplotlib.pyplot as plt
 
-from xrdmaptools.XRDBaseScan import XRDBaseScan
-from xrdmaptools.XRDMap import XRDMap
-from xrdmaptools.XRDRockingCurve import XRDRockingCurve
+# Base classes must be relative imports
+from . import XRDBaseScan
+from . import XRDMap
+from . import XRDRockingCurve
 from xrdmaptools.utilities.utilities import (
     timed_iter,
     pathify,
@@ -1318,7 +1319,7 @@ class XRDMapStack(list):
     @_protect_xdms_hdf()
     def save_xdms_vector_map_information(self,
                                          vector_map_info,
-                                         vecto_map_info_title,
+                                         vector_map_info_title,
                                          rewrite_data=True,
                                          extra_attrs=None):
         """
@@ -1657,6 +1658,7 @@ class XRDMapStack(list):
     def stack_vector_maps(self,
                           vector_maps=None,
                           virtual_masks=None,
+                          int_cutoff=None,
                           rewrite_data=False):
         """
 
@@ -1730,12 +1732,17 @@ class XRDMapStack(list):
                 virt_indices = np.unravel_index(virt_index,
                                                 vmask_shape)
                 
+                if int_cutoff is not None:
+                    mask = vector_map[indices][:, -1] > int_cutoff
+                else:
+                    mask = np.ones(len(vector_map[indices]), dtype=np.bool_)
+                
                 if full_vector_map[virt_indices] is None:
-                    full_vector_map[virt_indices] = vector_map[indices]
+                    full_vector_map[virt_indices] = vector_map[indices][mask]
                 else:
                     full_vector_map[virt_indices] = np.vstack([
                             full_vector_map[virt_indices],
-                            vector_map[indices]
+                            vector_map[indices][mask]
                         ])
                 virt_index += 1
             
