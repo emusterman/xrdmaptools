@@ -548,6 +548,7 @@ class XRDData:
                 and self.integrations is not None):
                 self.integrations = self.integrations.astype(dtype)
                 self._dtype = dtype
+            self.reset_projections()
 
     
     @property
@@ -1914,28 +1915,52 @@ class XRDData:
             acceptable pixel values for the maximum projected image. By
             default these values are the internal minimum raw pixel
             value and inifinity.
-        mask : 2D array, optional
-            Starting mask to use when comparing bounds. Must match
-            image shape and truthy values are pixels that will be
-            considered.
+        mask : bool, None, or 2D array, optional
+            Specifies whether to start with built in mask, use a blank,
+            or assign a given mask directly. Default is to start with a
+            blank and compare against bounds.
         override : bool, optional
             Override already applied corrections if True. Default is
             False.
+
+        Raises
+        ------
+        ValueError if mask input is not boolean, None, or does not
+        match the instance image shape.
         """
         
         if self._check_correction('pixel_defects', override=override):
             return
         
+        # Determine default bounds
         if min_bounds is None:
             min_bounds = (-np.inf, self._raw_value_range[1])
         if max_bounds is None:
             max_bounds = (self._raw_value_range[0], np.inf)
 
-        if mask is not None:
-            self.defect_mask = np.asarray(mask, dtype=np.bool_)
+        # Get null map information
+        if hasattr(self, 'null_map') and self.null_map is not None:
+            map_mask = self.null_map
         else:
-            # Base
-            mask = np.ones_like(self.min_image, dtype=np.bool_)
+            map_mask = np.zeros(self.map_shape, dtype=np.bool_)
+
+        # Check mask inputs
+        if not isinstance(mask, np.ndarray):
+            # Use previously established mask
+            if mask is None or mask is True:
+                mask = np.asarray(self.mask, dtype=np.bool_)
+            # Create blank mask
+            elif mask is False:
+                mask = np.ones(image, dtype=np.bool_)
+            else:
+                err_str = (f'Unknown mask input of type {type(mask)}. '
+                           + 'Please sepecify None, a boolean, or '
+                           + 'provide a numpy array.')
+                raise ValueError(err_str)
+
+            # Get min and max image without previous mask effects
+            min_image = np.min(self.images[~map_mask], axis=0)
+            max_image = np.max(self.images[~map_mask], axis=1)
 
             # Minimum of min_image
             mask *= self.min_image > min_bounds[0]
@@ -1945,8 +1970,15 @@ class XRDData:
             mask *= self.max_image > max_bounds[0]
             # Maximum of max_image
             mask *= self.max_image < max_bounds[1]
+        else:
+            if mask.shape != self.image_shape:
+                err_str = (f'Given mask of shape {mask.shape} does not'
+                          +  ' equal image shape of '
+                          + f'{self.image_shape}.')
+                raise ValueError(err_str)
 
-            self.defect_mask = mask
+        # Assign mask value
+        self.defect_mask = mask          
 
         # Write mask to disk
         self.save_images(images='defect_mask') 
@@ -2781,7 +2813,7 @@ class XRDData:
         return saturated_value.astype(self.dtype)
 
 
-    @_protect_hdf()
+    # @_protect_hdf()
     def construct_null_map(self,
                            override=False):
         """
@@ -2823,9 +2855,13 @@ class XRDData:
                     return
 
             else:
-                print('Loading (raw_images) from HDF file...')
-                hdf_str = f'{self._hdf_type}/image_data/raw_images'
-                raw_images = self.hdf[hdf_str]
+                @_protect_hdf()
+                def _load_images_from_hdf(self):
+                    hdf_str = f'{self._hdf_type}/image_data/raw_images'
+                    return np.asarray(self.hdf[hdf_str])
+
+                print('Loading (raw_images) from HDF file...')   
+                raw_images = _load_images_from_hdf(self)
             
             # Try to do this efficiently
             print('Constructing null_map...')
