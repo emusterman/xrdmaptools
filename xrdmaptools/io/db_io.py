@@ -24,8 +24,13 @@ def _load_tiled_catalog():
             raise ModuleNotFoundError(err_str)        
 
         try:
-            from tiled.client import from_profile
-            c = from_profile('srx')
+            # from tiled.client import from_profile
+            # c = from_profile('srx')
+            from tiled.client import from_uri
+            c = tiled_reading_client = from_uri(
+                "https://tiled.nsls2.bnl.gov/api/v1/metadata/srx/raw",
+                include_data_sources=True,
+            )
             print('done!')
         except (ModuleNotFoundError, ProfileNotFound):
             print('failed.')
@@ -850,7 +855,7 @@ def _save_xrd_tifs(xrd_data,
     
     for i, xrd in enumerate(xrd_data):
         io.imsave(f'{wd}{filenames[i]}',
-                  np.asarray(xrd).astype(np.uint16),
+                  np.asarray(xrd).astype(np.float32),
                   check_contrast=False)
         # I think the data should already be an unsigned integer
         #io.imsave(f'{wd}{filenames[i]}', xrd, check_contrast=False)
@@ -1004,11 +1009,11 @@ def save_composite_pattern(scan_id=-1,
 
     # Mask out eiger hot pixels
     # May have some redundant operations
-    for xrd, det in zip(xrd_data, xrd_dets):
-        if det == 'eiger':
-            xrd = np.asarray(xrd)
-            mask = np.min(xrd, axis=range(xrd.ndim - 2)) == 2**32 - 1 # Saturated 32 bit unsigned integer
-            xrd[..., mask] = 0
+    for i in range(len(xrd_data)):
+        if xrd_dets[i] == 'eiger':
+            xrd_data[i] = np.asarray(xrd_data[i])
+            mask = np.min(xrd_data[i], axis=tuple(range(xrd_data[i].ndim - 2))) == 2**32 - 1 # Saturated 32 bit unsigned integer
+            xrd_data[i][..., mask] = 0
 
     comps = make_composite_pattern(xrd_data, method=method, subtract=subtract)
 
