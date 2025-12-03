@@ -1491,7 +1491,8 @@ class XRDRockingCurve(XRDBaseScan):
 
         # Should be list if iterable, but just in case
         if isinstance(self.scan_id, (list, np.ndarray)): 
-            scan_id_str = f'{self.scan_id[0]}-{self.scan_id[-1]}'
+            sorted_scans = sorted(self.scan_id)
+            scan_id_str = f'{sorted_scans[0]}-{sorted_scans[-1]}'
         else:
             scan_id_str = self.scan_id
         
