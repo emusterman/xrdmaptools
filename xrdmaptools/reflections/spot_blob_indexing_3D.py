@@ -294,12 +294,6 @@ def find_valid_pairs(all_spot_qs,
                                    for s, r in zip(pair, combo)])
                 temp_mask.append(True)
 
-                # Add connections (MAY BE REMOVED LATER)
-                # connection = blank_connection.copy()
-                # connection[phase_inds[pair[0]]] = combo[0]
-                # connection[phase_inds[pair[1]]] = combo[1]
-                # temp_connections.append(connection)
-
                 # Qualify potential fits and their orientation magnitude
                 if symmeterize:
                     # Characterize combo
@@ -482,105 +476,6 @@ def seed_casting(seed,
     return indexing, qof
 
 
-# def pair_casting(connection_pair,
-#                  all_spot_qs,
-#                  all_spot_ints,
-#                  all_ref_qs,
-#                  all_ref_fs,
-#                  qmask,
-#                  near_q,
-#                  iter_max=50):
-
-#     prev_connection = connection_pair.copy()
-#     (pair_spot_inds,
-#      pair_ref_inds) = _get_connection_indices(connection_pair)
-        
-#     kdtree = KDTree(all_spot_qs)
-
-#     iter_count = 0
-#     while True:
-#         # Blank the connection
-#         connection = prev_connection.copy()
-#         connection[:] = np.nan 
-
-#         # Find orientation and rotate reference lattice
-#         (conn_spots,
-#          conn_refs) = _decompose_connection(prev_connection,
-#                                             all_spot_qs,
-#                                             all_ref_qs)
-#         orientation, _ = Rotation.align_vectors(conn_spots,
-#                                                 conn_refs)
-#         all_rot_qs = orientation.apply(all_ref_qs, inverse=False)
-#         temp_qmask = qmask.generate(all_rot_qs)
-
-#         # Query kdtree for find closest reference lattice points
-#         pot_conn = kdtree.query_ball_point(all_rot_qs[temp_qmask],
-#                                             r=near_q)
-        
-#         # Cast and fill into blank connection
-#         for conn_i, conn in enumerate(pot_conn):
-#             if len(conn) > 0:
-#                 if len(conn) == 0:
-#                     continue
-#                 elif len(conn) == 1:
-#                     # Add candidate reflection
-#                     connection[conn[0]] = np.nonzero(temp_qmask)[0][conn_i]
-#                 else:
-#                     # Add closest of multiple candidate reflections
-#                     _, spot_idx = kdtree.query(all_rot_qs[temp_qmask][conn_i])
-#                     connection[spot_idx] = np.nonzero(temp_qmask)[0][conn_i]
-        
-#         # Compare connection with previous connection
-#         curr_spot_inds, curr_ref_inds = _get_connection_indices(connection)
-#         prev_spot_inds, prev_ref_inds = _get_connection_indices(prev_connection)
-
-#         if len(curr_spot_inds) == len(prev_spot_inds):
-#             if (np.all(curr_spot_inds == prev_spot_inds)
-#                 and np.all (curr_ref_inds == prev_ref_inds)):
-#                 break
-
-#         # Kick out any casting that is orientationally indeterminant
-#         if len(curr_spot_inds) < 2:
-#             # Revert to previous solution
-#             connection = prev_connection.copy()
-#             curr_spot_inds, curr_ref_inds = _get_connection_indices(connection)
-#             break
-
-#         # Prepare for next iteration
-#         prev_connection = connection.copy()
-#         iter_count += 1
-#         if iter_count >= iter_max:
-#             # Re-update orientation
-#             conn_spots = all_spot_qs[curr_spot_inds]
-#             conn_refs = all_ref_qs[curr_ref_inds]
-#             orientation, _ = Rotation.align_vectors(conn_spots,
-#                                                     conn_refs)
-#             break
-    
-#     if np.sum(~np.isnan(connection)) == 0:
-#         print('Casting found empty connection')
-#         connection = connection_pair
-    
-#     # Find qof
-#     all_rot_qs = orientation.apply(all_ref_qs, inverse=False)
-#     temp_qmask = qmask.generate(all_rot_qs)
-
-#     if np.sum(temp_qmask) == 0:
-#         # print('Empty qmask in pair casting')
-#         qof = 0
-#     else:
-#         qof = get_quality_of_fit(
-#             all_spot_qs[curr_spot_inds], # fit_spot_qs
-#             all_spot_ints[curr_spot_inds], # fit_spot_ints
-#             all_rot_qs[curr_ref_inds], # fit_rot_qs
-#             all_ref_fs[curr_ref_inds], # fit_ref_fs
-#             all_spot_ints, # all_spot_ints
-#             all_ref_fs[temp_qmask], # all_ref_fs
-#             sigma=near_q)
-    
-#     return connection, qof
-
-
 def multiple_seed_casting(seeds,
                           all_spot_qs,
                           all_spot_ints,
@@ -659,80 +554,6 @@ def multiple_seed_casting(seeds,
         qofs = sorted(qofs, reverse=True)
                 
     return indexings, np.asarray(qofs)
-
-
-# def multiple_pair_casting(connection_pairs,
-#                           all_spot_qs,
-#                           all_spot_ints,
-#                           all_ref_qs,
-#                           all_ref_fs,
-#                           qmask,
-#                           near_q,
-#                           iter_max=50,
-#                           exclude_found_pairs=False,
-#                           sort_results=True,
-#                           verbose=True):
-
-#     # Modify and set up some values
-#     connection_pairs = np.asarray(connection_pairs)
-#     evaluated_pair_mask = np.array([False,] * len(connection_pairs))
-#     all_spot_qs = np.asarray(all_spot_qs)
-#     all_ref_qs = np.asarray(all_ref_qs)
-#     all_ref_fs = np.asarray(all_ref_fs)
-
-#     # Construct iterator
-#     if verbose:
-#         iterate = lambda x : tqdm(enumerate(x),
-#                                   total=len(x),
-#                                   position=0,
-#                                   leave=True)
-#     else:
-#         iterate = lambda x : enumerate(x)
-
-#     connections = []
-#     qofs = []
-#     if verbose:
-#         print('Casting valid pairs...')
-#     for i, pair in iterate(connection_pairs):
-#         # Check if the pair has already been included
-#         if (exclude_found_pairs
-#             and evaluated_pair_mask[i]):
-#             continue
-
-#         connection, qof = pair_casting(pair,
-#                                        all_spot_qs,
-#                                        all_spot_ints,
-#                                        all_ref_qs,
-#                                        all_ref_fs,
-#                                        qmask,
-#                                        near_q,
-#                                        iter_max=iter_max)
-
-#         connections.append(connection)
-#         qofs.append(qof)
-
-#         # Find and exclude included pairs
-#         if exclude_found_pairs:
-#             evaluated_pair_mask[i] = True # Should be redundant
-
-#             if np.sum(~np.isnan(connection)) > 2:
-#                 found_pair_mask = (
-#                     np.sum([connection_pairs[:, si] == ri
-#                     for si, ri in zip(
-#                         *_get_connection_indices(connection))],
-#                     axis=0) >= 2)
-#                 # print(f'Removing {np.sum(~evaluated_pair_mask[found_pair_mask])} evaluated pairs')   
-#                 evaluated_pair_mask[found_pair_mask] = True
-    
-#     # Sort by qof
-#     if sort_results:
-#         connections = [x for _, x in sorted(zip(qofs, connections),
-#                                             key=lambda pair: pair[0],
-#                                             reverse=True)]
-
-#         qofs = sorted(qofs, reverse=True)
-                
-#     return connections, np.asarray(qofs)
 
 
 ###########################
@@ -845,13 +666,22 @@ def pattern_decomposition_from_seeds(start_seeds,
         
             # Re-index
             new_indexing, new_qofs = _internal_indexing(
-                        recalc_seeds,
-                        all_spot_qs[included_spot_mask],
-                        verbose=False)
-            for idx, new_indexed in zip(recalc_mask.nonzero()[0], new_indexing):
-                new_indexed[:, 0] = included_spot_mask.nonzero()[0][new_indexed[:, 0]]
-                indexings[idx] =  new_indexed
-            qofs[recalc_mask] = new_qofs
+                                recalc_seeds,
+                                all_spot_qs[included_spot_mask],
+                                verbose=False)
+
+            # Why is this needed. Maybe temporary
+            # new_mask = [len(i) != 0 for i in new_indexing]
+            # new_indexing = [i for i, b in zip(new_indexing, new_mask) if b]
+            # new_qofs = [i for i, b in zip(new_qofs, new_mask) if b]
+            # if len(new_indexing) > 0:
+            # print(f'{new_indexing=}')
+            for idx, new_indexed, new_qof in zip(recalc_mask.nonzero()[0], new_indexing, new_qofs):
+                # print(f'{new_indexed=}')
+                if len(new_indexed) > 0:
+                    new_indexed[:, 0] = included_spot_mask.nonzero()[0][new_indexed[:, 0]]
+                    indexings[idx] = new_indexed
+                    qofs[idx] = new_qof
 
             # Remove invalid seeds again
             if ORIENTATION_SEEDS:
@@ -872,119 +702,6 @@ def pattern_decomposition_from_seeds(start_seeds,
             break
   
     return best_indexings, np.asarray(best_qofs)
-
-
-
-# # More intelligent. Only re-evaluates pairs of connections which are no longer valid
-# def decaying_pattern_decomposition(start_connections,
-#                                    all_spot_qs,
-#                                    all_spot_ints,
-#                                    all_ref_qs,
-#                                    all_ref_fs,
-#                                    qmask,
-#                                    near_q,
-#                                    qof_minimum=0,
-#                                    max_ori_refine_iter=50,
-#                                    max_ori_decomp_count=20,
-#                                    verbose=True):
-
-#     best_connections, best_qofs = [], []
-#     excluded_spot_indices = []
-#     included_conn_mask = np.asarray([True,] * len(start_connections))
-#     included_spot_mask = np.asarray([True,] * len(start_connections[0]))
-#     track_conns = np.asarray(start_connections).copy()
-
-#     # Internal wrapper for indexing method
-#     # Can redefine for other methods as desired
-#     def _internal_indexing(pairs, spots, verbose=verbose):
-#         out = multiple_pair_casting(
-#                     pairs,
-#                     spots,
-#                     all_spot_ints, # must always be full amount for proper comparison
-#                     all_ref_qs,
-#                     all_ref_fs,
-#                     qmask,
-#                     near_q,
-#                     sort_results=False,
-#                     iter_max=max_ori_refine_iter,
-#                     verbose=verbose)
-#         return out
-    
-#     (connections, qofs) = _internal_indexing(start_connections,
-#                                              all_spot_qs)
-#     connections = np.asarray(connections)
-
-#     iter_count = 0
-#     while True:        
-#         # Find best connection
-#         best_ind = np.nanargmax(qofs)
-        
-#         # Record best parameters
-#         best_connections.append(connections[best_ind].copy())
-#         best_qofs.append(qofs[best_ind])
-
-#         # Update connections
-#         spot_inds, ref_inds = _get_connection_indices(best_connections[-1])
-#         excluded_spot_indices.extend(spot_inds)
-
-#         # Record changes and remove already indexed spots
-#         changed_mask = np.any(~np.isnan(connections[:, excluded_spot_indices]), axis=1)
-#         track_conns[:, excluded_spot_indices] = np.nan
-#         included_spot_mask[excluded_spot_indices] = False
-
-#         # Determine which connections are still valid
-#         valid_mask = np.sum(~np.isnan(track_conns), axis=1) >= 2
-#         included_conn_mask[np.nonzero(included_conn_mask)[0][~valid_mask]] = False
-        
-#         # Remove invalid connections, and determine which should be recalculated
-#         track_conns = track_conns[valid_mask]
-#         connections = connections[valid_mask]
-#         qofs = qofs[valid_mask]
-#         recalc_mask = changed_mask[valid_mask]
-
-#         # Recalculate as necessary
-#         if recalc_mask.sum() > 0:
-#             # Re-index connections
-#             (new_connections,
-#              new_qofs) = _internal_indexing(
-#                 # connections[np.ix_(recalc_mask, included_spot_mask)],
-#                 start_connections[included_conn_mask][np.ix_(recalc_mask, included_spot_mask)],
-#                 all_spot_qs[included_spot_mask],
-#                 verbose=False)
-
-#             # Expand new connections
-#             full_new_connections = np.empty((recalc_mask.sum(),
-#                                             len(included_spot_mask)))
-#             full_new_connections[:] = np.nan
-#             full_new_connections[:, included_spot_mask] = new_connections
-
-#             # Update values
-#             connections[recalc_mask] = full_new_connections
-#             qofs[recalc_mask] = new_qofs
-
-#         # Conditionals to kill iteration
-#         iter_count += 1
-#         if (len(connections) < 1 # Nothing left to compare
-#             or len(all_spot_qs) - len(excluded_spot_indices) < 1 # Cannot solve orientations
-#             or qofs.max() < qof_minimum # Quality of fit has gotten too poor
-#             or iter_count >= max_ori_decomp_count): # Reach maxed allowed orientations
-#             break
-
-#     # Trim bad connections.
-#     best_qofs = np.asarray(best_qofs)
-#     if len(best_connections) > 1:
-#         # I don't like this, but I want to keep it as a list
-#         best_connections = list(np.asarray(best_connections)[best_qofs >= qof_minimum])
-#         best_qofs = best_qofs[best_qofs >= qof_minimum]
-#     else:
-#         if verbose and best_qofs.squeeze() < qof_minimum:
-#             warn_str = ('WARNING: Indexing quality '
-#                         + f'({best_qofs.squeeze():.4f}) below '
-#                         + f'designated minimum ({qof_minimum:.4f}). '
-#                         + 'Stopping indexing.')
-#             print(warn_str)
-        
-#     return best_connections, best_qofs
 
 
 #########################
@@ -1168,28 +885,3 @@ def get_rmse(fit_spot_qs,
                     for v1, v2 in zip(fit_spot_qs, fit_rot_qs)])
 
     return rmse
-
-
-# def _get_connection_indices(connection):
-
-#     connection = np.asarray(connection)
-#     spot_indices = np.nonzero(~np.isnan(connection))[0]
-#     ref_indices = connection[spot_indices].astype(int)
-
-#     return spot_indices, ref_indices
-
-
-# def _decompose_connection(connection,
-#                           all_spot_qs,
-#                           all_ref_qs):
-
-#     all_spot_qs = np.asarray(all_spot_qs)
-#     all_ref_qs = np.asarray(all_ref_qs)
-
-#     (spot_indices,
-#     ref_indices) = _get_connection_indices(connection)
-
-#     conn_spots = all_spot_qs[spot_indices]
-#     conn_refs = all_ref_qs[ref_indices]
-
-#     return conn_spots, conn_refs
