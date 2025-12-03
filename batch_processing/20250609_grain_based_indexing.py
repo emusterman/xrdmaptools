@@ -39,6 +39,10 @@ from xrdmaptools.utilities.utilities import (
     generate_intensity_mask
 )
 # from xrdmaptools.reflections.spot_blob_indexing_3D import pair_casting_index_full_pattern
+# from xrdmaptools.reflections.spot_blob_indexing_3D import (
+#     find_valid_pairs,
+#     pattern_decomposition_from_seeds
+# )
 from xrdmaptools.reflections.spot_blob_search_3D import rsm_spot_search
 from xrdmaptools.crystal.crystal import are_collinear, are_coplanar
 
@@ -121,7 +125,7 @@ def index_map_by_grains(xdms,
     while not np.all(np.isnan(mutable_map)):
         index = np.nanargmax(mutable_map)
         indices = np.unravel_index(index, map_shape)
-        print(f'Indices are {indices}')
+        print(f'Map indices are {tuple([int(i) for i in indices])}')
 
         # Setup containers
         all_indexing = []
@@ -172,7 +176,7 @@ def index_map_by_grains(xdms,
         if len(n_oris) > 0:
             print('Grain casting')
 
-            # if indices == (24, 118):
+            # if indices == (41, 26):
             #     return n_oris, all_spot_qs, all_spot_ints, all_ref_qs, all_ref_fs, xdms.qmask, near_q
 
             (grain_indexing,
@@ -198,7 +202,7 @@ def index_map_by_grains(xdms,
 
             # Find pairs
             print('Finding pairs')
-            pairs, connection_pairs = find_valid_pairs(
+            pairs = find_valid_pairs(
                                 all_spot_qs[spot_mask],
                                 all_ref_qs,
                                 all_ref_hkls,
