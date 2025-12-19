@@ -417,8 +417,12 @@ def seed_casting(seed,
         else:
             curr_spots, curr_refs = indexing.T
             if are_collinear(all_ref_qs[curr_refs]):
-                curr_spots, curr_refs = prev_indexing.T
-                break
+                if len(prev_indexing) > 0:
+                    curr_spots, curr_refs = prev_indexing.T
+                    break
+                else:
+                    # Only collinear solution found...
+                    return [], 0
         
         # Parse indexing
         if len(prev_indexing) > 0:
