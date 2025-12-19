@@ -19,8 +19,8 @@ from functools import reduce
 from sklearn.decomposition import PCA, NMF
 
 # Local imports
+from xrdmaptools.utilities.math import rescale_array
 from xrdmaptools.utilities.utilities import (
-  rescale_array,
   timed_iter 
 )
 from xrdmaptools.XRDBaseScan import XRDBaseScan
@@ -616,9 +616,9 @@ def construct_map(base_map,
 
 
 from xrdmaptools.crystal.strain import phase_get_strain_orientation
-from xrdmaptools.reflections.spot_blob_indexing_3D import (
-    _get_connection_indices
-)
+# from xrdmaptools.reflections.spot_blob_indexing_3D import (
+#     _get_connection_indices
+# )
 
 def get_ori_map(conn_map, spot_map, hkls_map, phase):
 

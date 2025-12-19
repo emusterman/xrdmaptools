@@ -87,11 +87,14 @@ def interactive_misorientation_plot(ori_map, x_ticks=None, y_ticks=None, vmax=5,
         if update_coordinates(event):
             pix_ori = ori_map[row, col]
             mis_map = np.empty(ori_map.shape[:2])
-
-            for index in range(np.prod(mis_map.shape)):
-                indices = np.unravel_index(index, mis_map.shape)
-                mis = Rotation.from_matrix(pix_ori @ ori_map[indices].T)
-                mis_map[indices] = np.degrees(mis.magnitude())
+            mis_map[:] = np.nan
+            
+            if not np.any(np.isnan(pix_ori)):
+                for index in range(np.prod(mis_map.shape)):
+                    indices = np.unravel_index(index, mis_map.shape)
+                    if not np.any(np.isnan(ori_map[indices])):
+                        mis = Rotation.from_matrix(pix_ori @ ori_map[indices].T)
+                        mis_map[indices] = np.degrees(mis.magnitude())
 
             im.set_data(mis_map)
             fig.canvas.draw_idle()
@@ -721,7 +724,7 @@ from xrdmaptools.utilities.math import wavelength_2_energy
 
 def symmeterize_and_stitch(spots_3D,
                            phase,
-                           symmetry,
+                        #    symmetry,
                            mis_thresh=0.5,
                            metric='intensity',
                            degrees=True,
@@ -729,6 +732,7 @@ def symmeterize_and_stitch(spots_3D,
                            debug_stop=None):
 
     # Setup symmetry
+    symmetry = get_point_group(phase.lattice.space_group_nr)
     laue = symmetry.laue
     laue = laue[:laue.shape[0] // 2] # Ignore inversion for now...
     syms = laue.to_matrix()
@@ -802,7 +806,8 @@ def symmeterize_and_stitch(spots_3D,
                     # If yes, then drop them. TODO: Check if they are worth combining
                     if len(dropped_inds) > 0:
                         mask = [True,] * len(pixel_oris)
-                        print(f'WARNING: Overlapping indexing dropped in pixel {(row, col)}.')
+                        if verbose:
+                            print(f'WARNING: Overlapping indexing dropped in pixel {(row, col)}.')
                         for i, dropped_ind in enumerate(np.unique(dropped_inds)):
                             spot_inds = df[df['grain_id'] == dropped_ind].index
                             spots_3D.loc[spot_inds, 'grain_id'] = -(i + 1)
@@ -836,7 +841,8 @@ def symmeterize_and_stitch(spots_3D,
                 # Check if two pixel orientations match the same nearby grain
                 overlap = np.sum(matches, axis=0) > 1
                 if np.any(overlap):
-                    print(f'WARNING: Overlapping indexing found during stiching in pixel {(row, col)}.')
+                    if verbose:
+                        print(f'WARNING: Overlapping indexing found during stiching in pixel {(row, col)}.')
 
                     # Eliminate the less good orientation from the pixel like before
                     dropped_inds = []
@@ -913,28 +919,40 @@ def symmeterize_and_stitch(spots_3D,
                         # Update current containers
                         all_grains[keep_key].extend(spot_inds)
                         curr_row_oris[col][keep_key] = sym_oris[sym_ind]
+                        if col > 0:
+                            curr_row_oris[col - 1][keep_key] = sym_oris[sym_ind]
+                        # prev_row_oris does not need to be updated...
 
                         # Update current hkls
                         hkls = spots_3D.loc[spot_inds, ['h', 'k', 'l']].values
                         new_hkls = phase.HKL(phase.Q(hkls) @ syms[sym_ind]).round()
                         spots_3D.loc[spot_inds, ['h', 'k', 'l']] = new_hkls
 
+                        # print(f'Drop keys are {[near_keys[ind] for ind in match_inds]}')
                         for drop_ind, drop_sym_ind in zip(match_inds, all_sym_inds):
                             drop_key = near_keys[drop_ind]
+                            near_keys[np.nonzero(near_keys == drop_key)[0]] = keep_key
                             
                             # Solves issues of duplicates (which is physical)
                             if drop_key == keep_key:
                                 continue
 
-                            # Find all spots and update labels
-                            try:
-                                updated_inds = all_grains[drop_key]
-                            except:
-                                print(near_keys)
-                                print(drop_ind)
-                                continue
+                            # Find all spots and update labels                            
+                            # try:
+                            #     updated_inds = all_grains[drop_key]
+                            # except:
+                            #     print(near_keys)
+                            #     print(drop_ind)
+                            #     continue
+                            updated_inds = all_grains[drop_key]
                             all_grains[keep_key].extend(updated_inds)
-                            del all_grains[drop_key]                 
+                            del all_grains[drop_key]
+                            # Remove key from row orientations
+                            # prev_row_oris does not need to be updated
+                            # if drop_key in prev_row_oris[col]:
+                            #     del prev_row_oris[col][drop_key]
+                            if col > 0 and drop_key in curr_row_oris[col - 1]:
+                                del curr_row_oris[col - 1][drop_key]
     
                             # Update hkls if different
                             if drop_sym_ind != sym_ind:
@@ -1166,442 +1184,442 @@ def dilate_grains(spots_3D,
 
 
 
-from xrdmaptools.reflections.spot_blob_indexing_3D import (
-    pair_casting_index_full_pattern,
-    _get_connection_indices,
-    find_all_valid_pairs,
-    reduce_symmetric_equivalents,
-    decaying_pattern_decomposition
-)
+# from xrdmaptools.reflections.spot_blob_indexing_3D import (
+#     pair_casting_index_full_pattern,
+#     _get_connection_indices,
+#     find_all_valid_pairs,
+#     reduce_symmetric_equivalents,
+#     decaying_pattern_decomposition
+# )
 
-def dask_index_all_3D_spots(self,
-                        near_q,
-                        near_angle,
-                        phase=None,
-                        degrees=None,
-                        save_to_hdf=True,
-                        verbose=False):
+# def dask_index_all_3D_spots(self,
+#                         near_q,
+#                         near_angle,
+#                         phase=None,
+#                         degrees=None,
+#                         save_to_hdf=True,
+#                         verbose=False):
 
-    if not hasattr(self, 'spots_3D') or self.spots_3D is None:
-        err_str = 'Spots must be found before they can be indexed.'
-        raise AttributeError(err_str)
+#     if not hasattr(self, 'spots_3D') or self.spots_3D is None:
+#         err_str = 'Spots must be found before they can be indexed.'
+#         raise AttributeError(err_str)
     
-    if phase is None:
-        if len(self.phases) == 1:
-            phase = list(self.phases.values())[0]
-        else:
-            err_str = 'Phase must be provided for indexing.'
-            raise ValueError(err_str)
+#     if phase is None:
+#         if len(self.phases) == 1:
+#             phase = list(self.phases.values())[0]
+#         else:
+#             err_str = 'Phase must be provided for indexing.'
+#             raise ValueError(err_str)
 
-    # Get phase information
-    all_q_mags = np.linalg.norm(self.spots_3D[['qx',
-                                               'qy',
-                                               'qz']], axis=1)
-    max_q = np.max(all_q_mags)
+#     # Get phase information
+#     all_q_mags = np.linalg.norm(self.spots_3D[['qx',
+#                                                'qy',
+#                                                'qz']], axis=1)
+#     max_q = np.max(all_q_mags)
 
-    phase.generate_reciprocal_lattice(1.15 * max_q)
-    all_ref_qs = phase.all_qs.copy()
-    all_ref_hkls = phase.all_hkls.copy()
-    all_ref_fs = phase.all_fs.copy()
-    all_ref_mags = np.linalg.norm(all_ref_qs, axis=1)
+#     phase.generate_reciprocal_lattice(1.15 * max_q)
+#     all_ref_qs = phase.all_qs.copy()
+#     all_ref_hkls = phase.all_hkls.copy()
+#     all_ref_fs = phase.all_fs.copy()
+#     all_ref_mags = np.linalg.norm(all_ref_qs, axis=1)
 
-    # Find minimum q vector step size from reference phase
-    min_q = np.min(np.linalg.norm(phase.Q([[1, 0, 0],
-                                           [0, 1, 0],
-                                           [0, 0, 1]]),
-                                                axis=0))
+#     # Find minimum q vector step size from reference phase
+#     min_q = np.min(np.linalg.norm(phase.Q([[1, 0, 0],
+#                                            [0, 1, 0],
+#                                            [0, 0, 1]]),
+#                                                 axis=0))
 
-    # Function for scheduled indexing
-    # Removed all external references in hopes of increased speed...
-    @dask.delayed
-    def delayed_indexing(spot_indices, spot_qs, spot_ints):
-        # pixel_df = self.pixel_3D_spots(indices, copied=False)
-        # spots = pixel_df[['qx', 'qy', 'qz']].values
+#     # Function for scheduled indexing
+#     # Removed all external references in hopes of increased speed...
+#     @dask.delayed
+#     def delayed_indexing(spot_indices, spot_qs, spot_ints):
+#         # pixel_df = self.pixel_3D_spots(indices, copied=False)
+#         # spots = pixel_df[['qx', 'qy', 'qz']].values
         
-        all_rel_inds = []
-        all_grain_ids = []
-        all_qofs = []
-        all_hkls = []
+#         all_rel_inds = []
+#         all_grain_ids = []
+#         all_qofs = []
+#         all_hkls = []
 
-        if len(spot_indices) > 1 and not are_collinear(spot_qs):
+#         if len(spot_indices) > 1 and not are_collinear(spot_qs):
 
-            spot_q_mags = np.linalg.norm(spot_qs, axis=1)
-            max_spot_q = np.max(spot_q_mags)
-            min_spot_q = np.min(spot_q_mags)
+#             spot_q_mags = np.linalg.norm(spot_qs, axis=1)
+#             max_spot_q = np.max(spot_q_mags)
+#             min_spot_q = np.min(spot_q_mags)
 
-            ext = 0.15
-            ref_mask = ((min_spot_q * (1 - ext) < all_ref_mags)
-                        & (all_ref_mags < max_spot_q * (1 + ext)))
+#             ext = 0.15
+#             ref_mask = ((min_spot_q * (1 - ext) < all_ref_mags)
+#                         & (all_ref_mags < max_spot_q * (1 + ext)))
 
-            (conns,
-             qofs) = pair_casting_index_full_pattern(
-                                        all_ref_qs[ref_mask],
-                                        all_ref_hkls[ref_mask],
-                                        all_ref_fs[ref_mask],
-                                        min_q,
-                                        spot_qs,
-                                        spot_ints,
-                                        near_q,
-                                        near_angle,
-                                        self.qmask,
-                                        degrees=degrees,
-                                        verbose=verbose)
+#             (conns,
+#              qofs) = pair_casting_index_full_pattern(
+#                                         all_ref_qs[ref_mask],
+#                                         all_ref_hkls[ref_mask],
+#                                         all_ref_fs[ref_mask],
+#                                         min_q,
+#                                         spot_qs,
+#                                         spot_ints,
+#                                         near_q,
+#                                         near_angle,
+#                                         self.qmask,
+#                                         degrees=degrees,
+#                                         verbose=verbose)
             
-            return all_rel_inds, all_grain_ids, all_qofs, all_hkls
+#             return all_rel_inds, all_grain_ids, all_qofs, all_hkls
 
-            for grain_id, (conn, qof) in enumerate(zip(conns, qofs)):
-                # Get values
-                (spot_inds,
-                    hkl_inds) = _get_connection_indices(conn)
+#             for grain_id, (conn, qof) in enumerate(zip(conns, qofs)):
+#                 # Get values
+#                 (spot_inds,
+#                     hkl_inds) = _get_connection_indices(conn)
 
-                # Collect results
-                rel_ind = spot_indices[spot_inds]
-                all_rel_inds.extend(rel_ind)
-                all_grain_ids.extend([grain_id,] * len(spot_inds))
-                all_qofs.extend([qof,] * len(spot_inds))
-                all_hkls.extend(hkls[hkl_inds])
+#                 # Collect results
+#                 rel_ind = spot_indices[spot_inds]
+#                 all_rel_inds.extend(rel_ind)
+#                 all_grain_ids.extend([grain_id,] * len(spot_inds))
+#                 all_qofs.extend([qof,] * len(spot_inds))
+#                 all_hkls.extend(hkls[hkl_inds])
 
-        return all_rel_inds, all_grain_ids, all_qofs, all_hkls
+#         return all_rel_inds, all_grain_ids, all_qofs, all_hkls
             
-    # Update spots dataframe with new columns
-    self.spots_3D['phase'] = ''
-    self.spots_3D[['grain_id', 'h', 'k', 'l', 'qof']] = np.nan
+#     # Update spots dataframe with new columns
+#     self.spots_3D['phase'] = ''
+#     self.spots_3D[['grain_id', 'h', 'k', 'l', 'qof']] = np.nan
 
-    # Iterate through each spatial pixel of map
-    delayed_list = []
-    for index in range(np.prod(self.xdms_vector_map.shape)):
-        indices = np.unravel_index(index, self.xdms_vector_map.shape)
-        pixel_df = self.pixel_3D_spots(indices)
-        spot_indices = pixel_df.index.values
-        spot_qs = pixel_df[['qx', 'qy', 'qz']].values
-        spot_ints = pixel_df['intensity'].values
-        if verbose:
-            print(f'Indexing for map indices {indices}.')
+#     # Iterate through each spatial pixel of map
+#     delayed_list = []
+#     for index in range(np.prod(self.xdms_vector_map.shape)):
+#         indices = np.unravel_index(index, self.xdms_vector_map.shape)
+#         pixel_df = self.pixel_3D_spots(indices)
+#         spot_indices = pixel_df.index.values
+#         spot_qs = pixel_df[['qx', 'qy', 'qz']].values
+#         spot_ints = pixel_df['intensity'].values
+#         if verbose:
+#             print(f'Indexing for map indices {indices}.')
         
-        # Collect scheduled calls
-        delayed_list.append(delayed_indexing(spot_indices, spot_qs, spot_ints))
+#         # Collect scheduled calls
+#         delayed_list.append(delayed_indexing(spot_indices, spot_qs, spot_ints))
 
-    # Compute scheduled operations
-    if not verbose:
-        with TqdmCallback(tqdm_class=tqdm):
-            proc_list = dask.compute(*delayed_list)
-    else:
-        proc_list = dask.compute(*delayed_list)
+#     # Compute scheduled operations
+#     if not verbose:
+#         with TqdmCallback(tqdm_class=tqdm):
+#             proc_list = dask.compute(*delayed_list)
+#     else:
+#         proc_list = dask.compute(*delayed_list)
     
-    return
+#     return
     
-    # Unpack data into useable format
-    all_inds = list(itertools.chain(*[res[0] for res in proc_list]))
-    self.spots_3D.loc[all_inds, 'phase'] = phase.name
-    self.spots_3D.loc[all_inds, 'grain_id'] = list(itertools.chain(*[res[1] for res in proc_list]))
-    self.spots_3D.loc[all_inds, 'qof'] = list(itertools.chain(*[res[2] for res in proc_list]))
-    self.spots_3D.loc[all_inds, ['h', 'k', 'l']] = list(itertools.chain(*[res[3] for res in proc_list]))
+#     # Unpack data into useable format
+#     all_inds = list(itertools.chain(*[res[0] for res in proc_list]))
+#     self.spots_3D.loc[all_inds, 'phase'] = phase.name
+#     self.spots_3D.loc[all_inds, 'grain_id'] = list(itertools.chain(*[res[1] for res in proc_list]))
+#     self.spots_3D.loc[all_inds, 'qof'] = list(itertools.chain(*[res[2] for res in proc_list]))
+#     self.spots_3D.loc[all_inds, ['h', 'k', 'l']] = list(itertools.chain(*[res[3] for res in proc_list]))
 
-    # Write to hdf
-    if save_to_hdf:
-        self.save_3D_spots(
-                extra_attrs={'near_q' : near_q,
-                             'near_angle' : near_angle,
-                             'degrees' : degrees})
+#     # Write to hdf
+#     if save_to_hdf:
+#         self.save_3D_spots(
+#                 extra_attrs={'near_q' : near_q,
+#                              'near_angle' : near_angle,
+#                              'degrees' : degrees})
 
 
 
-def new_dask_index_all_3D_spots(self,
-                           near_q,
-                           near_angle,
-                           phase=None,
-                           degrees=None,
-                           save_to_hdf=True,
-                           verbose=False,
-                           half_mask=True):
+# def new_dask_index_all_3D_spots(self,
+#                            near_q,
+#                            near_angle,
+#                            phase=None,
+#                            degrees=None,
+#                            save_to_hdf=True,
+#                            verbose=False,
+#                            half_mask=True):
 
-    if not hasattr(self, 'spots_3D') or self.spots_3D is None:
-        err_str = 'Spots must be found before they can be indexed.'
-        raise AttributeError(err_str)
+#     if not hasattr(self, 'spots_3D') or self.spots_3D is None:
+#         err_str = 'Spots must be found before they can be indexed.'
+#         raise AttributeError(err_str)
     
-    if phase is None:
-        if len(self.phases) == 1:
-            phase = list(self.phases.values())[0]
-        else:
-            err_str = 'Phase must be provided for indexing.'
-            raise ValueError(err_str)
+#     if phase is None:
+#         if len(self.phases) == 1:
+#             phase = list(self.phases.values())[0]
+#         else:
+#             err_str = 'Phase must be provided for indexing.'
+#             raise ValueError(err_str)
     
-    map_shape = (np.max(self.spots_3D['map_y'] + 1),
-                 np.max(self.spots_3D['map_x'] + 1))
+#     map_shape = (np.max(self.spots_3D['map_y'] + 1),
+#                  np.max(self.spots_3D['map_x'] + 1))
 
-    # Get phase information
-    max_q = np.max(self.spots_3D['q_mag'])
+#     # Get phase information
+#     max_q = np.max(self.spots_3D['q_mag'])
 
-    phase.generate_reciprocal_lattice(1.15 * max_q)
-    all_ref_qs = phase.all_qs.copy()
-    all_ref_hkls = phase.all_hkls.copy()
-    all_ref_fs = phase.all_fs.copy()
+#     phase.generate_reciprocal_lattice(1.15 * max_q)
+#     all_ref_qs = phase.all_qs.copy()
+#     all_ref_hkls = phase.all_hkls.copy()
+#     all_ref_fs = phase.all_fs.copy()
 
-    # Ignore half...
-    if half_mask:
-        half_mask = all_ref_hkls[:, -1] <= 0
-        all_ref_qs = all_ref_qs[half_mask]
-        all_ref_hkls = all_ref_hkls[half_mask]
-        all_ref_fs = all_ref_fs[half_mask]
+#     # Ignore half...
+#     if half_mask:
+#         half_mask = all_ref_hkls[:, -1] <= 0
+#         all_ref_qs = all_ref_qs[half_mask]
+#         all_ref_hkls = all_ref_hkls[half_mask]
+#         all_ref_fs = all_ref_fs[half_mask]
 
-    ref_mags = np.linalg.norm(all_ref_qs, axis=1)
+#     ref_mags = np.linalg.norm(all_ref_qs, axis=1)
 
-    # Find minimum q vector step size from reference phase
-    min_q = phase.min_q
+#     # Find minimum q vector step size from reference phase
+#     min_q = phase.min_q
 
-    @dask.delayed
-    def delayed_indexing(pixel_df):
-        spots = pixel_df[['qx', 'qy', 'qz']].values
+#     @dask.delayed
+#     def delayed_indexing(pixel_df):
+#         spots = pixel_df[['qx', 'qy', 'qz']].values
         
-        if len(spots) > 1 and not are_collinear(spots):
-            spot_mags = pixel_df['q_mag'].values
-            spot_ints = pixel_df['intensity'].values
-            ext = 0.15
-            ref_mask = ((ref_mags > spot_mags.min() * (1 - ext))
-                        & (ref_mags < spot_mags.max() * (1 + ext)))
+#         if len(spots) > 1 and not are_collinear(spots):
+#             spot_mags = pixel_df['q_mag'].values
+#             spot_ints = pixel_df['intensity'].values
+#             ext = 0.15
+#             ref_mask = ((ref_mags > spot_mags.min() * (1 - ext))
+#                         & (ref_mags < spot_mags.max() * (1 + ext)))
 
-            (conns,
-             qofs) = pair_casting_index_full_pattern(
-                                        all_ref_qs[ref_mask],
-                                        all_ref_hkls[ref_mask],
-                                        all_ref_fs[ref_mask],
-                                        min_q,
-                                        spots,
-                                        spot_ints,
-                                        near_q,
-                                        near_angle,
-                                        self.qmask,
-                                        degrees=degrees,
-                                        verbose=verbose)
+#             (conns,
+#              qofs) = pair_casting_index_full_pattern(
+#                                         all_ref_qs[ref_mask],
+#                                         all_ref_hkls[ref_mask],
+#                                         all_ref_fs[ref_mask],
+#                                         min_q,
+#                                         spots,
+#                                         spot_ints,
+#                                         near_q,
+#                                         near_angle,
+#                                         self.qmask,
+#                                         degrees=degrees,
+#                                         verbose=verbose)
             
-            return
+#             return
             
-            for grain_id, (conn, qof) in enumerate(zip(conns, qofs)):
-                # Get values
-                (spot_inds,
-                 hkl_inds) = _get_connection_indices(conn)
-                hkls = all_ref_hkls[ref_mask][hkl_inds]
+#             for grain_id, (conn, qof) in enumerate(zip(conns, qofs)):
+#                 # Get values
+#                 (spot_inds,
+#                  hkl_inds) = _get_connection_indices(conn)
+#                 hkls = all_ref_hkls[ref_mask][hkl_inds]
 
-                # Assign values
-                rel_ind = pixel_df.index[spot_inds]
-                # self.spots_3D.loc[rel_ind, 'phase'] = phase.name
-                # self.spots_3D.loc[rel_ind, 'grain_id'] = grain_id
-                # self.spots_3D.loc[rel_ind, 'qof'] = qof
-                # self.spots_3D.loc[rel_ind, ['h', 'k', 'l']] = hkls
+#                 # Assign values
+#                 rel_ind = pixel_df.index[spot_inds]
+#                 # self.spots_3D.loc[rel_ind, 'phase'] = phase.name
+#                 # self.spots_3D.loc[rel_ind, 'grain_id'] = grain_id
+#                 # self.spots_3D.loc[rel_ind, 'qof'] = qof
+#                 # self.spots_3D.loc[rel_ind, ['h', 'k', 'l']] = hkls
     
-    # Update spots dataframe with new columns
-    self.spots_3D['phase'] = ''
-    self.spots_3D[['grain_id', 'h', 'k', 'l', 'qof']] = np.nan
+#     # Update spots dataframe with new columns
+#     self.spots_3D['phase'] = ''
+#     self.spots_3D[['grain_id', 'h', 'k', 'l', 'qof']] = np.nan
 
-    # Iterate through each spatial pixel of map
-    delayed_results = []
-    for index in range(np.prod(map_shape)):
-        indices = np.unravel_index(index, map_shape)        
-        pixel_df = self.pixel_3D_spots(indices, copied=True)
+#     # Iterate through each spatial pixel of map
+#     delayed_results = []
+#     for index in range(np.prod(map_shape)):
+#         indices = np.unravel_index(index, map_shape)        
+#         pixel_df = self.pixel_3D_spots(indices, copied=True)
         
-        if len(pixel_df) > 1:
-            delayed_results.append(delayed_indexing(pixel_df))
+#         if len(pixel_df) > 1:
+#             delayed_results.append(delayed_indexing(pixel_df))
     
-    # Compute scheduled operations
-    if not verbose:
-        with TqdmCallback(tqdm_class=tqdm):
-            proc_list = dask.compute(*delayed_results)
-    else:
-        proc_list = dask.compute(*delayed_results)
+#     # Compute scheduled operations
+#     if not verbose:
+#         with TqdmCallback(tqdm_class=tqdm):
+#             proc_list = dask.compute(*delayed_results)
+#     else:
+#         proc_list = dask.compute(*delayed_results)
 
-    # Write to hdf
-    # if save_to_hdf:
-    #     self.save_3D_spots(
-    #             extra_attrs={'near_q' : near_q,
-    #                             'near_angle' : near_angle,
-    #                             'degrees' : int(degrees)})
+#     # Write to hdf
+#     # if save_to_hdf:
+#     #     self.save_3D_spots(
+#     #             extra_attrs={'near_q' : near_q,
+#     #                             'near_angle' : near_angle,
+#     #                             'degrees' : int(degrees)})
 
-def delayed_pair_indexing(all_ref_qs,
-                          all_ref_hkls,
-                                    all_ref_fs,
-                                    min_q,
-                                    all_spot_qs,
-                                    all_spot_ints,
-                                    near_q,
-                                    near_angle,
-                                    qmask,
-                                    degrees=False,
-                                    qof_minimum=0.2,
-                                    max_ori_refine_iter=50,
-                                    max_ori_decomp_count=20,
-                                    keep_initial_pair=False,
-                                    generate_reciprocal_lattice=False,
-                                    verbose=True):
+# def delayed_pair_indexing(all_ref_qs,
+#                           all_ref_hkls,
+#                                     all_ref_fs,
+#                                     min_q,
+#                                     all_spot_qs,
+#                                     all_spot_ints,
+#                                     near_q,
+#                                     near_angle,
+#                                     qmask,
+#                                     degrees=False,
+#                                     qof_minimum=0.2,
+#                                     max_ori_refine_iter=50,
+#                                     max_ori_decomp_count=20,
+#                                     keep_initial_pair=False,
+#                                     generate_reciprocal_lattice=False,
+#                                     verbose=True):
 
-    # Find all valid pairs within near_q and near_angle
-    pairs = dask.delayed(find_all_valid_pairs)(
-            all_spot_qs,
-            all_ref_qs,
-            near_q,
-            near_angle,
-            min_q,
-            degrees=degrees,
-            verbose=verbose)
+#     # Find all valid pairs within near_q and near_angle
+#     pairs = dask.delayed(find_all_valid_pairs)(
+#             all_spot_qs,
+#             all_ref_qs,
+#             near_q,
+#             near_angle,
+#             min_q,
+#             degrees=degrees,
+#             verbose=verbose)
     
-    if len(pairs) > 0:
-        # Symmetrically reduce pairs
-        red_pairs = dask.delayed(reduce_symmetric_equivalents)(
-                pairs,
-                all_spot_qs,
-                all_ref_qs,
-                all_ref_hkls,
-                near_angle,
-                min_q,
-                degrees=degrees,
-                verbose=verbose)
+#     if len(pairs) > 0:
+#         # Symmetrically reduce pairs
+#         red_pairs = dask.delayed(reduce_symmetric_equivalents)(
+#                 pairs,
+#                 all_spot_qs,
+#                 all_ref_qs,
+#                 all_ref_hkls,
+#                 near_angle,
+#                 min_q,
+#                 degrees=degrees,
+#                 verbose=verbose)
         
-        if len(red_pairs) > 0:
-            # Iteratively decompose patterns
-            (best_connections, 
-             best_qofs) = dask.delayed(decaying_pattern_decomposition)(
-                    red_pairs,
-                    all_spot_qs,
-                    all_spot_ints,
-                    all_ref_qs,
-                    all_ref_fs,
-                    qmask,
-                    near_q,
-                    qof_minimum=qof_minimum,
-                    keep_initial_pair=keep_initial_pair,
-                    max_ori_refine_iter=max_ori_refine_iter,
-                    max_ori_decomp_count=max_ori_decomp_count,
-                    verbose=verbose)
-        else:
-            # This is where all nans are coming from!
-            best_connections = [[np.nan,] * len(all_spot_qs)]
-            best_qofs = [np.nan]
-    else:
-        # This is where all nans are coming from!
-        best_connections = [[np.nan,] * len(all_spot_qs)]
-        best_qofs = [np.nan]
+#         if len(red_pairs) > 0:
+#             # Iteratively decompose patterns
+#             (best_connections, 
+#              best_qofs) = dask.delayed(decaying_pattern_decomposition)(
+#                     red_pairs,
+#                     all_spot_qs,
+#                     all_spot_ints,
+#                     all_ref_qs,
+#                     all_ref_fs,
+#                     qmask,
+#                     near_q,
+#                     qof_minimum=qof_minimum,
+#                     keep_initial_pair=keep_initial_pair,
+#                     max_ori_refine_iter=max_ori_refine_iter,
+#                     max_ori_decomp_count=max_ori_decomp_count,
+#                     verbose=verbose)
+#         else:
+#             # This is where all nans are coming from!
+#             best_connections = [[np.nan,] * len(all_spot_qs)]
+#             best_qofs = [np.nan]
+#     else:
+#         # This is where all nans are coming from!
+#         best_connections = [[np.nan,] * len(all_spot_qs)]
+#         best_qofs = [np.nan]
 
-    return best_connections, best_qofs
+#     return best_connections, best_qofs
 
 
-def new_new_dask_index_all_3D_spots(self,
-                           near_q,
-                           near_angle,
-                           phase=None,
-                           degrees=None,
-                           save_to_hdf=True,
-                           verbose=False,
-                           half_mask=True):
+# def new_new_dask_index_all_3D_spots(self,
+#                            near_q,
+#                            near_angle,
+#                            phase=None,
+#                            degrees=None,
+#                            save_to_hdf=True,
+#                            verbose=False,
+#                            half_mask=True):
 
-    if not hasattr(self, 'spots_3D') or self.spots_3D is None:
-        err_str = 'Spots must be found before they can be indexed.'
-        raise AttributeError(err_str)
+#     if not hasattr(self, 'spots_3D') or self.spots_3D is None:
+#         err_str = 'Spots must be found before they can be indexed.'
+#         raise AttributeError(err_str)
     
-    if phase is None:
-        if len(self.phases) == 1:
-            phase = list(self.phases.values())[0]
-        else:
-            err_str = 'Phase must be provided for indexing.'
-            raise ValueError(err_str)
+#     if phase is None:
+#         if len(self.phases) == 1:
+#             phase = list(self.phases.values())[0]
+#         else:
+#             err_str = 'Phase must be provided for indexing.'
+#             raise ValueError(err_str)
     
-    map_shape = (np.max(self.spots_3D['map_y'] + 1),
-                 np.max(self.spots_3D['map_x'] + 1))
+#     map_shape = (np.max(self.spots_3D['map_y'] + 1),
+#                  np.max(self.spots_3D['map_x'] + 1))
 
-    # Get phase information
-    max_q = np.max(self.spots_3D['q_mag'])
+#     # Get phase information
+#     max_q = np.max(self.spots_3D['q_mag'])
 
-    phase.generate_reciprocal_lattice(1.15 * max_q)
-    all_ref_qs = phase.all_qs.copy()
-    all_ref_hkls = phase.all_hkls.copy()
-    all_ref_fs = phase.all_fs.copy()
+#     phase.generate_reciprocal_lattice(1.15 * max_q)
+#     all_ref_qs = phase.all_qs.copy()
+#     all_ref_hkls = phase.all_hkls.copy()
+#     all_ref_fs = phase.all_fs.copy()
 
-    # Ignore half...
-    if half_mask:
-        half_mask = all_ref_hkls[:, -1] <= 0
-        all_ref_qs = all_ref_qs[half_mask]
-        all_ref_hkls = all_ref_hkls[half_mask]
-        all_ref_fs = all_ref_fs[half_mask]
+#     # Ignore half...
+#     if half_mask:
+#         half_mask = all_ref_hkls[:, -1] <= 0
+#         all_ref_qs = all_ref_qs[half_mask]
+#         all_ref_hkls = all_ref_hkls[half_mask]
+#         all_ref_fs = all_ref_fs[half_mask]
 
-    ref_mags = np.linalg.norm(all_ref_qs, axis=1)
+#     ref_mags = np.linalg.norm(all_ref_qs, axis=1)
 
-    # Find minimum q vector step size from reference phase
-    min_q = phase.min_q
+#     # Find minimum q vector step size from reference phase
+#     min_q = phase.min_q
 
-    # Construct iterable
-    if verbose:
-        iterable = timed_iter(range(np.prod(map_shape)))
-    else:
-        iterable = tqdm(range(np.prod(map_shape)))
+#     # Construct iterable
+#     if verbose:
+#         iterable = timed_iter(range(np.prod(map_shape)))
+#     else:
+#         iterable = tqdm(range(np.prod(map_shape)))
 
-    # Iterate through each spatial pixel of map
-    delayed_results = []
-    for index in iterable:
-        indices = np.unravel_index(index, map_shape)
-        if verbose:
-            print(f'Indexing for map indices {indices}.')
+#     # Iterate through each spatial pixel of map
+#     delayed_results = []
+#     for index in iterable:
+#         indices = np.unravel_index(index, map_shape)
+#         if verbose:
+#             print(f'Indexing for map indices {indices}.')
         
-        pixel_df = self.pixel_3D_spots(indices, copied=False)
-        spots = pixel_df[['qx', 'qy', 'qz']].values
+#         pixel_df = self.pixel_3D_spots(indices, copied=False)
+#         spots = pixel_df[['qx', 'qy', 'qz']].values
         
-        if len(spots) > 1 and not are_collinear(spots):
-            spot_mags = pixel_df['q_mag'].values
-            spot_ints = pixel_df['intensity'].values
-            ext = 0.15
-            ref_mask = ((ref_mags > spot_mags.min() * (1 - ext))
-                        & (ref_mags < spot_mags.max() * (1 + ext)))
+#         if len(spots) > 1 and not are_collinear(spots):
+#             spot_mags = pixel_df['q_mag'].values
+#             spot_ints = pixel_df['intensity'].values
+#             ext = 0.15
+#             ref_mask = ((ref_mags > spot_mags.min() * (1 - ext))
+#                         & (ref_mags < spot_mags.max() * (1 + ext)))
 
-            delayed_results.append(delayed_pair_indexing(
-                                        all_ref_qs[ref_mask],
-                                        all_ref_hkls[ref_mask],
-                                        all_ref_fs[ref_mask],
-                                        min_q,
-                                        spots,
-                                        spot_ints,
-                                        near_q,
-                                        near_angle,
-                                        self.qmask,
-                                        degrees=degrees,
-                                        verbose=verbose))
+#             delayed_results.append(delayed_pair_indexing(
+#                                         all_ref_qs[ref_mask],
+#                                         all_ref_hkls[ref_mask],
+#                                         all_ref_fs[ref_mask],
+#                                         min_q,
+#                                         spots,
+#                                         spot_ints,
+#                                         near_q,
+#                                         near_angle,
+#                                         self.qmask,
+#                                         degrees=degrees,
+#                                         verbose=verbose))
     
-    # Update spots dataframe with new columns
-    self.spots_3D['phase'] = ''
-    self.spots_3D[['grain_id', 'h', 'k', 'l', 'qof']] = np.nan
+#     # Update spots dataframe with new columns
+#     self.spots_3D['phase'] = ''
+#     self.spots_3D[['grain_id', 'h', 'k', 'l', 'qof']] = np.nan
 
-    # Iterate through each spatial pixel of map
-    delayed_results = []
-    for index in range(np.prod(map_shape)):
-        indices = np.unravel_index(index, map_shape)        
-        pixel_df = self.pixel_3D_spots(indices, copied=True)
+#     # Iterate through each spatial pixel of map
+#     delayed_results = []
+#     for index in range(np.prod(map_shape)):
+#         indices = np.unravel_index(index, map_shape)        
+#         pixel_df = self.pixel_3D_spots(indices, copied=True)
         
-        if len(pixel_df) > 1:
-            delayed_results.append(delayed_indexing(pixel_df))
+#         if len(pixel_df) > 1:
+#             delayed_results.append(delayed_indexing(pixel_df))
     
-    # Compute scheduled operations
-    if not verbose:
-        with TqdmCallback(tqdm_class=tqdm):
-            proc_list = dask.compute(*delayed_results)
-    else:
-        proc_list = dask.compute(*delayed_results)
+#     # Compute scheduled operations
+#     if not verbose:
+#         with TqdmCallback(tqdm_class=tqdm):
+#             proc_list = dask.compute(*delayed_results)
+#     else:
+#         proc_list = dask.compute(*delayed_results)
 
-    for proc in tqdm(proc_list):
-        for grain_id, (conn, qof) in enumerate(zip(*proc)):
-            # Get values
-            (spot_inds,
-                hkl_inds) = _get_connection_indices(conn)
-            hkls = all_ref_hkls[ref_mask][hkl_inds]
+#     for proc in tqdm(proc_list):
+#         for grain_id, (conn, qof) in enumerate(zip(*proc)):
+#             # Get values
+#             (spot_inds,
+#                 hkl_inds) = _get_connection_indices(conn)
+#             hkls = all_ref_hkls[ref_mask][hkl_inds]
 
-            # Assign values
-            rel_ind = pixel_df.index[spot_inds]
-            self.spots_3D.loc[rel_ind, 'phase'] = phase.name
-            self.spots_3D.loc[rel_ind, 'grain_id'] = grain_id
-            self.spots_3D.loc[rel_ind, 'qof'] = qof
-            self.spots_3D.loc[rel_ind, ['h', 'k', 'l']] = hkls
+#             # Assign values
+#             rel_ind = pixel_df.index[spot_inds]
+#             self.spots_3D.loc[rel_ind, 'phase'] = phase.name
+#             self.spots_3D.loc[rel_ind, 'grain_id'] = grain_id
+#             self.spots_3D.loc[rel_ind, 'qof'] = qof
+#             self.spots_3D.loc[rel_ind, ['h', 'k', 'l']] = hkls
 
-    # Write to hdf
-    # if save_to_hdf:
-    #     self.save_3D_spots(
-    #             extra_attrs={'near_q' : near_q,
-    #                             'near_angle' : near_angle,
-    #                             'degrees' : int(degrees)})
+#     # Write to hdf
+#     # if save_to_hdf:
+#     #     self.save_3D_spots(
+#     #             extra_attrs={'near_q' : near_q,
+#     #                             'near_angle' : near_angle,
+#     #                             'degrees' : int(degrees)})
 
 
 from xrdmaptools.crystal.strain import phase_get_strain_orientation
@@ -1796,9 +1814,9 @@ def timed(func):
         return out
     return wrapper
 
-from xrdmaptools.reflections.spot_blob_indexing_3D import pair_casting_index_best_grain, pair_casting_index_full_pattern
-pair_casting_index_best_grain = timed(pair_casting_index_best_grain)
-pair_casting_index_full_pattern = timed(pair_casting_index_full_pattern)
+# from xrdmaptools.reflections.spot_blob_indexing_3D import pair_casting_index_best_grain, pair_casting_index_full_pattern
+# pair_casting_index_best_grain = timed(pair_casting_index_best_grain)
+# pair_casting_index_full_pattern = timed(pair_casting_index_full_pattern)
 
 @timed
 def test_indexing(all_spot_qs,
