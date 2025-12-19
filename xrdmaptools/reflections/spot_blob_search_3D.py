@@ -7,6 +7,11 @@ from tqdm.dask import TqdmCallback
 # Local Imports
 from xrdmaptools.utilities.math import arbitrary_center_of_mass
 
+# TEMP
+from scipy.optimize import curve_fit
+from xrdmaptools.reflections.SpotModels import _load_peak_function
+from xrdmaptools.reflections.SpotModels import GaussianFunctions
+
 
 # 3D analog of blob_search
 def rsm_blob_search(q_vectors,
@@ -137,10 +142,16 @@ def rsm_spot_search(qs,
                    + "greater than zero.")
         raise ValueError(err_str)
     
-    if label_int_method.lower() in ['mean', 'avg', 'average']:
+    spot_model = None
+    if label_int_method.lower() in {'mean', 'avg', 'average'}:
         label_int_func = np.mean
-    elif label_int_method.lower() in ['sum', 'total']:
+    elif label_int_method.lower() in {'sum', 'total'}:
         label_int_func = np.sum
+    elif label_int_method.lower() in {'gauss', 'gaussian',
+                                      'lorentz', 'lorentzian',
+                                      'p_voigt', 'pseudovoigt'}:
+        label_int_func = np.sum
+        spot_model = _load_peak_function(name)
     else:
         err_str = ("Unknown label_int_method. "
                    + "'mean' or 'sum' are supported.")
@@ -260,18 +271,80 @@ def rsm_spot_search(qs,
     countable_labels = np.unique(full_labels)
     countable_labels = countable_labels[~np.isnan(countable_labels)]
     
-    # Get q_vectors and intensity.
-    spots = [arbitrary_center_of_mass(intensity[full_labels == val],
-                                      *qs[full_labels == val].T)
-             for val in countable_labels]
-    label_ints = [label_int_func(intensity[full_labels == val])
-                  for val in countable_labels]
-    label_maxs = [np.max(intensity[full_labels == val])
-                  for val in countable_labels]
+    # Get q_vectors and intensity
+    # return full_labels, countable_labels, intensity, qs
+
+    # TEMP TESTING
+    if verbose:
+        print('Fitting vector data to spot model...')    
+
+    spots, label_ints, label_maxs = [], [], []
+    for val in countable_labels:
+        mask = full_labels == val
+        mask_ints = intensity[mask]
+        mask_qs = qs[mask].T
+
+        # For simple fitting first
+        if spot_model is None:
+            spots.append(arbitrary_center_of_mass(mask_ints, *mask_qs))
+            label_ints.append(label_int_func(mask_ints))
+            label_maxs.append(np.max(mask_ints))
+            continue
+        
+        # Spot Model fitting : without any rotations
+
+        # Ignore spots with two few vectors for fitting
+        if mask.sum() <= len(spot_model.par_3d):
+            full_labels[mask] = np.nan
+            continue
+        
+        # 3D distribution without rotation
+        fixed_func = lambda *args : spot_model.func_3d(*args, 0, 0)
+
+        ext = 0.15
+        p0 = [
+            np.max(mask_ints),
+            *mask_qs[:, np.argmax(mask_ints)],
+            *(2.355 * np.sqrt(np.diag(np.cov(mask_qs, aweights=mask_ints)))),
+        ]
+        low_bounds = [
+            0,
+            *[p0[ind] - ext * np.abs(p0[ind]) for ind in range(1, 4)],
+            0,
+            0,
+            0
+        ]
+        high_bounds = [
+            10 * p0[0],
+            *[p0[ind] + ext * np.abs(p0[ind]) for ind in range(1, 7)]
+        ]
+
+        # return mask_qs, mask_ints, p0, low_bounds, high_bounds
+
+        popt, pcov = curve_fit(fixed_func,
+                               [*mask_qs],
+                               mask_ints,
+                               p0=p0,
+                               bounds=(low_bounds, high_bounds))
+        spots.append(popt[1:4])
+        label_maxs.append(popt[0])
+        label_ints.append(spotmodel.get_hyper_volume(*popt, 0, 0))
+
+
+    # spots = [arbitrary_center_of_mass(intensity[full_labels == val],
+    #                                   *qs[full_labels == val].T)
+    #          for val in countable_labels]
+    # label_ints = [label_int_func(intensity[full_labels == val])
+    #               for val in countable_labels]
+    # label_maxs = [np.max(intensity[full_labels == val])
+    #               for val in countable_labels]
 
     # Re-label remaining nans as new blob (without spot info). Downsize datatype
-    full_labels[np.isnan(full_labels)] = np.nanmax(full_labels) + 1
-    full_labels = full_labels.astype(np.uint16)           
+    if not np.all(np.isnan(full_labels)):
+        full_labels[np.isnan(full_labels)] = np.nanmax(full_labels) + 1
+        full_labels = full_labels.astype(np.uint16)
+    else:
+        full_labels = np.array([])      
 
     return full_labels, np.asarray(spots), np.asarray(label_ints), np.asarray(label_maxs)
 
