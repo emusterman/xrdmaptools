@@ -1284,8 +1284,8 @@ class XRDBaseScan(XRDData):
             image_shape = list(self.image_shape)
         except AttributeError:
             image_shape = list(self.images.shape[:-2])
-
-        if self.ai.detector.shape != image_shape:
+        
+        if any([int(self.ai.detector.shape[i]) != int(image_shape[i]) for i in range(2)]):
             ostr = ('Calibration performed under different settings. '
                     + 'Adjusting calibration.')
             print(ostr)
