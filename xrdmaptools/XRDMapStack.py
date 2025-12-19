@@ -1833,6 +1833,11 @@ class XRDMapStack(list):
                                     label_int_method=label_int_method,
                                     verbose=verbose)
                 
+                if len(spots) == 0:
+                    spot_labels = []
+                    temp_lists = [[] for _ in range(len(df_keys))]
+                    return temp_lists, spot_labels
+                
                 # Convert reciprocal positions to polar units
                 if self.rocking_axis == 'energy':
                     if self.use_stage_rotation:
@@ -1897,7 +1902,7 @@ class XRDMapStack(list):
         self.xdms_spot_labels_map = np.empty(self.xdms_vector_map.shape, dtype=object)
         for index in range(np.prod(self.xdms_vector_map.shape)):
             indices = np.unravel_index(index, self.xdms_vector_map.shape)
-            self.xdms_spot_labels_map[indices] = list(proc_list[index])
+            self.xdms_spot_labels_map[indices] = np.asarray((proc_list[index][-1])).squeeze()
 
         # Write to hdf
         if save_to_hdf:
