@@ -14,7 +14,8 @@ def _load_peak_function(name):
     for SpotModel in [GaussianFunctions,
                      LorentzianFunctions,
                      PseudoVoigtFunctions]:
-        if name in [SpotModel.name, SpotModel.abbr]:
+        if name in {SpotModel.name, SpotModel.name.lower(),
+                    SpotModel.abbr}:
             return SpotModel
         
     print(f'Given peak name: {name} is not yet supported.')
@@ -169,17 +170,14 @@ class GaussianFunctions(SpotModelBase):
         sigma_y = fwhm_y / (2 * np.sqrt(2 * np.log(2)))
         return amp * 2 * np.pi * sigma_x * sigma_y
     
+    # Confirm this...
     @staticmethod
     # @njit
     def get_hyper_volume(amp, x0, y0, z0, fwhm_x, fwhm_y, fwhm_z, theta, phi, radians=False):
-        raise NotImplementedError()
         sigma_x = fwhm_x / (2 * np.sqrt(2 * np.log(2)))
         sigma_y = fwhm_y / (2 * np.sqrt(2 * np.log(2)))
         sigma_z = fwhm_z / (2 * np.sqrt(2 * np.log(2)))
-        return amp * sigma_x * sigma_y * sigma_z * (2 * np.pi)**1.5
-
-    def get_3d_fwhm():
-        raise NotImplementedError()
+        return amp * (2 * np.pi)**1.5 * sigma_x * sigma_y * sigma_z 
 
 
 class LorentzianFunctions(SpotModelBase):
@@ -229,7 +227,7 @@ class LorentzianFunctions(SpotModelBase):
     def get_volume(amp, x0, y0, fwhm_x, fwhm_y, theta):
         # Current 2D Lorentzian function does not have a finite volume
 
-        # We approximate volume with a 2D gaussian based on equal areas of the major axes
+        # Approximate volume with a 2D gaussian based on equal areas of the major axes
         gamma_x = 0.5 * fwhm_x
         gamma_y = 0.5 * fwhm_y
         sigma_x = gamma_x * np.sqrt(np.pi / 2)
