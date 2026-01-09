@@ -1199,15 +1199,18 @@ def load_step_rc_data(scan_id=-1,
     # Load data
     _empty_lists = [[] for _ in range(len(data_keys))]
     data_dict = dict(zip(data_keys, _empty_lists))
-    docs = bs_run.documents()
+    # Overwite event data with lists of predefined lengths
+    for key in event_data_keys:
+        data_dict[key] = [np.nan,] * bs_run.stop['num_events']['primary']
     
     vprint('Loading scalers and rocking data...')
-    for doc in docs:
-        if doc[0] == 'event_page':
-            if 'dexela_image' in doc[1]['filled'].keys():
+    for name, doc in bs_run.documents():
+        if name == 'event_page':
+            if any([key in xrd_data_keys for key in doc['filled'].keys()]):
                 for key in event_data_keys:
-                    if key in doc[1]['data'].keys():
-                        data_dict[key].append(doc[1]['data'][key][0])
+                    if key in doc['data'].keys():
+                        # data_dict[key].append(doc['data'][key][0])
+                        data_dict[key][doc['seq_num'][0] - 1] = doc['data'][key][0]
 
     # Check for empty (static) values
     for motor_key, data_key in zip(['energy_energy', 'nano_stage_th'],
@@ -1256,19 +1259,6 @@ def load_step_rc_data(scan_id=-1,
         r_paths = r_paths['primary']
         r_specs = r_specs['primary']
         r_shapes = r_shapes['primary']
-    
-    # key = 'dexela_image'
-    # if key in data_keys:
-    #     vprint('Loading dexela...')
-    #     if 'AD_HDF5' in r_paths:
-    #         for r_path in r_paths['AD_HDF5']:
-    #             with h5py.File(r_path, 'r') as f:
-    #                 data_dict[key].append(np.asarray(f['entry/data/data']))
-    #     # Incorrect spec, but left in for backwards compatibility
-    #     elif 'TPX_HDF5' in r_paths:
-    #         for r_path in r_paths['AD_HDF5']:
-    #             with h5py.File(r_path, 'r') as f:
-    #                 data_dict[key].append(np.asarray(f['entry/data/data']))
 
     # Dexela
     key = 'dexela_image'
