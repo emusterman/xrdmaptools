@@ -9,7 +9,7 @@ from xrdmaptools.utilities.math import arbitrary_center_of_mass
 
 # TEMP
 from scipy.optimize import curve_fit
-from xrdmaptools.reflections.SpotModels import _load_peak_function
+from xrdmaptools.reflections.SpotModels import load_spot_function
 from xrdmaptools.reflections.SpotModels import GaussianFunctions
 
 
@@ -130,7 +130,7 @@ def rsm_blob_search(q_vectors,
 # 3D analog of spot search
 def rsm_spot_search(qs,
                     intensity,
-                    nn_dist=0.025,
+                    max_dist=0.025,
                     significance=0.1,
                     subsample=1,
                     label_int_method='sum',
@@ -151,7 +151,7 @@ def rsm_spot_search(qs,
                                       'lorentz', 'lorentzian',
                                       'p_voigt', 'pseudovoigt'}:
         label_int_func = np.sum
-        spot_model = _load_peak_function(name)
+        spot_model = load_spot_function(name)
     else:
         err_str = ("Unknown label_int_method. "
                    + "'mean' or 'sum' are supported.")
@@ -178,7 +178,7 @@ def rsm_spot_search(qs,
             mutable_intensity[max_index] = np.nan
             continue
 
-        nn_idxs = kdtree.query_ball_point(new_qs[max_index], r=nn_dist)
+        nn_idxs = kdtree.query_ball_point(new_qs[max_index], r=max_dist)
 
         if np.all(np.isnan(labels[nn_idxs])):
             labels[nn_idxs] = next_label
@@ -253,7 +253,7 @@ def rsm_spot_search(qs,
             if np.isnan(full_labels[i]):
                 dist, nn_idxs = full_kdtree.query(qs[i],
                                     k=np.max([subsample, 20]),
-                                    distance_upper_bound=nn_dist * 2)
+                                    distance_upper_bound=max_dist * 2)
                 
                 # Remove infinities
                 nn_idxs = nn_idxs[~np.isinf(dist)]
