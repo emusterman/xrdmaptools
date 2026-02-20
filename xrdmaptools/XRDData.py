@@ -376,7 +376,9 @@ class XRDData:
 
         self.update_map_title(title=title)
         if isinstance(null_map, list):
-            null_map = np.zeros(self.map_shape, dtype=np.bool_)
+            null_map = np.asarray(null_map).squeeze()
+            if null_map.shape != self.map_shape:
+                null_map = np.zeros(self.map_shape, dtype=np.bool_)
         self.null_map = null_map
 
         if map_labels is None:
@@ -470,7 +472,7 @@ class XRDData:
                 # min_val = np.min(self.images)
                 max_val = np.max(self.images)
                 self._raw_value_range[1] = np.min([self._raw_value_range[1],
-                                                   max_value])
+                                                   max_val])
         # Final defaults
         if self._raw_value_range is None:
             self._raw_value_range = (-np.inf, np.inf)
@@ -3435,7 +3437,9 @@ class XRDData:
             h5py dataset. Defaults to 4 for 4D images if compression is
             None.
         extra_attrs : dict, optional
-            Extra metadata used to describe the saved images.
+            Dictionary of extra metadata that will be written into the
+            attributes of the image dataset in the HDF file. None by
+            default.
         
         Raises
         ------
@@ -3635,7 +3639,9 @@ class XRDData:
             should match the number of dimensions in saved array. By
             default this uses the dataset labels.
         extra_attrs : dict, optional
-            Extra metadata used to describe the saved integrations.
+            Dictionary of extra metadata that will be written into the
+            attributes of the integrations dataset in the HDF file.
+            None by default.
         
         Raises
         ------
