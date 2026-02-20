@@ -395,7 +395,11 @@ class XRDMap(XRDBaseScan):
         sliced_images = []
         sliced_pos_dicts = []
         sliced_sclr_dicts = []
-        shapes = []
+        sliced_scan_inputs = []
+        full_x_vals = np.linspace(*self.scan_input[:2],
+                                  int(self.scan_input[2]))
+        full_y_vals = np.linspace(*self.scan_input[3:5],
+                                  int(self.scan_input[5]))
 
         for slicing in slicings:
             i_st, i_end = slicing[0]
@@ -418,6 +422,14 @@ class XRDMap(XRDBaseScan):
                 new_sclr_dict[key] = self.sclr_dict[key][i_st:i_end,
                                                          j_st:j_end]
             sliced_sclr_dicts.append(new_sclr_dict)
+
+            # scan_input
+            sliced_scan_inputs.append([full_x_vals[j_st],
+                                       full_x_vals[j_end - 1],
+                                       j_end - j_st,
+                                       full_y_vals[i_st],
+                                       full_y_vals[i_end - 1],
+                                       i_end - i_st])
 
         ostr = ('Fracturing large map into '
                 + f'{len(sliced_images)} smaller maps.')
@@ -446,7 +458,8 @@ class XRDMap(XRDBaseScan):
                 chi=self.chi,
                 beamline=self.beamline,
                 facility=self.facility,
-                scan_input=self.scan_input,
+                detector=self.detector,
+                scan_input=sliced_scan_inputs[i],
                 time_stamp=self.time_stamp,
                 extra_metadata=self.extra_metadata,
                 save_hdf=True,
