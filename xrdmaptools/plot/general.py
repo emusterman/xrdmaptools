@@ -328,6 +328,7 @@ def plot_integration(intensity,
                      ax=None,
                      y_min=None,
                      y_max=None,
+                     scale=None,
                      **kwargs):
     
     if fig is None and ax is None:
@@ -347,6 +348,8 @@ def plot_integration(intensity,
     # Direct access to scaling!
     ax.set_ylim(y_min, y_max)
     ax.set_ylabel('Intensity [a.u.]')
+    if scale is not None:
+        ax.set_yscale(scale)
 
     if title is not None:
         ax.set_title(title)
