@@ -59,7 +59,7 @@ def plot_3D_indexing(indexings,
     
     # Plot part of othe reciprocal lattice
     for i, indexing in enumerate(indexings):
-        spot_inds, ref_inds = indexing.T
+        spot_inds, ref_inds = np.asarray(indexing).T
         orientation = Rotation.align_vectors(
                         all_spot_qs[spot_inds],
                         all_ref_qs[ref_inds])[0]
@@ -83,7 +83,10 @@ def plot_3D_indexing(indexings,
                                   all_rot_qs[ref_inds],
                                   all_ref_hkls[ref_inds]):
             uvw.append(ref - spot)
-            ax.text(*spot.T, str(tuple(hkl)), fontsize=8, c=c_seq[i])
+            ax.text(*spot.T,
+                    str(tuple([int(index) for index in hkl])),
+                    fontsize=8,
+                    c=c_seq[i])
 
         ax.quiver(*all_spot_qs[spot_inds].T,
                   *np.asarray(uvw).T,
