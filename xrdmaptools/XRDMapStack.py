@@ -10,7 +10,7 @@ import gc
 import functools
 import dask
 import itertools
-from matplotlib import patches
+from matplotlib import patches, color_sequences
 from matplotlib.collections import PatchCollection
 from tqdm import tqdm
 from tqdm.dask import TqdmCallback
@@ -46,9 +46,12 @@ from xrdmaptools.geometry.geometry import (
 from xrdmaptools.reflections.spot_blob_search_3D import (
     rsm_spot_search
 )
-from xrdmaptools.reflections.spot_blob_indexing_3D_old import (
-    pair_casting_index_full_pattern,
-    _get_connection_indices
+# from xrdmaptools.reflections.spot_blob_indexing_3D_old import (
+#     pair_casting_index_full_pattern,
+#     _get_connection_indices
+# )
+from xrdmaptools.reflections.spot_blob_indexing_3D import(
+    phase_index_all_grains
 )
 from xrdmaptools.crystal.crystal import (
     are_collinear,
@@ -63,7 +66,8 @@ from xrdmaptools.crystal.map_alignment import (
 from xrdmaptools.plot.general import return_plot_wrapper
 from xrdmaptools.plot.image_stack import base_slider_plot
 from xrdmaptools.plot.interactive import (
-    interactive_3D_plot
+    interactive_3D_plot,
+    interactive_3D_labeled_plot
     )
 
 
@@ -377,6 +381,14 @@ class XRDMapStack(list):
         if hasattr(self, '_q_arr'):
             return self._q_arr
         else:
+
+            rocking = getattr(self, self.rocking_axis)
+            if (rocking != sorted(rocking)
+                and rocking != sorted(rocking, reverse=True)):
+                err_str = ('Rocking axis values but be sorted before '
+                           + 'generating the combined q_arr attribute.')
+                raise RuntimeError(err_str)
+
             q_arr_list = []
             for i, xrdmap in enumerate(self):
                 if hasattr(xrdmap, 'q_arr'):
@@ -1337,7 +1349,7 @@ class XRDMapStack(list):
         if extra_attrs is not None:
             for key, value in extra_attrs.items():
                 overwrite_attr(
-                    self.hdf['vectorized_data'][vector_info_title].attrs,
+                    self.hdf['vectorized_data'][vector_map_info_title].attrs,
                     key,
                     value)
     
@@ -1680,7 +1692,7 @@ class XRDMapStack(list):
                 or len(virtual_masks) != len(self)):
                 err_str = ('Provided vector_maps length of '
                         + f'{len(vector_maps)} or virtual_masks length '
-                        + f'of {len(virutal_masks)} does not match '
+                        + f'of {len(virtual_masks)} does not match '
                         + f'XRDMapStack length of {len(self)}.')
                 raise ValueError(err_str)
         # Check everything is available before loading        
@@ -1766,7 +1778,7 @@ class XRDMapStack(list):
 
     def find_3D_spots(self,
                       abs_int_cutoff=None,
-                      nn_dist=0.1,
+                      max_dist=0.1,
                       significance=0.1,
                       subsample=1,
                       label_int_method='sum',
@@ -1827,7 +1839,7 @@ class XRDMapStack(list):
                  label_maxs) = rsm_spot_search(
                                     q_vectors,
                                     intensity,
-                                    nn_dist=nn_dist,
+                                    max_dist=max_dist,
                                     significance=significance,
                                     subsample=subsample,
                                     label_int_method=label_int_method,
@@ -1876,8 +1888,8 @@ class XRDMapStack(list):
 
         # Iterate through each spatial pixel of map
         delayed_list = []
-        for index in range(np.prod(self.xdms_vector_map.shape)):
-            indices = np.unravel_index(index, self.xdms_vector_map.shape)
+        for index in range(np.prod(map_shape)):
+            indices = np.unravel_index(index, map_shape)
             
             # Collect scheduled calls
             delayed_list.append(delayed_spot_search(indices))
@@ -1899,9 +1911,9 @@ class XRDMapStack(list):
         self.spots_3D = pd.DataFrame.from_dict(full_dict)
 
         # Store spot labels
-        self.xdms_spot_labels_map = np.empty(self.xdms_vector_map.shape, dtype=object)
-        for index in range(np.prod(self.xdms_vector_map.shape)):
-            indices = np.unravel_index(index, self.xdms_vector_map.shape)
+        self.xdms_spot_labels_map = np.empty(map_shape, dtype=object)
+        for index in range(np.prod(map_shape)):
+            indices = np.unravel_index(index, map_shape)
             self.xdms_spot_labels_map[indices] = np.asarray((proc_list[index][-1])).squeeze()
 
         # Write to hdf
@@ -1909,7 +1921,7 @@ class XRDMapStack(list):
             self.save_3D_spots(
                     extra_attrs={
                             'abs_int_cutoff' : abs_int_cutoff,
-                            'nn_dist' : nn_dist,
+                            'max_dist' : max_dist,
                             'significance' : significance,
                             'subsample' : subsample,
                             'label_int_method' : label_int_method})
@@ -1919,21 +1931,21 @@ class XRDMapStack(list):
                     rewrite_data=rewrite_data,
                     extra_attrs={
                             'abs_int_cutoff' : abs_int_cutoff,
-                            'nn_dist' : nn_dist,
+                            'max_dist' : max_dist,
                             'significance' : significance,
                             'subsample' : subsample,
                             'label_int_method' : label_int_method})
 
-
-    # WIP: Current implementations is slow!
+    
     def index_all_3D_spots(self,
                            near_q,
                            near_angle,
-                           degrees,
+                           degrees=True,
                            phase=None,
                            save_to_hdf=True,
                            verbose=False,
-                           half_mask=True):
+                           symmetrize='lattice',
+                           **kwargs):
         """
 
         """
@@ -1941,7 +1953,7 @@ class XRDMapStack(list):
         if not hasattr(self, 'spots_3D') or self.spots_3D is None:
             err_str = 'Spots must be found before they can be indexed.'
             raise AttributeError(err_str)
-        
+
         if phase is None:
             if len(self.phases) == 1:
                 phase = list(self.phases.values())[0]
@@ -1960,17 +1972,7 @@ class XRDMapStack(list):
         all_ref_hkls = phase.all_hkls.copy()
         all_ref_fs = phase.all_fs.copy()
 
-        # Ignore half...
-        if half_mask:
-            half_mask = all_ref_hkls[:, -1] <= 0
-            all_ref_qs = all_ref_qs[half_mask]
-            all_ref_hkls = all_ref_hkls[half_mask]
-            all_ref_fs = all_ref_fs[half_mask]
-
         ref_mags = np.linalg.norm(all_ref_qs, axis=1)
-
-        # Find minimum q vector step size from reference phase
-        min_q = phase.min_q
         
         # Update spots dataframe with new columns
         self.spots_3D['phase'] = ''
@@ -1997,31 +1999,37 @@ class XRDMapStack(list):
                 ext = 0.15
                 ref_mask = ((ref_mags > spot_mags.min() * (1 - ext))
                             & (ref_mags < spot_mags.max() * (1 + ext)))
-
-                (conns,
-                 qofs) = pair_casting_index_full_pattern(
-                                            all_ref_qs[ref_mask],
-                                            all_ref_hkls[ref_mask],
-                                            all_ref_fs[ref_mask],
-                                            min_q,
-                                            spots,
-                                            spot_ints,
-                                            near_q,
-                                            near_angle,
-                                            self.qmask,
-                                            degrees=degrees,
-                                            verbose=verbose)
                 
-                for grain_id, (conn, qof) in enumerate(zip(conns, qofs)):
-                    # Get values
-                    (spot_inds,
-                     hkl_inds) = _get_connection_indices(conn)
-                    hkls = all_ref_hkls[ref_mask][hkl_inds]
+                # Modify phase attributes for indexing
+                phase.all_qs = all_ref_qs[ref_mask]
+                phase.all_hkls = all_ref_hkls[ref_mask]
+                phase.all_fs = all_ref_fs[ref_mask]
+                
+                (indexings,
+                 qofs) = phase_index_all_grains(
+                                    phase,
+                                    spots,
+                                    spot_ints,
+                                    near_q,
+                                    near_angle,
+                                    self.qmask,
+                                    degrees=degrees,
+                                    verbose=verbose,
+                                    symmetrize=symmetrize,
+                                    **kwargs
+                                    )
+
+                for gid, (ind, qof) in enumerate(zip(indexings, qofs)):
+                    if np.isnan(qof):
+                        continue
+
+                    spot_inds, ref_inds = ind.T
+                    hkls = all_ref_hkls[ref_mask][ref_inds]
 
                     # Assign values
                     rel_ind = pixel_df.index[spot_inds]
                     self.spots_3D.loc[rel_ind, 'phase'] = phase.name
-                    self.spots_3D.loc[rel_ind, 'grain_id'] = grain_id
+                    self.spots_3D.loc[rel_ind, 'grain_id'] = gid
                     self.spots_3D.loc[rel_ind, 'qof'] = qof
                     self.spots_3D.loc[rel_ind, ['h', 'k', 'l']] = hkls
 
@@ -2033,12 +2041,18 @@ class XRDMapStack(list):
                                  'degrees' : int(degrees)})
     
 
-    def pixel_3D_spots(self, map_indices, copied=True):
+    def pixel_3D_spots(self,
+                       map_indices,
+                       spots_3D=None,
+                       copied=True):
         """
 
         """
 
-        return XRDMap._pixel_spots(self.spots_3D,
+        if spots_3D is None:
+            spots_3D = self.spots_3D
+
+        return XRDMap._pixel_spots(spots_3D,
                                    map_indices,
                                    copied=copied)
 
@@ -2203,6 +2217,8 @@ class XRDMapStack(list):
                              spots_3D=False,
                              dyn_kw=None,
                              map_kw=None,
+                             labeled=False,
+                             use_grains=False,
                              title_scan_id=True,
                              **kwargs):
         """
@@ -2219,10 +2235,24 @@ class XRDMapStack(list):
         # Try for spots first
         if _check_dict_key(dyn_kw, 'data'):
             pass
+        elif isinstance(spots_3D, pd.DataFrame):
+            dyn_kw['data'] = self._spots_3D_to_vectors(
+                                        spots_3D=spots_3D)
+            default_map_title = 'Max Spot Intensity'
         elif spots_3D:
             if hasattr(self, 'spots_3D') and self.spots_3D is not None:
+                spots_3D = self.spots_3D
                 dyn_kw['data'] = self._spots_3D_to_vectors()
                 default_map_title = 'Max Spot Intensity'
+        
+        # Parse labeled inputs
+        if labeled:
+            if (not isinstance(spots_3D, pd.DataFrame)
+                or not all([index in spots_3D
+                            for index in {'h', 'k', 'l'}])):
+                err_str = ('Cannot plot labeled values without '
+                        + 'labeled 3D spots.')
+                raise ValueError(err_str)
         
         # Try vectors if still no data
         if _check_dict_key(dyn_kw, 'data'):
@@ -2303,7 +2333,58 @@ class XRDMapStack(list):
                             default_title='Custom Map',
                             title_scan_id=title_scan_id)
 
-        # Plot!
-        return interactive_3D_plot(dyn_kw,
-                                   map_kw,
-                                   **kwargs)
+        if not labeled:
+            # Plot!
+            return interactive_3D_plot(dyn_kw,
+                                       map_kw,
+                                       **kwargs)
+        
+        else: # Build labels
+            map_shape = map_kw['map'].shape
+            labels = np.empty(map_shape, dtype=object)
+            label_spots = labels.copy()
+            label_colors = labels.copy()
+
+            color_sequence = color_sequences['tab10']
+            max_inds = len(color_sequence)
+            for index in range(np.prod(map_shape)):
+                indices = np.unravel_index(index, map_shape)
+                df = self.pixel_3D_spots(indices, spots_3D=spots_3D)
+                grain_ids = df['grain_id'].values
+                grain_ids = np.unique(grain_ids[~np.isnan(grain_ids)]).astype(int)
+                if use_grains:
+                    grain_ids = grain_ids[grain_ids < max_inds]
+                elif len(grain_ids) > max_inds:
+                    grain_ids = grain_ids[:max_inds]
+                
+                # Build labels
+                hkl_list = []
+                spot_list = []
+                color_list = []
+                for i, grain_id in enumerate(grain_ids):
+                    grain_mask = df['grain_id'] == grain_id
+                    spots = df[grain_mask][['qx', 'qy', 'qz']].values
+                    hkls = df[grain_mask][['h', 'k', 'l']].values
+                    hkl_list.extend([f'({int(h)} {int(k)} {int(l)})' for h, k, l in hkls])
+                    spot_list.extend(spots)
+                    if use_grains:
+                        colors = [color_sequence[grain_id],] * sum(grain_mask)
+                    else:
+                        colors = [color_sequence[i],] * sum(grain_mask)
+                    color_list.extend(colors)
+                
+                labels[indices] = hkl_list
+                label_spots[indices] = spot_list
+                label_colors[indices] = color_list
+            
+            dyn_kw['labels'] = labels
+            dyn_kw['label_spots'] = label_spots
+            dyn_kw['label_colors'] = label_colors
+
+            # Plot!
+            return interactive_3D_labeled_plot(
+                                    dyn_kw,
+                                    map_kw,
+                                    **kwargs)
+
+
