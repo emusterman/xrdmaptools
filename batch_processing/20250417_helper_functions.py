@@ -642,7 +642,7 @@ def unit_vecs(vecs):
 from orix.vector import Vector3d
 from xrdmaptools.utilities.math import wavelength_2_energy
 
-# def symmeterize_indexing(pixel_df,
+# def symmetrize_indexing(pixel_df,
 #                          phase,
 #                          symmetry,
 #                          grain_id=0,
@@ -698,7 +698,7 @@ from xrdmaptools.utilities.math import wavelength_2_energy
 #     return new_hkls
 
 
-# def symmeterize_map(spots_3D, phase, symmetry, metric='intensity', verbose=False):
+# def symmetrize_map(spots_3D, phase, symmetry, metric='intensity', verbose=False):
 
 #     # Effective map shape
 #     map_shape = (np.max(all_spots['map_y']) + 1,
@@ -713,7 +713,7 @@ from xrdmaptools.utilities.math import wavelength_2_energy
         
 #         for grain_id in grain_ids[~np.isnan(grain_ids)]:
 #             try:
-#                 new_hkls = symmeterize_indexing(df, phase, symmetry, grain_id=grain_id, metric=metric, verbose=verbose)
+#                 new_hkls = symmetrize_indexing(df, phase, symmetry, grain_id=grain_id, metric=metric, verbose=verbose)
 #             except Exception as e:
 #                 print(e)
 #                 print(indices, grain_id)
@@ -722,7 +722,7 @@ from xrdmaptools.utilities.math import wavelength_2_energy
     
 
 
-def symmeterize_and_stitch(spots_3D,
+def symmetrize_and_stitch(spots_3D,
                            phase,
                         #    symmetry,
                            mis_thresh=0.5,
@@ -747,9 +747,6 @@ def symmeterize_and_stitch(spots_3D,
 
     # Working containers
     curr_row_oris = [{} for _ in range(map_shape[1])]
-
-    # Setup progressbar
-    # pbar = tqdm(total=np.prod(map_shape))
 
     # Iterate trough rows
     with tqdm(total=np.prod(map_shape)) as pbar:
@@ -786,7 +783,7 @@ def symmeterize_and_stitch(spots_3D,
                                                     phase.Q(grain_hkls))[0]
                     pixel_oris.append(grain_ori.as_matrix())
                 
-                # Symmeterize orientations. shape = (# orientations in pixel, # of symmetry, 3, 3)
+                # symmetrize orientations. shape = (# orientations in pixel, # of symmetry, 3, 3)
                 pixel_oris = np.asarray(pixel_oris)[:, np.newaxis] @ syms[np.newaxis]
                 
                 # Do these orientations overlap by falling within the defined mis_thresh value?
@@ -1831,7 +1828,7 @@ def test_indexing(all_spot_qs,
                   qof_minimum=0,
                   max_grains=20,
                   degrees=False,
-                  symmeterize=True,
+                  symmetrize=True,
                   verbose=True):
     
     if near_q > min_q * 0.85:
@@ -1916,7 +1913,7 @@ def test_indexing(all_spot_qs,
                 temp_connections.append(connection)
 
                 # Qualify potential fits and their orientationally magnitude
-                if symmeterize:
+                if symmetrize:
                     # Characterize combo
                     combo_char = (ref_q_mags[combo[0]].round(10),
                                   ref_q_mags[combo[1]].round(10),
@@ -1937,7 +1934,7 @@ def test_indexing(all_spot_qs,
                     pair_mags.append(combo_mag)
             
             # Pick 
-            if symmeterize:
+            if symmetrize:
                 temp_pair_mask = np.asarray([False,] * len(temp_pair_mask))
                 for idx in np.unique(pair_matches):
                     equi_mask = pair_matches == idx
@@ -1957,7 +1954,7 @@ def test_indexing(all_spot_qs,
         #     for combo in ref_combos:
         #         temp_pairs.append([(s, r) for s, r in zip(pair, combo)])
         #         temp_pair_mask.append(True)
-        #         if symmeterize:
+        #         if symmetrize:
         #             characteristics = (ref_q_mags[combo[0]].round(10),
         #                                ref_q_mags[combo[1]].round(10),
         #                                ref_angles[tuple(combo)].round(10))
@@ -1968,7 +1965,7 @@ def test_indexing(all_spot_qs,
         #             # Simple way to get close to fundamental zone
         #             pair_evaluators.append(np.sum([mag_diff_arr[m] for m in temp_pairs[-1]]))
                 
-        #     if symmeterize:
+        #     if symmetrize:
         #         temp_pair_mask = [False,] * len(temp_pair_mask)
         #         for idx in np.unique(pair_matches):
         #             equi_mask = pair_matches == idx
@@ -2023,7 +2020,7 @@ def test_indexing(all_spot_qs,
     cliques = list(nx.find_cliques(G))
 
     # Remove symmetrically equivalent cliques
-    if symmeterize:
+    if symmetrize:
         pass
         # clique_character = []
         # clique_ids = []

@@ -38,11 +38,10 @@ from xrdmaptools.XRDBaseScan import XRDBaseScan
 from xrdmaptools.utilities.utilities import (
     generate_intensity_mask
 )
-# from xrdmaptools.reflections.spot_blob_indexing_3D import pair_casting_index_full_pattern
-# from xrdmaptools.reflections.spot_blob_indexing_3D import (
-#     find_valid_pairs,
-#     pattern_decomposition_from_seeds
-# )
+from xrdmaptools.reflections.spot_blob_indexing_3D import (
+    find_valid_pairs,
+    pattern_decomposition_from_seeds
+)
 from xrdmaptools.reflections.spot_blob_search_3D import rsm_spot_search
 from xrdmaptools.crystal.crystal import are_collinear, are_coplanar
 
@@ -125,7 +124,8 @@ def index_map_by_grains(xdms,
     while not np.all(np.isnan(mutable_map)):
         index = np.nanargmax(mutable_map)
         indices = np.unravel_index(index, map_shape)
-        print(f'Map indices are {tuple([int(i) for i in indices])}')
+        if verbose:
+            print(f'Map indices are {tuple([int(i) for i in indices])}')
 
         # Setup containers
         all_indexing = []
@@ -174,7 +174,8 @@ def index_map_by_grains(xdms,
         # Attempt indexing by neighbor orientations first
         spot_mask = np.ones(len(all_spot_qs), dtype=np.bool_)
         if len(n_oris) > 0:
-            print('Grain casting')
+            if verbose:
+                print('Grain casting')
 
             # if indices == (41, 26):
             #     return n_oris, all_spot_qs, all_spot_ints, all_ref_qs, all_ref_fs, xdms.qmask, near_q
@@ -201,7 +202,8 @@ def index_map_by_grains(xdms,
         if spot_mask.sum() > 1:
 
             # Find pairs
-            print('Finding pairs')
+            if verbose:
+                print('Finding pairs')
             pairs = find_valid_pairs(
                                 all_spot_qs[spot_mask],
                                 all_ref_qs,
@@ -210,14 +212,15 @@ def index_map_by_grains(xdms,
                                 near_angle,
                                 phase.min_q,
                                 degrees=degrees,
-                                symmeterize=True,
+                                symmetrize=True,
                                 verbose=verbose)
             
             # Enough pairs to continue?
             if len(pairs) > 0:
 
                 # Index
-                print('Full casting')
+                if verbose:
+                    print('Full casting')
 
                 # if indices == (26, 117):
                 #     return pairs, all_spot_qs[spot_mask], all_spot_ints, all_ref_qs, all_ref_fs, xdms.qmask, near_q
