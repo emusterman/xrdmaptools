@@ -9,7 +9,7 @@ from numba import njit
 ############################
 
 
-def _load_peak_function(name):
+def load_spot_function(name):
 
     for SpotModel in [GaussianFunctions,
                      LorentzianFunctions,
