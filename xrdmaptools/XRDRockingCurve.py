@@ -259,7 +259,7 @@ class XRDRockingCurve(XRDBaseScan):
 
     def _parse_subscriptable_value(self, value, name):
         """
-
+        Internal function to check values for setattr calls.
         """
 
         # Fill placeholders if value is nothing
@@ -293,7 +293,17 @@ class XRDRockingCurve(XRDBaseScan):
         
     def _set_rocking_axis(self, rocking_axis=None):
         """
+        Internal function to set or determine the rocking axis
+        parameter.
 
+        Parameters
+        ----------
+        rocking_axis : str, optional
+            String determining rocking axis to set the rocking axis
+            attribute. Only {'energy', 'wavelength', 'angle', and
+            'theta'} are accepted. None by default and this parameter
+            is determined automatically based on the energy and theta
+            scan range. 
         """
 
         # Find rocking axis
@@ -402,8 +412,13 @@ class XRDRockingCurve(XRDBaseScan):
     @XRDBaseScan.q_arr.getter
     def q_arr(self):
         """
-
+        Get 3D vector coordinates in reciprocal space (q-space) for 
+        every pixel in image with shape (image_shape, 3). These values
+        are detemined from scattering and azimuthal angles, incident
+        X-ray energy, and stage rotation and are given as a generator
+        for each step along the rocking axis.
         """
+
         if not hasattr(self, 'ai'):
             err_str = ('Cannot calculate q-space without calibration.')
             raise RuntimeError(err_str)
@@ -505,6 +520,17 @@ class XRDRockingCurve(XRDBaseScan):
             previously full row, matching the behavior of pyXRF.
         kwargs : dict, optional
             Other keyward arguments passed to __init__.
+        
+        Returns
+        -------
+        xrdrockingcurve : XRDRockingCurve
+            Instance of XRDRockingCurve class with all data and metadata from
+            the designaed scan ID or scan ID range.
+
+        Raises
+        ------
+        OSError if working directory does not exist.
+        RuntimeError if scan type is incorrect for XRDRockingCurve.
         """
         
         if wd is None:
@@ -747,9 +773,10 @@ class XRDRockingCurve(XRDBaseScan):
 
         Parameters
         ----------
-        q_arr : Numpy.ndarray of shape (N, 3)
-            Array of N rotations or energies/wavlengths matching the
-            number of images. None by default and the internal q_arr
+        q_arr : Iterable of Numpy.ndarrays of shape (image_shape, 3)
+            Iterable with length matching the rocking axis length
+            of the q-space coordinates for each image pixel of shape
+            (image_shape, 3). None by default and the internal q_arr
             attribute is used.
 
         Raises
@@ -818,11 +845,6 @@ class XRDRockingCurve(XRDBaseScan):
         ------
         AttributeError if "blob_masks" attribute does not exist and
         cannot be loaded from the HDF File.
-
-        Notes
-        -----
-        XRDMaps should only be vectorized when compared to other maps
-        in a rotation or energy/wavelength series.
         """
 
         if not hasattr(self, 'blob_masks'):
@@ -962,7 +984,27 @@ class XRDRockingCurve(XRDBaseScan):
                             int_cutoff=0,
                             relative_cutoff=True):
         """
+        Generate mask for vector intensities.
+        
+        Generate mask of vector intensities above a given absolute
+        or relative cutoff value.
 
+        Parameters
+        ----------
+        intensity : Numpy.ndarray, optional
+            Intensity values used to generate mask. None by default
+            and itensity values are extracted from the internal vectors
+            attribute.
+        int_cutoff : float, optional
+            Cutoff value used to generate the intensity mask.
+        relative_cutoff : bool, optional
+            Flag to determine if the cutoff value is a relative (True)
+            an absolute (False) comparison. True by default.
+
+        Returns
+        -------
+        intensity_mask : Numpy.ndarray
+            Numpy array of booleans matching with length of intensity.
         """
 
         if intensity is None:
@@ -992,7 +1034,48 @@ class XRDRockingCurve(XRDBaseScan):
                       relative_cutoff=True,
                       save_to_hdf=True):
         """
+        Find 3D blobs in vectorized images.
 
+        Connect vectors into 3D blobs based on nearest neighbor
+        connectivity while ignoring vector intensities. Resulting blobs
+        are stored internally and are written to the HDF file if 
+        requested and available.
+
+        Parameters
+        ----------
+        max_dist : float, optional
+            Maximum distance in reciprocal space to consider another
+            vector as a neighbor. Larger number consider greater
+            volumes of reciprocal space and tend to generate larger
+            'blobs'. 0.05 A^-1 by default.
+        max_neighbors : int, optional
+            The maximum number of neighbors considered as part of the
+            same 'blob'. Larger numbers promote connnectivity and
+            result in larger 'blobs'. 5 by default.
+        subsample : int, optional
+            Number used to consider a subsample of the vectors.
+            Subsampling yields less accurate blobs, but can speed up
+            the blob search algorithm. This value must by >= 1 and is 1
+            by default or no subsampling.
+        int_cutoff : float, optional
+            Cutoff value used to ignore vectors below a specified
+            intensity value. The actual blob search is still ignores
+            the intensity values of remaing vectors.
+        relative_cutoff : bool, optional
+            Flag to determine if the cutoff value is a relative (True)
+            an absolute (False) comparison. True by default.
+        save_to_hdf : bool, optional
+            Flag to control if data is written to the HDF file. True
+            by default.
+
+        Raises
+        ------
+        AttributeError if instance does not have 'vectors' attribute.
+
+        Notes
+        -----
+        This function is not commonly used. 'find_3D_spots' gives
+        similar and typically more useful results.
         """
 
         if (not hasattr(self, 'vectors')
@@ -1022,16 +1105,66 @@ class XRDRockingCurve(XRDBaseScan):
         
     
     def find_3D_spots(self,
-                      nn_dist=0.005,
+                      max_dist=0.05,
                       significance=0.1,
                       subsample=1,
                       int_cutoff=0,
                       relative_cutoff=True,
-                      label_int_method='mean',
+                      label_int_method='sum',
                       save_to_hdf=True,
-                      verbose=True):
+                      verbose=False):
         """
+        Find 3D spots in the vectorized images.
 
+        Connect vectors into "spots" by finding high intensity vectors
+        and grouping then with all surrounding vectors as they decrease
+        in intensity. Resulting spots are stored internally and are
+        written to the HDF file if requested and available.
+        
+        Parameters
+        ----------
+        max_dist : float, optional
+            Maximum distance in reciprocal space to consider another
+            vector as a neighbor. Larger number consider greater
+            volumes of reciprocal space and tend to generate larger
+            'spots'. 0.05 A^-1 by default.
+        significance : float, optional
+            Fractional total intensity value to considering neighboring
+            'spots' and significant. Smaller values will tend to
+            connect smaller intensity variations into larger and fewer
+            spots.
+        subsample : int, optional
+            Number used to consider a subsample of the vectors.
+            Subsampling yields less accurate spots, but can speed up
+            the spot search algorithm. This value must by >= 1 and is 1
+            by default or no subsampling.
+        int_cutoff : float, optional
+            Cutoff value used to ignore vectors below a specified
+            intensity value. The actual spot search is still ignores
+            the intensity values of remaing vectors.
+        relative_cutoff : bool, optional
+            Flag to determine if the cutoff value is a relative (True)
+            an absolute (False) comparison. True by default.
+        label_int_method : str, optional
+            Key determining which method is used to calculate
+            spot centers and intensities. {'mean', 'avg', and
+            'average'} will yield the mean intensity and {'sum' and
+            'total'} will yield the total itensity of all vectors in a
+            spot. Both will use the center of mass for the spot center.
+            If this key indicates a SpotModel, then the vectors will
+            be fit to this 3D model and the fit amplitude and center
+            will be used intstead. See the load_peak_function in the
+            SpotModels module for supported SpotModels. 'sum' is used
+            by default.
+        save_to_hdf : bool, optional
+            Flag to control if data is written to the HDF file. True
+            by default.
+        verbose : bool, optional
+            Flag to control the verbosity of the spot search algorithm.
+
+        Raises
+        ------
+        AttributeError if instance does not have 'vectors' attribute.
         """
 
         if (not hasattr(self, 'vectors')
@@ -1049,7 +1182,7 @@ class XRDRockingCurve(XRDBaseScan):
          label_ints,
          label_maxs) = rsm_spot_search(self.vectors[:, :3][int_mask],
                                        self.vectors[:, -1][int_mask],
-                                       nn_dist=nn_dist,
+                                       max_dist=max_dist,
                                        significance=significance,
                                        subsample=subsample,
                                        verbose=verbose)
@@ -1103,12 +1236,32 @@ class XRDRockingCurve(XRDBaseScan):
                              'relative_cutoff' : int(relative_cutoff)})
         
 
-    def trim_spots(self,
-                   remove_less=0.01,
-                   key='intensity',
-                   save_spots=False):
+    def trim_3D_spots(self,
+                      remove_less=0.01,
+                      key='intensity',
+                      save_spots=False):
         """
+        Trim all 3D spots below some value.
 
+        Trim the 3D spots dataframe with any value in a certain key
+        below some cutoff.
+
+        Paramters
+        ---------
+        remove_less : float, optional
+            Cutoff value used for deciding which spots to trim. Default
+            is 0.01.
+        key : str, optional
+            Key in dataframe to compare with the remove_less value.
+            "guess_int" by default.
+        save_spots : bool, optional
+            Flag to save trimmed spots to HDF file if available.
+            Saving new spots may distort the meaning of any metadata
+            saved along with the original spots.
+
+        Raises
+        ------
+        KeyError if the key parameter is not within the spots.
         """
         
         self._trim_spots(self.spots_3D,
@@ -1123,7 +1276,14 @@ class XRDRockingCurve(XRDBaseScan):
     @XRDBaseScan._protect_hdf(pandas=True)
     def save_3D_spots(self, extra_attrs=None):
         """
+        Save 3D spots to the HDF file if available.
 
+        Parameters
+        ----------
+        extra_attrs : dict, optional
+            Dictionary of extra metadata that will be written into the
+            attributes of the reflections group in the HDF file. None
+            by default.
         """
 
         print('Saving 3D spots to the HDF file...',
@@ -1149,15 +1309,31 @@ class XRDRockingCurve(XRDBaseScan):
                                 extra_attrs=None,
                                 verbose=False):
         """
+        Save support information about the vectors to the HDF file.
 
+        Parameters
+        ----------
+        vector_infor : iterable
+
+        vector_info_title : str
+        
+        rewrite_data : bool, optional
+
+        extra_attrs : dict, optional
+            Dictionary of extra metadata that will be written into the
+            attributes of the vectors group in the HDF file. None by 
+            default.
+        vebose : bool, optional
+            Flag to control the verbosity of the save function.
         """
 
-        self._save_rocking_vectorization(self.hdf,
-                                         vector_info,
-                                         vector_title=vector_info_title,
-                                         edges=None,
-                                         rewrite_data=rewrite_data,
-                                         verbose=verbose)
+        self._save_rocking_vectorization(
+                        self.hdf,
+                        vector_info,
+                        vector_title=vector_info_title,
+                        edges=None,
+                        rewrite_data=rewrite_data,
+                        verbose=verbose)
 
         # Add extra information
         if extra_attrs is not None:
@@ -1175,7 +1351,7 @@ class XRDRockingCurve(XRDBaseScan):
     @property
     def qmask(self):
         """
-
+        Reciprocal space mask of volume measured by scan.
         """
         if hasattr(self, '_qmask'):
             return self._qmask
@@ -1318,7 +1494,6 @@ class XRDRockingCurve(XRDBaseScan):
                          relative_cutoff=True,
                          phase=None,
                          half_mask=True,
-                         method='seed_casting',
                          save_to_hdf=True,
                          **kwargs
                          ):
@@ -1344,23 +1519,17 @@ class XRDRockingCurve(XRDBaseScan):
                            + 'from loaded phases.')
             raise ValueError(err_str)
 
-        # Only pair casting indexing is currently supported
-        if method.lower() in ['seed_casting']:
-            (best_indexings,
-             best_qofs) = phase_index_all_grains(
-                            phase,
-                            spots,
-                            intensity,
-                            near_q,
-                            near_angle,
-                            self.qmask,
-                            degrees=self.polar_units == 'deg',
-                            half_mask=half_mask,
-                            **kwargs)
-        else:
-            err_str = (f"Unknown method ({method}) specified. Only "
-                       + "'seed_casting' is currently supported.")
-            raise ValueError(err_str)
+        (best_indexings,
+            best_qofs) = phase_index_all_grains(
+                        phase,
+                        spots,
+                        intensity,
+                        near_q,
+                        near_angle,
+                        self.qmask,
+                        degrees=self.polar_units == 'deg',
+                        half_mask=half_mask,
+                        **kwargs)
         
         if hasattr(self, 'spots_3D'):
             grains = np.asarray([np.nan,] * len(self.spots_3D))
@@ -1486,7 +1655,22 @@ class XRDRockingCurve(XRDBaseScan):
                             default_title='',
                             title_scan_id=True):
         """
+        Internal function for prepending plot titles
+        with the data scan ID range. Modified from the same function
+        in XRDBaseScan to use the scan ID range.
+        
+        Useful for taking screenshots of plotted data
+        and not losing where the data originated.
 
+        Parameters
+        ----------
+        title : str
+            Title for plot to be modified.
+        default_title : str, optional
+            Default title used if given title is None.
+        title_scan_id : bool, optional
+            Flag to determine if the title will be prepended with
+            the scan ID range.
         """
 
         # Should be list if iterable, but just in case
