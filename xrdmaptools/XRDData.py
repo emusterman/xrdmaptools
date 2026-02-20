@@ -471,8 +471,11 @@ class XRDData:
                 and self._raw_value_range is not None):
                 # min_val = np.min(self.images)
                 max_val = np.max(self.images)
-                self._raw_value_range[1] = np.min([self._raw_value_range[1],
-                                                   max_val])
+                new_max_val = np.min([self._raw_value_range[1],
+                                      max_val])
+                min_val = self._raw_value_range[0]
+                self._raw_value_range[1] = (min_val, new_max_val)
+
         # Final defaults
         if self._raw_value_range is None:
             self._raw_value_range = (-np.inf, np.inf)
