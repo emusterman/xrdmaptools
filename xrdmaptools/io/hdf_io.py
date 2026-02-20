@@ -7,7 +7,7 @@ import dask.array as da
 
 # Local imports
 from xrdmaptools.crystal.Phase import Phase
-from xrdmaptools.reflections.SpotModels import _load_peak_function
+from xrdmaptools.reflections.SpotModels import load_spot_function
 from xrdmaptools.utilities.utilities import pathify
 
 
@@ -137,7 +137,7 @@ def load_xrdbase_hdf(filename,
             if (has_spots
                 and 'spot_model' in base_grp['reflections/spots'].attrs.keys()):
                 spot_model_name = base_grp['reflections/spots'].attrs['spot_model']
-                spot_model = _load_peak_function(spot_model_name)
+                spot_model = load_spot_function(spot_model_name)
             print('done!')
 
         # Load base metadata
