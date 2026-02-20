@@ -75,14 +75,3 @@ def euler_rotation(arr, phi1, PHI, phi2, radians=False):
     # One of these has to be right
     return arr @ R1 @ R2 @ R3
     #return arr @ R3 @ R2 @ R1
-
-
-
-
-#########################
-### Orientation Plots ###
-#########################
-
-# TODO: Import generic version from my old code?
-# I'll need to generalize to more than just orthorhombic point group
-# Consider the orix module instead???
