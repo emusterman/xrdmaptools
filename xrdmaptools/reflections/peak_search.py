@@ -24,7 +24,7 @@ from xrdmaptools.utilities.utilities import (
     iterative_background
 )
 from xrdmaptools.reflections.SpotModels import (
-    _load_peak_function
+    load_spot_function
 )
 
 
@@ -53,7 +53,7 @@ def peak_search(xrd,
 
     peaks, _ = find_peaks(norm_xrd, **kwargs)
 
-    spotmodel = _load_peak_function(spotmodel.lower())
+    spotmodel = load_spot_function(spotmodel.lower())
 
     p0 = [np.mean(xrd[~rois])]
     for peak in peaks:
