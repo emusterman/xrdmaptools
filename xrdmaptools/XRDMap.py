@@ -185,6 +185,17 @@ class XRDMap(XRDBaseScan):
             previously full row, matching the behavior of pyXRF.
         kwargs : dict, optional
             Other keyward arguments passed to __init__.
+        
+        Returns
+        -------
+        xrdmap : XRDMap
+            Instance of XRDMap class with all data and metadata from
+            the designaed scan ID.
+
+        Raises
+        ------
+        OSError if working directory does not exist.
+        RuntimeError if scan type is incorrect for XRDMap.
         """
         
         if wd is None:
@@ -244,7 +255,7 @@ class XRDMap(XRDBaseScan):
         for det in xrd_dets:
             null_key = f'{det}_null_map'
             if null_key in data_dict:
-                null_maps.append(data_dict[null_key])
+                null_maps.append(np.asarray(data_dict[null_key]))
             else:
                 null_maps.append(None)
 
@@ -533,7 +544,7 @@ class XRDMap(XRDBaseScan):
                         tth_resolution=None,
                         tth_num=None,
                         unit='2th_deg',
-                        mask=None,
+                        mask=True,
                         return_values=False,
                         save_to_hdf=True,
                         **kwargs):
@@ -544,8 +555,8 @@ class XRDMap(XRDBaseScan):
         integrate1D_image function to integrate each pattern into 1D.
         These patterns are returned, stored internally as the
         "integrations" attribute, and/or written to the HDF file
-        depeding on the keyword arguments. Writing to the HDF file only
-        occurs if the file is available as the "integration_data"
+        depending on the keyword arguments. Writing to the HDF file
+        only occurs if the file is available as the "integration_data"
         group, which is create if it does not already exist.
 
         Parameters
@@ -566,9 +577,10 @@ class XRDMap(XRDBaseScan):
             Units of the 1D integration. This string is used by the
             internal pyFAI integration function and by default is
             '2th_deg' for degrees.
-        mask : 2D Numpy.ndarray matching the image shape, optional
-            Mask passed over images to ignore specified pixels form the
-            integration. No pixels are ignored by default
+        mask : bool or Numpy.ndarray, optional
+            Mask passed over images to ignore specified pixeld from
+            integration. If True, the internal mask attribute will be
+            used. None by default which does nothing.
         return_values : bool, optional
             Flag controlling if the data will be returned or stored. If
             True, then data will be returned. If False, data will be
@@ -576,7 +588,7 @@ class XRDMap(XRDBaseScan):
             written to the HDF file. False by default.
         save_to_hdf : bool, optional
             Flag to control if data is written to the HDF file. Only
-            used when return_values is False. True, by default.
+            used when return_values is False. True by default.
         **kwargs : optional,
             Other keyword arguments passed to the pyFAI integration
             function. These should not include the correctSolidAngle
@@ -604,6 +616,7 @@ class XRDMap(XRDBaseScan):
         loaded.
         ValueError if there is insufficient information to determine
         the scattering angle binning.
+        ValueError if mask does not properly match images.
         """
         
         if not hasattr(self, 'ai') or self.ai is None:
@@ -630,21 +643,24 @@ class XRDMap(XRDBaseScan):
                         + 'stored in XRDMap.')
             print(note_str)
 
+        # Setup mask
+        if (mask is True and hasattr(self, 'mask')):
+            mask = self.mask
+        if mask is not None:
+            if not isinstance(self.mask, np.ndarray):
+                err_str = f'Mask must be numpy array not {type(mask)}.'
+                raise ValueError(err_str)
+            elif not (mask.shape == self.images.shape
+                      or mask.shape == self.image_shape):
+                err_str = (f'Mask shape {mask.shape} does not match '
+                           + f'images {self.images.shape}')
+                raise ValueError(err_str)
+
         # Set up empty array to fill
         integrated_map1d = np.empty((*self.map_shape, 
                                      tth_num), 
                                      dtype=(self.dtype))
 
-        if mask is not None:
-            mask = np.asarray(mask)
-            if (mask.shape == self.images.shape
-                or mask.shape == self.image_shape):
-                pass
-            else:
-                err_str = (f'Mask shape {mask.shape} does not match '
-                           + f'images {self.image.shape}')
-                raise ValueError(err_str)
-        
         # Fill array!
         print('Integrating images to 1D...')
         # TODO: Parallelize this       
@@ -694,6 +710,7 @@ class XRDMap(XRDBaseScan):
                         chi_resolution=None,
                         chi_num=None,
                         unit='2th_deg',
+                        mask=True,
                         **kwargs):
         """
         Integrate every 2D pattern in the map into 2D cake plots.
@@ -735,6 +752,10 @@ class XRDMap(XRDBaseScan):
             Units of the 2D radial and azimuthal directions. This
             string is used by the internal pyFAI integration function
             and by default is '2th_deg' for degrees.
+        mask : bool or Numpy.ndarray, optional
+            Mask passed over images to ignore specified pixeld from
+            integration. If True, the internal mask attribute will be
+            used. None by default which does nothing.
         **kwargs : optional,
             Other keyword arguments passed to the pyFAI integration
             function. These should not include the correctSolidAngle
@@ -747,6 +768,7 @@ class XRDMap(XRDBaseScan):
         loaded.
         ValueError if there is insufficient information to determine
         the scattering or azimuthal angles binning.
+        ValueError if mask does not properly match images.
         """
         
         if not hasattr(self, 'ai') or self.ai is None:
@@ -783,29 +805,45 @@ class XRDMap(XRDBaseScan):
             err_str = 'Must define either chi_num or chi_resolution.'
             raise ValueError(err_str)
 
+        # Setup mask
+        if (mask is True and hasattr(self, 'mask')):
+            mask = self.mask
+        if mask is not None:
+            if not isinstance(self.mask, np.ndarray):
+                err_str = f'Mask must be numpy array not {type(mask)}.'
+                raise ValueError(err_str)
+            elif not (mask.shape == self.images.shape
+                      or mask.shape == self.image_shape):
+                err_str = (f'Mask shape {mask.shape} does not match '
+                           + f'images {self.images.shape}')
+                raise ValueError(err_str)
+
         # Set up empty array to fill
-        integrated_map2d = np.empty((self.num_images,
+        integrated_map2d = np.empty((*self.map_shape, 
                                      chi_num, tth_num), 
                                      dtype=(self.dtype))
         
         # Fill array!
         print('Integrating images to 2D...')
         # TODO: Parallelize this
-        for i, pixel in tqdm(enumerate(self.images.reshape(
-                                       self.num_images,
-                                       *self.image_shape)),
-                                       total=self.num_images):
+        for indices in tqdm(self.indices):
+            
+            image = self.images[indices].copy()
+
+            if mask is not None:
+                if mask.shape == self.image_shape:
+                    image *= mask
+                else:
+                    image *= mask[indices]
         
-            I, tth, chi = self.integrate2D_image(image=pixel,
+            I, tth, chi = self.integrate2D_image(image=image,
                                                  tth_num=tth_num,
                                                  unit=unit,
                                                  **kwargs)            
 
-            integrated_map2d[i] = I
+            integrated_map2d[indices] = I
 
-        # Reshape into (map_x, map_y, chi, tth)
-        integrated_map2d = integrated_map2d.reshape(
-                                *self.map_shape, chi_num, tth_num)
+        # Overwrite values to save on memory. Still briefly doubled...
         self.images = integrated_map2d
         
         # Save a few potentially useful parameters
@@ -1545,8 +1583,7 @@ class XRDMap(XRDBaseScan):
 
         Raises
         ------
-        KeyError if the key parameter is not within the
-            spots.
+        KeyError if the key parameter is not within the spots.
         """
         
         self._trim_spots(self.spots,
@@ -1684,7 +1721,8 @@ class XRDMap(XRDBaseScan):
         ----------
         extra_attrs : dict, optional
             Dictionary of extra metadata that will be written into the
-            attributes of the reflections group in the HDF file.
+            attributes of the reflections group in the HDF file. None
+            by default.
         """
 
         print('Saving spots to the HDF file...', end='', flush=True)
