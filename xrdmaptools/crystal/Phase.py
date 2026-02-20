@@ -74,48 +74,68 @@ point_grp = RangeDict({# Space group number, (Schoenflies, Hermann-Mauguin, Orde
 
 # Laue grp from space group
 laue_grp_nr = RangeDict({# Space group number, (Schoenflies, Hermann-Mauguin, Order)
-                       # Triclinic
-                       range(1, 3): 2,
-                       # Monoclinic
-                       range(3, 16): 15,
-                       # Orthorhombic
-                       range(16, 75): 74,
-                       # Tetragonal
-                       range(75, 89): 88,
-                       range(89, 143): 142,
-                       # Trigonal
-                       range(143, 149): 148,
-                       range(149, 168): 167,
-                       # Hexagonal
-                       range(168, 177): 176,
-                       range(177, 195): 194,
-                       # Cubic
-                       range(195, 207): 206,
-                       range(207, 231): 230,
-                       })
+                        # Triclinic
+                        range(1, 3): 2,
+                        # Monoclinic
+                        range(3, 16): 15,
+                        # Orthorhombic
+                        range(16, 75): 74,
+                        # Tetragonal
+                        range(75, 89): 88,
+                        range(89, 143): 142,
+                        # Trigonal
+                        range(143, 149): 148,
+                        range(149, 168): 167,
+                        # Hexagonal
+                        range(168, 177): 176,
+                        range(177, 195): 194,
+                        # Cubic
+                        range(195, 207): 206,
+                        range(207, 231): 230,
+                        })
 
 
 # Laue grp from space group
 laue_grp = RangeDict({# Space group number, (Schoenflies, Hermann-Mauguin, Order)
-                       # Triclinic
-                       range(1, 3): ('Ci', '-1', 2),
-                       # Monoclinic
-                       range(3, 16): ('C2h', '2/m', 4),
-                       # Orthorhombic
-                       range(16, 75): ('D2h', 'mmm', 8),
-                       # Tetragonal
-                       range(75, 89): ('C4h', '4/m', 8),
-                       range(89, 143): ('D4h', '4/mmm', 16),
-                       # Trigonal
-                       range(143, 149): ('S6', '-3', 6),
-                       range(149, 168): ('D3d', '-3m', 12),
-                       # Hexagonal
-                       range(168, 177): ('C6h', '6/m', 12),
-                       range(177, 195): ('D6h', '6/mmm', 24),
-                       # Cubic
-                       range(195, 207): ('Th', 'm-3', 24),
-                       range(207, 231): ('Oh', 'm-3m', 48),
-                       })
+                      # Triclinic
+                      range(1, 3): ('Ci', '-1', 2),
+                      # Monoclinic
+                      range(3, 16): ('C2h', '2/m', 4),
+                      # Orthorhombic
+                      range(16, 75): ('D2h', 'mmm', 8),
+                      # Tetragonal
+                      range(75, 89): ('C4h', '4/m', 8),
+                      range(89, 143): ('D4h', '4/mmm', 16),
+                      # Trigonal
+                      range(143, 149): ('S6', '-3', 6),
+                      range(149, 168): ('D3d', '-3m', 12),
+                      # Hexagonal
+                      range(168, 177): ('C6h', '6/m', 12),
+                      range(177, 195): ('D6h', '6/mmm', 24),
+                      # Cubic
+                      range(195, 207): ('Th', 'm-3', 24),
+                      range(207, 231): ('Oh', 'm-3m', 48),
+                      })
+
+# Highest symmetry space group number for each crystal class
+crystal_grp_nr = RangeDict({# Space Group number, highest system symmetry
+                            # Triclinic
+                            range(1, 3): 2,
+                            # Monoclinic
+                            range(3, 16): 15,
+                            # Orthorhombic
+                            range(16, 75): 74,
+                            # Tetragonal
+                            range(75, 143): 142,
+                            # # Trigonal
+                            # range(143, 168): 167,
+                            # # Hexagonal
+                            # range(168, 195): 194,
+                            # Trigonal and Hexagonal
+                            range(143, 195) : 194,
+                            # Cubic
+                            range(195, 231): 230,
+                            })
 
 
 # Pre-computed Laue group symmetry operations
@@ -127,12 +147,17 @@ class Phase(xu.materials.Crystal):
     # Find way to generate Phase class automatically from XRD card files too
     # Add flag to limit functionality depending on if from cif or XRD card
 
-    def __init__(self, name, lat):
+    def __init__(self, name, lat, energy=None):
         super().__init__(name,
                          lat,
                          cij=None,
                          thetaDebye=None)
         self.reflections = None # Place holder to check later
+        if energy is not None:
+            if energy < 1e3:
+                energy *= 1e3
+            self.energy = energy
+        self._has_reciprocal_lattice = False
 
 
     def __str__(self):
@@ -269,13 +294,18 @@ class Phase(xu.materials.Crystal):
 
     # May need to add a conditional to pass this function if Phase generated from XRD card
     def get_hkl_reflections(self,
-                            energy,
+                            energy='internal',
                             tth_range=None,
                             ignore_less=0.5,
                             save_reflections=True):
 
         if tth_range is None:
             tth_range = (0, 90)
+        
+        if energy == 'internal':
+            energy = self.energy
+        if energy < 1e3:
+            energy *= 1e3
 
         wavelength = energy_2_wavelength(energy)
 
@@ -332,19 +362,37 @@ class Phase(xu.materials.Crystal):
     # TODO: allow qmin trimming
     def generate_reciprocal_lattice(self,
                                     qmax,
+                                    energy='internal',
                                     return_values=False):
-                                    
+
+        if energy == 'internal':
+            energy = self.energy
+        if energy < 1e3:
+            energy *= 1e3
+
         all_hkls = list(self.lattice.get_allowed_hkl(qmax=qmax))
         all_qs = self.Q(all_hkls)
         all_fs = np.abs(self.StructureFactor(all_qs))**2
-        rescale_array(all_fs, arr_min = 0, upper=100)
+        rescale_array(all_fs, arr_min=0, upper=100)
 
         self.all_hkls = np.asarray(all_hkls)
         self.all_qs = np.asarray(all_qs)
         self.all_fs = np.asarray(all_fs) # might be redundant
 
+        self._has_reciprocal_lattice = True
+        self._reciprocal_lattice_qmax = qmax
+
         if return_values:
             return self.all_hkls, self.all_qs, self.all_fs
+        
+    
+    def clear_reciprocal_lattice(self):
+        for attr in ['all_qs',
+                     'all_hkls',
+                     'all_fs',
+                     '_reciprocal_lattice_qmax']:
+            delattr(self, attr)
+        self._has_reciprocal_lattice = False
 
     
     def planeDistances(self, hkl_lst):
