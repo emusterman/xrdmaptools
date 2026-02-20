@@ -121,6 +121,10 @@ def load_data(scan_id=-1,
                                returns=returns,
                                repair_method=repair_method,
                                verbose=verbose)
+    else:
+        err_str = (f"Unknown broker '{broker}'. Only 'tiled', "
+                    + "'databroker', and 'manual' accepted.")
+        raise ValueError(err_str)
 
     return out
 
@@ -421,12 +425,13 @@ def manual_load_data(scan_id=-1,
                 dropped_inds = np.array(f['entry/instrument/NDAttributes/NDArrayUniqueId'][:])
                 # Built-in eiger fixes first
                 filled_pts = spec_shapes[r_key][0] - len(dropped_inds)
-                null_row = np.zeros(spec_shapes[r_key], dtype=np.bool_)
+                null_row = np.zeros(spec_shapes[r_key][0], dtype=np.bool_)
                 if filled_pts > 0:
                     print(f'Auto-filled {filled_pts} points in row {row_i} for {key}.')
                     full_row = np.zeros(spec_shapes[r_key], dtype=row_data.dtype)
                     full_row[dropped_inds] = row_data
                     null_row[dropped_inds] = True
+                    null_row = ~null_row
                     row_data = full_row
                     del full_row
                 data_dict[key].append(row_data)
