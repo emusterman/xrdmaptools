@@ -110,6 +110,10 @@ class XRDBaseScan(XRDData):
     sclr_dict : dict, optional
         Dictionary of 2D numpy arrays matching the map shape with
         scaler intensities used for intensity normalization.
+    phases : dict, optional
+        Dictionary of reference phases. These references will be
+        incorparated into an internal phases attribute. None by
+        default.
     check_init_sets : bool, optional
         Flag to disable overwriting of AzimuthalIntegrator calibration
         parameters and scaler and position dictionaries. Only intended
@@ -185,6 +189,7 @@ class XRDBaseScan(XRDData):
                  use_stage_rotation=False,
                  poni_file=None,
                  sclr_dict=None,
+                 phases=None,
                  check_init_sets=False,
                  tth_resolution=None,
                  chi_resolution=None,
@@ -304,6 +309,12 @@ class XRDBaseScan(XRDData):
         if chi_resolution is None:
             chi_resolution = 0.05 # in degrees...
         self.chi_resolution = chi_resolution
+
+        # Add each phase manually
+        if phases is not None:
+            for key, value in phases.items():
+                value.name = key
+                self.add_phase(value)
         
         # Catch-all of extra attributes.
         # Gets them into __init__ sooner
@@ -507,8 +518,7 @@ class XRDBaseScan(XRDData):
         extra_attrs = {}
         extra_attrs.update(image_attrs)
         extra_attrs.update(integration_attrs)
-        for attr_name in ['phases',
-                          'spots',
+        for attr_name in ['spots',
                           'spot_model',
                           'spots_3D']:
             if input_dict[attr_name] is not None:
@@ -1160,14 +1170,14 @@ class XRDBaseScan(XRDData):
 
         # Check to make sure the change is appropriate and correct.
         # Not sure if this should raise and error or just print a warning
-        if hdf is None and hdf_path is None:
-            ostr = ('Neither hdf nor hdf_path were provided. '
-                     + '\nCannot switch hdf save locations without '
-                     + 'providing alternative.')
-            print(ostr)
-            return
+        # if hdf is None and hdf_path is None:
+        #     ostr = ('Neither hdf nor hdf_path were provided. '
+        #              + '\nCannot switch hdf save locations without '
+        #              + 'providing alternative.')
+        #     print(ostr)
+        #     return
         
-        elif hdf == self.hdf:
+        if hdf == self.hdf:
             ostr = (f'WARNING: provided hdf ({self.hdf.filename}) is '
                     + 'already the current save location. '
                     + '\nProceeding without changes')
@@ -2096,6 +2106,17 @@ class XRDBaseScan(XRDData):
         
         if phase.name not in self.phases.keys():
             self.phases[phase.name] = phase
+            
+            # Check internal energy
+            if (not hasattr(phase, 'energy')
+                or phase.energy is None):
+                if isinstance(self.energy, (list, tuple, np.ndarray)):
+                    energy = np.mean(self.energy) # Rocking curves make this difficult
+                else:
+                    energy = self.energy
+                if energy < 1e3: # Phase class is in eV
+                    energy *=1e3
+                phase.energy = energy
         else:
             ostr = (f'Did not add {phase.name} since it is '
                     + 'already a possible phase.')
@@ -2930,7 +2951,7 @@ class XRDBaseScan(XRDData):
 
     def _title_with_scan_id(self,
                             title,
-                            default_title=None,
+                            default_title='',
                             title_scan_id=True):
         """
         Internal function for prepending plot titles
@@ -2938,6 +2959,16 @@ class XRDBaseScan(XRDData):
         
         Useful for taking screenshots of plotted data
         and not losing where the data originated.
+
+        Parameters
+        ----------
+        title : str
+            Title for plot to be modified.
+        default_title : str, optional
+            Default title used if given title is None.
+        title_scan_id : bool, optional
+            Flag to determine if the title will be prepended with
+            the scan ID.
         """
         
         if title is None:
