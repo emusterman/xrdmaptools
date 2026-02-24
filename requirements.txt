@@ -1,0 +1,14 @@
+numpy>=2.4.2
+h5py>=3.15.1
+pandas>=3.0.1
+scipy>=1.17.1
+scikit-image>=0.26.0
+scikit-learn>=1.8.0
+matplotlib>=3.10.8
+plotly>=6.5.2
+tqdm>=4.67.1
+dask>=2026.1.2
+dask_image>=2025.11.0
+pyfai>=2025.12.1
+xrayutilities>=1.7.12
+orix>=0.14.1
