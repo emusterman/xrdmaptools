@@ -1,7 +1,6 @@
 import numpy as np
 import time as ttime
 import os
-import psutil
 from tqdm.dask import TqdmCallback
 from tqdm import tqdm
 import warnings
@@ -463,12 +462,12 @@ class timed_iter(object):
 
 
 class memory_iter(object):
-    import time
-    import psutil
-    import matplotlib.pyplot as plt
-
     def __init__(self, iterable=None, iter_name=None, total=None):
         object.__init__(self)
+
+        import time
+        import psutil
+        import matplotlib.pyplot as plt        
 
         if total is None and iterable is not None:
             total = len(iterable)

@@ -1,7 +1,6 @@
 import numpy as np
 import os
 import h5py
-import psutil
 import numpy.core.numeric as _nx
 from itertools import product
 from collections.abc import Iterable

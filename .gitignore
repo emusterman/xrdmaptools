@@ -1,1 +1,18 @@
-*.pyc
+
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+
+# Distribution / packaging
+.Python
+env/
+build/
+develop-eggs/
+eggs/
+*.egg-info/
+*.egg
+
+
+#ipython notebook stuff
+.ipynb_checkpoints/

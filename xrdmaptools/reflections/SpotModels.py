@@ -1,7 +1,7 @@
 import numpy as np
 from scipy.special import wofz
 import scipy.stats as stats
-from numba import njit
+# from numba import njit
 
 
 ############################
