@@ -7,6 +7,7 @@ scikit-learn>=1.8.0
 matplotlib>=3.10.8
 plotly>=6.5.2
 tqdm>=4.67.1
+psutil>=5.9.8
 dask>=2026.1.2
 dask_image>=2025.11.0
 pyfai>=2025.12.1

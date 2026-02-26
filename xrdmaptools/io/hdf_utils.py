@@ -4,6 +4,7 @@ import h5py
 import numpy.core.numeric as _nx
 from itertools import product
 from collections.abc import Iterable
+import psutil
 
 
 ##################
