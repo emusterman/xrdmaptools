@@ -1261,7 +1261,7 @@ class XRDBaseScan(XRDData):
             print('Setting detector calibration...')
             self.ai = pyFAI.load(poni_path)
         
-        elif isinstance(poni_file, OrderedDict):
+        elif isinstance(poni_file, (dict, OrderedDict)):
             print('Setting detector calibration...')
             self.ai = AzimuthalIntegrator().set_config(poni_file)
 
