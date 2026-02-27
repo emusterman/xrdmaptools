@@ -453,6 +453,14 @@ def manual_load_data(scan_id=-1,
                                   broken_rows,
                                   repair_method=repair_method,
                                   shape_dict=r_shapes)
+
+    # Check for snake
+    if (bs_run.start['scan']['type'] == 'XRF_FLY'
+        and bs_run.start['scan']['snake']):
+        for map_data in data_dict.values():
+            for row_ind in range(1, len(map_data), 2):
+                map_data[row_ind] = map_data[row_ind][::-1]
+
     data_dict.update(supp_dict)
 
     out = [data_dict, scan_md]
