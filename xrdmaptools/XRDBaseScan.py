@@ -1092,6 +1092,7 @@ class XRDBaseScan(XRDData):
             and self.integrations is not None):
             self.save_integrations()
         
+        # Save calibration
         if hasattr(self, 'poni') and self.poni is not None:
             self.save_calibration()
 
@@ -1100,6 +1101,10 @@ class XRDBaseScan(XRDData):
             self.save_sclr_pos('scalers',
                                 self.sclr_dict,
                                 self.scaler_units)
+        
+        # Save reciprocal positions
+        if hasattr(self, 'tth') and hasattr(self, 'chi'):
+            self.save_reciprocal_positions()
         
         # Save phases
         if hasattr(self, 'phases') and self.phases is not None:
