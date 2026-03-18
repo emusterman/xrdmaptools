@@ -474,7 +474,7 @@ class XRDData:
                 new_max_val = np.min([self._raw_value_range[1],
                                       max_val])
                 min_val = self._raw_value_range[0]
-                self._raw_value_range[1] = (min_val, new_max_val)
+                self._raw_value_range = (min_val, new_max_val)
 
         # Final defaults
         if self._raw_value_range is None:
