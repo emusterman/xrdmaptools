@@ -70,13 +70,13 @@ def get_q_vect(tth,
         tth = np.radians(tth)
         chi = np.radians(chi)
 
-    # Incident wavevector
+    # Incident unit wavevector
     ki_unit = np.broadcast_to(np.array([0, 0, 1]).reshape(
                                        3,
                                        *([1,] * len(tth.shape))),
                                        (3, *tth.shape))
 
-    # Diffracted wavevector
+    # Diffracted unit wavevector
     kf_unit = np.array([np.sin(tth) * np.cos(chi),
                         np.sin(tth) * np.sin(chi),
                         np.cos(tth)])
@@ -479,9 +479,14 @@ class QMask():
                  wavelength_vals,
                  theta_vals=0,
                  poly_order=6,
-                 degrees=False,
                  use_stage_rotation=False,
                  rocking_axis=None):
+
+        if np.any([tth_arr > 2 * np.pi, chi_arr > 2 * np.pi,
+                   tth_arr < -2 * np.pi, chi_arr < -2 * np.pi]):
+            err_str = ('QMask only supports input arrays in units '
+                       + 'of radians.')
+            raise ValueError(err_str)
         
         # Check for azimuthal discontintuites
         chi_arr, max_arr, shifted = modular_azimuthal_shift(chi_arr)
@@ -497,14 +502,11 @@ class QMask():
         self.wavelength_max = np.max(wavelength_vals)
         self.theta_min = np.min(theta_vals)
         self.theta_max = np.max(theta_vals)
-        self.degrees = degrees
         self.use_stage_rotation = use_stage_rotation
 
         # Get rocking axis
-        energy_rc = np.abs(self.wavelength_min - self.wavelength_max) > 0.001 # Angstroms I guess...
-        min_angle = 0.05 # in degrees
-        if not self.degrees:
-            min_angle = np.radians(min_angle)
+        energy_rc = np.abs(self.wavelength_min - self.wavelength_max) > 0.001 # in nm
+        min_angle = np.radians(0.05) # in degrees
         angle_rc = np.abs(self.theta_min - self.theta_max) > min_angle
 
         if energy_rc and angle_rc:
@@ -558,12 +560,20 @@ class QMask():
                             rsm,
                             **kwargs):
         # Works for both XRDRockingCurve and XRDMapStack
+
+        if rsm.scattering_units == 'deg':
+            tth_arr = np.radians(rsm.tth_arr)
+        elif rsm.scattering_units == 'rad':
+            tth_arr = rsm.tth_arr
+        if rsm.azimuthal_units == 'deg':
+            chi_arr = np.radians(rsm.chi_arr)
+        elif rsm.azimuthal_units == 'rad':
+            chi_arr = rsm.chi_arr
         
-        inst = cls(rsm.tth_arr,
-                   rsm.chi_arr,
+        inst = cls(tth_arr,
+                   chi_arr,
                    rsm.wavelength,
-                   rsm.theta,
-                   degrees=rsm.polar_units == 'deg',
+                   np.radians(rsm.theta), # Convert to radians
                    use_stage_rotation=rsm.use_stage_rotation,
                    rocking_axis=rsm.rocking_axis,
                    **kwargs)
@@ -575,13 +585,20 @@ class QMask():
                  q_vectors,
                  wavelength_ext=0.025,
                  angle_ext=None,
+                 angle_ext_units='rad', # Assumed
                  return_sub_masks=False):
 
         # Setup wiggle room
         if angle_ext is None:
-            angle_ext = 1 # in degrees
-            if not self.degrees:
-                angle_ext = np.radians(angle_ext)        
+            angle_ext = np.radians(1)
+        elif angle_ext_units == 'rad':
+            pass
+        elif angle_ext_units == 'deg':
+            angle_ext = np.radians(angle_ext)
+        else:
+            err_str = (f"Unknown angle units {angle_ext_units}. Only "
+                       + "'rad' and 'deg' are supported.")
+            raise ValueError(err_str)  
 
         # Convert vectors to polar
         if self.rocking_axis == 'energy':
@@ -592,7 +609,7 @@ class QMask():
 
             tth, chi, wavelength = q_2_polar(q_vectors,
                                              stage_rotation=theta,
-                                             degrees=self.degrees)
+                                             degrees=False)
 
             rocking_mask = np.all([
                         wavelength >= self.wavelength_min - wavelength_ext,
@@ -603,7 +620,7 @@ class QMask():
             tth, chi, rotation = q_2_polar(
                                     q_vectors,
                                     wavelength=self.wavelength_min,
-                                    degrees=self.degrees)
+                                    degrees=False)
             
             rocking_mask = np.all([
                             rotation >= self.theta_min - angle_ext,
