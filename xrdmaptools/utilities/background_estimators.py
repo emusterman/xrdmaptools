@@ -52,7 +52,7 @@ def masked_gaussian_background(image_map,
 
     if inplace: # Altered to keep memory usage down
         for index in tqdm(range(num_images)):
-            indices = np.unravel(index, map_shape)
+            indices = np.unravel_index(index, map_shape)
 
             # Get individual image mask
             if mask is not None:
