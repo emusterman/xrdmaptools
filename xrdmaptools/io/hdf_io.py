@@ -29,6 +29,7 @@ def initialize_xrdbase_hdf(xrdbase,
         base_grp.attrs['wavelength'] = xrdbase.wavelength
         base_grp.attrs['theta'] = xrdbase.theta
         base_grp.attrs['use_stage_rotation'] = int(xrdbase.use_stage_rotation)
+        base_grp.attrs['version'] = xrdbase.version
         if xrdbase.time_stamp is None:
             base_grp.attrs['time_stamp'] = ttime.ctime()
         else:
@@ -143,6 +144,10 @@ def load_xrdbase_hdf(filename,
         # Load base metadata
         base_md = dict(base_grp.attrs.items())
 
+        # Correct version for backwards compatibility
+        if 'version' not in base_md:
+            base_md['version'] = "0.0.0"
+
         # Backwards compatability
         if 'scanid' in base_md:
             # Change dictionary
@@ -169,11 +174,11 @@ def load_xrdbase_hdf(filename,
 
         # Load image data
         (image_data,
-        image_attrs,
-        image_corrections,
-        image_data_key,
-        map_shape,
-        image_shape) = _load_xrd_hdf_image_data(
+         image_attrs,
+         image_corrections,
+         image_data_key,
+         map_shape,
+         image_shape) = _load_xrd_hdf_image_data(
                                     base_grp,
                                     image_data_key=image_data_key,
                                     load_blob_masks=load_blob_masks,
@@ -183,10 +188,10 @@ def load_xrdbase_hdf(filename,
 
         # Load integration data
         (integration_data,
-        integration_attrs,
-        integration_corrections,
-        integration_data_key,
-        map_shape) = _load_xrd_hdf_integration_data(
+         integration_attrs,
+         integration_corrections,
+         integration_data_key,
+         map_shape) = _load_xrd_hdf_integration_data(
                                     base_grp,
                                     integration_data_key=integration_data_key,
                                     map_shape=map_shape)
