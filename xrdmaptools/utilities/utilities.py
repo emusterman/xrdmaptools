@@ -100,6 +100,15 @@ def pathify(directory,
     return path
 
 
+# Return tuple of version string
+def parse_version(version_str):
+    
+    try:
+        return tuple(map(int, version_str.split('.')))
+    except (ValueError, AttributeError):
+        return (0, 0, 0)
+
+
 # Does not work!
 def timed_func(func):
     # Time a function
