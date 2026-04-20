@@ -17,9 +17,8 @@ __copyright__ = 'N/A'
 __status__ = 'testing'
 __date__ = "03/14/2024" # MM/DD/YYYY
 
-
 # This version is not currently published!
-__version__ = '0.1.0'
+__version__ = '2026.4.14'
 
 
 __submodules__ = [
