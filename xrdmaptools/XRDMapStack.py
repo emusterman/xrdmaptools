@@ -17,9 +17,10 @@ from tqdm.dask import TqdmCallback
 import matplotlib.pyplot as plt
 
 # Base classes must be relative imports
-from . import XRDBaseScan
-from . import XRDMap
-from . import XRDRockingCurve
+from .XRDData import XRDData
+from .XRDBaseScan import XRDBaseScan
+from .XRDMap import XRDMap
+from .XRDRockingCurve import XRDRockingCurve
 from xrdmaptools.utilities.utilities import (
     timed_iter,
     pathify,
@@ -314,8 +315,8 @@ class XRDMapStack(list):
     scattering_units = _universal_property_constructor(
                                 'scattering_units',
                                 include_set=True)
-    polar_units = _universal_property_constructor(
-                                'polar_units',
+    azimuthal_units = _universal_property_constructor(
+                                'azimuthal_units',
                                 include_set=True)
     image_scale = _universal_property_constructor(
                                 'image_scale',
@@ -1357,6 +1358,7 @@ class XRDMapStack(list):
     # Almost verbatim with XRDMap.load_vector_map
     @_check_xdms_swapped_axes
     @XRDBaseScan._protect_hdf()
+    @_protect_xdms_hdf()
     def load_vector_map(self):
         """
 
@@ -1859,13 +1861,13 @@ class XRDMapStack(list):
                     tth, chi, wavelength = q_2_polar(spots,
                                         stage_rotation=stage_rotation,
                                         degrees=(
-                                        self.polar_units == 'deg'))
+                                        self.scattering_units == 'deg'))
                     theta = [self.theta[0],] * len(spots)
                 else: # angle
                     tth, chi, theta = q_2_polar(spots,
                                         wavelength=self.wavelength[0],
                                         degrees=(
-                                        self.polar_units == 'deg'))
+                                        self.scattering_units == 'deg'))
                     wavelength = [self.wavelength[0],] * len(wavelength)
             
                 # Create temporary dictionary to store information
@@ -2132,7 +2134,7 @@ class XRDMapStack(list):
                             + 'extents.')
                 print(warn_str)
                 map_shape = (np.max(self.spots_3D['map_y']),
-                            np.max(self.spots_3D['map_x']))
+                             np.max(self.spots_3D['map_x']))
         
         vector_map = np.empty(map_shape, dtype=object)
 
