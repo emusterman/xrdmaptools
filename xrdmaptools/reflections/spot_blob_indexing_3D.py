@@ -83,7 +83,7 @@ def index_best_grain(all_ref_qs,
                                    qmask)
         
         # Sort results
-        qofs, indexings = sort_by_qofs(qofs_indexings)
+        qofs, indexings = sort_by_qofs(qofs, indexings)
         
         # De-symmetrize
         if symmetrize is not None:
@@ -96,21 +96,25 @@ def index_best_grain(all_ref_qs,
                         qof_mask = qofs >= sorted(np.unique(qofs))[-6]
                     else:
                         qof_mask = np.ones_like(qofs, dtype=np.bool_)
+            else:
+                qof_mask = [True]
 
             indexing, qof = multi_desymmetrize(
-                                    indexings[qof_mask],
+                                    # indexings[qof_mask],
+                                    [indexing for indexing, b in zip(indexings, qof_mask) if b],
                                     all_ref_qs,
-                                    all_fs,
+                                    all_ref_fs,
                                     all_spot_qs,
                                     all_spot_ints,
                                     near_q,
                                     qmask,
                                     space_group_nr=space_group_nr,
                                     symmetrize=symmetrize)
-
-        # Pick best
-        indexing = indexings[0]
-        qof = qofs[0]
+            
+        else:
+            # Pick best
+            indexing = indexings[0]
+            qof = qofs[0]
                     
     else:
         indexing = np.asarray([[], []])
@@ -220,7 +224,7 @@ def phase_indexing_wrapper(function):
                         all_spot_qs,
                         *args,
                         space_group_nr=space_group_nr,
-                        verbose=verbose
+                        verbose=verbose,
                         **kwargs)
     
     return phase_wrapped
@@ -278,7 +282,6 @@ def find_valid_pairs(all_spot_qs,
                      min_q,
                      degrees=False,
                      symmetrize=None,
-                     fundamental_zone=False,
                      verbose=True):
 
     if near_q > min_q * 0.85:
