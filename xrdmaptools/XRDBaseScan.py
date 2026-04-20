@@ -23,6 +23,7 @@ except ModuleNotFoundError:
 
 
 # Local imports
+from xrdmaptools import __version__
 from xrdmaptools.XRDData import XRDData
 from xrdmaptools.utilities.math import *
 from xrdmaptools.utilities import reference_data
@@ -31,7 +32,8 @@ from xrdmaptools.utilities.utilities import (
     pathify,
     _check_dict_key,
     generate_intensity_mask,
-    copy_docstring
+    copy_docstring,
+    parse_version
 )
 from xrdmaptools.io.hdf_io import (
     initialize_xrdbase_hdf,
@@ -142,6 +144,9 @@ class XRDBaseScan(XRDData):
     detector : str, optional
         Name of area detector used for data collection. This helps to
         determine some default values.
+    verseion : str, optional
+        String representing version of xrdmaptools. None by default
+        which will use current version.
     scan_input : iterable, optional
         List of input parameters for the scan generating the XRD data.
         Should be given as [xstart, xend, xnum, ystart, yend, ynum, *].
@@ -198,6 +203,7 @@ class XRDBaseScan(XRDData):
                  beamline='5-ID (SRX)',
                  facility='NSLS-II',
                  detector='',
+                 version=None,
                  scan_input=None,
                  time_stamp=None,
                  extra_metadata=None,
@@ -220,6 +226,8 @@ class XRDBaseScan(XRDData):
         self.beamline = beamline
         self.facility = facility
         self.detector = detector
+        if self.version is None:
+            self.version = __version__
         if time_stamp is None:
             time_stamp = ttime.ctime()
         self.time_stamp = time_stamp
@@ -290,7 +298,7 @@ class XRDBaseScan(XRDData):
         # Default units and flags
         # Not fully implemented
         # 'rad' or 'deg'
-        self._polar_units = 'deg' 
+        self._azimuthal_units = 'deg' 
         # 'rad', 'deg', 'nm^-1', 'A^-1'
         self._scattering_units = 'deg'
         # 'linear' or 'log'
@@ -807,7 +815,7 @@ class XRDBaseScan(XRDData):
 
     scattering_units = _angle_units_factory('scattering_units',
                                     ['rad', 'deg', '1/nm', '1/A'])
-    polar_units = _angle_units_factory('polar_units',
+    azimuthal_units = _angle_units_factory('azimuthal_units',
                                     ['rad', 'deg'])
     
 
@@ -831,7 +839,7 @@ class XRDBaseScan(XRDData):
     # Convenience properties for working with the detector arrays
     # These are mostly wrappers for pyFAI functions
 
-    def _detector_angle_array_factory(arr_name, ai_arr_name, units):
+    def _detector_angle_array_factory(arr_name, units):
         def get_angle_array(self):
             if hasattr(self, f'_{arr_name}'):
                 return getattr(self, f'_{arr_name}')
@@ -845,11 +853,24 @@ class XRDBaseScan(XRDData):
                     self._chi_arr = chi_arr
                     return getattr(self, f'_{arr_name}')
             elif hasattr(self, 'ai') and self.ai is not None:
-                # default is radians
-                ai_arr = getattr(self.ai, ai_arr_name)()
-                if arr_name == 'chi_arr':
-                    # Negative to match SRX coordinates
-                    ai_arr = -ai_arr 
+                
+                if arr_name == 'tth_arr':
+                    ai_arr = self.ai.center_array(unit='2th_rad')
+                
+                elif arr_name == 'chi_arr':
+                    ai_arr = self.ai.center_array(unit='chi_rad')
+                    # Not sure if these changes are for only SRX or for
+                    # all NSLS-II standard coordinates
+                    if self.beamline.upper() == "SRX":
+                        if parse_version(self.version) >= (2026, 4, 14):
+                            # Native rotation should be about pi. If not modify
+                            if self.ai.get_rot3 == 0:
+                                ai_arr = modular_azimuthal_shift(
+                                                        ai_arr,
+                                                        force_shift=True)[0]
+                                ai_arr -= np.pi
+                        elif self.detector == 'dexela':
+                            ai_arr *= -1
 
                 if getattr(self, units) == 'rad':
                     pass
@@ -898,11 +919,9 @@ class XRDBaseScan(XRDData):
     
 
     tth_arr, delta_tth = _detector_angle_array_factory('tth_arr',
-                                           'twoThetaArray',
-                                           'polar_units')
+                                           'scattering_units')
     chi_arr, delta_chi = _detector_angle_array_factory('chi_arr',
-                                           'chiArray',
-                                           'polar_units')
+                                           'azimuthal_units')
 
 
     # Full q-vector, not just magnitude
@@ -923,15 +942,26 @@ class XRDBaseScan(XRDData):
             raise RuntimeError(err_str)
         else:
             if self.use_stage_rotation:
-                theta = self.theta
+                theta = np.radians(self.theta) # Convert to radians. Theta is always in degrees
             else:
                 theta = None
 
-            q_arr = get_q_vect(self.tth_arr,
-                               self.chi_arr,
+            # Convert everything to radians
+            if self.scattering_units == 'deg':
+                tth_arr = np.radians(self.tth_arr)
+            elif self.scattering_units == 'rad':
+                tth_arr = self.tth_arr
+            
+            if self.azimuthal_units == 'deg':
+                chi_arr = np.radians(self.chi_arr)
+            elif self.azimuthal_units == 'rad':
+                chi_arr = self.chi_arr
+
+            q_arr = get_q_vect(tth_arr,
+                               chi_arr,
                                wavelength=self.wavelength,
                                stage_rotation=theta,
-                               degrees=self.polar_units == 'deg')
+                               degrees=False)
             self._q_arr = q_arr.astype(self.dtype) # makes a copy
             # delete the old
             del q_arr
@@ -1353,6 +1383,10 @@ class XRDBaseScan(XRDData):
             Conditional flag to disable rewriting the calibration
             information to the HDF file when loading from the HDF file.
             False by default and typical usage.
+        
+        Raises
+        ------
+        ValueError if calibration has not been set already.
         """
         
         if check_init_sets:
@@ -1360,6 +1394,15 @@ class XRDBaseScan(XRDData):
                 if ('poni_file' in 
                     self.hdf[self._hdf_type]['reciprocal_positions']):
                     return
+        
+        # Double check for weird states
+        if not hasattr(self, 'poni'):
+            if hasattr(self, 'ai'):
+                self.poni = self.ai.get_config()
+            else:
+                err_str = ('Cannot save calibration without first '
+                           + 'setting the calibration.')
+                raise ValueError(err_str)
 
         # Write data to hdf
         curr_grp = self.hdf[self._hdf_type].require_group('reciprocal_positions')
