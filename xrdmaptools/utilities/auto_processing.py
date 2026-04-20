@@ -97,6 +97,10 @@ def standard_process_xdm(scan_id,
             if not isinstance(scan_id, str):
                 print('Loading data from server...')
                 xdm = XRDMap.from_db(scan_id, wd=f'{wd}xrdmaps/', swapped_axes=swapped_axes)
+                
+                if isinstance(xdm, tuple):
+                    xdm = xdm[0] # should be eiger
+                    print(f'Only processing xdm for {xdm.detector} detector.')
             else:
                 raise ValueError(f'Scan ID must be string not {scan_id}')
         
@@ -128,11 +132,17 @@ def standard_process_xdm(scan_id,
         elif isinstance(air_scatter, np.ndarray):
             xdm.correct_air_scatter(air_scatter)
         elif air_scatter == True:
-            xdm.correct_air_scatter(xdm.med_image, applied_corrections=xdm.corrections)
+            if xdm.detector == 'eiger':
+                sum_map = xdm.sum_map.copy()
+                sum_map[xdm.null_map] = np.nan
+                air_scatter = xdm.images[np.unravel_index(np.nanargmin(sum_map), xdm.map_shape)]
+                xdm.correct_air_scatter(air_scatter, applied_corrections=xdm.corrections)
+            elif xdm.detector == 'dexela':
+                xdm.correct_air_scatter(xdm.med_image, applied_corrections=xdm.corrections)
         else:
             err_str = 'Error handling air_scatter. Designate array, None, or bool.'
             raise RuntimeError(err_str)
-        xdm.correct_outliers(tolerance=5)
+        xdm.correct_outliers(tolerance=10)
 
         # Geometric corrections
         if poni_file is None:
@@ -147,8 +157,8 @@ def standard_process_xdm(scan_id,
 
         # Background correction
         xdm.estimate_background(method='bruckner',
-                                binning=8,
-                                min_prominence=0.01)
+                                binning=4,
+                                min_prominence=0.1)
 
         # Rescale and saving
         xdm.rescale_images(arr_max=xdm.estimate_saturated_pixel())
@@ -174,7 +184,8 @@ def standard_process_xdm(scan_id,
     # Find blobs
     if _proc_dict['blobs']:
         xdm.find_blobs(filter_method='minimum',
-                       multiplier=5,
+                    #    multiplier=5,
+                       multiplier=10,
                        size=3,
                        expansion=10)
 
