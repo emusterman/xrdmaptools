@@ -426,17 +426,27 @@ class XRDRockingCurve(XRDBaseScan):
             for i in range(self.num_images):
                 wavelength = self.wavelength[i]
                 if self.use_stage_rotation:
-                    theta = self.theta[i]
+                    theta = np.radians(self.theta[i]) # Always in degrees
                 else:
                     theta = None # no rotation!
+
+                # Convert everything to radians
+                if self.scattering_units == 'deg':
+                    tth_arr = np.radians(self.tth_arr)
+                elif self.scattering_units == 'rad':
+                    tth_arr = self.tth_arr
                 
-                yield get_q_vect(
-                            self.tth_arr,
-                            self.chi_arr,
-                            wavelength=wavelength,
-                            stage_rotation=theta,
-                            degrees=self.polar_units == 'deg',
-                            rotation_axis='y') # hard-coded for srx
+                if self.azimuthal_units == 'deg':
+                    chi_arr = np.radians(self.chi_arr)
+                elif self.azimuthal_units == 'rad':
+                    chi_arr = self.chi_arr
+                
+                yield get_q_vect(tth_arr,
+                                 chi_arr,
+                                 wavelength=wavelength,
+                                 stage_rotation=theta,
+                                 degrees=False,
+                                 rotation_axis='y') # hard-coded for srx
     
 
     ##########################
@@ -551,6 +561,9 @@ class XRDRockingCurve(XRDBaseScan):
                             end_id=scan_id[-6:],
                             returns=['xrd_dets']
                             )
+            
+            scan_md['beamline_id'] = str(scan_md['beamline_id'][0])
+            scan_md['dwell'] = float(scan_md['dwell'][0])
 
             filename_id = (f"{scan_md['scan_id'][0]}"
                            + f"-{scan_md['scan_id'][-1]}")
@@ -580,7 +593,7 @@ class XRDRockingCurve(XRDBaseScan):
             elif scantype == 'ANGLE_RC':
                 load_func = load_step_rc_data
                 rocking_axis = 'angle'
-            elif scantype == 'XRF_FLY':
+            elif scantype in ['XRF_FLY', 'FLY_ANGLE_RC']:
                 load_func = load_flying_angle_rc_data
                 rocking_axis = 'angle'    
             else:
@@ -614,7 +627,7 @@ class XRDRockingCurve(XRDBaseScan):
                 null_maps.append(None)
         
         if filename is None:
-            if len(xrd_data) < 1:
+            if len(xrd_data) > 1:
                 # Iterate through detectors
                 filenames = [f'scan{filename_id}_{det}_rsm'
                             for det in xrd_dets]
@@ -1193,17 +1206,26 @@ class XRDRockingCurve(XRDBaseScan):
                 stage_rotation = self.theta[0]
             else:
                 stage_rotation = 0
-            tth, chi, wavelength = q_2_polar(spots,
-                                stage_rotation=stage_rotation,
-                                degrees=(
-                                self.polar_units == 'deg'))
+            tth, chi, wavelength = q_2_polar(
+                            spots,
+                            stage_rotation=np.radians(stage_rotation),
+                            degrees=False
+                            )
             theta = [self.theta[0],] * len(spots)
         else: # angle
-            tth, chi, theta = q_2_polar(spots,
-                                wavelength=self.wavelength[0],
-                                degrees=(
-                                self.polar_units == 'deg'))
+            tth, chi, theta = q_2_polar(
+                            spots,
+                            wavelength=self.wavelength[0],
+                            degrees=False)
             wavelength = [self.wavelength[0],] * len(spots)
+        
+        # Outputs always in radians. Convert as necessary
+        if self.scattering_units == 'deg':
+            tth = np.degrees(tth)
+        if self.azimuthal_units == 'deg':
+            chi = np.degrees(chi)
+        # Stage rotation always reported in degrees
+        theta = np.degrees(theta)
 
         temp_dict = {
             'height' : label_maxs,
@@ -1406,7 +1428,7 @@ class XRDRockingCurve(XRDBaseScan):
                          int_cutoff=0,
                          relative_cutoff=True,
                          phase=None,
-                         half_mask=True,
+                         degrees=None,
                          method='seed_casting',
                          save_to_hdf=True,
                          **kwargs
@@ -1432,6 +1454,9 @@ class XRDRockingCurve(XRDBaseScan):
                 err_str = ('No phase specified and ambiguous choice '
                            + 'from loaded phases.')
             raise ValueError(err_str)
+        
+        if degrees is None:
+            degrees = self.scattering_units == 'deg'
 
         # Only pair casting indexing is currently supported
         if method.lower() in ['seed_casting']:
@@ -1443,8 +1468,7 @@ class XRDRockingCurve(XRDBaseScan):
                             near_q,
                             near_angle,
                             self.qmask,
-                            degrees=self.polar_units == 'deg',
-                            half_mask=half_mask,
+                            degrees=degrees,
                             **kwargs)
         else:
             err_str = (f"Unknown method ({method}) specified. Only "
@@ -1459,14 +1483,9 @@ class XRDRockingCurve(XRDBaseScan):
 
             spot_inds, ref_inds = best_indexing.T
             spot_inds = int_mask.nonzero()[0][spot_inds]
-
-            if half_mask:
-                half_mask = phase.all_hkls[:, -1] <= 0
-            else:
-                half_mask = np.ones(len(phase.all_hkls), dtype=np.bool_)
             
             grains[spot_inds] = 0
-            hkls = phase.all_hkls[half_mask][ref_inds.astype(int)]
+            hkls = phase.all_hkls[ref_inds.astype(int)]
             h[spot_inds] = hkls[:, 0]
             k[spot_inds] = hkls[:, 1]
             l[spot_inds] = hkls[:, 2]
@@ -1492,8 +1511,8 @@ class XRDRockingCurve(XRDBaseScan):
                          intensity=None,
                          int_cutoff=0,
                          relative_cutoff=True,
+                         degrees=None,
                          phase=None,
-                         half_mask=True,
                          save_to_hdf=True,
                          **kwargs
                          ):
@@ -1518,6 +1537,9 @@ class XRDRockingCurve(XRDBaseScan):
                 err_str = ('No phase specified and ambiguous choice '
                            + 'from loaded phases.')
             raise ValueError(err_str)
+        
+        if degrees is None:
+            degrees = self.scattering_units == 'deg'
 
         (best_indexings,
             best_qofs) = phase_index_all_grains(
@@ -1527,8 +1549,7 @@ class XRDRockingCurve(XRDBaseScan):
                         near_q,
                         near_angle,
                         self.qmask,
-                        degrees=self.polar_units == 'deg',
-                        half_mask=half_mask,
+                        degrees=degrees,
                         **kwargs)
         
         if hasattr(self, 'spots_3D'):
@@ -1537,18 +1558,13 @@ class XRDRockingCurve(XRDBaseScan):
             phases = ['',] * len(self.spots_3D)
             qofs = grains.copy()
 
-            if half_mask:
-                half_mask = phase.all_hkls[:, -1] <= 0
-            else:
-                half_mask = np.ones(len(phase.all_hkls), dtype=np.bool_)
-
             for i, indexing in enumerate(best_indexings):
 
                 spot_inds, ref_inds = indexing.T
                 spot_inds = int_mask.nonzero()[0][spot_inds]
             
                 grains[spot_inds] = i
-                hkls = phase.all_hkls[half_mask][ref_inds.astype(int)]
+                hkls = phase.all_hkls[ref_inds.astype(int)]
                 h[spot_inds] = hkls[:, 0]
                 k[spot_inds] = hkls[:, 1]
                 l[spot_inds] = hkls[:, 2]
@@ -1962,10 +1978,10 @@ class XRDRockingCurve(XRDBaseScan):
                         + f'({q_ext:.4f}).')
                 raise ValueError(err_str)
 
-        tth, chi, wavelength = q_2_polar(
-                            plot_qs,
-                            stage_rotation=0,
-                            degrees=self.polar_units == 'deg')
+        # Angles in radians
+        tth, chi, wavelength = q_2_polar(plot_qs,
+                                         stage_rotation=0,
+                                         degrees=False)
         energy = wavelength_2_energy(wavelength)
 
         # Assumes energy is rocking axis...
@@ -1978,12 +1994,13 @@ class XRDRockingCurve(XRDBaseScan):
 
         # If there are bounded pixels, padd with zeros
         if np.sum([low_mask, high_mask]) > 0:
+
             low_qs = get_q_vect(
                         tth[low_mask],
                         chi[low_mask],
                         wavelength=energy_2_wavelength(min_energy
                                                     - energy_step),
-                        degrees=self.polar_units == 'deg'
+                        degrees=False
                         ).astype(self.dtype)
             
             high_qs = get_q_vect(
@@ -1991,7 +2008,7 @@ class XRDRockingCurve(XRDBaseScan):
                         chi[high_mask],
                         wavelength=energy_2_wavelength(max_energy
                                                     + energy_step),
-                        degrees=self.polar_units == 'deg'
+                        degrees=False
                         ).astype(self.dtype)
 
             # Extend plot qs and ints
