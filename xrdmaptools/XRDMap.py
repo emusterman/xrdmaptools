@@ -2241,7 +2241,7 @@ class XRDMap(XRDBaseScan):
             if hasattr(self, 'chi') and self.chi is not None:
                 dyn_kw['y_ticks'] = self.chi
                 dyn_kw['x_label'] = ('Azimuthal Angle, χ '
-                                     + f'[{self.polar_units}]')
+                                     + f'[{self.azimuthal_units}]')
 
         # Add default map_kw information if not already included
         if not _check_dict_key(map_kw, 'map'):
