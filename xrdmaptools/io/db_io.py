@@ -624,7 +624,7 @@ def _repair_data_dict(data_dict,
 
     # Add key to track filled images
     if repair_method == 'fill':
-        # Fill null maps with placeholders
+        # Fill null maps with placeholders. We don't know which good rows to use yet
         for k in null_keys:
             if len(data_dict[k]) == 0:
                 data_dict[k] = [[] for _ in range(num_rows)]
@@ -635,11 +635,20 @@ def _repair_data_dict(data_dict,
     else:
         # If all rows are loaded, convert to numpy array
         # I am not sure if this condition will ever be met
-        for key in keys:
+        for key in data_dict.keys():
             if not np.any([isinstance(row, h5py._hl.dataset.Dataset)
                            for row in data_dict[key]]):
                 data_dict[key] = np.asarray(data_dict[key])
-        return data_dict  
+        # Blank the null map
+        for k in null_keys:
+            if 0 in data_dict[k].shape:
+                det = k.split('_')[0]
+                data_dict[k] = np.asarray([
+                    [False,] * len(r)
+                    for r in data_dict[f'{det}_image']
+                ])
+        return data_dict
+
         
     last_good_row = -1
     queued_rows = []
@@ -1228,7 +1237,7 @@ def load_step_rc_data(scan_id=-1,
     # Check for empty (static) values
     for motor_key, data_key in zip(['energy_energy', 'nano_stage_th'],
                                    ['energy', 'theta']):
-        if len(data_dict[motor_key]) == 0:
+        if np.all(np.isnan(data_dict[motor_key])):
             if scan_md[data_key] is not None:
                 value = scan_md[data_key] # nominal is good enough
             else:
