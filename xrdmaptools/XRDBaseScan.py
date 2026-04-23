@@ -226,8 +226,9 @@ class XRDBaseScan(XRDData):
         self.beamline = beamline
         self.facility = facility
         self.detector = detector
-        if self.version is None:
-            self.version = __version__
+        if version is None:
+            version = __version__
+        self.version = version
         if time_stamp is None:
             time_stamp = ttime.ctime()
         self.time_stamp = time_stamp
