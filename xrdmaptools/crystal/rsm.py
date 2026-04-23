@@ -3,7 +3,6 @@
 # Some 3D spot and blob search functions may be found here or strain.py
 
 import numpy as np
-import matplotlib.pyplot as plt
 from scipy.interpolate import griddata
 
 

@@ -3,17 +3,13 @@ import os
 import h5py
 import pyFAI
 import scipy
-import pandas as pd
 from pyFAI.io import ponifile
 from enum import IntEnum # Only for ponifile orientation
 
 import time as ttime
-import matplotlib.pyplot as plt
 from collections import OrderedDict
-import dask.array as da
 import skimage.io as io
 from dask_image import imread as dask_io
-from tqdm import tqdm
 
 
 try:
@@ -30,7 +26,6 @@ from xrdmaptools.utilities import reference_data
 from xrdmaptools.utilities.utilities import (
     delta_array,
     pathify,
-    _check_dict_key,
     generate_intensity_mask,
     copy_docstring,
     parse_version
@@ -41,8 +36,6 @@ from xrdmaptools.io.hdf_io import (
     _load_xrd_hdf_vector_data
     )
 from xrdmaptools.io.hdf_utils import (
-    check_hdf_current_images,
-    check_attr_overwrite,
     overwrite_attr,
 )
 from xrdmaptools.plot.general import (

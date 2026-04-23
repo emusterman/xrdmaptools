@@ -1,13 +1,7 @@
 import numpy as np
 import os
 import h5py
-import pyFAI
 import pandas as pd
-import time as ttime
-import matplotlib.pyplot as plt
-import dask.array as da
-import skimage.io as io
-from dask_image import imread as dask_io
 from tqdm import tqdm
 import functools
 
@@ -20,7 +14,6 @@ from xrdmaptools.utilities.utilities import (
     )
 # from xrdmaptools.io.hdf_io import _load_xrd_hdf_vectorized_map_data
 from xrdmaptools.io.hdf_utils import (
-    check_attr_overwrite,
     overwrite_attr,
     get_large_map_slices
     )

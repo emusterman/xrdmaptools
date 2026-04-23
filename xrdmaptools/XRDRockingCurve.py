@@ -3,12 +3,8 @@ import os
 import h5py
 import numpy as np
 import pandas as pd
-from copy import deepcopy
 from tqdm import tqdm
-import json
-import time as ttime
 import matplotlib.pyplot as plt
-from plotly import graph_objects as go
 import dask.array as da
 
 from xrdmaptools.XRDBaseScan import XRDBaseScan
@@ -26,7 +22,6 @@ from xrdmaptools.geometry.geometry import (
     QMask
 )
 from xrdmaptools.io.hdf_utils import (
-    check_attr_overwrite,
     overwrite_attr
 )
 from xrdmaptools.io.db_io import (
@@ -34,9 +29,6 @@ from xrdmaptools.io.db_io import (
     load_step_rc_data,
     load_extended_energy_rc_data,
     load_flying_angle_rc_data
-)
-from xrdmaptools.reflections.spot_blob_search import (
-    find_blobs
 )
 from xrdmaptools.reflections.spot_blob_search_3D import (
     rsm_blob_search,

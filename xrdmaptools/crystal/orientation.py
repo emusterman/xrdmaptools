@@ -1,5 +1,4 @@
 import numpy as np
-from scipy.spatial.transform import Rotation
 
 
 # This module is intended for working with crystal orientation across the map

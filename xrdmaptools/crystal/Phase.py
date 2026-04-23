@@ -8,7 +8,6 @@ from xrayutilities.materials.spacegrouplattice import (
 )
 from xrayutilities.materials.atom import Atom
 import matplotlib
-import os
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.signal import find_peaks
@@ -22,7 +21,6 @@ from xrdmaptools.utilities.math import (
     tth_2_q,
     q_2_tth,
     convert_qd,
-    vector_angle,
     rescale_array
 )
 

@@ -6,7 +6,6 @@ import os
 import h5py
 import numpy as np
 import pandas as pd
-import gc
 import functools
 import dask
 import itertools
@@ -33,11 +32,8 @@ from xrdmaptools.utilities.utilities import (
 from xrdmaptools.io.hdf_io import (
     initialize_xrdmapstack_hdf,
     load_xrdmapstack_hdf,
-    # _load_xrd_hdf_vectorized_map_data
-    _load_xrd_hdf_vector_data
     )
 from xrdmaptools.io.hdf_utils import (
-    check_attr_overwrite,
     overwrite_attr
 )
 from xrdmaptools.geometry.geometry import (
@@ -47,21 +43,14 @@ from xrdmaptools.geometry.geometry import (
 from xrdmaptools.reflections.spot_blob_search_3D import (
     rsm_spot_search
 )
-# from xrdmaptools.reflections.spot_blob_indexing_3D_old import (
-#     pair_casting_index_full_pattern,
-#     _get_connection_indices
-# )
 from xrdmaptools.reflections.spot_blob_indexing_3D import(
     phase_index_all_grains
 )
 from xrdmaptools.crystal.crystal import (
     are_collinear,
-    are_coplanar
 )
-from xrdmaptools.crystal.rsm import map_2_grid
 from xrdmaptools.crystal.map_alignment import (
     relative_correlation_auto_alignment,
-    com_auto_alignment,
     manual_alignment
 )
 from xrdmaptools.plot.general import return_plot_wrapper

@@ -1,8 +1,6 @@
 import numpy as np
 import h5py
-import os
 from skimage.restoration import rolling_ball
-from tqdm import tqdm
 import time as ttime
 from collections import OrderedDict
 import dask.array as da
@@ -16,13 +14,11 @@ from xrdmaptools.io.hdf_utils import (
 )
 from xrdmaptools.utilities.math import (
     rescale_array,
-    check_precision
 )
 from xrdmaptools.utilities.utilities import (
     Iterable2D
 )
 from xrdmaptools.utilities.image_corrections import (
-    find_outlier_pixels,
     iterative_outlier_correction,
     )
 from xrdmaptools.utilities.background_estimators import (
