@@ -2392,8 +2392,8 @@ class XRDData:
         override : bool, optional
             Override already applied corrections if True. Default is
             False.
-        kwargs : dict, optional
-            Dictionary of kwargs passed to the individual method for
+        kwargs : keyword arguments, optional
+            Keyword arguments passed to the individual method for
             estimating backgrounds.
 
         Raises
@@ -3136,8 +3136,8 @@ class XRDData:
             or full dataset shape that will be used as a custom
             background. None by default and will be estimated with the
             method perscribed.
-        kwargs : dict, optional
-            Dictionary of kwargs passed to the individual method for
+        kwargs : keyword arguments, optional
+            Keyword arguments passed to the individual method for
             estimating backgrounds.
 
         Raises

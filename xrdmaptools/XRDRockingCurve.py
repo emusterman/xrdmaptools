@@ -20,7 +20,6 @@ from xrdmaptools.utilities.utilities import (
     generate_intensity_mask,
     copy_docstring
 )
-from xrdmaptools.crystal.rsm import map_2_grid
 from xrdmaptools.geometry.geometry import (
     get_q_vect,
     q_2_polar,
@@ -47,6 +46,7 @@ from xrdmaptools.reflections.spot_blob_indexing_3D import (
     phase_index_best_grain,
     phase_index_all_grains
 )
+from xrdmaptools.crystal.Phase import Phase
 from xrdmaptools.crystal.crystal import LatticeParameters
 from xrdmaptools.crystal.strain import get_strain_orientation
 from xrdmaptools.plot.general import return_plot_wrapper
@@ -82,8 +82,8 @@ class XRDRockingCurve(XRDBaseScan):
         scan in reciprocal space. Will accept variations of 'energy',
         'wavelength', 'angle' and 'theta', but stored internally as
         'energy', or 'angle'. Defaults to 'energy'.
-    xrdbasekwargs : dict, optional
-        Dictionary of all other kwargs for parent XRDBaseScan class.
+    xrdbasekwargs : keyword arguments, optional
+        All other kwargs for parent XRDBaseScan class.
     """
 
     # Class variables
@@ -224,6 +224,7 @@ class XRDRockingCurve(XRDBaseScan):
             and self.rocking_axis == 'angle'):
             self.use_stage_rotation = True
 
+        # I am not sure if this whole block is needed?
         @XRDBaseScan._protect_hdf()
         def save_extra_attrs(self): # Not sure if this needs self...
             attrs = self.hdf[self._hdf_type].attrs
@@ -257,9 +258,24 @@ class XRDRockingCurve(XRDBaseScan):
     ### Utility Functions ###
     #########################
 
-    def _parse_subscriptable_value(self, value, name):
+    def _parse_iterable_value(self, value, name):
         """
-        Internal function to check values for setattr calls.
+        Internal function to check values for setattr calls. This is 
+        used for the list values (e.g., energy, wavelength, theta).
+
+        Parameters
+        ----------
+        value : iterable
+            Iterable of values to be parsed.
+        name : str
+            Name of attribute.
+
+        Raises
+        ------
+        ValueError if length of values does not match the number of
+        images.
+        TypeError if the value given is not a constant to be iterated
+        or an iterable.
         """
 
         # Fill placeholders if value is nothing
@@ -267,7 +283,7 @@ class XRDRockingCurve(XRDBaseScan):
             or np.any(np.isnan(value))):
             setattr(self, f'_{name}', np.array([np.nan,]
                                                * self.num_images))
-        # Proceed if object is subscriptable and not str or dict
+        # Proceed if object is iterable and not str or dict
         elif (hasattr(value, '__len__')
               and hasattr(value, '__getitem__')
               and not isinstance(value, (str, dict))):
@@ -287,7 +303,7 @@ class XRDRockingCurve(XRDBaseScan):
                                                * self.num_images))
         else:
             err_str = (f'Unable to handle {name} input. '
-                       + 'Provide subscriptable or value.')
+                       + 'Provide iterable or value.')
             raise TypeError(err_str)
 
         
@@ -303,7 +319,11 @@ class XRDRockingCurve(XRDBaseScan):
             attribute. Only {'energy', 'wavelength', 'angle', and
             'theta'} are accepted. None by default and this parameter
             is determined automatically based on the energy and theta
-            scan range. 
+            scan range.
+
+        Raises
+        ------
+        RuntimeError if the rocking axis cannot be determined.
         """
 
         # Find rocking axis
@@ -364,7 +384,7 @@ class XRDRockingCurve(XRDBaseScan):
     # A lot of parsing inputs
     @XRDBaseScan.energy.setter
     def energy(self, energy):
-        self._parse_subscriptable_value(energy, 'energy')
+        self._parse_iterable_value(energy, 'energy')
         self._wavelength = energy_2_wavelength(self._energy)
 
         @XRDBaseScan._protect_hdf()
@@ -378,7 +398,7 @@ class XRDRockingCurve(XRDBaseScan):
     # A lot of parsing inputs
     @XRDBaseScan.wavelength.setter
     def wavelength(self, wavelength):
-        self._parse_subscriptable_value(wavelength, 'wavelength')
+        self._parse_iterable_value(wavelength, 'wavelength')
         self._energy = wavelength_2_energy(self._wavelength)
 
         @XRDBaseScan._protect_hdf()
@@ -398,7 +418,7 @@ class XRDRockingCurve(XRDBaseScan):
                         + 'Assuming 0 deg.')
             print(warn_str)
             theta = 0
-        self._parse_subscriptable_value(theta, 'theta')
+        self._parse_iterable_value(theta, 'theta')
             
         @XRDBaseScan._protect_hdf()
         def save_attrs(self): # Not sure if this needs self...
@@ -417,6 +437,10 @@ class XRDRockingCurve(XRDBaseScan):
         are detemined from scattering and azimuthal angles, incident
         X-ray energy, and stage rotation and are given as a generator
         for each step along the rocking axis.
+
+        Raises
+        ------
+        RuntimeError if the calibration has not been set.
         """
 
         if not hasattr(self, 'ai'):
@@ -528,14 +552,14 @@ class XRDRockingCurve(XRDBaseScan):
             dataset into a single line and is not recommended.
             "replace" will replace rows with missing data by the
             previously full row, matching the behavior of pyXRF.
-        kwargs : dict, optional
+        kwargs : keyword arguments, optional
             Other keyward arguments passed to __init__.
         
         Returns
         -------
         xrdrockingcurve : XRDRockingCurve
-            Instance of XRDRockingCurve class with all data and metadata from
-            the designaed scan ID or scan ID range.
+            Instance of XRDRockingCurve class with all data and metadata
+            from the designaed scan ID or scan ID range.
 
         Raises
         ------
@@ -939,11 +963,11 @@ class XRDRockingCurve(XRDBaseScan):
             used by XRDMapStack.
         rewrite_data : bool, optional,
             Flag to determine the behavior of overwriting previously
-            written vector maps. False by default, preserving previously
-            written data.
+            written vector maps. False by default, preserving
+            previously written data.
         verbose : bool, optional 
-            Flag to determine the function's verbosity. False
-            by default.
+            Flag to determine the function's verbosity. False by
+            default.
 
         Raises
         ------
@@ -999,8 +1023,8 @@ class XRDRockingCurve(XRDBaseScan):
         """
         Generate mask for vector intensities.
         
-        Generate mask of vector intensities above a given absolute
-        or relative cutoff value.
+        Generate mask of vector intensities above a given absolute or
+        relative cutoff value.
 
         Parameters
         ----------
@@ -1331,16 +1355,19 @@ class XRDRockingCurve(XRDBaseScan):
                                 extra_attrs=None,
                                 verbose=False):
         """
-        Save support information about the vectors to the HDF file.
+        Save support information about the vectors to the HDF file, if
+        available.
 
         Parameters
         ----------
-        vector_infor : iterable
-
+        vector_info : iterable
+            Iterable of vector information written into HDF file.
         vector_info_title : str
-        
+            Title given to the HDF dataset.
         rewrite_data : bool, optional
-
+            Flag to prevent rewriting of data. Current implementation
+            can create many keyless HDF datasets which can bloat the
+            file size.
         extra_attrs : dict, optional
             Dictionary of extra metadata that will be written into the
             attributes of the vectors group in the HDF file. None by 
@@ -1374,6 +1401,11 @@ class XRDRockingCurve(XRDBaseScan):
     def qmask(self):
         """
         Reciprocal space mask of volume measured by scan.
+
+        Returns
+        -------
+        qmask : QMask
+            Reciprocal space mask of volume measured by the scan.
         """
         if hasattr(self, '_qmask'):
             return self._qmask
@@ -1389,7 +1421,48 @@ class XRDRockingCurve(XRDBaseScan):
                                relative_cutoff=True
                                ):
         """
+        Internal function for extracting useful parameters for spots_3D
+        Pandas DataFrame.
 
+        Parameters
+        ----------
+        spots : Numpy.ndarray, optional
+            Numpy array of spots with shape (number of spots, 3) in qx,
+            qy, qz. By default this will use the q-space vector
+            coordinates in the internal 'spots_3D' attribute.
+        intensity : float, optional
+            Intensity values used with the cutoff value to determine
+            the intensity mask. By default this will use the intensity
+            values in the internal 'spots_3D' attribute.
+        int_cutoff : float, optional
+            Intensity cutoff used for determining the intensity mask.
+            This is zero by default, and with relative_cutoff set to
+            True, this will return all spots.
+        relative_cutoff : bool, optional
+            Flag to determine if the intensity cutoff is in absolute or
+            relative units. By default this value is True and uses
+            relative values.
+        
+        Returns
+        -------
+        spots : Numpy.ndarray
+            q-vectors of shape (number of vectors, 3) with values in 
+            qx, qy, qz with the number of vectors determined by the
+            intensity mask.
+        intensity : Numpy.ndarray
+            Intensities of each of the vectors determined by the
+            intensity mask
+        int_mask : Numpy.ndarray
+            Intensity mask used to determine which spots and
+            intensities are returned with shape matching the original
+            spots and intensity inputs.
+        
+        Raises
+        ------
+        ValueError if the spots or intensity values are not given and
+        cannot be determined.
+        RuntimeError if the spots and itensity values do not match in
+        lengths.
         """
         
         if spots is None and hasattr(self, 'spots_3D'):
@@ -1434,7 +1507,77 @@ class XRDRockingCurve(XRDBaseScan):
                          **kwargs
                          ):
         """
+        Index the best grain.
 
+        Index the best grain from the given spots or the internal
+        spots_3D parameter for a given phase. Succesful indexing using
+        the internal spots_3D parameter will then write the indexing
+        values into the spots_3D attribute and update the HDF file if
+        available.
+
+        Parameters
+        ----------
+        near_q : float
+            Cutoff distance in q-space used to determine validity of
+            possible reflections. Usually around 0.025 - 0.10 A^-1 with
+            higher values considering more possible reflections but
+            increasing the indexing time.
+        near_angle : float
+            Cutoff angle used to determine validity of possible
+            reflection pairs. Units are determined by the degrees flag.
+            Usually around 0.5 - 10 in degrees with higher values
+            considering more possible reflections but increasing the
+            indexing time.
+        spots : Numpy.ndarray, optional
+            Numpy array of spots with shape (number of spots, 3) in qx,
+            qy, qz. By default this will use the q-space vector
+            coordinates in the internal 'spots_3D' attribute.
+        intensity : float, optional
+            Intensity values used with the cutoff value to determine
+            the intensity mask. By default this will use the intensity
+            values in the internal 'spots_3D' attribute.
+        int_cutoff : float, optional
+            Intensity cutoff used for determining the intensity mask.
+            This is zero by default, and with relative_cutoff set to
+            True, this will return all spots.
+        relative_cutoff : bool, optional
+            Flag to determine if the intensity cutoff is in absolute or
+            relative units. By default this value is True and uses
+            relative values.
+        phase : Phase, optional
+            Phase object used for indexing and calculating theoretical
+            reflections. By default this will use the value in the
+            internal 'phases' dictionary, but this will raise an error
+            if there is more than one phase.
+        degrees : bool, optional
+            Flag to determine if the near_angle parameter is in radians
+            or degrees. By default this uses the internal
+            'scattering_units' attribute.
+        method : str in {'seed_casting'}, optional,
+            Method used for indexing. Currently only 'seed_casting' is
+            supported.
+        save_to_hdf : bool, optional
+            Flag whether to update the HDF file 3D spots with the
+            indexing values. True by default.
+        kwargs : keyword arguments, optional
+            All other keyword arguments passed to internal indexing
+            function.
+
+        Returns
+        -------
+        best_indexing : Numpy.ndarray
+            Array of shape (number of indexed spots, 2) with indices
+            representing the measured spots and the theoretical spots
+            stored in the phase object.
+        qof : float
+            Quality-of-fit parameter bounded between 0 and 1 with
+            higher value representing a better fit. This number is 
+            based partially on the near_q parameter.
+            
+        Raises
+        ------
+        ValueError if the reference phase cannot be determined or if
+        the indexing method cannot be determined.
         """
         
         (spots,
@@ -1475,7 +1618,7 @@ class XRDRockingCurve(XRDBaseScan):
                        + "'seed_casting' is currently supported.")
             raise ValueError(err_str)
 
-        if hasattr(self, 'spots_3D'):
+        if hasattr(self, 'spots_3D') and spots is None:
             grains = np.asarray([np.nan,] * len(self.spots_3D))
             h, k, l = grains.copy(), grains.copy(), grains.copy()
             phases = ['',] * len(self.spots_3D)
@@ -1493,7 +1636,8 @@ class XRDRockingCurve(XRDBaseScan):
             for ind in spot_inds:
                 phases[ind] = phase.name
 
-            for key, values in zip(['phase', 'grain_id', 'h', 'k', 'l', 'qof'],
+            for key, values in zip(['phase', 'grain_id', 'h', 'k', 'l',
+                                    'qof'],
                                    [phases, grains, h, k, l, qofs]):
                 self.spots_3D[key] = values
             
@@ -1517,7 +1661,80 @@ class XRDRockingCurve(XRDBaseScan):
                          **kwargs
                          ):
         """
+        Index all possible grains.
 
+        Index all grains from the given spots or the internal spots_3D
+        parameter for a given phase. Succesful indexing using the
+        internal spots_3D parameter will then write the indexing values
+        into the spots_3D attribute and update the HDF file if 
+        available.
+
+        Parameters
+        ----------
+        near_q : float
+            Cutoff distance in q-space used to determine validity of
+            possible reflections. Usually around 0.025 - 0.10 A^-1 with
+            higher values considering more possible reflections but
+            increasing the indexing time.
+        near_angle : float
+            Cutoff angle used to determine validity of possible
+            reflection pairs. Units are determined by the degrees flag.
+            Usually around 0.5 - 10 in degrees with higher values
+            considering more possible reflections but increasing the
+            indexing time.
+        spots : Numpy.ndarray, optional
+            Numpy array of spots with shape (number of spots, 3) in qx,
+            qy, qz. By default this will use the q-space vector
+            coordinates in the internal 'spots_3D' attribute.
+        intensity : float, optional
+            Intensity values used with the cutoff value to determine
+            the intensity mask. By default this will use the intensity
+            values in the internal 'spots_3D' attribute.
+        int_cutoff : float, optional
+            Intensity cutoff used for determining the intensity mask.
+            This is zero by default, and with relative_cutoff set to
+            True, this will return all spots.
+        relative_cutoff : bool, optional
+            Flag to determine if the intensity cutoff is in absolute or
+            relative units. By default this value is True and uses
+            relative values.
+        phase : Phase, optional
+            Phase object used for indexing and calculating theoretical
+            reflections. By default this will use the value in the
+            internal 'phases' dictionary, but this will raise an error
+            if there is more than one phase.
+        degrees : bool, optional
+            Flag to determine if the near_angle parameter is in radians
+            or degrees. By default this uses the internal
+            'scattering_units' attribute.
+        method : str in {'seed_casting'}, optional,
+            Method used for indexing. Currently only 'seed_casting' is
+            supported.
+        save_to_hdf : bool, optional
+            Flag whether to update the HDF file 3D spots with the
+            indexing values. True by default.
+        kwargs : keyword arguments, optional
+            All other keyword arguments passed to internal indexing
+            function.
+
+        Returns
+        -------
+        best_indexings : list of Numpy.ndarrays
+            List with length matching the number of identified grains.
+            Each list index contains an array of shape (number of
+            indexed spots, 2) with indices representing the measured
+            spots and the theoretical spots stored in the phase object.
+        qofs : list of floats
+            List with length matching the number of indentified grains.
+            Each list index contains a quality-of-fit parameter bounded
+            between 0 and 1 with higher value representing a better
+            fit. This number is based partially on the near_q
+            parameter.
+            
+        Raises
+        ------
+        ValueError if the reference phase cannot be determined or if
+        the indexing method cannot be determined.
         """
         
         (spots,
@@ -1572,7 +1789,8 @@ class XRDRockingCurve(XRDBaseScan):
                 for ind in spot_inds:
                     phases[ind] = phase.name
 
-            for key, values in zip(['phase', 'grain_id', 'h', 'k', 'l', 'qof'],
+            for key, values in zip(['phase', 'grain_id', 'h', 'k', 'l',
+                                    'qof'],
                                    [phases, grains, h, k, l, qofs]):
                 self.spots_3D[key] = values
             
@@ -1591,7 +1809,44 @@ class XRDRockingCurve(XRDBaseScan):
                                phase=None,
                                grain_id=None):
         """
+        Transform indexed spots into crystal strain and orientation.
 
+        Transform indexed spots for a given crystal grain ID into
+        strain in the crystal coordinate system and orientation.
+
+        Parameters
+        ----------
+        q_vectors : Numpy.ndarray, optional
+            Array of indexed spots in q-space with shape (number of
+            spots, 3) with qx, qy, qz values.
+        hkls : Numpy.ndarray, optional
+            Array of hkl indexed values with shape (number of spots, 3)
+            with h, k, l values.
+        phase : Phase, optional
+            Phase of indexed spots used to determine the theoretical
+            q-space values from the h, k, l values.
+        grain_id : int, optional
+
+        Returns
+        -------
+        eij : Numpy.ndarray of shape (3, 3)
+            Strain matrice in the crystal coordinate system referenced
+            to the calculated values from the phase object.
+        U : Numpy.ndarray of shape (3, 3)
+            Orientation matrix in the passive Bunge definition
+            referenced to the default orientation of the phase object.
+            The default lattice orientation follows the Busing and Levy
+            convention where the a-axis points with the lab
+            x-direction and the b-axis lies with the lab xy-plane.
+
+        Raises
+        ------
+        AttributeError if phase is not specified and no internal phase
+        can be found.
+        RuntimeError if phase is not specified and phase cannot be
+        determined from internal phases attribute.
+        ValueError if the q_vectors or hkls cannot be determined from
+        the grain_id.
         """
 
         # Parse phase input if specified
@@ -1655,11 +1910,6 @@ class XRDRockingCurve(XRDBaseScan):
         
         return eij, U
 
-    
-    # Not sure if this is feasible
-    def get_zero_point_correction():
-        raise NotImplementedError()
-
 
     ##########################
     ### Plotting Functions ###
@@ -1672,11 +1922,11 @@ class XRDRockingCurve(XRDBaseScan):
                             title_scan_id=True):
         """
         Internal function for prepending plot titles
-        with the data scan ID range. Modified from the same function
-        in XRDBaseScan to use the scan ID range.
+        with the data scan ID range. Modified from the same function in
+        XRDBaseScan to use the scan ID range.
         
-        Useful for taking screenshots of plotted data
-        and not losing where the data originated.
+        Useful for taking screenshots of plotted data and not losing
+        where the data originated.
 
         Parameters
         ----------
@@ -1685,8 +1935,8 @@ class XRDRockingCurve(XRDBaseScan):
         default_title : str, optional
             Default title used if given title is None.
         title_scan_id : bool, optional
-            Flag to determine if the title will be prepended with
-            the scan ID range.
+            Flag to determine if the title will be prepended with the
+            scan ID range.
         """
 
         # Should be list if iterable, but just in case
@@ -1710,7 +1960,9 @@ class XRDRockingCurve(XRDBaseScan):
     # Disable q-space plotting
     def plot_q_space(self, *args, **kwargs):
         """
+        Plot the experimental geometry in reciprocal space.
 
+        This is not currently supported.
         """
 
         err_str = ('Q-space plotting not supported for '
@@ -1730,7 +1982,54 @@ class XRDRockingCurve(XRDBaseScan):
                          title_scan_id=True,
                          **kwargs):
         """
+        Plot a stack of images.
 
+        Plotting function to create a dynamic slider plot if images.
+
+
+        Parameters
+        ----------
+        images : iterable of 2D Numpy.ndarrays, optional
+            Iterable of images to be plotted. All images must be of the
+            same shape. By default this will use the internal images.
+        slider_vals : iterable, optional
+            Values displayed on the slider with length matching the
+            number of images. By default will use the internal
+            rocking axis values (i.e., energy or angle)
+        slider_label : str, optional
+            Label used for the slider values (i.e., energy or angle)
+        title : str, optional
+            Title of plot. By default, a title will be generated based
+            on the image stack.
+        vmin : str, optional
+            Minimum value used across all image colorscales. The
+            minimum value of the full stack is used by default.
+        vmax : str, optional
+            Maximum value used across all image colorscales. The
+            maximum value of the full stack is used by default.
+        title_scan_id : bool, optional
+            Flag dictating if the plot title will be prepended with the
+            data scan ID(s). True by default.
+        return_plot : bool, optional
+            Flag to determine if figure and axes option are returned.
+            False be default with no returns.
+        kwargs : keyword arguments, optional
+            Keyword arguments passed to the internal slider plot
+            function.
+
+        Returns
+        -------
+        No returns by default. Only returned if return_plot keyword
+        argument is True.
+
+        fig : Matplotlib Figure instance
+            Figure of plot.
+        ax : Matplotlib Axes instance, optional
+            Individual axes of plot.
+
+        Raises
+        ------
+        ValueError if slider values are not sorted.
         """
 
         if images is None:
@@ -1772,7 +2071,63 @@ class XRDRockingCurve(XRDBaseScan):
     @return_plot_wrapper
     def plot_waterfall(self, **kwargs):
         """
+        Generate waterfall plot along the rocking axis.
 
+        Parameters
+        ----------
+        integration_method : str, optional
+            Method for integrating data. Accepts 'sum' or 'max' along
+            the axis of integration. 'max' by default.
+        v_offset : float, optional
+            Relative vertical offset value of each integration. 0 will
+            have no offset, 1 will offset each integration by the
+            maximum integration range preventing any overlap. 0.25 by
+            default.
+        tth : iterable, optional
+            Two theta scattering angle of the integration data. Must
+            have the same length as the integration data. None by
+            default and will look for an internal tth attribute, or use
+            a simple range if unavaible.
+        units : str, optional
+            Units of two theta scattering angle. None by default and
+            will use an internal scattering_angle attribute if
+            available.
+        cmap : str, optional
+            Colormap for distinguishing integrations. None by default
+            and all integrations will be black.
+        fig : Matplotlib Figure instance, optional
+            Figure to be used for plotting. Must be given ax. None by
+            default, generating an new plot.
+        ax : Matplotlib Axes instance, optional
+            Axes to be used for plotting. Must be given with fig. None
+            by default, generating a new plot.
+        title : str, optional
+            Title of plot. By default, a title will be generated from
+            the waterfall plot.
+        title_scan_id : bool, optional
+            Flag dictating if the plot title will be prepended with the
+            data scan ID. True by default.
+        return_plot : bool, optional
+            Flag to determine if figure and axes option are returned.
+            False be default with no returns.
+        kwargs : keyword arguments, optional
+            Other keyword arguments passed to the internal
+            Matplotlib.pyplot.plot function.
+
+        Returns
+        -------
+        No returns by default. Only returned if return_plot keyword
+        argument is True.
+
+        fig : Matplotlib Figure instance
+            Figure of plot.
+        ax : Matplotlib Axes instance, optional
+            Individual axes of plot.
+
+        Raises
+        ------
+        AttributeError for data without integrations.
+        ValueError if the integration method is not acceptable.
         """
         return self._plot_waterfall(
                             axis=0,
@@ -1784,13 +2139,67 @@ class XRDRockingCurve(XRDBaseScan):
                         q_vectors=None,
                         intensity=None,
                         spots_3D=None,
-                        title=None,
                         edges=None,
                         skip=None,
+                        title=None,
                         title_scan_id=True,
                         **kwargs):
         """
+        Plot scattering points in 3D reciprocal space.
 
+        Plot the q-space coordinates of the vectors of 3D spots as a 3D
+        scatter plot. The edges of the scanned volume can also be
+        plotted for reference.
+
+        Parameters
+        ----------
+        q_vectors : Numpy.ndarray, optional
+            Array of shape (number of vectors, 3) with values of qx,
+            qy, and qz defining the vectors to be plotted in reciprocal
+            space. By default the internal 'vectors' attribute will be
+            plotted.
+        intensity : iterable, optional
+            Intensity values of the vectors used to color each data
+            point. By default the internal intensity values in the
+            'vectors' attribute will be used.
+        spots_3D : Pandas DataFrame or bool, optional
+            If DataFrame, then the q-vectors of each spot will be
+            used for plotting. If True, then the internal 'spots_3D'
+            attribute will be used. For everything else and as the
+            default, the q_vectors argument will be used.
+        edges : list of Numpy.ndarrays, optional
+            List of arrays defining the scan range boundary. By default
+            this plots the internal 'edges' attribute.
+        skip : int, optional
+            Skip increment of vectors. 1 plots all vectors, 2 plots
+            every other vector, and so on. By default this value is
+            adjusted to plot about 5000 points.
+        title : str, optional
+            Title of plot. By default, a title will be generated from
+            the waterfall plot.
+        title_scan_id : bool, optional
+            Flag dictating if the plot title will be prepended with the
+            data scan ID. True by default.
+        return_plot : bool, optional
+            Flag to determine if figure and axes option are returned.
+            False be default with no returns.
+        kwargs : keyword arguments, optional
+            Other keyword arguments passed to the internal scatter
+            function.
+
+        Returns
+        -------
+        No returns by default. Only returned if return_plot keyword
+        argument is True.
+
+        fig : Matplotlib Figure instance
+            Figure of plot.
+        ax : Matplotlib Axes instance, optional
+            Individual axes of plot.
+
+        Raises
+        ------
+        ValueError if the plotting vectors cannot be determined.
         """
 
         # Set defaults
@@ -1804,7 +2213,8 @@ class XRDRockingCurve(XRDBaseScan):
                 default_title = '3D Spots'
                 skip = 1
                 kwargs['alpha'] = 1
-            elif (hasattr(self, 'spots_3D')
+            elif (spots_3D is True
+                  and hasattr(self, 'spots_3D')
                   and self.spots_3D is not None):
                 q_vectors = self.spots_3D[['qx', 'qy', 'qz']].values
                 intensity = self.spots_3D['intensity'].values
@@ -1856,16 +2266,67 @@ class XRDRockingCurve(XRDBaseScan):
     def plot_3D_indexing(self,
                          spots_3D=None,
                          grain_ids=[0],
-                         title=None,
                          edges=None,
+                         title=None,
                          title_scan_id=True,
                          **kwargs):
         """
+        Plot indexing results in 3D recirpocal space.
+
+        Plot the q-space coordinates of the 3D spots with their HKL
+        labels. The edges of the scanned volume can also be plotted for
+        reference.
+
+        Parameters
+        ----------
+        spots_3D : Pandas DataFrame, optional
+            DataFrame containing the 3D spot and indexing information.
+            By default this will use the internal 'spots_3D' attribute.
+        grain_ids : list of ints, optional
+            List of grain IDs to be indexed. By default only the zero
+            indexed grain HKL labels will be displayed.
+        edges : list of Numpy.ndarrays, optional
+            List of arrays defining the scan range boundary. By default
+            this plots the internal 'edges' attribute.
+        skip : int, optional
+            Skip increment of vectors. 1 plots all vectors, 2 plots
+            every other vector, and so on. By default this value is
+            adjusted to plot about 5000 points.
+        title : str, optional
+            Title of plot. By default, a title will be generated from
+            the waterfall plot.
+        title_scan_id : bool, optional
+            Flag dictating if the plot title will be prepended with the
+            data scan ID. True by default.
+        return_plot : bool, optional
+            Flag to determine if figure and axes option are returned.
+            False be default with no returns.
+        kwargs : keyword arguments, optional
+            Other keyword arguments passed to the internal scatter
+            function.
+
+        Returns
+        -------
+        No returns by default. Only returned if return_plot keyword
+        argument is True.
+
+        fig : Matplotlib Figure instance
+            Figure of plot.
+        ax : Matplotlib Axes instance, optional
+            Individual axes of plot.
+
+        Raises
+        ------
+        AttributeError if 'spots_3D' is not given and the internal
+        attribute does not exist.
+        KeyError if the spots_3D DataFrame does not contain all of the
+        necessary information.
 
         """
 
         # Parse inputs
-        if spots_3D is not None and not isinstance(spots_3D, pd.DataFrame):
+        if (spots_3D is not None
+            and not isinstance(spots_3D, pd.DataFrame)):
             warn_str = ("WARNING: 'spots_3D' must be Pandas DataFrame not "
                         + f"{type(spots_3D)}. Searching for internal "
                         + "spots_3D instead.")
@@ -1879,6 +2340,10 @@ class XRDRockingCurve(XRDBaseScan):
                 err_str = ("Must provide 'spots_3D' or must have internal "
                         + "'spots_3D' attribute.")
                 raise AttributeError(err_str)
+
+        if edges is None:
+            if hasattr(self, 'edges') and self.edges is not None:
+                edges = self.edges
         
         for key in ['qx', 'qy', 'qz', 'grain_id', 'h', 'k', 'l']:
             if key not in spots_3D:
@@ -1931,21 +2396,56 @@ class XRDRockingCurve(XRDBaseScan):
                                    all_ref_hkls,
                                    all_ref_fs,
                                    self.qmask,
-                                   edges=self.edges,
+                                   edges=edges,
                                    title=title,
                                    **kwargs)
         
         return fig, ax
         
 
-    # Broken for angle rocking curves
+    # TODO: Allow this to work for angle rocking curves.
     def plot_3D_isosurfaces(self,
                             q_vectors=None,
                             intensity=None,
                             gridstep=0.01,
                             **kwargs):
         """
+        Plot a reciprocal space reflection as a series of isosurfaces.
 
+        Use the q-coordinates and intensity to generate isosurfaces to
+        represent a single reflection as a volume of intensity.
+        
+        This is NOT recommended for plotting more than a single
+        reflection.
+
+        Parameters
+        ----------
+        q_vectors : Numpy.ndarray, optional
+            Array of shape (number of vectors, 3) with values of qx,
+            qy, and qz defining the vectors for generating the
+            isosurfaces. By default the internal 'vectors' attribute
+            will be used.
+        intensity : iterable, optional
+            Intensity values of the vectors used for generating
+            isosurfaces. By default the internal intensity values in
+            the 'vectors' attribute will be used.
+        gridstep : float, optional
+            Step size in reciprocal space units used for determining
+            a grid for interpolating the q-vectors and intensity
+            information. Smaller steps represent finer grids resulting
+            in higher fidelity isosurfaces, but longer computation
+            times. By default 0.01 A^-1 is used.
+
+        Note
+        ----
+        This method is only recommended for individual reflections and
+        not the entire dataset.
+
+        Raises
+        ------
+        ValueError if q-vectors are not provided and cannot be
+        determined, or if the gridstep is larger than the
+        q-vectors range.
         """
 
         if q_vectors is None:
@@ -2023,14 +2523,45 @@ class XRDRockingCurve(XRDBaseScan):
                             gridstep=gridstep,
                             **kwargs)
     
-    # TODO: Move this to plot volume module
+
+    # TODO: Move base level to plot to volume module.
     @return_plot_wrapper
     def plot_sampled_volume_outline(self,
                                     edges=None,
                                     title=None,
                                     title_scan_id=True):
         """
+        Plot the outlines of the scanned volume in 3D reciprocal space.
 
+        Parameters
+        ----------
+        edges : list of Numpy.ndarrays, optional
+            List of arrays defining the scan range boundary. By default
+            this plots the internal 'edges' attribute.
+        title : str, optional
+            Title of plot. By default, a title will be generated from
+            the waterfall plot.
+        title_scan_id : bool, optional
+            Flag dictating if the plot title will be 
+            prepended with the data scan ID. True by 
+            default.
+        return_plot : bool, optional
+            Flag to determine if figure and axes option are returned.
+            False be default with no returns.
+
+        Returns
+        -------
+        No returns by default. Only returned if return_plot keyword
+        argument is True.
+
+        fig : Matplotlib Figure instance
+            Figure of plot.
+        ax : Matplotlib Axes instance, optional
+            Individual axes of plot.
+
+        Raises
+        ------
+        ValueError if edges are not given and cannot be determined.
         """
 
         if edges is None:

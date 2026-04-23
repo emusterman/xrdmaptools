@@ -71,8 +71,8 @@ class XRDMap(XRDBaseScan):
         Flag whether to overwrite data in the HDF file if available. By
         default this is set to False and should only be True when
         instantiating from the HDF file.
-    xrdbasekwargs : dict, optional
-        Dictionary of all other kwargs for parent XRDBaseScan class.
+    xrdbasekwargs : keyword arguments, optional
+        All other kwargs for parent XRDBaseScan class.
     """
 
     # Class variables
@@ -100,7 +100,6 @@ class XRDMap(XRDBaseScan):
             )
 
         # Set position dictionary
-        save_init_sets = False
         if 'check_init_sets' in xrdbasekwargs:
             check_init_sets = xrdbasekwargs['check_init_sets']
         self.pos_dict = None
@@ -183,8 +182,8 @@ class XRDMap(XRDBaseScan):
             dataset into a single line and is not recommended.
             "replace" will replace rows with missing data by the
             previously full row, matching the behavior of pyXRF.
-        kwargs : dict, optional
-            Other keyward arguments passed to __init__.
+        kwargs : keyword arguments, optional
+            All other keyward arguments passed to __init__.
         
         Returns
         -------
@@ -602,7 +601,7 @@ class XRDMap(XRDBaseScan):
         save_to_hdf : bool, optional
             Flag to control if data is written to the HDF file. Only
             used when return_values is False. True by default.
-        **kwargs : optional,
+        kwargs : keyword arguments, optional
             Other keyword arguments passed to the pyFAI integration
             function. These should not include the correctSolidAngle
             or polarization_factor as these corrections are handled
@@ -769,7 +768,7 @@ class XRDMap(XRDBaseScan):
             Mask passed over images to ignore specified pixeld from
             integration. If True, the internal mask attribute will be
             used. None by default which does nothing.
-        **kwargs : optional,
+        kwargs : keyword arguments, optional,
             Other keyword arguments passed to the pyFAI integration
             function. These should not include the correctSolidAngle
             or polarization_factor as these corrections are handled
@@ -2101,9 +2100,12 @@ class XRDMap(XRDBaseScan):
             Flag dictating if the plot title will be 
             prepended with the data scan ID. True by 
             default.
-        kwargs : dict, optional
-            Dictionary of keyword arguments passed to
-            the internal Matplotlib.pyplot.imshow function.
+        return_plot : bool, optional
+            Flag to determine if figure and axes option are returned.
+            False be default with no returns.
+        kwargs : keyword agruments, optional
+            Other keyword arguments passed to the internal
+            Matplotlib.pyplot.imshow function.
 
         Returns
         -------
@@ -2195,9 +2197,12 @@ class XRDMap(XRDBaseScan):
             Flag dictating if the plot title will be 
             prepended with the data scan ID. True by 
             default.
-        kwargs : dict, optional
-            Dictionary of keyword arguments passed to interactive
-            plotting function.
+        return_plot : bool, optional
+            Flag to determine if figure and axes option are returned.
+            False be default with no returns.
+        kwargs : keyword arguments, optional
+            Other keyword arguments passed to interactive plotting
+            function.
         
         Returns
         -------
@@ -2328,9 +2333,12 @@ class XRDMap(XRDBaseScan):
             Flag dictating if the plot title will be 
             prepended with the data scan ID. True by 
             default.
-        kwargs : dict, optional
-            Dictionary of keyword arguments passed to the interactive
-            plotting function.
+        return_plot : bool, optional
+            Flag to determine if figure and axes option are returned.
+            False be default with no returns.
+        kwargs : keyword arguments, optional
+            Other keyword arguments passed to the interactive plotting
+            function.
         
         Returns
         -------
@@ -2454,9 +2462,12 @@ class XRDMap(XRDBaseScan):
             Flag dictating if the plot title will be 
             prepended with the data scan ID. True by 
             default.
-        kwargs : dict, optional
-            Dictionary of keyword arguments passed to the interactive
-            plotting function.
+        return_plot : bool, optional
+            Flag to determine if figure and axes option are returned.
+            False be default with no returns.
+        kwargs : keyword arguments, optional
+            Other keyword arguments passed to the interactive plotting
+            function.
         
         Returns
         -------
@@ -2539,9 +2550,12 @@ class XRDMap(XRDBaseScan):
             Flag dictating if the plot title will be 
             prepended with the data scan ID. True by 
             default.
-        kwargs : dict, optional
-            Dictionary of keyword arguments passed to the interactive
-            plotting function.
+        return_plot : bool, optional
+            Flag to determine if figure and axes option are returned.
+            False be default with no returns.
+        kwargs : keyword arguments, optional
+            Other keyword arguments passed to the interactive plotting
+            function.
         
         Returns
         -------
@@ -2705,9 +2719,12 @@ class XRDMap(XRDBaseScan):
             Flag dictating if the plot title will be 
             prepended with the data scan ID. True by 
             default.
-        kwargs : dict, optional
-            Dictionary of keyword arguments passed to the interactive
-            plotting function.
+        return_plot : bool, optional
+            Flag to determine if figure and axes option are returned.
+            False be default with no returns.
+        kwargs : keyword arguments, optional
+            Other keyword arguments passed to the interactive plotting
+            function.
         
         Returns
         -------
@@ -2783,9 +2800,12 @@ class XRDMap(XRDBaseScan):
             Flag dictating if the plot title will be 
             prepended with the data scan ID. True by 
             default.
-        kwargs : dict, optional
-            Dictionary of keyword arguments passed to the interactive
-            plotting function.
+        return_plot : bool, optional
+            Flag to determine if figure and axes option are returned.
+            False be default with no returns.
+        kwargs : keyword arguments, optional
+            Other keyword arguments passed to the interactive plotting
+            function.
         
         Returns
         -------
@@ -2863,9 +2883,12 @@ class XRDMap(XRDBaseScan):
             Flag dictating if the plot title will be 
             prepended with the data scan ID. True by 
             default.
-        kwargs : dict, optional
-            Dictionary of keyword arguments passed to the interactive
-            plotting function.
+        return_plot : bool, optional
+            Flag to determine if figure and axes option are returned.
+            False be default with no returns.
+        kwargs : keyword arguments, optional
+            Other keyword arguments passed to the interactive plotting
+            function.
         
         Returns
         -------
@@ -3028,16 +3051,25 @@ class XRDMap(XRDBaseScan):
         ax : Matplotlib Axes instance, optional
             Axes to be used for plotting. Must be given with
             fig. None by default, generating a new plot.
+        title : str, optional
+            Title of plot. By default, a title will be generated from
+            the waterfall plot.
         title_scan_id : bool, optional
             Flag dictating if the plot title will be 
             prepended with the data scan ID. True by 
             default.
-        kwargs : dict, optional
-            Dictionary of keyword arguments passed to
-            the internal Matplotlib.pyplot.plot function.
+        return_plot : bool, optional
+            Flag to determine if figure and axes option are returned.
+            False be default with no returns.
+        kwargs : keyword arguments, optional
+            Other keyword arguments passed to the internal
+            Matplotlib.pyplot.plot function.
 
         Returns
         -------
+        No returns by default. Only returned if return_plot
+        keyword argument is True.
+
         fig : Matplotlib Figure instance
             Figure of plot.
         ax : Matplotlib Axes instance, optional
