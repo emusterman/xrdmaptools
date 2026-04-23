@@ -13,6 +13,8 @@ eggs/
 *.egg-info/
 *.egg
 
-
 #ipython notebook stuff
 .ipynb_checkpoints/
+
+# vscode
+.vscode/
