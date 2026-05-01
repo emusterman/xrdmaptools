@@ -38,10 +38,10 @@ from xrdmaptools.XRDBaseScan import XRDBaseScan
 from xrdmaptools.utilities.utilities import (
     generate_intensity_mask
 )
-from xrdmaptools.reflections.spot_blob_indexing_3D import (
-    find_valid_pairs,
-    pattern_decomposition_from_seeds
-)
+# from xrdmaptools.reflections.spot_blob_indexing_3D import (
+#     find_valid_pairs,
+#     pattern_decomposition_from_seeds
+# )
 from xrdmaptools.reflections.spot_blob_search_3D import rsm_spot_search
 from xrdmaptools.crystal.crystal import are_collinear, are_coplanar
 
@@ -58,8 +58,8 @@ def index_map_by_grains(xdms,
                         near_angle,
                         degrees=False,
                         phase=None,
-                        half_mask=True,
-                        qof_cutoff=0.1,
+                        qof_cutoff=0,
+                        symmetrize='lattice',
                         verbose=True):
 
     # Create temporary dataframe to alter
@@ -109,13 +109,6 @@ def index_map_by_grains(xdms,
     all_ref_hkls = phase.all_hkls.copy()
     all_ref_fs = phase.all_fs.copy()
     all_ref_mags = np.linalg.norm(all_ref_qs, axis=1)
-
-    # Ignore half...
-    if half_mask:
-        half_mask = all_ref_hkls[:, -1] <= 0
-        all_ref_qs = all_ref_qs[half_mask]
-        all_ref_hkls = all_ref_hkls[half_mask]
-        all_ref_fs = all_ref_fs[half_mask]
     
     # Setup progress tracker
     pbar = tqdm(total=np.prod(map_shape), position=0, leave=True)
@@ -189,7 +182,8 @@ def index_map_by_grains(xdms,
                                 all_ref_fs,
                                 xdms.qmask,
                                 near_q,
-                                verbose=verbose
+                                verbose=verbose,
+                                symmetrize=None,
                             )
             all_indexing.extend(grain_indexing)
             all_qofs.extend(grain_qofs)
@@ -208,11 +202,12 @@ def index_map_by_grains(xdms,
                                 all_spot_qs[spot_mask],
                                 all_ref_qs,
                                 all_ref_hkls,
+                                all_ref_fs,
                                 near_q,
                                 near_angle,
                                 phase.min_q,
                                 degrees=degrees,
-                                symmetrize=True,
+                                symmetrize=symmetrize,
                                 verbose=verbose)
             
             # Enough pairs to continue?
@@ -234,6 +229,7 @@ def index_map_by_grains(xdms,
                                     all_ref_fs,
                                     xdms.qmask,
                                     near_q,
+                                    symmetrize=symmetrize,
                                     verbose=verbose)
 
                 # if indices == (26, 117):
