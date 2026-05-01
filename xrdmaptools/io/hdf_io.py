@@ -675,7 +675,6 @@ def _load_xrd_hdf_vector_data(base_grp, load_vector_map=True):
             vector_dict['edges'] = edges
         
         # Collect extra attrs from datasets
-        # May take awhile for previously saved vector maps
         for key, value in vector_grp.items():
             for attr_key, attr_value in value.attrs.items():
                 if attr_key != 'time_stamp':
