@@ -228,7 +228,11 @@ def _update_3D_scatter(dyn_kw,
     plot_scatter = plot_scatter[int_mask]
 
     if len(plot_scatter) == 0:
-        return # skip pixel
+        # Remove data and skip
+        for child in dyn_kw['axes'][1].get_children():
+            if isinstance(child, Path3DCollection):
+                child.remove()
+        return
 
     if dyn_kw['skip'] is None:
         skip = np.round(len(plot_scatter)
