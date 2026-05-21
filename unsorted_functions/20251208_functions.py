@@ -97,11 +97,11 @@ def plot_maps(map_list,
               title_list,
               shape,
               step=1,
-              figsize=None,
+              figsize=(5, 5),
               fig_title=None,
               vmin=None,
               vmax=None,
-              cmap=None):
+              cmap='viridis'):
 
     fig, ax = plt.subplots(*shape, figsize=figsize, layout='constrained')
     axes = ax.ravel()
@@ -137,7 +137,7 @@ def plot_maps(map_list,
     
     for axi in ax.flat:
         axi.set(xlabel='x-position [μm]',
-               ylabel='y-position [μm]')
+                ylabel='y-position [μm]')
         axi.label_outer()
 
     if fig_title is not None:
