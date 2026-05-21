@@ -2,21 +2,26 @@ import numpy as np
 import matplotlib.pyplot as plt
 from scipy.spatial.transform import Rotation
 import orix
+from orix import plot as orix_plot
 from matplotlib import color_sequences
 
 # Local imports
 from xrdmaptools.plot import config
+# from xrdmaptools.plot.general import plot_image_gallery
 from xrdmaptools.plot.volume import plot_3D_scatter
 from xrdmaptools.utilities.math import rescale_array
 from xrdmaptools.geometry.geometry import (
     _parse_rotation_input
 )
-from xrdmaptools.reflections.spot_blob_indexing_3D_old import (
-    _get_connection_indices
-)
 
 # This module is intended for plotting/visualizing orientation information
 # This will likely make heavy use of the orix module
+
+
+#################################
+### Single Pixel Orientations ###
+#################################
+
 
 def plot_3D_indexing(indexings,
                      all_spot_qs,
@@ -100,65 +105,6 @@ def plot_3D_indexing(indexings,
     return fig, ax
 
 
-# def old_plot_3D_indexing(indexings,
-#                      all_spot_qs,
-#                      all_spot_ints,
-#                      all_ref_qs,
-#                      all_ref_hkls,
-#                      all_ref_fs,
-#                      qmask,
-#                      edges=[],
-#                      colors=None):
-    
-#     all_spot_qs = np.asarray(all_spot_qs)
-#     all_ref_qs = np.asarray(all_ref_qs)
-#     all_ref_hkls = np.asarray(all_ref_hkls)
-#     all_ref_fs = np.asarray(all_ref_fs)
-
-#     if colors is not None:
-#         c = colors
-#     else:
-#         c = ['k',] * len(indexings)
-
-#     fig, ax = plt.subplots(1, 1, 
-#                            figsize=config.figsize,
-#                            dpi=config.dpi,
-#                            subplot_kw={'projection':'3d'})
-
-#     # Iterate and plot all connections
-#     for i, indexing in enumerate(indexings):
-#         spot_inds, ref_inds = indexing.T
-#         # spot_inds, ref_inds = _get_connection_indices(
-#         #                         indexing)
-#         orientation, _ = Rotation.align_vectors(
-#                             all_spot_qs[spot_inds],
-#                             all_ref_qs[ref_inds])
-#         all_rot_qs = orientation.apply(all_ref_qs, inverse=False)
-#         temp_q_mask = qmask.generate(all_rot_qs)
-
-#         ax.scatter(*all_rot_qs[temp_q_mask].T,
-#                    s=all_ref_fs[temp_q_mask] * 0.1,
-#                    c=c[i])
-#         ax.scatter(*all_spot_qs.T,
-#                    s=1,
-#                    c='r')
-
-#         for spot, hkl in zip(all_spot_qs[spot_inds], all_ref_hkls[ref_inds]):
-#             ax.text(*spot.T, str(tuple(hkl)), fontsize=8, c=c[i])
-    
-#     # Plot bounding edges if they are given
-#     for edge in edges:
-#         ax.plot(*edge.T, c='gray', lw=1)
-    
-#     ax.set_xlabel('qx [Å⁻¹]')
-#     ax.set_ylabel('qy [Å⁻¹]')
-#     ax.set_zlabel('qz [Å⁻¹]')
-#     ax.set_aspect('equal')
-
-#     fig.show()
-#     # return fig, ax  
-
-
 def plot_unit_cell(phase,
                    orientation=None,
                    degrees=False):
@@ -225,3 +171,342 @@ def plot_unit_cell(phase,
 
     fig.show()
 
+
+###########################
+### Orientation Mapping ###
+###########################
+
+# Utility functions
+
+# TODO: Generalize, move elsewhere, link to other use cases
+def pixel_spots(spots_3D, indices):
+    return spots_3D[((spots_3D['map_x'] == indices[1]) & (spots_3D['map_y'] == indices[0]))]
+
+
+def map_shape_from_spots(spots_3D):
+    return (np.max(spots_3D['map_y']) + 1,
+            np.max(spots_3D['map_x']) + 1)
+
+
+# Build functions
+
+def build_mis_mag_map(ori_map, ref=None):
+
+    mag_map = np.zeros(ori_map.shape[:2])
+
+    if ref is None:
+        ref = np.eye(3)
+    elif isinstance(ref, Rotation):
+        ref = ref.as_matrix()
+
+    for index in tqdm(range(np.prod(mag_map.shape))):
+        indices = np.unravel_index(index, mag_map.shape)
+        mag_map[indices] = np.degrees(Rotation.from_matrix(ref @ ori_map[indices].T).magnitude())
+    
+    return mag_map
+
+
+def build_grain_map(spots_3D, grain_id, color=None, intensity=False):
+
+    map_shape = map_shape_from_spots(spots_3D)
+        
+    if color is None:
+        grain_map = np.empty(map_shape)
+    else:
+        grain_map = np.empty((*map_shape, *np.asarray(color).shape))
+    int_map = np.zeros(map_shape)
+    grain_map[:] = np.nan
+    int_map[:] = np.nan
+    
+    for index in range(np.prod(map_shape)):
+        indices = np.unravel_index(index, map_shape)
+        df = pixel_spots(spots_3D, indices)
+        if grain_id in df['grain_id'].values:
+            grain_mask = df['grain_id'] == grain_id
+            int_map[indices] = np.sum(df[grain_mask]['intensity'].values)
+            if color is None:
+                grain_map[indices] = True
+            else:
+                grain_map[indices] = color
+    
+    # int_map /= np.nanmax(int_map)
+    
+    if intensity:
+        if color:
+            if len(color) == 3:
+                grain_map = np.concatenate((grain_map, int_map[:, :, np.newaxis]), axis=-1)
+            elif len(color) == 4:
+                grain_map[:, :, -1] = int_map
+        else:
+            grain_map = int_map
+
+    return grain_map
+
+
+def build_ori_map(spots_3D, phase, grain_id=0):
+
+    map_shape = map_shape_from_spots(spots_3D)
+    ori_map = np.empty((*map_shape, 3, 3))
+
+    for index in tqdm(range(np.prod(map_shape))):
+        indices = np.unravel_index(index, map_shape)
+        pixel_df = pixel_spots(spots_3D, indices)
+        grain_mask = pixel_df['grain_id'] == grain_id
+        if sum(grain_mask) > 1:
+            spots = pixel_df[grain_mask][['qx', 'qy', 'qz']].values
+            hkls = pixel_df[grain_mask][['h', 'k', 'l']].values
+            ori, _ = Rotation.align_vectors(spots, phase.Q(hkls))
+            ori_map[indices] = ori.as_matrix()
+        else:
+            ori_map[indices] = np.nan
+    
+    return ori_map
+
+
+def build_ori_list(spots_3D, phase, grain_id=0, intensity=True):
+
+    int_flag = intensity
+    ori_list = []
+    intensity = []
+
+    map_shape = map_shape_from_spots(spots_3D)
+    null_ori = np.eye(3)
+    null_ori[:] = np.nan
+
+    for index in tqdm(range(np.prod(map_shape))):
+        indices = np.unravel_index(index, map_shape)
+        pixel_df = pixel_spots(spots_3D, indices)
+        grain_mask = pixel_df['grain_id'] == grain_id
+        if sum(grain_mask) > 1:
+            spots = pixel_df[grain_mask][['qx', 'qy', 'qz']]
+            hkls = pixel_df[grain_mask][['h', 'k', 'l']]
+            ori, _ = Rotation.align_vectors(spots, phase.Q(hkls))
+            ori_list.append(ori.as_matrix())
+            intensity.append(pixel_df[grain_mask]['intensity'].values.sum())
+        else:
+            ori_list.append(null_ori)
+            intensity.append(np.nan)
+    
+    if int_flag:
+        return np.asarray(ori_list), np.asarray(intensity)
+    else:
+        return np.asarray(ori_list)
+
+
+def build_full_ori_list(spots_3D, phase, intensity=True):
+    int_flag = intensity
+    ori_list = []
+    intensity = []
+
+    map_shape = map_shape_from_spots(spots_3D)
+
+    for index in tqdm(range(np.prod(map_shape))):
+        indices = np.unravel_index(index, map_shape)
+        pixel_df = pixel_spots(spots_3D, indices)
+
+        for grain_id in np.unique(pixel_df['grain_id'].values):
+            grain_mask = pixel_df['grain_id'] == grain_id
+            if sum(grain_mask) > 1:
+                spots = pixel_df[grain_mask][['qx', 'qy', 'qz']]
+                hkls = pixel_df[grain_mask][['h', 'k', 'l']]
+                ori, _ = Rotation.align_vectors(spots, phase.Q(hkls))
+                ori_list.append(ori.as_matrix())
+                intensity.append(pixel_df[grain_mask]['intensity'].values.sum())
+    
+    if int_flag:
+        return np.asarray(ori_list), np.asarray(intensity)
+    else:
+        return np.asarray(ori_list)
+
+
+# Plotting functions
+
+def plot_grain_map_gallery(spots_3D,
+                           n_grains,
+                           plot_intensity=False,
+                           plot_color=False,
+                           color_sequence=color_sequences['tab20'],
+                           **kwargs):
+
+    grain_maps, titles = [], []
+    for n in range(n_grains):
+        if plot_color:
+            color = color_sequence[n]
+        else:
+            color = None
+
+        grain_map = build_grain_map(spots_3D,
+                                    n,
+                                    intensity=plot_intensity,
+                                    color=color)
+
+        grain_maps.append(grain_map)
+        titles.append(f'Grain {n}')
+    
+    if plot_color:
+        grain_maps = np.asarray(grain_maps)
+        grain_maps[..., -1] /= np.nanmax(grain_maps[..., -1])
+
+    plot_image_gallery(grain_maps,
+                       titles=titles,
+                       plot_colorbar=plot_intensity and not plot_color,
+                       **kwargs)
+
+
+def plot_grain_map_overlay(spots_3D,
+                           n_grains,
+                           color_sequence=color_sequences['Set1'],
+                           **kwargs):
+
+    grain_maps = []
+    for n in range(n_grains):
+        grain_maps.append(build_grain_map(spots_3D,
+                                          n,
+                                          intensity=True,
+                                          color=color_sequence[n]))
+
+    # return grain_maps
+
+    # Normalize
+    grain_maps = np.asarray(grain_maps)
+    grain_maps[..., -1] /= np.nanmax(grain_maps[..., -1])
+
+    # Combine
+    rgbs = grain_maps[..., :3]
+    alphas = grain_maps[..., 3]
+    
+    alpha_weights = np.expand_dims(alphas, axis=-1)
+    sum_alphas = np.nansum(alpha_weights, axis=0)
+    weighted_rgbs = np.nansum(rgbs * alpha_weights, axis=0)
+    out_rgb = weighted_rgbs / sum_alphas
+    overlay = np.concatenate([out_rgb, np.expand_dims(np.nanmax(alphas, axis=0), axis=-1)], axis=-1)
+    # grain_maps = np.nanmax(grain_maps, axis=0)
+
+    # return overlay
+
+    fig, ax = plt.subplots(figsize=config.figsize, dpi=config.dpi)
+    ax.imshow(overlay, **kwargs)
+
+    # for n in range(n_grains):
+    #     ax.scatter([], [], c=color_sequence[n], label=f'Grain {n}', marker='s', s=150)
+    
+    # ax.legend(loc='upper left',
+    #           bbox_to_anchor=(1.05, 1),
+    #           borderaxespad=0)
+    fig.show()
+
+
+
+
+def plot_all_ori_IPF(spots_3D,
+                     phase,
+                     direction=None,
+                     intensity=True,
+                     **kwargs):
+
+    if direction is not None:
+        direction = orix.vector.vector3d.Vector3d(direction)
+                     
+    full_ori_list, intensity = build_full_ori_list(spots_3D,
+                                                   phase,
+                                                   intensity=intensity)
+    
+    symmetry = get_point_group(phase.lattice.space_group_nr).laue
+    ori = Orientation.from_matrix(full_ori_list, symmetry=symmetry)
+
+    fig = ori.scatter('ipf',
+                      c=intensity,
+                      return_figure=True,
+                      direction=direction,
+                      **kwargs)
+    
+    fig.show()
+
+
+def plot_grain_IPF(spots_3D,
+                   n_grains,
+                   phase,
+                   direction=None,
+                   intensity=False,
+                   color_sequence=color_sequences['tab20'],
+                   **kwargs):
+    
+    int_flag = intensity
+    grain_list = []
+    intensity_list = []
+    colors = []
+
+    if direction is not None:
+        direction = orix.vector.vector3d.Vector3d(direction)
+
+    for grain_id in range(n_grains):
+        ori_list, intensity = build_ori_list(spots_3D,
+                                             phase,
+                                             grain_id=grain_id,
+                                             intensity=True)
+        
+        ori_list = ori_list[~np.isnan(intensity)]
+        intensity = intensity[~np.isnan(intensity)]
+
+        grain_list.append(ori_list)
+        intensity_list.extend(list(intensity))
+        colors.extend([color_sequence[grain_id],] * len(intensity))
+
+    # return grain_list
+
+    symmetry = get_point_group(phase.lattice.space_group_nr).laue
+    ori = Orientation.from_matrix(np.vstack(grain_list),
+                                  symmetry=symmetry)
+    
+    if int_flag:
+        intensity_list = np.asarray(intensity_list)
+        s = intensity_list / intensity_list.max()
+    else:
+        s = None
+
+
+    fig = ori.scatter('ipf',
+                      c=colors,
+                      alpha=s,
+                      return_figure=True,
+                      direction=direction,
+                      **kwargs)
+    
+    fig.show()
+
+
+
+def plot_IPF_map(ori_map,
+                 phase,
+                 int_map=None,
+                 direction=None,
+                 **kwargs):
+
+    if direction is not None:
+        direction = orix.vector.vector3d.Vector3d(direction)
+    
+    nan_mask = np.any(np.isnan(ori_map), axis=(2, 3))
+
+    ori_list = ori_map[~nan_mask]
+
+    symmetry = get_point_group(phase.lattice.space_group_nr).laue
+    ori = Orientation.from_matrix(ori_list, symmetry=symmetry)
+
+    ipf_key = orix_plot.IPFColorKeyTSL(symmetry, direction=direction)
+    ori.symmetry = ipf_key.symmetry
+    rgb = ipf_key.orientation2color(ori)
+
+    rgb_map = np.zeros((*ori_map.shape[:-2], 3))
+    rgb_map[:] = np.nan
+
+    rgb_map[~nan_mask] = rgb
+    plotting_map = rgb_map
+
+    if int_map is not None:
+        int_map /= np.nanmax(int_map)
+        plotting_map = np.concatenate([plotting_map, np.expand_dims(int_map, axis=-1)], axis=-1)
+
+    fig, ax = plt.subplots()
+    ax.imshow(plotting_map)
+    ax.set_aspect('equal')
+    fig.show()
