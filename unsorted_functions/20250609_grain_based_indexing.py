@@ -58,13 +58,15 @@ def index_map_by_grains(xdms,
                         near_angle,
                         degrees=False,
                         phase=None,
+                        spots_3D=None,
                         qof_cutoff=0,
                         symmetrize='lattice',
                         verbose=True):
 
     # Create temporary dataframe to alter
     # This protects the original in case of errors
-    spots_3D = xdms.spots_3D.copy()
+    if spots_3D is None:
+        spots_3D = xdms.spots_3D.copy()
     
     # Update spots dataframe with new columns
     spots_3D['phase'] = ''
@@ -146,7 +148,7 @@ def index_map_by_grains(xdms,
         poss_n_indices = np.asarray(indices) + [[1, 0], [0, 1], [-1, 0], [0, -1]]
         n_oris = []
 
-        for n_indices in poss_n_indices:
+        for poss_index, n_indices in enumerate(poss_n_indices):
             # if (np.any(n_indices < 0)
                 # or np.any(map_shape - n_indices < 0)):
                 # continue
@@ -157,6 +159,8 @@ def index_map_by_grains(xdms,
                 grain_ids = np.unique(grain_ids[~np.isnan(grain_ids)])
 
                 for grain_id in grain_ids:
+                    if verbose:
+                        print(f'Grain ID ({grain_id}) found in neighbor pixel {poss_index}')
                     grain_mask = n_df['grain_id'] == grain_id
                     grain_spots = n_df[grain_mask][['qx', 'qy', 'qz']].values
                     grain_hkls = n_df[grain_mask][['h', 'k', 'l']].values
@@ -183,7 +187,8 @@ def index_map_by_grains(xdms,
                                 xdms.qmask,
                                 near_q,
                                 verbose=verbose,
-                                symmetrize=None,
+                                symmetrize='lattice',
+                                desymmetrize_seeds=False
                             )
             all_indexing.extend(grain_indexing)
             all_qofs.extend(grain_qofs)
@@ -197,7 +202,7 @@ def index_map_by_grains(xdms,
 
             # Find pairs
             if verbose:
-                print('Finding pairs')
+                print(f'Finding pairs from {spot_mask.sum()} / {len(spot_mask)} spots.')
             pairs = find_valid_pairs(
                                 all_spot_qs[spot_mask],
                                 all_ref_qs,
