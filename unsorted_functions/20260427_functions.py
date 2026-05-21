@@ -98,44 +98,43 @@ def track_q_vector_max(xdms, q_target, cutoff=0.25):
 
 
 
-def get_max_vectors(xdms, q_target, cutoff=0.25):
+# def get_max_vectors(xdms, q_target, cutoff=0.25):
 
-    map_shape = xdms.xdms_vector_map.shape
+#     map_shape = xdms.xdms_vector_map.shape
 
-    max_q_vectors = []
-    max_intensity = []
+#     max_q_vectors = []
+#     max_intensity = []
 
-    for index in tqdm(range(np.prod(map_shape))):
-        indices = np.unravel_index(index, map_shape)
+#     for index in tqdm(range(np.prod(map_shape))):
+#         indices = np.unravel_index(index, map_shape)
         
-        q_vectors = xdms.xdms_vector_map[indices][:, :3]
-        intensity = xdms.xdms_vector_map[indices][:, -1]
+#         q_vectors = xdms.xdms_vector_map[indices][:, :3]
+#         intensity = xdms.xdms_vector_map[indices][:, -1]
 
-        if len(q_vectors) == 0:
-            continue 
+#         if len(q_vectors) == 0:
+#             continue 
 
-        maskx = np.abs(q_vectors[:, 0] - q_target[0]) < cutoff
-        masky = np.abs(q_vectors[:, 1] - q_target[1]) < cutoff
-        maskz = np.abs(q_vectors[:, 2] - q_target[2]) < cutoff
-        mask = maskx & masky & maskz
+#         maskx = np.abs(q_vectors[:, 0] - q_target[0]) < cutoff
+#         masky = np.abs(q_vectors[:, 1] - q_target[1]) < cutoff
+#         maskz = np.abs(q_vectors[:, 2] - q_target[2]) < cutoff
+#         mask = maskx & masky & maskz
 
-        if mask.sum() == 0:
-            continue
+#         if mask.sum() == 0:
+#             continue
 
-        for i in range(mask.sum()):
-            if tuple(q_vectors[mask][i]) not in max_q_vectors:
-                max_q_vectors.append(tuple(q_vectors[mask][i]))
-                max_intensity.append(intensity[mask][i])
-            else:
-                idx = max_q_vectors.index(tuple(q_vectors[mask][i]))
-                if max_intensity[idx] < intensity[mask][i]:
-                    max_intensity[idx] = intensity[mask][i]
+#         for i in range(mask.sum()):
+#             if tuple(q_vectors[mask][i]) not in max_q_vectors:
+#                 max_q_vectors.append(tuple(q_vectors[mask][i]))
+#                 max_intensity.append(intensity[mask][i])
+#             else:
+#                 idx = max_q_vectors.index(tuple(q_vectors[mask][i]))
+#                 if max_intensity[idx] < intensity[mask][i]:
+#                     max_intensity[idx] = intensity[mask][i]
     
-    return max_q_vectors, max_intensity
+#     return max_q_vectors, max_intensity
 
 
 def get_max_vectors_fast(xdms, q_target, cutoff=0.25):
-    # 1. Flatten the map cells and stack them into a single continuous array
     all_cells = xdms.xdms_vector_map.ravel()
     valid_cells = [cell for cell in all_cells if cell is not None and len(cell) > 0]
     
@@ -147,7 +146,6 @@ def get_max_vectors_fast(xdms, q_target, cutoff=0.25):
     q_vectors = all_data[:, :3]
     intensity = all_data[:, -1]
 
-    # 2. Vectorized spatial filtering
     diff = np.abs(q_vectors - q_target)
     mask = np.all(diff < cutoff, axis=1)
     
@@ -157,13 +155,10 @@ def get_max_vectors_fast(xdms, q_target, cutoff=0.25):
     if len(filtered_vectors) == 0:
         return [], []
 
-    # 3. Sort by intensity in ascending order
-    # Dicts overwrite existing keys; the last write will naturally be the maximum!
     sort_idx = np.argsort(filtered_intensities)
     sorted_vectors = filtered_vectors[sort_idx]
     sorted_intensities = filtered_intensities[sort_idx]
 
-    # 4. Use a dict comprehension to reduce to unique vectors at lightning speed
     max_map = {tuple(vec): inten for vec, inten in zip(sorted_vectors, sorted_intensities)}
     
     return list(max_map.keys()), list(max_map.values())
