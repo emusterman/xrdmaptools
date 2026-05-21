@@ -1,13 +1,15 @@
 import matplotlib.pyplot as plt
+from matplotlib.figure import Figure
+from mpl_toolkits.axes_grid1 import ImageGrid
 import numpy as np
 from skimage.measure import label
 import functools
 
 
 # Local imports
-from . import config
-from ..geometry.geometry import estimate_image_coords, estimate_polar_coords
-from ..reflections.spot_blob_search import find_blob_contours
+from xrdmaptools.plot import config
+from xrdmaptools.geometry.geometry import estimate_image_coords, estimate_polar_coords
+from xrdmaptools.reflections.spot_blob_search import find_blob_contours
 
 
 ######################
@@ -399,3 +401,83 @@ def plot_cake(intensity,
 
     return fig, ax
     
+
+######################
+### Multi-plotting ###
+######################
+
+
+def _get_factor_pairs(n):
+    
+    if not isinstance(n, int) or n < 1:
+        raise ValueError('n must be positive whole number')
+    i = 2
+    factors = [(1, n), (n, 1)]
+    last_factor = n
+    while i < last_factor:
+        if n % i:
+            i += 1
+        else:
+            last_factor = n // i
+            factors.append((i, last_factor))
+            factors.append((last_factor, i))
+            i += 1
+
+    return factors
+
+
+def plot_image_gallery(images,
+                       titles=None,
+                       extent=None,
+                       vmin=None,
+                       vmax=None,
+                       plot_colorbar=True):
+
+    v_pad, h_pad = (0.8, 0.5)
+
+    num_images = len(images)
+    img_y, img_x = images[0].shape[:2]
+    img_y *= v_pad
+    img_x *= h_pad
+    ndim = images[0].ndim
+
+    if titles is None:
+        titles = [f'Image {idx}' for idx in range(num_images)]
+
+    fig = plt.figure(figsize=config.figsize, dpi=config.dpi)
+
+    factors = _get_factor_pairs(num_images)
+    sizes = [np.array(f) * np.array((img_x, img_y)) for f in factors]
+    ratios = np.array([s[1] / s[0] for s in sizes])
+    best_factors = factors[np.argmin(np.abs(ratios - (config.figsize[0] / config.figsize[1])))]
+
+    best_factors = factors[np.argmin(np.abs(np.diff(sizes, axis=1)))]
+
+    cbar_kwargs = {}
+    if plot_colorbar is True:
+        cbar_kwargs['cbar_location'] = 'right'
+        cbar_kwargs['cbar_mode'] = 'each'
+        cbar_kwargs['cbar_size'] = '7%'
+        cbar_kwargs['cbar_pad']  = '2%'
+
+    grid = ImageGrid(
+            fig,
+            111,
+            nrows_ncols=best_factors[::-1],
+            axes_pad=(v_pad, h_pad),
+            share_all=True,
+            **cbar_kwargs
+        )
+
+    for i, (ax, im_data, title) in enumerate(zip(grid, images, titles)):
+        im = ax.imshow(im_data, vmin=vmin, vmax=vmax, extent=extent)
+        ax.set_title(title)
+
+        if plot_colorbar:
+            grid.cbar_axes[i].colorbar(im)
+            im.colorbar.formatter = im.colorbar.ax.yaxis.get_major_formatter()
+            grid.cbar_axes[i].ticklabel_format(style="sci", scilimits=(-3, 4), axis="both")
+
+    fig.show()
+
+
