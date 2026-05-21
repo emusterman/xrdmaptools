@@ -168,7 +168,7 @@ class XRDBaseScan(XRDData):
     Raises
     ------
     ValueError if dask is enabled without providing HDF file
-    information.
+        information.
     """
 
     # Class variables
@@ -361,7 +361,8 @@ class XRDBaseScan(XRDData):
         if len(self.phases) > 0: # pull phase info
             ostr += '\n\tPhases:'
             for key in self.phases.keys():
-                ostr += ('\n\t\t' + '\t\t'.join(self.phases[key].__repr__().splitlines(True)))
+                ostr += ('\n\t\t' + '\t\t'.join(
+                         self.phases[key].__repr__().splitlines(True)))
         if hasattr(self, 'spots'): # pull limited spot info
             ostr += '\n\tSpots:'
             ostr += '\n\t\tNumber:  ' + str(len(self.spots))
@@ -1323,7 +1324,8 @@ class XRDBaseScan(XRDData):
         except AttributeError:
             image_shape = list(self.images.shape[:-2])
         
-        if any([int(self.ai.detector.shape[i]) != int(image_shape[i]) for i in range(2)]):
+        if any([int(self.ai.detector.shape[i]) != int(image_shape[i])
+                for i in range(2)]):
             ostr = ('Calibration performed under different settings. '
                     + 'Adjusting calibration.')
             print(ostr)
@@ -1466,9 +1468,9 @@ class XRDBaseScan(XRDData):
         Raises
         ------
         AttributeError if the calibration information has not been
-        loaded.
+            loaded.
         ValueError if there is insufficient information to determine
-        the scattering angle binning.
+            the scattering angle binning.
         """
 
         if not hasattr(self, 'ai') or self.ai is None:
@@ -1565,9 +1567,9 @@ class XRDBaseScan(XRDData):
         Raises
         ------
         AttributeError if the calibration information has not been
-        loaded.
+            loaded.
         ValueError if there is insufficient information to determine
-        the scattering or azimuthal angles binning.
+            the scattering or azimuthal angles binning.
         """
 
         if not hasattr(self, 'ai') or self.ai is None:
@@ -1961,10 +1963,10 @@ class XRDBaseScan(XRDData):
         Parameters
         ----------
         scaler_key : str, optional
-            Key describing which ion chamber convert to flux.
-            Default is 'i0'.
+            Key describing which ion chamber convert to flux. Default
+            is 'i0'.
         chamber_length : float, optional
-            Length of the ion chamber in cm. This is None by default
+            Length of the ion chamber in cm. This is None by default 
             and the values for the SRX ion chamber of the scaler_key
             will be used.
         gas_name : str, optional
@@ -1986,8 +1988,8 @@ class XRDBaseScan(XRDData):
         Raises
         ------
         AttributeError if energy cannot be found in the instance, or if
-            the preamplifier sensitivity cannot be found in the instance
-            extra_metadata attribute
+            the preamplifier sensitivity cannot be found in the
+            instance extra_metadata attribute
         """
 
         # Check for energy
@@ -2524,11 +2526,7 @@ class XRDBaseScan(XRDData):
         for dset_key in map_grp.keys():
             if dset_key not in all_used_indices:
                 del map_grp[dset_key]
-        # Backwards compatibility; scrub old data into new format
-        # for dset_key in vector_grp.keys():
-        #     if dset_key not in all_used_indices + ['vector_map']:
-        #         del vector_grp[dset_key]
-        
+
         # Save edges if available. Only useful for XRDMapStack
         XRDBaseScan._save_edges(vector_grp,
                                 edges=edges,
@@ -2555,29 +2553,28 @@ class XRDBaseScan(XRDData):
         Parameters
         ----------
         hdf : h5py File, optional
-            h5py File instance where to write the vectors.
-            Passes as an argument to allow for greater
-            customizability.
+            h5py File instance where to write the vectors. Passes as an
+            argument to allow for greater customizability.
         vectors : list or Numpy.ndarray
             List or Numpy.ndarray of vectors to be written.
         vector_title : str, optional
-            Title used for creating a group to contain the
-            vector data. If the group already exists, the data
-            within will be written according to the rewrite_data
-            flag. By default this title will be 'vectors'.
+            Title used for creating a group to contain the vector data.
+            If the group already exists, the data within will be
+            written according to the rewrite_data flag. By default this
+            title will be 'vectors'.
         edges : list, optional
             List of lists of vectors defining the edges of the 
-            sampled reciprocal space volume. These will be written
-            into their own 'edges' group. Previous data will be
-            rewritten according to the rewrite_data flag. By default
-            no edges will be passed and nothing will be written.
+            sampled reciprocal space volume. These will be written into
+            their own 'edges' group. Previous data will be rewritten
+            according to the rewrite_data flag. By default no edges
+            will be passed and nothing will be written.
         rewrite_data : bool, optional,
             Flag to determine the behavior of overwriting previously
             written vectors. False by default, preserving previously
             written data.
         verbose : bool, optional 
-            Flag to determine the function's verbosity. False
-            by default.
+            Flag to determine the function's verbosity. False by
+            default.
         """
         
         print('Saving vectorized image data...')
@@ -2598,14 +2595,6 @@ class XRDBaseScan(XRDData):
                                 edges=edges,
                                 rewrite_data=rewrite_data,
                                 verbose=verbose)
-        
-        # # Scrub old tags for backwards compatibility
-        # for dset_key in vector_grp.keys():
-        #     if dset_key not in ['vectors',
-        #                         'edges',
-        #                         'spot_labels',
-        #                         'blob_labels']:
-        #         del vector_grp[dset_key]
 
         print('done!')
     
@@ -2702,18 +2691,18 @@ class XRDBaseScan(XRDData):
         vector_grp : h5py group
             Group instance of h5py where the data will be written.
         edges : list, optional
-            List of lists of vectors defining the edges of the 
-            sampled reciprocal space volume. These will be written
-            into their own 'edges' group. Previous data will be
-            rewritten according to the rewrite_data flag. By default
-            no edges will be passed and nothing will be written.
+            List of lists of vectors defining the edges of the sampled
+            reciprocal space volume. These will be written into their
+            own 'edges' group. Previous data will be rewritten
+            according to the rewrite_data flag. By default no edges
+            will be passed and nothing will be written.
         rewrite_data : bool, optional,
             Flag to determine the behavior of overwriting previously
             written edges. False by default, preserving previously
             written data.
         verbose : bool, optional 
-            Flag to determine the function's verbosity. False
-            by default.
+            Flag to determine the function's verbosity. False by
+            default.
         """
 
         # Only save edge information if given. Quiet if not.
@@ -2772,8 +2761,8 @@ class XRDBaseScan(XRDData):
     @staticmethod
     def _parse_vector_dict(vector_dict):
         """
-        Internal function for parsing vector dictionary
-        from when instantiating from the HDF file.
+        Internal function for parsing vector dictionary from when
+        instantiating from the HDF file.
         """
 
         vector_attrs = {}
@@ -2821,9 +2810,8 @@ class XRDBaseScan(XRDData):
         Parameters
         ----------
         hdf : h5py File, optional
-            h5py File instance where to write the vectors.
-            Passes as an argument to allow for greater
-            customizability.
+            h5py File instance where to write the vectors. Passes as an
+            argument to allow for greater customizability.
         """
 
         # Load data from hdf
@@ -3100,9 +3088,9 @@ class XRDBaseScan(XRDData):
         ------
         ValueError if image is not 2D Numpy.ndarray.
         KeyError if indices are not None and are not within the map
-        shape.
+            shape.
         AttributeError if no image is given and there are no images in
-        the instance.
+            the instance.
         """
         
         image, indices = _xrdbasescan_image(self,
@@ -3151,52 +3139,48 @@ class XRDBaseScan(XRDData):
         """
         Plot an integration.
 
-        Integration plotting function for a given integration,
-        a given indices for an integration in the data,
-        or a random integration from the data if no integration
-        or indices is specified.
+        Integration plotting function for a given integration, a given
+        indices for an integration in the data, or a random integration
+        from the data if no integration or indices is specified.
 
         Parameters
         ----------
         integration : iterable, optional
-            Integration data to be plotted. Must be 1D
-            and have the same lenght of tth if provided.
-            None by default and the function will attempt to
-            plot an integration from the data.
+            Integration data to be plotted. Must be 1D and have the
+            same length of tth if provided. None by default and the
+            function will attempt to plot an integration from the data.
         indices : iterable of length 2, optional
             Indices of structure [map_y, map_x] used
             to plot an integration from the data. If the integration
-            parameter is passed explicitly, indices will
-            not be used. None by default.
+            parameter is passed explicitly, indices will not be used.
+            None by default.
         tth : iterable, optional
-            Two theta scattering angle of the integration data.
-            Must have the same length as the integration data.
-            None by default and will look for an internal tth attribute,
-            or use a simple range if unavaible.
+            Two theta scattering angle of the integration data. Must
+            have the same length as the integration data. None by
+            default and will look for an internal tth attribute, or use
+            a simple range if unavaible.
         units : str, optional
-            Units of two theta scattering angle. None by default
-            and will use an internal scattering_angle attribute if 
+            Units of two theta scattering angle. None by default and
+            will use an internal scattering_angle attribute if
             available.
         title : str, optional
-            Title of the integration. By default, a title
-            will be generated based on the integration and
-            indices parameters.
+            Title of the integration. By default, a title will be
+            generated based on the integration and indices parameters.
         fig : Matplotlib Figure instance, optional
-            Figure to be used for plotting. Must be given
-            ax. None by default, generating an new plot.
+            Figure to be used for plotting. Must be given ax. None by
+            default, generating an new plot.
         ax : Matplotlib Axes instance, optional
-            Axes to be used for plotting. Must be given with
-            fig. None by default, generating a new plot.
+            Axes to be used for plotting. Must be given with fig. None
+            by default, generating a new plot.
         y_min : float, optional
-            Minimum y-value of the integration plot window.
-            None by default and will be automatically generated.
+            Minimum y-value of the integration plot window. None by
+            default and will be automatically generated.
         y_max : float, optional
-            Maximum y-value of the integration plot window.
-            None by default and will be automatically generated.
+            Maximum y-value of the integration plot window. None by
+            default and will be automatically generated.
         title_scan_id : bool, optional
-            Flag dictating if the plot title will be 
-            prepended with the data scan ID. True by 
-            default.
+            Flag dictating if the plot title will be prepended with the
+            data scan ID. True by default.
         return_plot : bool, optional
             Flag to determine if figure and axes option are returned.
             False be default with no returns.
@@ -3206,8 +3190,8 @@ class XRDBaseScan(XRDData):
 
         Returns
         -------
-        No returns by default. Only returned if return_plot
-        keyword argument is True.
+        No returns by default. Only returned if return_plot keyword
+        argument is True.
 
         fig : Matplotlib Figure instance
             Figure of plot.
@@ -3218,9 +3202,9 @@ class XRDBaseScan(XRDData):
         ------
         ValueError if integration is not 2D Numpy.ndarray.
         KeyError if indices are not None and are not within
-        the map shape.
+            the map shape.
         AttributeError if no integration is given and there are
-        no integrations in the instance.
+            no integrations in the instance.
         """
         
         if tth is None:
@@ -3268,47 +3252,46 @@ class XRDBaseScan(XRDData):
                         title_scan_id=True,
                         **kwargs):
         """
-        Internal function for helping generate waterfall plots
-        from existing integrations.
+        Internal function for helping generate waterfall plots from
+        existing integrations.
 
         Parameters
         ----------
         axis_text : str, optional
-            Text describing the axis along which the waterfall
-            plot was generated. '' by default.
+            Text describing the axis along which the waterfall plot was
+            generated. '' by default.
         axis : int, optional
-            Axis for integrating the data. Only 0 and 1 are
-            allowed. 0 by default.
+            Axis for integrating the data. Only 0 and 1 are allowed.
+            0 by default.
         integration_method : str, optional
-            Method for integrating data. Accepts 'sum' or 'max'
-            along the axis of integration. 'max' by default.
+            Method for integrating data. Accepts 'sum' or 'max' along
+            the axis of integration. 'max' by default.
         v_offset : float, optional
             Relative vertical offset value of each integration.
-            0 will have no offset, 1 will offset each integration
-            by the maximum integration range preventing any overlap.
+            0 will have no offset, 1 will offset each integration by
+            the maximum integration range preventing any overlap.
             0.25 by default.
         tth : iterable, optional
-            Two theta scattering angle of the integration data.
-            Must have the same length as the integration data.
-            None by default and will look for an internal tth attribute,
-            or use a simple range if unavaible.
+            Two theta scattering angle of the integration data. Must
+            have the same length as the integration data. None by
+            default and will look for an internal tth attribute, or use
+            a simple range if unavaible.
         units : str, optional
-            Units of two theta scattering angle. None by default
-            and will use an internal scattering_angle attribute if 
+            Units of two theta scattering angle. None by default and
+            will use an internal scattering_angle attribute if
             available.
         cmap : str, optional
             Colormap for distinguishing integrations. None by default
             and all integrations will be black.
         fig : Matplotlib Figure instance, optional
-            Figure to be used for plotting. Must be given
-            ax. None by default, generating an new plot.
+            Figure to be used for plotting. Must be given ax. None by
+            default, generating an new plot.
         ax : Matplotlib Axes instance, optional
-            Axes to be used for plotting. Must be given with
-            fig. None by default, generating a new plot.
+            Axes to be used for plotting. Must be given with fig. None
+            by default, generating a new plot.
         title_scan_id : bool, optional
-            Flag dictating if the plot title will be 
-            prepended with the data scan ID. True by 
-            default.
+            Flag dictating if the plot title will be prepended with the
+            data scan ID. True by default.
         return_plot : bool, optional
             Flag to determine if figure and axes option are returned.
             False be default with no returns.
@@ -3334,7 +3317,8 @@ class XRDBaseScan(XRDData):
         # Check inputs
         if (not hasattr(self, 'integrations')
             or self.integrations is None):
-            err_str = (f'Waterfall plots can only be generated for {self._hdf_type} with integrations.')
+            err_str = ('Waterfall plots can only be generated for '
+                       + f'{self._hdf_type} with integrations.')
             raise AttributeError(err_str)
         if integration_method.lower() == 'max':
             int_func = np.max
@@ -3394,25 +3378,23 @@ class XRDBaseScan(XRDData):
                      ax=None,
                      title_scan_id=True):
         """
-        Plot the experimental geometry in reciprocal
-        space.
+        Plot the experimental geometry in reciprocal space.
 
-        Function for plotting the Ewald sphere and the
-        portion subtended by the detector in reciprocal
-        space. Only works for scans performed at a single
-        X-ray energy and angle.
+        Function for plotting the Ewald sphere and the portion
+        subtended by the detector in reciprocal space. Only works for
+        scans performed at a single X-ray energy and angle.
 
         Parameters
         ----------
         indices : iterable of length 2, optional
-            Indices of structure [map_y, map_x] used
-            to plot spots from the data if they have been 
-            previously found. None by default.
+            Indices of structure [map_y, map_x] used to plot spots from
+            the data if they have been previously found. None by
+            default.
         skip : int, optional
-            Number of detector pixels to skip when generating
-            the surface on the Ewald sphere. Lower number
-            gives a higher fidelity surface, but drastically
-            slows down plotting. 500 by default.
+            Number of detector pixels to skip when generating the
+            surface on the Ewald sphere. Lower number gives a higher
+            fidelity surface, but drastically slows down plotting.
+            500 by default.
         detector : bool, optional
             Flag to plot the detector. True by default.
         Ewald_sphere : bool, optional
@@ -3420,23 +3402,22 @@ class XRDBaseScan(XRDData):
         beam_path : bool, optional
             Flag to plot the beam path. True by default.
         fig : Matplotlib Figure instance, optional
-            Figure to be used for plotting. Must be given
-            ax. None by default, generating an new plot.
+            Figure to be used for plotting. Must be given ax. None by
+            default, generating an new plot.
         ax : Matplotlib Axes instance, optional
-            Axes to be used for plotting. Must be given with
-            fig. None by default, generating a new plot.
+            Axes to be used for plotting. Must be given with fig. None
+            by default, generating a new plot.
         return_plot : bool, optional
             Flag to determine if figure and axes option are returned.
             False be default with no returns.
         title_scan_id : bool, optional
-            Flag dictating if the plot title will be 
-            prepended with the data scan ID. True by 
-            default.
+            Flag dictating if the plot title will be prepended with the
+            data scan ID. True by default.
 
         Returns
         -------
-        No returns by default. Only returned if return_plot
-        keyword argument is True.
+        No returns by default. Only returned if return_plot keyword
+        argument is True.
 
         fig : Matplotlib Figure instance
             Figure of plot.
@@ -3470,35 +3451,33 @@ class XRDBaseScan(XRDData):
         """
         Plot the experimental geometry in real space.
 
-        Function for plotting the real-space sample and
-        and detector placement relative to the X-ray beam
-        and lab coordinate system.
+        Function for plotting the real-space sample and and detector
+        placement relative to the X-ray beam and lab coordinate system.
 
         Parameters
         ----------
         skip : int, optional
-            Number of detector pixels to skip when generating
-            its surface in space. Lower number
-            gives a higher fidelity surface, but drastically
-            slows down plotting. 300 by default.
-        fig : Matplotlib Figure instance, optional
-            Figure to be used for plotting. Must be given
-            ax. None by default, generating an new plot.
-        ax : Matplotlib Axes instance, optional
-            Axes to be used for plotting. Must be given with
-            fig. None by default, generating a new plot.
-        title_scan_id : bool, optional
-            Flag dictating if the plot title will be 
-            prepended with the data scan ID. True by 
+            Number of detector pixels to skip when generating its
+            surface in space. Lower number gives a higher fidelity
+            surface, but drastically slows down plotting. 300 by
             default.
+        fig : Matplotlib Figure instance, optional
+            Figure to be used for plotting. Must be given ax. None by
+            default, generating an new plot.
+        ax : Matplotlib Axes instance, optional
+            Axes to be used for plotting. Must be given with fig. None
+            by default, generating a new plot.
+        title_scan_id : bool, optional
+            Flag dictating if the plot title will be prepended with the
+            data scan ID. True by default.
         return_plot : bool, optional
             Flag to determine if figure and axes option are returned.
             False be default with no returns.
 
         Returns
         -------
-        No returns by default. Only returned if return_plot
-        keyword argument is True.
+        No returns by default. Only returned if return_plot keyword
+        argument is True.
 
         fig : Matplotlib Figure instance
             Figure of plot.

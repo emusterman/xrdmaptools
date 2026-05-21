@@ -47,8 +47,8 @@ from xrdmaptools.plot.general import (
 
 class XRDMap(XRDBaseScan):
     """
-    Class for analyzing and processing XRD data acquired every
-    pixel along a 2D spatial map.
+    Class for analyzing and processing XRD data acquired every pixel
+    along a 2D spatial map.
 
     Parameters
     ----------
@@ -57,7 +57,8 @@ class XRDMap(XRDBaseScan):
         position values used to inform and scale map plots.
     swapped_axes: bool, optional
         Flag to indicate if the fast and slow scanning axes are
-        swapped. Default is False assuming a fast x-axis and slow y-axis.
+        swapped. Default is False assuming a fast x-axis and slow
+        y-axis.
     xrf_path : str, optional
         Path string of associated xrfmap HDF file generate from pyXRF.
     check_init_sets : bool, optional
@@ -339,9 +340,9 @@ class XRDMap(XRDBaseScan):
         Raises
         ------
         ValueError if maps have any level of processing or are not
-        lazily loaded.
+            lazily loaded.
         RuntimeError if the approximate map size requested is about
-        the same size as the current map.
+            the same size as the current map.
         """
 
         if not self._dask_enabled:
@@ -618,9 +619,9 @@ class XRDMap(XRDBaseScan):
         Raises
         ------
         AttributeError if the calibration information has not been
-        loaded.
+            loaded.
         ValueError if there is insufficient information to determine
-        the scattering angle binning.
+            the scattering angle binning.
         ValueError if mask does not properly match images.
         """
         
@@ -770,9 +771,9 @@ class XRDMap(XRDBaseScan):
         Raises
         ------
         AttributeError if the calibration information has not been
-        loaded.
+            loaded.
         ValueError if there is insufficient information to determine
-        the scattering or azimuthal angles binning.
+            the scattering or azimuthal angles binning.
         ValueError if mask does not properly match images.
         """
         
@@ -969,9 +970,9 @@ class XRDMap(XRDBaseScan):
         Raises
         ------
         AttributeError if XRDMap is missing the position dictionary or
-        'map_x' or 'map_y' is not provided.
+            'map_x' or 'map_y' is not provided.
         ValueError if map_x or map_y is not provided and cannot be
-        interpretted from the position dictionary.
+            interpretted from the position dictionary.
         """
 
         if ((map_x is None or map_y is None)
@@ -1217,7 +1218,7 @@ class XRDMap(XRDBaseScan):
         Raises
         ------
         ValueError if scan_input is not provided and internal attribute
-        is not available.
+            is not available.
         """
 
         if scan_input is None:
@@ -1783,7 +1784,7 @@ class XRDMap(XRDBaseScan):
         Raises
         ------
         AttributeError if "blob_masks" attribute does not exist and
-        cannot be loaded from the HDF File.
+            cannot be loaded from the HDF File.
 
         Notes
         -----
@@ -1870,7 +1871,7 @@ class XRDMap(XRDBaseScan):
         Raises
         ------
         AttributeError if "vector_map" is not provided and not and
-        attribute of XRDMap.
+            attribute of XRDMap.
         """
 
         # Check input
@@ -1955,7 +1956,7 @@ class XRDMap(XRDBaseScan):
         Raises
         ------
         FileNotFoundError if the indicated file cannot be found at the
-        specified working directory.
+            specified working directory.
         """
 
         # Look for path if no information is provided
@@ -2084,15 +2085,14 @@ class XRDMap(XRDBaseScan):
         title : str, optional
             Title of the map. By default "Custom Map" will be used.
         fig : Matplotlib Figure instance, optional
-            Figure to be used for plotting. Must be given
-            ax. None by default, generating an new plot.
+            Figure to be used for plotting. Must be given ax. None by
+            default, generating an new plot.
         ax : Matplotlib Axes instance, optional
-            Axes to be used for plotting. Must be given with
-            fig. None by default, generating a new plot.
+            Axes to be used for plotting. Must be given with fig. None
+            by default, generating a new plot.
         title_scan_id : bool, optional
-            Flag dictating if the plot title will be 
-            prepended with the data scan ID. True by 
-            default.
+            Flag dictating if the plot title will be prepended with the
+            data scan ID. True by default.
         return_plot : bool, optional
             Flag to determine if figure and axes option are returned.
             False be default with no returns.
@@ -2113,7 +2113,7 @@ class XRDMap(XRDBaseScan):
         Raises
         ------
         ValueError if the map_values array does not match the XRDMap
-        map shape.
+            map shape.
         """
         
         map_values = np.asarray(map_values)
@@ -2199,8 +2199,8 @@ class XRDMap(XRDBaseScan):
         
         Returns
         -------
-        No returns by default. Only returned if return_plot
-        keyword argument is True.
+        No returns by default. Only returned if return_plot keyword
+        argument is True.
 
         fig : Matplotlib Figure instance
             Figure of plot.
@@ -2210,7 +2210,7 @@ class XRDMap(XRDBaseScan):
         Raises
         ------
         ValueError if images for plotting dynamic XRD patterns cannot
-        be found or are of the wrong shape.
+            be found or are of the wrong shape.
         """
         
         # Python doesn't play well with mutable default kwargs
@@ -2335,8 +2335,8 @@ class XRDMap(XRDBaseScan):
         
         Returns
         -------
-        No returns by default. Only returned if return_plot
-        keyword argument is True.
+        No returns by default. Only returned if return_plot keyword
+        argument is True.
 
         fig : Matplotlib Figure instance
             Figure of plot.
@@ -2346,7 +2346,7 @@ class XRDMap(XRDBaseScan):
         Raises
         ------
         ValueError if integrations for plotting dynamic XRD patterns
-        cannot be found or are of the wrong shape.
+            cannot be found or are of the wrong shape.
         """
         
         # Python doesn't play well with mutable default kwargs
@@ -2452,9 +2452,8 @@ class XRDMap(XRDBaseScan):
                     Starting maximum value for map colormap.
 
         title_scan_id : bool, optional
-            Flag dictating if the plot title will be 
-            prepended with the data scan ID. True by 
-            default.
+            Flag dictating if the plot title will be prepended with the
+            data scan ID. True by default.
         return_plot : bool, optional
             Flag to determine if figure and axes option are returned.
             False be default with no returns.
@@ -2464,8 +2463,8 @@ class XRDMap(XRDBaseScan):
         
         Returns
         -------
-        No returns by default. Only returned if return_plot
-        keyword argument is True.
+        No returns by default. Only returned if return_plot keyword
+        argument is True.
 
         fig : Matplotlib Figure instance
             Figure of plot.
@@ -2475,7 +2474,7 @@ class XRDMap(XRDBaseScan):
         Raises
         ------
         ValueError if integrations for plotting dynamic XRD patterns
-        cannot be found or are of the wrong shape.
+            cannot be found or are of the wrong shape.
         """
         
         dyn_kw, map_kw = self._prepare_1D_window_plot(
@@ -2540,9 +2539,8 @@ class XRDMap(XRDBaseScan):
                     Starting maximum value for map colormap.
 
         title_scan_id : bool, optional
-            Flag dictating if the plot title will be 
-            prepended with the data scan ID. True by 
-            default.
+            Flag dictating if the plot title will be prepended with the
+            data scan ID. True by default.
         return_plot : bool, optional
             Flag to determine if figure and axes option are returned.
             False be default with no returns.
@@ -2552,8 +2550,8 @@ class XRDMap(XRDBaseScan):
         
         Returns
         -------
-        No returns by default. Only returned if return_plot
-        keyword argument is True.
+        No returns by default. Only returned if return_plot keyword
+        argument is True.
 
         fig : Matplotlib Figure instance
             Figure of plot.
@@ -2563,7 +2561,7 @@ class XRDMap(XRDBaseScan):
         Raises
         ------
         ValueError if integrations for plotting dynamic XRD patterns
-        cannot be found or are of the wrong shape.
+            cannot be found or are of the wrong shape.
         """
 
         dyn_kw, map_kw = self._prepare_1D_window_plot(
@@ -2600,14 +2598,13 @@ class XRDMap(XRDBaseScan):
             plotting. Empty by default, and the values will be filled
             with the relevant instance parameters.
         title_scan_id : bool, optional
-            Flag dictating if the plot title will be 
-            prepended with the data scan ID. True by 
-            default.
+            Flag dictating if the plot title will be prepended with the
+            data scan ID. True by default.
 
         Raises
         ------
         ValueError if integrations for plotting dynamic XRD patterns
-        cannot be found or are of the wrong shape.
+            cannot be found or are of the wrong shape.
         """
         
         # Python doesn't play well with mutable default kwargs
@@ -2709,9 +2706,8 @@ class XRDMap(XRDBaseScan):
                     Starting maximum value for map colormap.
 
         title_scan_id : bool, optional
-            Flag dictating if the plot title will be 
-            prepended with the data scan ID. True by 
-            default.
+            Flag dictating if the plot title will be prepended with the
+            data scan ID. True by default.
         return_plot : bool, optional
             Flag to determine if figure and axes option are returned.
             False be default with no returns.
@@ -2721,8 +2717,8 @@ class XRDMap(XRDBaseScan):
         
         Returns
         -------
-        No returns by default. Only returned if return_plot
-        keyword argument is True.
+        No returns by default. Only returned if return_plot keyword
+        argument is True.
 
         fig : Matplotlib Figure instance
             Figure of plot.
@@ -2732,7 +2728,7 @@ class XRDMap(XRDBaseScan):
         Raises
         ------
         ValueError if images for plotting dynamic XRD patterns
-        cannot be found or are of the wrong shape.
+            cannot be found or are of the wrong shape.
         """
         
         dyn_kw, map_kw = self._prepare_2D_window_plot(
@@ -2790,9 +2786,8 @@ class XRDMap(XRDBaseScan):
                     Starting maximum value for map colormap.
 
         title_scan_id : bool, optional
-            Flag dictating if the plot title will be 
-            prepended with the data scan ID. True by 
-            default.
+            Flag dictating if the plot title will be prepended with the
+            data scan ID. True by default.
         return_plot : bool, optional
             Flag to determine if figure and axes option are returned.
             False be default with no returns.
@@ -2802,8 +2797,8 @@ class XRDMap(XRDBaseScan):
         
         Returns
         -------
-        No returns by default. Only returned if return_plot
-        keyword argument is True.
+        No returns by default. Only returned if return_plot keyword
+        argument is True.
 
         fig : Matplotlib Figure instance
             Figure of plot.
@@ -2813,7 +2808,7 @@ class XRDMap(XRDBaseScan):
         Raises
         ------
         ValueError if images for plotting dynamic XRD patterns
-        cannot be found or are of the wrong shape.
+            cannot be found or are of the wrong shape.
         """
         
         dyn_kw, map_kw = self._prepare_2D_window_plot(
@@ -2873,9 +2868,8 @@ class XRDMap(XRDBaseScan):
                     Starting maximum value for map colormap.
 
         title_scan_id : bool, optional
-            Flag dictating if the plot title will be 
-            prepended with the data scan ID. True by 
-            default.
+            Flag dictating if the plot title will be prepended with the
+            data scan ID. True by default.
         return_plot : bool, optional
             Flag to determine if figure and axes option are returned.
             False be default with no returns.
@@ -2885,8 +2879,8 @@ class XRDMap(XRDBaseScan):
         
         Returns
         -------
-        No returns by default. Only returned if return_plot
-        keyword argument is True.
+        No returns by default. Only returned if return_plot keyword
+        argument is True.
 
         fig : Matplotlib Figure instance
             Figure of plot.
@@ -2896,7 +2890,7 @@ class XRDMap(XRDBaseScan):
         Raises
         ------
         ValueError if images for plotting dynamic XRD patterns
-        cannot be found or are of the wrong shape.
+            cannot be found or are of the wrong shape.
         """
         
         dyn_kw, map_kw = self._prepare_2D_window_plot(
@@ -2933,14 +2927,13 @@ class XRDMap(XRDBaseScan):
             plotting. Empty by default, and the values will be filled
             with the relevant instance parameters.
         title_scan_id : bool, optional
-            Flag dictating if the plot title will be 
-            prepended with the data scan ID. True by 
-            default.
+            Flag dictating if the plot title will be prepended with the
+            data scan ID. True by default.
 
         Raises
         ------
         ValueError if images for plotting dynamic XRD patterns
-        cannot be found or are of the wrong shape.
+            cannot be found or are of the wrong shape.
         """
         
         # Python doesn't play well with mutable default kwargs
@@ -3016,41 +3009,40 @@ class XRDMap(XRDBaseScan):
         Parameters
         ----------
         axis : int, optional
-            Axis for integrating the data. Only 0 and 1 are
-            allowed. 0 by default.
+            Axis for integrating the data. Only 0 and 1 are allowed.
+            0 by default.
         integration_method : str, optional
-            Method for integrating data. Accepts 'sum' or 'max'
-            along the axis of integration. 'max' by default.
+            Method for integrating data. Accepts 'sum' or 'max' along
+            the axis of integration. 'max' by default.
         v_offset : float, optional
-            Relative vertical offset value of each integration.
-            0 will have no offset, 1 will offset each integration
-            by the maximum integration range preventing any overlap.
-            0.25 by default.
+            Relative vertical offset value of each integration. 0 will
+            have no offset, 1 will offset each integration by the
+            maximum integration range preventing any overlap. 0.25 by
+            default.
         tth : iterable, optional
-            Two theta scattering angle of the integration data.
-            Must have the same length as the integration data.
-            None by default and will look for an internal tth attribute,
-            or use a simple range if unavaible.
+            Two theta scattering angle of the integration data. Must
+            have the same length as the integration data. None by
+            default and will look for an internal tth attribute, or use
+            a simple range if unavaible.
         units : str, optional
-            Units of two theta scattering angle. None by default
-            and will use an internal scattering_angle attribute if 
+            Units of two theta scattering angle. None by default and
+            will use an internal scattering_angle attribute if
             available.
         cmap : str, optional
             Colormap for distinguishing integrations. None by default
             and all integrations will be black.
         fig : Matplotlib Figure instance, optional
-            Figure to be used for plotting. Must be given
-            ax. None by default, generating an new plot.
+            Figure to be used for plotting. Must be given ax. None by
+            default, generating an new plot.
         ax : Matplotlib Axes instance, optional
-            Axes to be used for plotting. Must be given with
-            fig. None by default, generating a new plot.
+            Axes to be used for plotting. Must be given with fig. None
+            by default, generating a new plot.
         title : str, optional
             Title of plot. By default, a title will be generated from
             the waterfall plot.
         title_scan_id : bool, optional
-            Flag dictating if the plot title will be 
-            prepended with the data scan ID. True by 
-            default.
+            Flag dictating if the plot title will be prepended with the
+            data scan ID. True by default.
         return_plot : bool, optional
             Flag to determine if figure and axes option are returned.
             False be default with no returns.
@@ -3060,8 +3052,8 @@ class XRDMap(XRDBaseScan):
 
         Returns
         -------
-        No returns by default. Only returned if return_plot
-        keyword argument is True.
+        No returns by default. Only returned if return_plot keyword
+        argument is True.
 
         fig : Matplotlib Figure instance
             Figure of plot.

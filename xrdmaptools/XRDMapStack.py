@@ -108,6 +108,10 @@ class XRDMapStack(list):
         Dictionary of extra attributes to be given to XRDMapStack.
         These attributes are intended for those values generated during
         processing of the XRD data.
+
+    Raises
+    ------
+    ValueError if the stack is given with objects other than XRDMaps.
     """
 
     # Class variables
@@ -204,7 +208,31 @@ class XRDMapStack(list):
                                    include_set=False,
                                    include_del=False):
         """
+        Internal function for creating a property of the stack that
+        lists the properties of the associated XRDMaps. This function
+        is intended for values that vary across the stack.
 
+        Parameters
+        ----------
+        include_set : bool, optional
+            Flag to determine if the property will include the ability
+            to set the property values across all XRDMaps in the stack.
+            False by default.
+        include_del : bool, optional
+            Flag to determine if the property will include the ability
+            to delet the property values across all XRDMaps in the
+            stack. False by default.
+
+        Returns
+        -------
+        property : property
+            Returns a property attribute that will return a list of the
+            associated property of the individual XRDMaps.
+
+        Raises
+        ------
+        AttributeError if any of the XRDMaps do not have the associated
+            property.
         """
 
         # Define getter
@@ -251,8 +279,33 @@ class XRDMapStack(list):
                                         include_set=False,
                                         include_del=False):
         """
+        Internal function for creating a property of the stack that
+        returns the same property of the first XRDMaps. This function
+        is intended for values that do NOT vary across the stack.
 
+        Parameters
+        ----------
+        include_set : bool, optional
+            Flag to determine if the property will include the ability
+            to set the property values across all XRDMaps in the stack.
+            False by default.
+        include_del : bool, optional
+            Flag to determine if the property will include the ability
+            to delet the property values across all XRDMaps in the
+            stack. False by default.
+
+        Returns
+        -------
+        property : property
+            Returns a property attribute that will return associated
+            property of the first XRDMaps.
+
+        Raises
+        ------
+        AttributeError if the first XRDMap does not have the associated
+            property.
         """
+
         # Uses first xrdmap in list as container object
         # Sets and deletes from all list elements
         def get_property(self):
@@ -365,13 +418,24 @@ class XRDMapStack(list):
     @property
     def q_arr(self):
         """
+        Get 3D vector coordinates in reciprocal space (q-space) for 
+        every pixel in image with shape (rocking_axis length or number
+        of XRDMaps, image_shape, 3). These values are detemined from
+        scattering and azimuthal angles, incident X-ray energy, and
+        stage rotation and are given as a generator for each step along
+        the rocking axis.
 
+        Raises
+        ------
+        RuntimeError if the calibration has not been set or if the
+            stack is not sorted along the rocking axis.
+        AttributeError if any XRDMap in the stack does not have q_arr
+            attribute.
         """
 
         if hasattr(self, '_q_arr'):
             return self._q_arr
         else:
-
             rocking = getattr(self, self.rocking_axis)
             if (rocking != sorted(rocking)
                 and rocking != sorted(rocking, reverse=True)):
@@ -398,7 +462,9 @@ class XRDMapStack(list):
     @property
     def xrf(self):
         """
-
+        Get a dictionary of all xrf attributes from each XRDMap with
+        the stacked arrays for each map fitting. Data must first be
+        loaded with the 'load_xrfmap' function.
         """
 
         if hasattr(self, '_xrf'):
@@ -454,9 +520,9 @@ class XRDMapStack(list):
             self._xrf = _xrf
             return self._xrf
         
-        @xrf.deleter
-        def xrf(self):
-            del self._xrf
+    @xrf.deleter
+    def xrf(self):
+        del self._xrf
         
 
     @property

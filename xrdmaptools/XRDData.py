@@ -93,16 +93,16 @@ class XRDData:
     Raises
     ------
     ValueError if insufficient information is provided to construct
-    instance.
+        instance.
     ValueError if HDF file functionality is intended, but hdf_type if
-    not given.
+        not given.
     TypeError if image_data is not given as supported type.
     ValueError if image_data cannot be constructed into 4D data.
     ValueError if integration_data cannot be constructed into 3D data.
     ValueError if HDF file information cannot be properly resolved.
     ValueError if map_labels is not length two.
     RuntimeError if Dask is enabled without providing an active HDF
-    file.
+        file.
 
     Methods
     -------
@@ -932,7 +932,7 @@ class XRDData:
         Raises
         ------
         RuntimeError if 'recent' image data is requested without any
-        image data in the HDF file.
+            image data in the HDF file.
         """
 
         # Actually load the data. code is modified from hdf_io.py
@@ -1077,7 +1077,7 @@ class XRDData:
         Raises
         ------
         RuntimeError if 'recent' integration data is requested without
-        any integration data in the HDF file.
+            any integration data in the HDF file.
         """
 
         # Actually load the data. code is modified from hdf_io.py
@@ -1755,7 +1755,7 @@ class XRDData:
         Raises
         ------
         ValueError if size is greater than or equal to 2 or tolerance
-        is less than or equal to zero.
+            is less than or equal to zero.
         """
 
         if self._check_correction('outliers', override=override):
@@ -1927,7 +1927,7 @@ class XRDData:
         Raises
         ------
         ValueError if mask input is not boolean, None, or does not
-        match the instance image shape.
+            match the instance image shape.
         """
         
         if self._check_correction('pixel_defects', override=override):
@@ -1952,7 +1952,7 @@ class XRDData:
                 mask = np.asarray(self.mask, dtype=np.bool_)
             # Create blank mask
             elif mask is False:
-                mask = np.ones(image, dtype=np.bool_)
+                mask = np.ones(self.image_shape, dtype=np.bool_)
             else:
                 err_str = (f'Unknown mask input of type {type(mask)}. '
                            + 'Please sepecify None, a boolean, or '
@@ -1960,8 +1960,8 @@ class XRDData:
                 raise ValueError(err_str)
 
             # Get min and max image without previous mask effects
-            min_image = np.min(self.images[~map_mask], axis=0)
-            max_image = np.max(self.images[~map_mask], axis=1)
+            # min_image = np.min(self.images[~map_mask], axis=0)
+            # max_image = np.max(self.images[~map_mask], axis=1)
 
             # Minimum of min_image
             mask *= self.min_image > min_bounds[0]
@@ -2060,7 +2060,7 @@ class XRDData:
         Raises
         ------
         AttributeError if calibration (ai attribute) has not been
-        applied.
+            applied.
         """
 
         if self._check_correction('lorentz', override=override):
@@ -2128,7 +2128,7 @@ class XRDData:
         Raises
         ------
         AttributeError if calibration (ai attribute) has not been
-        applied.
+            applied.
         """
 
         if self._check_correction('polarization', override=override):
@@ -2200,7 +2200,7 @@ class XRDData:
         Raises
         ------
         AttributeError if calibration (ai attribute) has not been
-        applied.
+            applied.
         """
 
         if self._check_correction('solid_angle', override=override):
@@ -2271,7 +2271,7 @@ class XRDData:
         Raises
         ------
         AttributeError if calibration (ai attribute) has not been
-        applied.
+            applied.
         """
 
         #exp_dict = {
@@ -2395,8 +2395,8 @@ class XRDData:
         Raises
         ------
         NotImplementedError for not fully implemented methods for
-        estimating background: 'rolling_ball', 'spline', and
-        'polynomial'.
+            estimating background: 'rolling_ball', 'spline', and
+            'polynomial'.
         """
 
         method = str(method).lower()
@@ -2616,7 +2616,7 @@ class XRDData:
         Raises
         ------
         AttributeError if calibration (ai attribute) has not been
-        applied.
+            applied.
         """
 
         # Check for calibraitons
@@ -2752,7 +2752,7 @@ class XRDData:
         Raises
         ------
         ValueError if not enough information is provided to determine
-        image normalization.
+            image normalization.
         """
 
         # Usually better statistics 
@@ -3139,8 +3139,8 @@ class XRDData:
         Raises
         ------
         NotImplementedError for not fully implemented methods for
-        estimating background: 'rolling_ball', 'spline',
-        'polynomial', 'gaussian', and 'bruckner'.
+            estimating background: 'rolling_ball', 'spline',
+            'polynomial', 'gaussian', and 'bruckner'.
         """
 
         method = str(method).lower()
@@ -3443,7 +3443,7 @@ class XRDData:
         Raises
         ------
         AttributeError if images are not explicitly provided and cannot
-        be found internally.
+            be found internally.
         ValueError if title is not provided for custom images.
         ValueError if images is not 2D or 4D.
         TypeError if images cannot be parsed.
@@ -3645,7 +3645,7 @@ class XRDData:
         Raises
         ------
         AttributeError if integrations are not explicitly provided and
-        cannot be found internally.
+            cannot be found internally.
         ValueError if title is not provided for custom integrations.
         ValueError if integrations is not 1D or 3D.
         TypeError if integrations cannot be parsed.

@@ -265,9 +265,9 @@ class XRDRockingCurve(XRDBaseScan):
         Raises
         ------
         ValueError if length of values does not match the number of
-        images.
+            images.
         TypeError if the value given is not a constant to be iterated
-        or an iterable.
+            or an iterable.
         """
 
         # Fill placeholders if value is nothing
@@ -425,10 +425,10 @@ class XRDRockingCurve(XRDBaseScan):
     def q_arr(self):
         """
         Get 3D vector coordinates in reciprocal space (q-space) for 
-        every pixel in image with shape (image_shape, 3). These values
-        are detemined from scattering and azimuthal angles, incident
-        X-ray energy, and stage rotation and are given as a generator
-        for each step along the rocking axis.
+        every pixel in image with shape (rocking_axis length,
+        image_shape, 3). These values are detemined from scattering and
+        azimuthal angles, incident X-ray energy, and stage rotation and
+        are given as a generator for each step along the rocking axis.
 
         Raises
         ------
@@ -811,7 +811,7 @@ class XRDRockingCurve(XRDBaseScan):
         Raises
         ------
         AttributeError if q_arr is not provided and does not exist in
-        the current instance.
+            the current instance.
         """
         
         if q_arr is None:
@@ -873,7 +873,7 @@ class XRDRockingCurve(XRDBaseScan):
         Raises
         ------
         AttributeError if "blob_masks" attribute does not exist and
-        cannot be loaded from the HDF File.
+            cannot be loaded from the HDF File.
         """
 
         if not hasattr(self, 'blob_masks'):
@@ -964,7 +964,7 @@ class XRDRockingCurve(XRDBaseScan):
         Raises
         ------
         AttributeError if "vectors" is not provided and not and
-        attribute of XRDMap.
+            attribute of XRDMap.
         """
 
         # Check input
@@ -1186,8 +1186,8 @@ class XRDRockingCurve(XRDBaseScan):
             SpotModels module for supported SpotModels. 'sum' is used
             by default.
         save_to_hdf : bool, optional
-            Flag to control if data is written to the HDF file. True
-            by default.
+            Flag to control if data is written to the HDF file. True by
+            default.
         verbose : bool, optional
             Flag to control the verbosity of the spot search algorithm.
 
@@ -1452,9 +1452,9 @@ class XRDRockingCurve(XRDBaseScan):
         Raises
         ------
         ValueError if the spots or intensity values are not given and
-        cannot be determined.
+            cannot be determined.
         RuntimeError if the spots and itensity values do not match in
-        lengths.
+            lengths.
         """
         
         if spots is None and hasattr(self, 'spots_3D'):
@@ -1569,7 +1569,7 @@ class XRDRockingCurve(XRDBaseScan):
         Raises
         ------
         ValueError if the reference phase cannot be determined or if
-        the indexing method cannot be determined.
+            the indexing method cannot be determined.
         """
         
         (spots,
@@ -1726,7 +1726,7 @@ class XRDRockingCurve(XRDBaseScan):
         Raises
         ------
         ValueError if the reference phase cannot be determined or if
-        the indexing method cannot be determined.
+            the indexing method cannot be determined.
         """
         
         (spots,
@@ -1834,11 +1834,11 @@ class XRDRockingCurve(XRDBaseScan):
         Raises
         ------
         AttributeError if phase is not specified and no internal phase
-        can be found.
+            can be found.
         RuntimeError if phase is not specified and phase cannot be
-        determined from internal phases attribute.
+            determined from internal phases attribute.
         ValueError if the q_vectors or hkls cannot be determined from
-        the grain_id.
+            the grain_id.
         """
 
         # Parse phase input if specified
@@ -1977,7 +1977,6 @@ class XRDRockingCurve(XRDBaseScan):
         Plot a stack of images.
 
         Plotting function to create a dynamic slider plot if images.
-
 
         Parameters
         ----------
@@ -2310,9 +2309,9 @@ class XRDRockingCurve(XRDBaseScan):
         Raises
         ------
         AttributeError if 'spots_3D' is not given and the internal
-        attribute does not exist.
+            attribute does not exist.
         KeyError if the spots_3D DataFrame does not contain all of the
-        necessary information.
+            necessary information.
 
         """
 
@@ -2436,8 +2435,8 @@ class XRDRockingCurve(XRDBaseScan):
         Raises
         ------
         ValueError if q-vectors are not provided and cannot be
-        determined, or if the gridstep is larger than the
-        q-vectors range.
+            determined, or if the gridstep is larger than the
+            q-vectors range.
         """
 
         if q_vectors is None:
