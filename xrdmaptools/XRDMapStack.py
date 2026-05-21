@@ -1403,9 +1403,10 @@ class XRDMapStack(list):
 
         # Add extra information
         if extra_attrs is not None:
+            hdf_str = 'xrdmapstack/vectorized_map/'
             for key, value in extra_attrs.items():
                 overwrite_attr(
-                    self.hdf['vectorized_data'][vector_map_info_title].attrs,
+                    self.xdms_hdf[hdf_str][vector_map_info_title].attrs,
                     key,
                     value)
     
