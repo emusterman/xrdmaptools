@@ -32,21 +32,21 @@ from xrdmaptools.reflections.spot_blob_search_3D import rsm_spot_search
 from xrdmaptools.crystal.crystal import are_collinear, are_coplanar
 
 
-def _factors(n):
-    i = 2
-    factors = [1]
-    while i * i <= n:
-        if n % i:
-            i += 1
-        else:
-            n //= i
-            factors.append(i)
-    return factors
+# def _factors(n):
+#     i = 2
+#     factors = [1]
+#     while i * i <= n:
+#         if n % i:
+#             i += 1
+#         else:
+#             n //= i
+#             factors.append(i)
+#     return factors
 
-def _all_factors(n):
-    return set(reduce(
-        list.__add__,
-        ([i, n//i] for i in range(1, int(n**0.5) + 1) if n % i == 0)))
+# def _all_factors(n):
+#     return set(reduce(
+#         list.__add__,
+#         ([i, n//i] for i in range(1, int(n**0.5) + 1) if n % i == 0)))
 
 
 def get_factor_pairs(n):
@@ -81,7 +81,7 @@ def plot_image_gallery(images,
         titles = range(num_images)
 
     factors = get_factor_pairs(num_images)
-    sizes = [np.array(f) * np.array((img_y, img_x)) for f in factors]
+    sizes = [np.array(f) * np.array((img_x, img_y)) for f in factors]
     best_factors = factors[np.argmin(np.abs(np.diff(sizes, axis=1)))]
 
     fig, axes = plt.subplots(best_factors[1], best_factors[0], sharex=True, sharey=True)
@@ -125,19 +125,19 @@ def plot_plot_gallery(ys,
     fig.show()
     
 
-def get_element_dict(xrf):
+# def get_element_dict(xrf):
 
-    xrf_keys = list(xrf.keys())
+#     xrf_keys = list(xrf.keys())
 
-    element_keys = []
-    for key in xrf_keys:
-        parts = key.split('_')
+#     element_keys = []
+#     for key in xrf_keys:
+#         parts = key.split('_')
 
-        if parts[0] in el_abr:
-            element_keys.append(key)
+#         if parts[0] in el_abr:
+#             element_keys.append(key)
     
-    element_dict = {key : xrf[key] for key in element_keys}
-    return element_dict
+#     element_dict = {key : xrf[key] for key in element_keys}
+#     return element_dict
 
 
 def do_nmf(data,
@@ -352,135 +352,135 @@ def interactive_rotation_plot(data,
     return fig, ax, slider_lst, button
 
 
-def get_spot_num(xdm):
+# def get_spot_num(xdm):
 
-    plot_map = np.zeros(xdm.map_shape)
+#     plot_map = np.zeros(xdm.map_shape)
 
-    for index in range(xdm.num_images):
-        indices = np.unravel_index(index, xdm.map_shape)
-        pixel_df = xdm.pixel_spots(indices)
-        val = len(pixel_df)
-        plot_map[indices] = val
+#     for index in range(xdm.num_images):
+#         indices = np.unravel_index(index, xdm.map_shape)
+#         pixel_df = xdm.pixel_spots(indices)
+#         val = len(pixel_df)
+#         plot_map[indices] = val
     
-    return plot_map
+#     return plot_map
 
 
-def get_spot_int(xdm):
+# def get_spot_int(xdm):
 
-    plot_map = np.zeros(xdm.map_shape)
+#     plot_map = np.zeros(xdm.map_shape)
 
-    for index in range(xdm.num_images):
-        indices = np.unravel_index(index, xdm.map_shape)
-        pixel_df = xdm.pixel_spots(indices)
-        val = sum(pixel_df['guess_int'].values)
-        plot_map[indices] = val
+#     for index in range(xdm.num_images):
+#         indices = np.unravel_index(index, xdm.map_shape)
+#         pixel_df = xdm.pixel_spots(indices)
+#         val = sum(pixel_df['guess_int'].values)
+#         plot_map[indices] = val
     
-    return plot_map
+#     return plot_map
 
 
-def get_spot_int(xdm):
+# def get_spot_int(xdm):
 
-    plot_map = np.zeros(xdm.map_shape)
+#     plot_map = np.zeros(xdm.map_shape)
 
-    for index in range(xdm.num_images):
-        indices = np.unravel_index(index, xdm.map_shape)
-        pixel_df = xdm.pixel_spots(indices)
-        val = sum(pixel_df['guess_int'].values)
-        plot_map[indices] = val
+#     for index in range(xdm.num_images):
+#         indices = np.unravel_index(index, xdm.map_shape)
+#         pixel_df = xdm.pixel_spots(indices)
+#         val = sum(pixel_df['guess_int'].values)
+#         plot_map[indices] = val
     
-    return plot_map
+#     return plot_map
 
 
-def get_spot_tth_integrations(xdm, function=np.max):
+# def get_spot_tth_integrations(xdm, function=np.max):
 
-    tth_min = np.min(xdm.tth_arr)
-    tth_max = np.max(xdm.tth_arr)
+#     tth_min = np.min(xdm.tth_arr)
+#     tth_max = np.max(xdm.tth_arr)
 
-    tth_num = int(np.round((tth_max - tth_min)
-                                   / xdm.tth_resolution))
+#     tth_num = int(np.round((tth_max - tth_min)
+#                                    / xdm.tth_resolution))
 
-    integration_map = np.zeros((*xdm.map_shape, tth_num))
+#     integration_map = np.zeros((*xdm.map_shape, tth_num))
 
-    for indices in tqdm(xdm.indices):
-        pixel_df = xdm.pixel_spots(indices)
-        tth = pixel_df['guess_cen_tth'].values
+#     for indices in tqdm(xdm.indices):
+#         pixel_df = xdm.pixel_spots(indices)
+#         tth = pixel_df['guess_cen_tth'].values
 
-        for i, tth_cen in enumerate(
-                       np.linspace(tth_min,
-                                   tth_max,
-                                   tth_num)):
-            tth_st = tth_cen - xdm.tth_resolution
-            tth_en = tth_cen + xdm.tth_resolution
+#         for i, tth_cen in enumerate(
+#                        np.linspace(tth_min,
+#                                    tth_max,
+#                                    tth_num)):
+#             tth_st = tth_cen - xdm.tth_resolution
+#             tth_en = tth_cen + xdm.tth_resolution
 
-            tth_mask = (tth > tth_st) & (tth < tth_en)
+#             tth_mask = (tth > tth_st) & (tth < tth_en)
 
-            if tth_mask.sum() > 0:
-                val = function(pixel_df['guess_int'].values[tth_mask])
-            else:
-                val = 0
+#             if tth_mask.sum() > 0:
+#                 val = function(pixel_df['guess_int'].values[tth_mask])
+#             else:
+#                 val = 0
 
-            integration_map[(*indices, i)] = val
+#             integration_map[(*indices, i)] = val
     
-    return integration_map
+#     return integration_map
 
 
-def get_spot_elements(xdm):
+# def get_spot_elements(xdm):
 
-    min_tth = np.min(xdm.tth)
-    max_tth = np.max(xdm.tth)
-    tth_num = (max_tth - min_tth) / xdm.tth_resolution
+#     min_tth = np.min(xdm.tth)
+#     max_tth = np.max(xdm.tth)
+#     tth_num = (max_tth - min_tth) / xdm.tth_resolution
 
-    spot_tth = xdm.spots['guess_tth_cen'].values
+#     spot_tth = xdm.spots['guess_tth_cen'].values
 
-    for i in range(tth_num):
-        tth_mask = (spot_tth > min_tth + i * xdm.tth_resolution
-                   & spot_tth <= min_tth + (i + 1) * xdm.tth_resolution)
+#     for i in range(tth_num):
+#         tth_mask = (spot_tth > min_tth + i * xdm.tth_resolution
+#                    & spot_tth <= min_tth + (i + 1) * xdm.tth_resolution)
 
 
-# Quick throw-away function
-def transpose_dictionaries(self):
+# # Quick throw-away function
+# def transpose_dictionaries(self):
 
-    self.open_hdf()
+#     self.open_hdf()
     
-    if hasattr(self, 'pos_dict'):
-        for key in list(self.pos_dict.keys()):
-            self.pos_dict[key] = self.pos_dict[key].swapaxes(
-                                                    0, 1)
-        self.save_sclr_pos('positions',
-                            self.pos_dict,
-                            self.position_units)
+#     if hasattr(self, 'pos_dict'):
+#         for key in list(self.pos_dict.keys()):
+#             self.pos_dict[key] = self.pos_dict[key].swapaxes(
+#                                                     0, 1)
+#         self.save_sclr_pos('positions',
+#                             self.pos_dict,
+#                             self.position_units)
     
-    if hasattr(self, 'sclr_dict'):
-        for key in list(self.sclr_dict.keys()):
-            self.sclr_dict[key] = self.sclr_dict[key].swapaxes(
-                                                        0, 1)
-        self.save_sclr_pos('scalers',
-                           self.sclr_dict,
-                           self.scaler_units)
-    # Update spot map_indices
-    if hasattr(self, 'spots'):
-        map_x_ind = self.spots['map_x'].values
-        map_y_ind = self.spots['map_y'].values
-        self.spots['map_x'] = map_y_ind
-        self.spots['map_y'] = map_x_ind
-        self.save_spots()
+#     if hasattr(self, 'sclr_dict'):
+#         for key in list(self.sclr_dict.keys()):
+#             self.sclr_dict[key] = self.sclr_dict[key].swapaxes(
+#                                                         0, 1)
+#         self.save_sclr_pos('scalers',
+#                            self.sclr_dict,
+#                            self.scaler_units)
+#     # Update spot map_indices
+#     if hasattr(self, 'spots'):
+#         map_x_ind = self.spots['map_x'].values
+#         map_y_ind = self.spots['map_y'].values
+#         self.spots['map_x'] = map_y_ind
+#         self.spots['map_y'] = map_x_ind
+#         self.save_spots()
 
-    self.close_hdf()
+#     self.close_hdf()
 
 
-def get_vector_map_feature(vector_map,
-                           feature_function=len,
-                           dtype=float):
-    feature_map = np.empty(vector_map.shape, dtype=dtype)
+# def get_vector_map_feature(vector_map,
+#                            feature_function=len,
+#                            dtype=float):
+#     feature_map = np.empty(vector_map.shape, dtype=dtype)
 
-    for index in range(np.prod(vector_map.shape)):
-        indices = np.unravel_index(index, vector_map.shape)
-        feature_map[indices] = feature_function(vector_map[indices])
+#     for index in range(np.prod(vector_map.shape)):
+#         indices = np.unravel_index(index, vector_map.shape)
+#         feature_map[indices] = feature_function(vector_map[indices])
 
-    return feature_map
+#     return feature_map
 
-get_int_vector_map = lambda vm : get_vector_map_feature(vm, feature_function=np.sum)
-get_num_vector_map = lambda vm : get_vector_map_feature(vm, dtype=int)
+# get_int_vector_map = lambda vm : get_vector_map_feature(vm, feature_function=np.sum)
+# get_num_vector_map = lambda vm : get_vector_map_feature(vm, dtype=int)
 
 
 
@@ -615,402 +615,402 @@ def construct_map(base_map,
     return derived_map
 
 
-from xrdmaptools.crystal.strain import phase_get_strain_orientation
+# from xrdmaptools.crystal.strain import phase_get_strain_orientation
 # from xrdmaptools.reflections.spot_blob_indexing_3D import (
 #     _get_connection_indices
 # )
 
-def get_ori_map(conn_map, spot_map, hkls_map, phase):
+# def get_ori_map(conn_map, spot_map, hkls_map, phase):
 
-    map_shape = conn_map.shape
-    ori_map = np.empty(map_shape, dtype=object)
-    e_map = ori_map.copy()
-    strained_map = np.empty(map_shape, dtype=object)
+#     map_shape = conn_map.shape
+#     ori_map = np.empty(map_shape, dtype=object)
+#     e_map = ori_map.copy()
+#     strained_map = np.empty(map_shape, dtype=object)
 
-    for index in range(np.prod(map_shape)):
-        indices = np.unravel_index(index, map_shape)
+#     for index in range(np.prod(map_shape)):
+#         indices = np.unravel_index(index, map_shape)
 
-        hkls = hkls_map[indices]
-        spots = spot_map[indices]
+#         hkls = hkls_map[indices]
+#         spots = spot_map[indices]
 
-        nan_arr = np.eye(3)
-        nan_arr[:] = np.nan
+#         nan_arr = np.eye(3)
+#         nan_arr[:] = np.nan
 
-        oris = []
-        es = []
-        strains = []
-        for connection in conn_map[indices]:
-            spot_inds, ref_inds = _get_connection_indices(
-                                    connection)
+#         oris = []
+#         es = []
+#         strains = []
+#         for connection in conn_map[indices]:
+#             spot_inds, ref_inds = _get_connection_indices(
+#                                     connection)
 
-            # print(indices)
-            # if len(spot_inds) > 2 and not are_coplanar(hkls[ref_inds]):
-            if len(spot_inds) > 2 and not are_coplanar(hkls[ref_inds]):
-                try:
-                    e, ori, strained = phase_get_strain_orientation(
-                                                        spots[spot_inds],
-                                                        hkls[ref_inds],
-                                                        phase
-                                                        )
-                except:
-                    print('Strain orientation fitting failed!')
-                    print(indices)
-                    return spots[spot_inds], hkls[ref_inds]
+#             # print(indices)
+#             # if len(spot_inds) > 2 and not are_coplanar(hkls[ref_inds]):
+#             if len(spot_inds) > 2 and not are_coplanar(hkls[ref_inds]):
+#                 try:
+#                     e, ori, strained = phase_get_strain_orientation(
+#                                                         spots[spot_inds],
+#                                                         hkls[ref_inds],
+#                                                         phase
+#                                                         )
+#                 except:
+#                     print('Strain orientation fitting failed!')
+#                     print(indices)
+#                     return spots[spot_inds], hkls[ref_inds]
 
             
-            elif len(ref_inds) > 1 and not are_collinear(hkls[ref_inds]):
-                # Align vectors if possible
-                ori = Rotation.align_vectors(
-                                spots[spot_inds],
-                                phase.Q(hkls[ref_inds]))[0].as_matrix()
-                # e = nan_arr.copy()
-                e = None
-                strained = None
-            else:
-                # ori = nan_arr.copy()
-                # e = nan_arr.copy()
-                ori = None
-                e = None
-                strained = None
+#             elif len(ref_inds) > 1 and not are_collinear(hkls[ref_inds]):
+#                 # Align vectors if possible
+#                 ori = Rotation.align_vectors(
+#                                 spots[spot_inds],
+#                                 phase.Q(hkls[ref_inds]))[0].as_matrix()
+#                 # e = nan_arr.copy()
+#                 e = None
+#                 strained = None
+#             else:
+#                 # ori = nan_arr.copy()
+#                 # e = nan_arr.copy()
+#                 ori = None
+#                 e = None
+#                 strained = None
 
-            oris.append(ori)
-            es.append(e)
-            strains.append(strained)
+#             oris.append(ori)
+#             es.append(e)
+#             strains.append(strained)
         
-        # Catch no connections
-        if len(conn_map[indices]) == 0:
-            # oris.append(nan_arr.copy())
-            # es.append(nan_arr.copy())
-            oris.append(None)
-            es.append(None)
-            strains.append(None)
+#         # Catch no connections
+#         if len(conn_map[indices]) == 0:
+#             # oris.append(nan_arr.copy())
+#             # es.append(nan_arr.copy())
+#             oris.append(None)
+#             es.append(None)
+#             strains.append(None)
 
-        ori_map[indices] = oris
-        e_map[indices] = es
-        strained_map[indices] = strains
+#         ori_map[indices] = oris
+#         e_map[indices] = es
+#         strained_map[indices] = strains
 
-    return ori_map, e_map, strained_map
+#     return ori_map, e_map, strained_map
 
 
-def fit_single_connection(spots, hkls, phase):
+# def fit_single_connection(spots, hkls, phase):
 
-    # Full 3D lattice fitting - orientation and strain
-    if len(spots) > 2 and not are_coplanar(hkls):
-        try:
-            e, ori, strained = phase_get_strain_orientation(
-                                    spots,
-                                    hkls,
-                                    phase)
-        except:
-            print('Strain orientation fitting failed!')
-            return spots, hkls
+#     # Full 3D lattice fitting - orientation and strain
+#     if len(spots) > 2 and not are_coplanar(hkls):
+#         try:
+#             e, ori, strained = phase_get_strain_orientation(
+#                                     spots,
+#                                     hkls,
+#                                     phase)
+#         except:
+#             print('Strain orientation fitting failed!')
+#             return spots, hkls
     
-    # Alignment of two reflections for orientation only
-    elif len(spots) > 1 and not are_collinear(hkls):
-        ori = Rotation.align_vectors(spots,
-                                     phase.Q(hkls))[0].as_matrix()
-        e, strained = None, None
+#     # Alignment of two reflections for orientation only
+#     elif len(spots) > 1 and not are_collinear(hkls):
+#         ori = Rotation.align_vectors(spots,
+#                                      phase.Q(hkls))[0].as_matrix()
+#         e, strained = None, None
     
-    # Insufficient information
-    else:
-        ori, e, strained = None, None, None
+#     # Insufficient information
+#     else:
+#         ori, e, strained = None, None, None
     
-    return ori, e, strained
+#     return ori, e, strained
 
 
-def find_spots_and_index_full_map(xdms, phase, verbose=False):
+# def find_spots_and_index_full_map(xdms, phase, verbose=False):
 
-    # Setup container objects. Hard to estimate memory usage
-    map_shape = xdms.xdms_vector_map.shape
-    ori_map = np.empty(map_shape, dtype=object)
-    e_map = ori_map.copy()
-    strained_map = ori_map.copy()
-    qofs_map = ori_map.copy()
+#     # Setup container objects. Hard to estimate memory usage
+#     map_shape = xdms.xdms_vector_map.shape
+#     ori_map = np.empty(map_shape, dtype=object)
+#     e_map = ori_map.copy()
+#     strained_map = ori_map.copy()
+#     qofs_map = ori_map.copy()
 
-    # Setup major iterable with verbosity
-    if verbose:
-        iterable = timed_iter(range(np.prod(xdms.xdms_vector_map.shape)))
-    else:
-        # iterable = tqdm(range(np.prod(xdms.xdms_vector_map.shape)))
-        iterable = tqdm(memory_iter(range(np.prod(xdms.xdms_vector_map.shape))))
+#     # Setup major iterable with verbosity
+#     if verbose:
+#         iterable = timed_iter(range(np.prod(xdms.xdms_vector_map.shape)))
+#     else:
+#         # iterable = tqdm(range(np.prod(xdms.xdms_vector_map.shape)))
+#         iterable = tqdm(memory_iter(range(np.prod(xdms.xdms_vector_map.shape))))
 
-    # Iterate through each spatial pixel of map
-    for index in iterable:
-        gc.collect()
-        indices = np.unravel_index(index, xdms.xdms_vector_map.shape)
+#     # Iterate through each spatial pixel of map
+#     for index in iterable:
+#         gc.collect()
+#         indices = np.unravel_index(index, xdms.xdms_vector_map.shape)
 
-        oris, es, strains = [], [], []
+#         oris, es, strains = [], [], []
 
-        # Break down individual vectors
-        q_vectors = xdms.xdms_vector_map[indices][:, :-1]
-        intensity = xdms.xdms_vector_map[indices][:, -1]
+#         # Break down individual vectors
+#         q_vectors = xdms.xdms_vector_map[indices][:, :-1]
+#         intensity = xdms.xdms_vector_map[indices][:, -1]
 
-        # Some level of assigning significance
-        int_mask = intensity > 1
+#         # Some level of assigning significance
+#         int_mask = intensity > 1
         
-        # Find spots if there are vectors to index
-        if np.sum(int_mask) > 0:
+#         # Find spots if there are vectors to index
+#         if np.sum(int_mask) > 0:
 
-            (spot_labels,
-             spots,
-             label_ints,
-             label_maxs) = rsm_spot_search(q_vectors[int_mask],
-                                           intensity[int_mask],
-                                           nn_dist=0.1,
-                                           significance=0.1,
-                                           subsample=1)
+#             (spot_labels,
+#              spots,
+#              label_ints,
+#              label_maxs) = rsm_spot_search(q_vectors[int_mask],
+#                                            intensity[int_mask],
+#                                            nn_dist=0.1,
+#                                            significance=0.1,
+#                                            subsample=1)
             
 
-            # Try to index if sufficient spots found
-            if len(spots) > 1:
-                try:
-                    (best_connections,
-                    best_qofs,
-                    hkls
-                    ) = pair_casting_index_full_pattern(spots,
-                                                        phase,
-                                                        0.1,
-                                                        5,
-                                                        xdms.qmask,
-                                                        degrees=True,
-                                                        verbose=verbose)
+#             # Try to index if sufficient spots found
+#             if len(spots) > 1:
+#                 try:
+#                     (best_connections,
+#                     best_qofs,
+#                     hkls
+#                     ) = pair_casting_index_full_pattern(spots,
+#                                                         phase,
+#                                                         0.1,
+#                                                         5,
+#                                                         xdms.qmask,
+#                                                         degrees=True,
+#                                                         verbose=verbose)
 
-                # Catch a few errors. Should have been solved...
-                except IndexError:
-                    print('INDEX ERROR')
-                    print(indices)
-                    return spots
-                except Exception as e:
-                    print('New Exception')
-                    print(indices)
-                    raise e
+#                 # Catch a few errors. Should have been solved...
+#                 except IndexError:
+#                     print('INDEX ERROR')
+#                     print(indices)
+#                     return spots
+#                 except Exception as e:
+#                     print('New Exception')
+#                     print(indices)
+#                     raise e
                 
-                # Trim bad connections that should not have happened...
-                bad_conn_mask = np.array([np.sum(np.isnan(conn)) < 2 for conn in best_connections])
-                best_connections = list(np.array(best_connections)[~bad_conn_mask])
-                best_qofs = list(np.array(best_qofs)[~bad_conn_mask])
-                if np.any(bad_conn_mask) and verbose:
-                    print(f'Bad connection found at {indices}.')
+#                 # Trim bad connections that should not have happened...
+#                 bad_conn_mask = np.array([np.sum(np.isnan(conn)) < 2 for conn in best_connections])
+#                 best_connections = list(np.array(best_connections)[~bad_conn_mask])
+#                 best_qofs = list(np.array(best_qofs)[~bad_conn_mask])
+#                 if np.any(bad_conn_mask) and verbose:
+#                     print(f'Bad connection found at {indices}.')
                 
-                # Fit connections
-                for conn in best_connections:
-                    spot_inds, ref_inds = _get_connection_indices(conn)
+#                 # Fit connections
+#                 for conn in best_connections:
+#                     spot_inds, ref_inds = _get_connection_indices(conn)
                     
-                    ori, e, strained = fit_single_connection(
-                                            spots[spot_inds],
-                                            phase.all_hkls[ref_inds],
-                                            phase)
+#                     ori, e, strained = fit_single_connection(
+#                                             spots[spot_inds],
+#                                             phase.all_hkls[ref_inds],
+#                                             phase)
                     
-                    # Record values
-                    oris.append(ori)
-                    es.append(e)
-                    strains.append(strained)
+#                     # Record values
+#                     oris.append(ori)
+#                     es.append(e)
+#                     strains.append(strained)
                 
-                    del spot_inds, ref_inds
+#                     del spot_inds, ref_inds
                 
-                del best_connections, bad_conn_mask
+#                 del best_connections, bad_conn_mask
 
-            else:
-                # Fill with None placeholder
-                oris.append(None)
-                es.append(None)
-                strains.append(None)
-                best_qofs = [None]
+#             else:
+#                 # Fill with None placeholder
+#                 oris.append(None)
+#                 es.append(None)
+#                 strains.append(None)
+#                 best_qofs = [None]
         
-        else:
-            # Fill with None placeholder
-            oris.append(None)
-            es.append(None)
-            strains.append(None)
-            best_qofs = [None]
+#         else:
+#             # Fill with None placeholder
+#             oris.append(None)
+#             es.append(None)
+#             strains.append(None)
+#             best_qofs = [None]
         
-        del spot_labels, spots, label_ints
+#         del spot_labels, spots, label_ints
         
-        # Fill map pixel
-        ori_map[indices] = oris
-        e_map[indices] = es
-        strained_map[indices] = strains
-        qofs_map[indices] = best_qofs
+#         # Fill map pixel
+#         ori_map[indices] = oris
+#         e_map[indices] = es
+#         strained_map[indices] = strains
+#         qofs_map[indices] = best_qofs
 
-        del oris, es, strains, best_qofs
-        del int_mask, indices, q_vectors, intensity
+#         del oris, es, strains, best_qofs
+#         del int_mask, indices, q_vectors, intensity
 
-    return ori_map, e_map, strained_map, qofs_map
+#     return ori_map, e_map, strained_map, qofs_map
 
 
-def dask_fit_full_map(xdms, phase, verbose=False):
+# def dask_fit_full_map(xdms, phase, verbose=False):
 
-    # Setup container objects. Hard to estimate memory usage
-    map_shape = xdms.xdms_vector_map.shape
-    ori_map = np.empty(map_shape, dtype=object)
-    e_map = ori_map.copy()
-    strained_map = ori_map.copy()
-    qofs_map = ori_map.copy()
+#     # Setup container objects. Hard to estimate memory usage
+#     map_shape = xdms.xdms_vector_map.shape
+#     ori_map = np.empty(map_shape, dtype=object)
+#     e_map = ori_map.copy()
+#     strained_map = ori_map.copy()
+#     qofs_map = ori_map.copy()
 
-    @dask.delayed
-    def dask_search_and_fit(indices,
-                            int_cutoff=5,
-                            q_mask=xdms.qmask,
-                            phase=phase,
-                            near_q=0.05,
-                            near_angle=5,
-                            significance=0.1,
-                            subsample=1,
-                            degrees=True,
-                            verbose=verbose):
+#     @dask.delayed
+#     def dask_search_and_fit(indices,
+#                             int_cutoff=5,
+#                             q_mask=xdms.qmask,
+#                             phase=phase,
+#                             near_q=0.05,
+#                             near_angle=5,
+#                             significance=0.1,
+#                             subsample=1,
+#                             degrees=True,
+#                             verbose=verbose):
 
-        if verbose:
-            print(f'Indexing for map indices {indices}.')
+#         if verbose:
+#             print(f'Indexing for map indices {indices}.')
 
-        oris, es, strains = [], [], []
+#         oris, es, strains = [], [], []
 
-        # Break down individual vectors
-        q_vectors = xdms.xdms_vector_map[indices][:, :-1]
-        intensity = xdms.xdms_vector_map[indices][:, -1]
+#         # Break down individual vectors
+#         q_vectors = xdms.xdms_vector_map[indices][:, :-1]
+#         intensity = xdms.xdms_vector_map[indices][:, -1]
 
-        # Some level of assigning significance
-        int_mask = intensity > int_cutoff
+#         # Some level of assigning significance
+#         int_mask = intensity > int_cutoff
 
-        oris, es, strains = [], [], []
+#         oris, es, strains = [], [], []
 
-        if np.sum(int_mask) > 0:
+#         if np.sum(int_mask) > 0:
 
-            (spot_labels,
-             spots,
-             label_ints) = rsm_spot_search(q_vectors[int_mask],
-                                           intensity[int_mask],
-                                           nn_dist=near_q,
-                                           significance=significance,
-                                           subsample=1)
+#             (spot_labels,
+#              spots,
+#              label_ints) = rsm_spot_search(q_vectors[int_mask],
+#                                            intensity[int_mask],
+#                                            nn_dist=near_q,
+#                                            significance=significance,
+#                                            subsample=1)
 
-            # Try to index if sufficient spots found
-            if len(spots) > 1:
-                if len(spots) > 100:
-                    print(f'Number of spots is {len(spots)}')
+#             # Try to index if sufficient spots found
+#             if len(spots) > 1:
+#                 if len(spots) > 100:
+#                     print(f'Number of spots is {len(spots)}')
 
-                try:
-                    (best_connections,
-                    best_qofs
-                    ) = pair_casting_index_full_pattern(spots,
-                                                        phase,
-                                                        near_q,
-                                                        near_angle,
-                                                        xdms.qmask,
-                                                        degrees=degrees,
-                                                        verbose=verbose)
+#                 try:
+#                     (best_connections,
+#                     best_qofs
+#                     ) = pair_casting_index_full_pattern(spots,
+#                                                         phase,
+#                                                         near_q,
+#                                                         near_angle,
+#                                                         xdms.qmask,
+#                                                         degrees=degrees,
+#                                                         verbose=verbose)
 
-                # Catch a few errors. Should have been solved...
-                except IndexError:
-                    print('INDEX ERROR')
-                    print(indices)
-                    return spots
-                except Exception as e:
-                    print('New Exception')
-                    print(indices)
-                    raise e
+#                 # Catch a few errors. Should have been solved...
+#                 except IndexError:
+#                     print('INDEX ERROR')
+#                     print(indices)
+#                     return spots
+#                 except Exception as e:
+#                     print('New Exception')
+#                     print(indices)
+#                     raise e
                 
-                # Trim bad connections that should not have happened...
-                bad_conn_mask = np.array([np.sum(np.isnan(conn)) < 2 for conn in best_connections])
-                best_connections = list(np.array(best_connections)[~bad_conn_mask])
-                best_qofs = list(np.array(best_qofs)[~bad_conn_mask])
-                if np.any(bad_conn_mask) and verbose:
-                    print(f'Bad connection found at {indices}.')
+#                 # Trim bad connections that should not have happened...
+#                 bad_conn_mask = np.array([np.sum(np.isnan(conn)) < 2 for conn in best_connections])
+#                 best_connections = list(np.array(best_connections)[~bad_conn_mask])
+#                 best_qofs = list(np.array(best_qofs)[~bad_conn_mask])
+#                 if np.any(bad_conn_mask) and verbose:
+#                     print(f'Bad connection found at {indices}.')
                 
-                # Fit connections
-                for conn in best_connections:
-                    spot_inds, ref_inds = _get_connection_indices(conn)
+#                 # Fit connections
+#                 for conn in best_connections:
+#                     spot_inds, ref_inds = _get_connection_indices(conn)
                     
-                    ori, e, strained = fit_single_connection(
-                                            spots[spot_inds],
-                                            phase.all_hkls[ref_inds],
-                                            phase)
+#                     ori, e, strained = fit_single_connection(
+#                                             spots[spot_inds],
+#                                             phase.all_hkls[ref_inds],
+#                                             phase)
                     
-                    # Record values
-                    oris.append(ori)
-                    es.append(e)
-                    strains.append(strained)
+#                     # Record values
+#                     oris.append(ori)
+#                     es.append(e)
+#                     strains.append(strained)
 
-            else:
-                # Fill with None placeholder
-                oris.append(None)
-                es.append(None)
-                strains.append(None)
-                best_qofs = [None]
+#             else:
+#                 # Fill with None placeholder
+#                 oris.append(None)
+#                 es.append(None)
+#                 strains.append(None)
+#                 best_qofs = [None]
         
-        else:
-            # Fill with None placeholder
-            oris.append(None)
-            es.append(None)
-            strains.append(None)
-            best_qofs = [None]
+#         else:
+#             # Fill with None placeholder
+#             oris.append(None)
+#             es.append(None)
+#             strains.append(None)
+#             best_qofs = [None]
 
-        # Fill map pixel
-        ori_map[indices] = oris
-        e_map[indices] = es
-        strained_map[indices] = strains
-        qofs_map[indices] = best_qofs
+#         # Fill map pixel
+#         ori_map[indices] = oris
+#         e_map[indices] = es
+#         strained_map[indices] = strains
+#         qofs_map[indices] = best_qofs
 
-    # Setup major iterable with verbosity
-    if verbose:
-        iterable = timed_iter(range(np.prod(xdms.xdms_vector_map.shape)))
-    else:
-        iterable = tqdm(range(np.prod(xdms.xdms_vector_map.shape)))
+#     # Setup major iterable with verbosity
+#     if verbose:
+#         iterable = timed_iter(range(np.prod(xdms.xdms_vector_map.shape)))
+#     else:
+#         iterable = tqdm(range(np.prod(xdms.xdms_vector_map.shape)))
 
-    # Iterate through each spatial pixel of map
-    delayed_list = []
-    for index in iterable:
-        indices = np.unravel_index(index, xdms.xdms_vector_map.shape)
-        delayed_list.append(dask_search_and_fit(indices))
+#     # Iterate through each spatial pixel of map
+#     delayed_list = []
+#     for index in iterable:
+#         indices = np.unravel_index(index, xdms.xdms_vector_map.shape)
+#         delayed_list.append(dask_search_and_fit(indices))
 
-    # Computation
-    print('Spot search and indexing full map...')
-    with TqdmCallback(tqdm_class=tqdm):
-            dask.compute(*delayed_list)
+#     # Computation
+#     print('Spot search and indexing full map...')
+#     with TqdmCallback(tqdm_class=tqdm):
+#             dask.compute(*delayed_list)
         
 
-    return ori_map, e_map, strained_map, qofs_map
+#     return ori_map, e_map, strained_map, qofs_map
 
 
 
 
-def restack_map(unstacked_map):
+# def restack_map(unstacked_map):
 
-    stacked_map = np.empty((*unstacked_map.shape,
-                            *unstacked_map[0, 0].shape))
+#     stacked_map = np.empty((*unstacked_map.shape,
+#                             *unstacked_map[0, 0].shape))
     
-    for index in range(np.prod(unstacked_map.shape)):
-        indices = np.unravel_index(index, unstacked_map.shape)
+#     for index in range(np.prod(unstacked_map.shape)):
+#         indices = np.unravel_index(index, unstacked_map.shape)
 
-        stacked_map[indices][:] = unstacked_map[indices]
+#         stacked_map[indices][:] = unstacked_map[indices]
     
-    return stacked_map
+#     return stacked_map
 
 
 
 
 
-def plot_derived_map(arr):
+# def plot_derived_map(arr):
 
-    fig, ax = plt.subplots(figsize=(5, 5), dpi=200)
+#     fig, ax = plt.subplots(figsize=(5, 5), dpi=200)
 
-    im = ax.imshow(arr)
-    fig.colorbar(im, ax=ax)
+#     im = ax.imshow(arr)
+#     fig.colorbar(im, ax=ax)
 
-    ax.set_aspect('equal')
-    ax.set_facecolor('black')
+#     ax.set_aspect('equal')
+#     ax.set_facecolor('black')
 
-    fig.show()
+#     fig.show()
         
 
 
 
 
 
-def transform_coords(x, M):
-    # append x with 1
-    x = [*x, 1]
+# def transform_coords(x, M):
+#     # append x with 1
+#     x = [*x, 1]
 
-    return x @ M
+#     return x @ M
 
 
 
