@@ -510,3 +510,75 @@ def plot_IPF_map(ori_map,
     ax.imshow(plotting_map)
     ax.set_aspect('equal')
     fig.show()
+
+
+
+
+
+def interactive_misorientation_plot(ori_map, x_ticks=None, y_ticks=None, vmax=5, cmap='viridis'):
+
+    if x_ticks is None:
+        x_ticks = list(range(ori_map.shape[1]))
+    if y_ticks is None:
+        y_ticks = list(range(ori_map.shape[0]))
+
+    # Setup variables
+    row, col = 0, 0
+    map_x = x_ticks[col]
+    map_y = y_ticks[row]
+
+    fig, ax = plt.subplots()
+
+    im = ax.imshow(np.zeros(ori_map.shape[:2]), vmin=0, vmax=vmax, cmap=cmap)
+    fig.colorbar(im, ax=ax)
+
+
+    def update_coordinates(event):
+        nonlocal row, col, map_x, map_y
+        old_row, old_col = row, col
+        #col, row = event.xdata, event.ydata
+        map_x, map_y = event.xdata, event.ydata
+
+        col = np.argmin(np.abs(x_ticks - map_x))
+        map_x = x_ticks[col]
+
+        row = np.argmin(np.abs(y_ticks - map_y))
+        map_y = y_ticks[row]
+        # row = len(y_ticks) - row - 1 # reverse the index
+
+        # Check if the pixel is in data
+        if ((col >= ori_map.shape[1])
+            and (row >= ori_map.shape[0])):
+            return False
+
+        elif ((event.name == 'motion_notify_event')
+            and (old_row == row and old_col == col)):
+            return False
+        
+        else:
+            return True
+
+    def update_axes(event):
+        if update_coordinates(event):
+            pix_ori = ori_map[row, col]
+            mis_map = np.empty(ori_map.shape[:2])
+            mis_map[:] = np.nan
+            
+            if not np.any(np.isnan(pix_ori)):
+                for index in range(np.prod(mis_map.shape)):
+                    indices = np.unravel_index(index, mis_map.shape)
+                    if not np.any(np.isnan(ori_map[indices])):
+                        mis = Rotation.from_matrix(pix_ori @ ori_map[indices].T)
+                        mis_map[indices] = np.degrees(mis.magnitude())
+
+            im.set_data(mis_map)
+            fig.canvas.draw_idle()
+
+    # Make interactive
+    def onclick(event):
+        if event.inaxes == ax:
+            update_axes(event)
+    
+    cid = fig.canvas.mpl_connect('button_press_event', onclick)
+
+    fig.show()
