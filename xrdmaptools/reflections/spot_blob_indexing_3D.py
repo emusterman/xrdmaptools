@@ -23,6 +23,14 @@ from xrdmaptools.crystal.crystal import (
     are_collinear,
     are_coplanar
 )
+from xrdmaptools.reflections.qualify_indexing import (
+    reduce_indexings,
+    qof_from_indexing,
+    qofs_from_indexings,
+    sort_by_qofs,
+    desymmetrize,
+    multi_desymmetrize
+)
 
 ##########################
 ### Combined Functions ###
@@ -197,7 +205,7 @@ def phase_indexing_wrapper(function):
         if not phase._has_reciprocal_lattice:    
             phase.generate_reciprocal_lattice(1.15 * max_q)
         elif verbose:
-            if phase._reciprocal_lattice_qmax != 1.15 * max_q:
+            if phase._reciprocal_lattice_qmax < 1.15 * max_q:
                 warn_str = ('WARNING: Phase already has a reciprocal '
                             + 'lattice, but it was generated with a '
                             + 'maximum q-vector lower than expected. '
@@ -641,7 +649,7 @@ def seed_casting(seed,
                    + ' of type scipy.spatail.transform.Rotation are '
                    + f'supported. Type {type(seed)} is not.')
         raise TypeError(err_str)
-exit
+
     # Build spot kdtree
     kdtree = KDTree(all_spot_qs)
 
@@ -850,6 +858,7 @@ def pattern_decomposition_from_seeds(start_seeds,
                                      max_ori_decomp_count=20,
                                      symmetrize='lattice',
                                      space_group_nr=230,
+                                     desymmetrize_seeds=True,
                                      verbose=True):
 
     # Setup containers and working values
@@ -918,9 +927,9 @@ def pattern_decomposition_from_seeds(start_seeds,
     # Iteratively decompose pattern based on seeds
     iter_count = 0
     while True:
-        # De-symmetrize only top results
-        if symmetrize is not None:
-            # Trying to catch pseudosymmeery conditions
+        # Desymmetrize only top results
+        if symmetrize is not None and (iter_count > 0 or desymmetrize_seeds):
+            # Trying to catch pseudosymmtery conditions
             qof_mask = qofs >= np.max(qofs) - 0.15 * np.max(qofs)
             if qof_mask.sum() < 6:
                 if len(qofs) >= 6:
@@ -1229,195 +1238,195 @@ def pattern_decomposition_from_seeds(start_seeds,
 #         return red_indexings
 
 
-def reduce_indexings(indexings, return_groups=False):
+# def reduce_indexings(indexings, return_groups=False):
 
-    groups = {}
-    for idx, indexing in enumerate(indexings):
-        # key = tuple(indexing[np.argsort(indexing[:, 0])].ravel())
-        key = frozenset(map(tuple, indexing))
+#     groups = {}
+#     for idx, indexing in enumerate(indexings):
+#         # key = tuple(indexing[np.argsort(indexing[:, 0])].ravel())
+#         key = frozenset(map(tuple, indexing))
 
-        groups.setdefault(key, []).append(idx)
+#         groups.setdefault(key, []).append(idx)
     
-    red_indexings = [indexings[groups[k][0]] for k in groups.keys()]
+#     red_indexings = [indexings[groups[k][0]] for k in groups.keys()]
 
-    if return_groups:
-        return red_indexings, list(groups.values())
-    return red_indexings
+#     if return_groups:
+#         return red_indexings, list(groups.values())
+#     return red_indexings
 
 
 
-def qof_from_indexing(indexing,
-                      all_ref_qs,
-                      all_ref_fs,
-                      all_spot_qs,
-                      all_spot_ints,
-                      near_q,
-                      qmask,
-                      orientation=None):
+# def qof_from_indexing(indexing,
+#                       all_ref_qs,
+#                       all_ref_fs,
+#                       all_spot_qs,
+#                       all_spot_ints,
+#                       near_q,
+#                       qmask,
+#                       orientation=None):
 
-    # Parse indexing
-    spot_inds, ref_inds = indexing.T
+#     # Parse indexing
+#     spot_inds, ref_inds = indexing.T
     
-    # Rotate reference frame
-    if orientation is None:
-        orientation = Rotation.align_vectors(
-                                    all_spot_qs[spot_inds],
-                                    all_ref_qs[ref_inds])[0]
+#     # Rotate reference frame
+#     if orientation is None:
+#         orientation = Rotation.align_vectors(
+#                                     all_spot_qs[spot_inds],
+#                                     all_ref_qs[ref_inds])[0]
 
 
-    all_rot_qs = orientation.apply(all_ref_qs, inverse=False)
-    temp_qmask = qmask.generate(all_rot_qs)
-    # Forces bad seeds to be included in qmask
-    temp_qmask[ref_inds] = True
+#     all_rot_qs = orientation.apply(all_ref_qs, inverse=False)
+#     temp_qmask = qmask.generate(all_rot_qs)
+#     # Forces bad seeds to be included in qmask
+#     temp_qmask[ref_inds] = True
 
-    filled_ints = np.zeros(sum(temp_qmask))
-    for i, ind in enumerate(temp_qmask.nonzero()[0]):
-        if ind in ref_inds:
-            spot_ind = spot_inds[np.nonzero(ref_inds == ind)[0]][0]
-            filled_ints[i] = all_spot_ints[spot_ind]
+#     filled_ints = np.zeros(sum(temp_qmask))
+#     for i, ind in enumerate(temp_qmask.nonzero()[0]):
+#         if ind in ref_inds:
+#             spot_ind = spot_inds[np.nonzero(ref_inds == ind)[0]][0]
+#             filled_ints[i] = all_spot_ints[spot_ind]
 
-    qof = int_corr_qof(all_spot_qs[spot_inds],
-                       all_rot_qs[ref_inds],
-                       all_spot_ints[spot_inds],
-                       all_spot_ints,
-                       filled_ints,
-                       all_ref_fs[temp_qmask],
-                       sigma=near_q
-                       )
+#     qof = int_corr_qof(all_spot_qs[spot_inds],
+#                        all_rot_qs[ref_inds],
+#                        all_spot_ints[spot_inds],
+#                        all_spot_ints,
+#                        filled_ints,
+#                        all_ref_fs[temp_qmask],
+#                        sigma=near_q
+#                        )
     
-    return qof
+#     return qof
 
 
-def qofs_from_indexings(indexings,
-                        *args,
-                        **kwargs):
+# def qofs_from_indexings(indexings,
+#                         *args,
+#                         **kwargs):
 
-    qofs = [qof_from_indexing(indexing,
-                              *args,
-                              **kwargs)
-            for indexing in indexings]
+#     qofs = [qof_from_indexing(indexing,
+#                               *args,
+#                               **kwargs)
+#             for indexing in indexings]
     
-    return qofs
+#     return qofs
 
 
-def sort_by_qofs(qofs, *args):
+# def sort_by_qofs(qofs, *args):
 
-        sorted_args = []
-        for arg in args:
-            sorted_args.append(
-                [x for _, x in sorted(zip(qofs, arg),
-                                      key=lambda pair: pair[0],
-                                      reverse=True)]
-            )
+#         sorted_args = []
+#         for arg in args:
+#             sorted_args.append(
+#                 [x for _, x in sorted(zip(qofs, arg),
+#                                       key=lambda pair: pair[0],
+#                                       reverse=True)]
+#             )
         
-        qofs = sorted(qofs, reverse=True)
+#         qofs = sorted(qofs, reverse=True)
 
-        return qofs, *sorted_args
+#         return qofs, *sorted_args
 
 
 
-def desymmetrize(indexing,
-                 all_ref_qs,
-                 all_ref_fs,
-                 all_spot_qs,
-                 all_spot_ints,
-                 near_q,
-                 qmask,
-                 space_group_nr=230,
-                 symmetrize='lattice'):
+# def desymmetrize(indexing,
+#                  all_ref_qs,
+#                  all_ref_fs,
+#                  all_spot_qs,
+#                  all_spot_ints,
+#                  near_q,
+#                  qmask,
+#                  space_group_nr=230,
+#                  symmetrize='lattice'):
 
-    from orix.quaternion.symmetry import get_point_group
-    from xrdmaptools.crystal.Phase import crystal_grp_nr
-    I = np.eye(3)
-    inv = -I
+#     from orix.quaternion.symmetry import get_point_group
+#     from xrdmaptools.crystal.Phase import crystal_grp_nr
+#     I = np.eye(3)
+#     inv = -I
 
-    # Determine all symmetrically equivalent orientations
-    # 'point_group' considers only Laue group
-    if symmetrize is None:
-        qof = qof_from_indexing(indexing,
-                                all_ref_qs,
-                                all_ref_fs,
-                                all_spot_qs,
-                                all_spot_ints,
-                                near_q,
-                                qmask)
-        return indexing, qof
+#     # Determine all symmetrically equivalent orientations
+#     # 'point_group' considers only Laue group
+#     if symmetrize is None:
+#         qof = qof_from_indexing(indexing,
+#                                 all_ref_qs,
+#                                 all_ref_fs,
+#                                 all_spot_qs,
+#                                 all_spot_ints,
+#                                 near_q,
+#                                 qmask)
+#         return indexing, qof
 
-    if symmetrize == 'point_group':
-        spgrp = get_point_group(space_group_nr)
-    # 'lattice' considers entire crystal system
-    elif symmetrize == 'lattice':
-        spgrp = get_point_group(crystal_grp_nr[space_group_nr])
-    else:
-        err_str = 'Not a valid symmetry input.'
-        raise ValueError(err_str)
+#     if symmetrize == 'point_group':
+#         spgrp = get_point_group(space_group_nr)
+#     # 'lattice' considers entire crystal system
+#     elif symmetrize == 'lattice':
+#         spgrp = get_point_group(crystal_grp_nr[space_group_nr])
+#     else:
+#         err_str = 'Not a valid symmetry input.'
+#         raise ValueError(err_str)
 
-    # TODO: Add improper rotations (rotoreflections)
-    syms = spgrp.laue.to_matrix()[~spgrp.laue.improper]
+#     # TODO: Add improper rotations (rotoreflections)
+#     syms = spgrp.laue.to_matrix()[~spgrp.laue.improper]
 
-    # Parse symmetrized indexing
-    spot_inds, ref_inds = indexing.T
+#     # Parse symmetrized indexing
+#     spot_inds, ref_inds = indexing.T
 
-    sym_qs = all_ref_qs[ref_inds] @ syms # (no of syms, no of spots, q_vec)
-    # sym_ref_inds = np.abs(all_ref_qs[np.newaxis, np.newaxis]
-    #                       - sym_qs[:, :, np.newaxis]).sum(axis=-1).argmin(axis=-1)
-    sym_ref_inds = np.array([
-        cdist(sym_qs[i], all_ref_qs).argmin(axis=1)  # (N_spots,) for each symmetry
-        for i in range(len(syms))
-    ])
+#     sym_qs = all_ref_qs[ref_inds] @ syms # (no of syms, no of spots, q_vec)
+#     # sym_ref_inds = np.abs(all_ref_qs[np.newaxis, np.newaxis]
+#     #                       - sym_qs[:, :, np.newaxis]).sum(axis=-1).argmin(axis=-1)
+#     sym_ref_inds = np.array([
+#         cdist(sym_qs[i], all_ref_qs).argmin(axis=1)  # (N_spots,) for each symmetry
+#         for i in range(len(syms))
+#     ])
     
-    sym_indexings = []
-    for ref_inds in sym_ref_inds:
-        sym_indexings.append(np.asarray([spot_inds, ref_inds]).T)
+#     sym_indexings = []
+#     for ref_inds in sym_ref_inds:
+#         sym_indexings.append(np.asarray([spot_inds, ref_inds]).T)
     
-    # Break to determine orientation magnitudes
-    sym_qofs, sym_mags = [], []
-    for indexing in sym_indexings:
-        spot_inds, ref_inds = indexing.T
-        orientation = Rotation.align_vectors(
-                                    all_spot_qs[spot_inds],
-                                    all_ref_qs[ref_inds])[0]
+#     # Break to determine orientation magnitudes
+#     sym_qofs, sym_mags = [], []
+#     for indexing in sym_indexings:
+#         spot_inds, ref_inds = indexing.T
+#         orientation = Rotation.align_vectors(
+#                                     all_spot_qs[spot_inds],
+#                                     all_ref_qs[ref_inds])[0]
 
-        sym_qof = qof_from_indexing(indexing,
-                                    all_ref_qs,
-                                    all_ref_fs,
-                                    all_spot_qs,
-                                    all_spot_ints,
-                                    near_q,
-                                    qmask,
-                                    orientation=orientation)
+#         sym_qof = qof_from_indexing(indexing,
+#                                     all_ref_qs,
+#                                     all_ref_fs,
+#                                     all_spot_qs,
+#                                     all_spot_ints,
+#                                     near_q,
+#                                     qmask,
+#                                     orientation=orientation)
         
-        sym_qofs.append(sym_qof)
-        sym_mags.append(orientation.magnitude())
+#         sym_qofs.append(sym_qof)
+#         sym_mags.append(orientation.magnitude())
     
-    # return sym_indexings, sym_qofs, sym_mags
+#     # return sym_indexings, sym_qofs, sym_mags
     
-    # Pick the best
-    best_qof_mask = np.array(sym_qofs == np.max(sym_qofs))
-    min_mag_ind = np.argmin(np.asarray(sym_mags)[best_qof_mask])
-    best_ind = best_qof_mask.nonzero()[0][min_mag_ind]
+#     # Pick the best
+#     best_qof_mask = np.array(sym_qofs == np.max(sym_qofs))
+#     min_mag_ind = np.argmin(np.asarray(sym_mags)[best_qof_mask])
+#     best_ind = best_qof_mask.nonzero()[0][min_mag_ind]
 
-    return sym_indexings[best_ind], sym_qofs[best_ind]
+#     return sym_indexings[best_ind], sym_qofs[best_ind]
 
 
-def multi_desymmetrize(indexings, *args, **kwargs):
-    """
-    Combined method to account for potential pseudosymmetery
-    """
+# def multi_desymmetrize(indexings, *args, **kwargs):
+#     """
+#     Combined method to account for potential pseudosymmetery
+#     """
 
-    best_indexing = np.asarray([[], []])
-    best_qof = np.nan
+#     best_indexing = np.asarray([[], []])
+#     best_qof = np.nan
 
-    for indexing in indexings:
-        sym_indexing, sym_qof = desymmetrize(indexing,
-                                              *args,
-                                              **kwargs)
-        if (np.isnan(best_qof)
-            or sym_qof > best_qof):
-            best_indexing = sym_indexing
-            best_qof = sym_qof
+#     for indexing in indexings:
+#         sym_indexing, sym_qof = desymmetrize(indexing,
+#                                               *args,
+#                                               **kwargs)
+#         if (np.isnan(best_qof)
+#             or sym_qof > best_qof):
+#             best_indexing = sym_indexing
+#             best_qof = sym_qof
         
-    return best_indexing, best_qof
+#     return best_indexing, best_qof
 
 
 
@@ -1574,36 +1583,38 @@ def multi_desymmetrize(indexings, *args, **kwargs):
 #     return (ratio * exp_val) + ((1 - ratio) * ref_val)
 
 
-def int_corr_qof(fit_spot_qs,
-                 fit_rot_qs,
-                 fit_spot_ints,
-                 all_spot_ints,
-                 filled_ints,
-                 all_ref_fs,
-                 sigma=1):
+# def int_corr_qof(fit_spot_qs,
+#                  fit_rot_qs,
+#                  fit_spot_ints,
+#                  all_spot_ints,
+#                  filled_ints,
+#                  all_ref_fs,
+#                  sigma=1):
 
-    # dist = [np.sqrt(np.sum([(p - q)**2 for p, q in zip(v1, v2)]))
-    #         for v1, v2 in zip(fit_spot_qs, fit_rot_qs)]
+#     # dist = [np.sqrt(np.sum([(p - q)**2 for p, q in zip(v1, v2)]))
+#     #         for v1, v2 in zip(fit_spot_qs, fit_rot_qs)]
 
-    dist = np.linalg.norm(fit_spot_qs - fit_rot_qs, axis=-1)
+#     dist = np.linalg.norm(fit_spot_qs - fit_rot_qs, axis=-1)
     
-    # Gaussian with specified standard deviation
-    # centered at zero sampled at distance
-    gauss_int = fit_spot_ints * np.exp(-(np.asarray(dist))**2 / (2 * sigma**2))
+#     # Gaussian with specified standard deviation
+#     # centered at zero sampled at distance
+#     gauss_int = fit_spot_ints * np.exp(-(np.asarray(dist))**2 / (2 * sigma**2))
 
-    # Gaussian-weighted explained intensity fraction
-    exp_val = np.sum(gauss_int) / np.sum(all_spot_ints)
+#     # Gaussian-weighted explained intensity fraction
+#     exp_val = np.sum(gauss_int) / np.sum(all_spot_ints)
+#     # print(f'{exp_val=}')
 
-    # Correlation of measured and calculated intensities
-    ref_val = np.dot(filled_ints, all_ref_fs) / (np.linalg.norm(filled_ints) * np.linalg.norm(all_ref_fs))
+#     # Correlation of measured and calculated intensities
+#     ref_val = np.dot(filled_ints, all_ref_fs) / (np.linalg.norm(filled_ints) * np.linalg.norm(all_ref_fs))
+#     # print(f'{ref_val=}')
 
-    # return (ratio * exp_val) + ((1 - ratio) * ref_val)
-    return exp_val**2 * ref_val # Both must be large
+#     # return (ratio * exp_val) + ((1 - ratio) * ref_val)
+#     return exp_val**2 * ref_val # Both must be large
 
 
-def get_rmse(fit_spot_qs,
-             fit_rot_qs):
-    rmse = np.mean([np.sqrt(np.sum([(p - q)**2 for p, q in zip(v1, v2)]))
-                    for v1, v2 in zip(fit_spot_qs, fit_rot_qs)])
+# def get_rmse(fit_spot_qs,
+#              fit_rot_qs):
+#     rmse = np.mean([np.sqrt(np.sum([(p - q)**2 for p, q in zip(v1, v2)]))
+#                     for v1, v2 in zip(fit_spot_qs, fit_rot_qs)])
 
-    return rmse
+#     return rmse
