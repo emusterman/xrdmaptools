@@ -489,8 +489,8 @@ class QMask():
             raise ValueError(err_str)
         
         # Check for azimuthal discontintuites
-        chi_arr, max_arr, shifted = modular_azimuthal_shift(chi_arr)
-        self.chi_max_arr = max_arr # determines units...
+        self.chi_max_arr = np.max(np.abs(chi_arr)) # determines units...
+        chi_arr, _, shifted = modular_azimuthal_shift(chi_arr)
         self.chi_shifted = shifted # conditional
 
         # Determine simple extents
@@ -642,9 +642,14 @@ class QMask():
             second = tth
 
         # TODO: Check that the sign of angle_correct for both detector positions
-        upper = second - (general_polynomial(first, *self.upper_poly) - angle_ext)
-        lower = second - (general_polynomial(first, *self.lower_poly) + angle_ext)
-        vertical_mask = np.sign(upper) != np.sign(lower)
+        # upper = second - (general_polynomial(first, *self.upper_poly) - angle_ext)
+        # lower = second - (general_polynomial(first, *self.lower_poly) + angle_ext)
+        # vertical_mask = np.sign(upper) != np.sign(lower)
+        upper = second - general_polynomial(first, *self.upper_poly)
+        lower = second - general_polynomial(first, *self.lower_poly)
+        vertical_mask = np.any([np.sign(upper - angle_ext) != np.sign(lower + angle_ext),
+                                np.sign(upper + angle_ext) != np.sign(lower - angle_ext)],
+                                axis=0)
         
         # Horizontally bounded mask
         if getattr(self, 'left_poly_first') == 'tth':
@@ -655,9 +660,14 @@ class QMask():
             second = tth
 
         # TODO: Check that the sign of angle_correct for both detector positions
-        left = second - (general_polynomial(first, *self.left_poly) + angle_ext)
-        right = second - (general_polynomial(first, *self.right_poly) - angle_ext)
-        horizontal_mask = np.sign(left) != np.sign(right)
+        # left = second - (general_polynomial(first, *self.left_poly) + angle_ext)
+        # right = second - (general_polynomial(first, *self.right_poly) - angle_ext)
+        # horizontal_mask = np.sign(left) != np.sign(right)
+        left = second - general_polynomial(first, *self.left_poly)
+        right = second - general_polynomial(first, *self.right_poly)
+        horizontal_mask = np.any([np.sign(left - angle_ext) != np.sign(right + angle_ext),
+                                  np.sign(left + angle_ext) != np.sign(right - angle_ext)],
+                                    axis=0)
         
         # Extent masks
         tth_mask = np.all([tth >= self.tth_min - angle_ext,
