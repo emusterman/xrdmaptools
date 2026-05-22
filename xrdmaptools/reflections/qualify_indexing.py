@@ -1,8 +1,10 @@
 import numpy as np
 import scipy
 from scipy.spatial.transform import Rotation
+from scipy.spatial.distance import cdist
+from orix.quaternion.symmetry import get_point_group
 
-from xrdmaptools.crystal.Phase import crystal_grp_nr
+from xrdmaptools.crystal.Phase import get_default_sym_ops
 
 
 
@@ -130,12 +132,12 @@ def desymmetrize(indexing,
                  all_spot_ints,
                  near_q,
                  qmask,
+                 phase=None,
+                 all_ref_hkls=None,
                  space_group_nr=230,
                  symmetrize='lattice',
                  return_all=False):
 
-    from orix.quaternion.symmetry import get_point_group
-    from xrdmaptools.crystal.Phase import crystal_grp_nr
     I = np.eye(3)
     inv = -I
 
@@ -150,29 +152,59 @@ def desymmetrize(indexing,
                                 near_q,
                                 qmask)
         return indexing, qof
-
-    if symmetrize == 'point_group':
-        spgrp = get_point_group(space_group_nr)
-    # 'lattice' considers entire crystal system
-    elif symmetrize == 'lattice':
-        spgrp = get_point_group(crystal_grp_nr[space_group_nr])
+    
+    # Get symmetry operators
+    if phase is None:
+        syms = get_default_sym_ops(space_group_nr, symmetrize=symmetrize)
     else:
-        err_str = 'Not a valid symmetry input.'
-        raise ValueError(err_str)
+        syms = phase.get_sym_ops(symmetrize=symmetrize)
+
+    # if symmetrize == 'point_group':
+    #     # spgrp = get_point_group(space_group_nr)
+    # # 'lattice' considers entire crystal system
+    # elif symmetrize == 'lattice':
+    #     # spgrp = get_point_group(crystal_grp_nr[space_group_nr])
+    # else:
+    #     err_str = 'Not a valid symmetry input.'
+    #     raise ValueError(err_str)
 
     # TODO: Add improper rotations (rotoreflections)
-    syms = spgrp.laue.to_matrix()[~spgrp.laue.improper]
+    # syms = spgrp.laue.to_matrix()[~spgrp.laue.improper]
+    # syms = spgrp.laue.to_matrix()
+    # syms[spgrp.laue.improper] *= -1
 
     # Parse symmetrized indexing
     spot_inds, ref_inds = indexing.T
 
-    sym_qs = all_ref_qs[ref_inds] @ syms
-    # sym_ref_inds = np.abs(all_ref_qs[np.newaxis, np.newaxis]
-    #                       - sym_qs[:, :, np.newaxis]).sum(axis=-1).argmin(axis=-1)
-    sym_ref_inds = np.array([
-        cdist(sym_qs[i], all_ref_qs).argmin(axis=1)  # (N_spots,) for each symmetry
-        for i in range(len(syms))
-    ])
+    if phase is None:
+        sym_qs = all_ref_qs[ref_inds] @ syms
+        sym_ref_inds = []
+        for i in range(len(sym_qs)):
+            temp_ref_inds = []
+            for q_vect in sym_qs[i]:
+                # dist = cdist(q_vect, all_ref_qs)
+                dist = np.linalg.norm(all_ref_qs - q_vect, axis=1)
+                if dist.min() <= near_q:
+                    temp_ref_inds.append(np.argmin(dist))
+                else:
+                    break
+            else:
+                sym_ref_inds.append(temp_ref_inds)
+
+    else:
+        sym_hkls = phase.HKL(all_ref_qs[ref_inds] @ syms).round(0)
+        sym_ref_inds = []
+        for i in range(len(sym_hkls)):
+            temp_ref_inds = []
+            for hkl in sym_hkls[i]:
+                match_mask = np.all(all_ref_hkls == hkl, axis=1)
+                if match_mask.sum() > 0:
+                    temp_ref_inds.append(match_mask.nonzero()[0][0])
+                else:
+                    break
+            else:
+                sym_ref_inds.append(temp_ref_inds)
+
     
     sym_indexings = []
     for ref_inds in sym_ref_inds:
