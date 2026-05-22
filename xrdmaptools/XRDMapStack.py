@@ -2003,6 +2003,7 @@ class XRDMapStack(list):
                            save_to_hdf=True,
                            verbose=False,
                            symmetrize='lattice',
+                           debug_stop=None,
                            **kwargs):
         """
 
@@ -2058,10 +2059,13 @@ class XRDMapStack(list):
                 ref_mask = ((ref_mags > spot_mags.min() * (1 - ext))
                             & (ref_mags < spot_mags.max() * (1 + ext)))
                 
-                # Modify phase attributes for indexing
+                # Modify phase attributes to hasten indexing
                 phase.all_qs = all_ref_qs[ref_mask]
                 phase.all_hkls = all_ref_hkls[ref_mask]
                 phase.all_fs = all_ref_fs[ref_mask]
+
+                if indices == debug_stop:
+                    raise RuntimeError('DEBUG STOP TRIGGERED')
                 
                 (indexings,
                  qofs) = phase_index_all_grains(
@@ -2082,7 +2086,8 @@ class XRDMapStack(list):
                         continue
 
                     spot_inds, ref_inds = ind.T
-                    hkls = all_ref_hkls[ref_mask][ref_inds]
+                    # hkls = all_ref_hkls[ref_mask][ref_inds]
+                    hkls = phase.all_hkls[ref_inds]
 
                     # Assign values
                     rel_ind = pixel_df.index[spot_inds]
@@ -2090,6 +2095,11 @@ class XRDMapStack(list):
                     self.spots_3D.loc[rel_ind, 'grain_id'] = gid
                     self.spots_3D.loc[rel_ind, 'qof'] = qof
                     self.spots_3D.loc[rel_ind, ['h', 'k', 'l']] = hkls
+        
+        # Reset phase values
+        phase.all_qs = all_ref_qs
+        phase.all_hkls = all_ref_hkls
+        phase.all_fs = all_ref_fs
 
         # Write to hdf
         if save_to_hdf:
