@@ -456,3 +456,58 @@ def get_profile_distance(profile, step=1):
     return dist * step
 
 
+def map_shape_from_spots(spots_3D):
+    return (np.max(spots_3D['map_y']) + 1,
+            np.max(spots_3D['map_x']) + 1)
+
+
+
+
+def get_custom_maps(xdms, q_targets, hkls, phase):
+
+
+    map_shape = xdms.map_shape
+    
+    int_map = np.empty(map_shape)
+    int_map[:] = np.nan
+    ec_map = np.empty((*map_shape, 3, 3))
+    ec_map[:] = np.nan
+    es_map = ec_map.copy()
+    ori_map = ec_map.copy()
+    lattice_map = np.empty((*map_shape, 6))
+    lattice_map[:] = np.nan
+
+    q_dict = {}
+    int_dict = {}
+    for q_target, hkl in zip(q_targets, hkls):
+        q_dict[tuple(hkl)] = track_q_vector_com(xdms, q_target, cutoff=0.1)
+        int_dict[tuple(hkl)] = track_q_vector_sum(xdms, q_target, cutoff=0.1)
+
+    for index in range(np.prod(xdms.map_shape)):
+        indices = np.unravel_index(index, xdms.map_shape)
+        
+        spot_hkls = []
+        spot_qs = []
+        for hkl in hkls:
+            spot_q = q_dict[tuple(hkl)][indices]
+            if not np.any(np.isnan(spot_q)):
+                spot_qs.append(spot_q)
+                spot_hkls.append(hkl)
+
+        if len(spot_qs) > 3:
+
+            eij, ori, strained = phase_get_strain_orientation(spot_qs,
+                                                              spot_hkls,
+                                                              phase)
+            es_map[indices] = eij
+            ori_map[indices] = ori
+            lattice_map[indices] = [strained.a, strained.b, strained.c,
+                                    strained.alpha, strained.beta, strained.gamma]
+            
+            ec_map[indices] = ori @ eij @ ori.T
+        
+        # if len(spots) > 2:
+        #     ori = Rotation.align_vectors(phase.Q(spot_hkls), spot_qs)[0]
+        #     ori_map[indices] = ori.as_matrix()
+    
+    return lattice_map, ori_map, ec_map, es_map
