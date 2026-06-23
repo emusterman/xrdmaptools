@@ -515,7 +515,7 @@ def plot_IPF_map(ori_map,
 
 
 
-def interactive_misorientation_plot(ori_map, x_ticks=None, y_ticks=None, vmax=5, cmap='viridis'):
+def plot_interactive_misorientation(ori_map, x_ticks=None, y_ticks=None, vmax=5, cmap='viridis'):
 
     if x_ticks is None:
         x_ticks = list(range(ori_map.shape[1]))
