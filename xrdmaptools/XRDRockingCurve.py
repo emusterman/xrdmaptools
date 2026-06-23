@@ -38,7 +38,7 @@ from xrdmaptools.reflections.spot_blob_indexing_3D import (
     phase_index_best_grain,
     phase_index_all_grains
 )
-from xrdmaptools.crystal.Phase import Phase
+from xrdmaptools.crystal.phase import Phase
 from xrdmaptools.crystal.crystal import LatticeParameters
 from xrdmaptools.crystal.strain import get_strain_orientation
 from xrdmaptools.plot.general import return_plot_wrapper

@@ -52,7 +52,7 @@ from xrdmaptools.plot.geometry import (
 )
 from xrdmaptools.plot.analysis import plot_waterfall
 from xrdmaptools.geometry.geometry import *
-from xrdmaptools.crystal.Phase import Phase, phase_selector
+from xrdmaptools.crystal.phase import Phase, phase_selector
 from xrdmaptools.reflections.spot_blob_search import find_blobs
 
 

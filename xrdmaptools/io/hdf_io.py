@@ -6,7 +6,7 @@ import pandas as pd
 import dask.array as da
 
 # Local imports
-from xrdmaptools.crystal.Phase import Phase
+from xrdmaptools.crystal.phase import Phase
 from xrdmaptools.reflections.SpotModels import load_spot_function
 from xrdmaptools.utilities.utilities import pathify
 

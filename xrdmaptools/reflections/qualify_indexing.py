@@ -4,7 +4,7 @@ from scipy.spatial.transform import Rotation
 from scipy.spatial.distance import cdist
 from orix.quaternion.symmetry import get_point_group
 
-from xrdmaptools.crystal.Phase import get_default_sym_ops
+from xrdmaptools.crystal.phase import get_default_sym_ops
 
 
 
@@ -571,6 +571,7 @@ def symmetrize_and_stitch_v2(spots_3D,
                     matches = mis_mags < mis_thresh # (n_grains, n_grain_syms, n_neighbors, n_neighbor_syms) 
                 except Exception as e:
                     print(e)
+                    raise e
                     return pixel_grain_symmetries, near_oris
 
                 # Symmetry invariant versions
