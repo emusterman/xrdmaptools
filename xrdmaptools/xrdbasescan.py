@@ -20,7 +20,7 @@ except ModuleNotFoundError:
 
 # Local imports
 from xrdmaptools import __version__
-from xrdmaptools.XRDData import XRDData
+from xrdmaptools.xrddata import XRDData
 from xrdmaptools.utilities.math import *
 from xrdmaptools.utilities import reference_data
 from xrdmaptools.utilities.utilities import (
