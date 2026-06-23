@@ -35,16 +35,16 @@ class SpotModelBase():
         return multi_peak_fitting(cls.func_1d, *args)
 
     @classmethod
-    def multi_2d(cls, *args, radians=False):
-        return multi_peak_fitting(cls.func_2d, *args, radians=radians)
+    def multi_2d(cls, *args, degrees=False):
+        return multi_peak_fitting(cls.func_2d, *args, degrees=degrees)
     
     @classmethod
     def func_1d_offset(cls, *args):
         return args[-1] + cls.func_1d(*args[:-1])
     
     @classmethod
-    def func_2d_offset(cls, *args, radians=False):     
-        return args[-1] + cls.func_2d(*args[:-1], radians=radians)
+    def func_2d_offset(cls, *args, degrees=False):     
+        return args[-1] + cls.func_2d(*args[:-1], degrees=degrees)
     
     @classmethod
     def get_1d_fwhm(cls, *args):
@@ -52,13 +52,13 @@ class SpotModelBase():
         return arg_dict['fwhm']
     
     @classmethod
-    def get_2d_fwhm(cls, *args, radians=False):
+    def get_2d_fwhm(cls, *args, degrees=False):
         arg_dict = dict(zip(cls.par_2d, args))
         fwhm_x = arg_dict['fwhm_x']
         fwhm_y = arg_dict['fwhm_y']
         theta = arg_dict['theta']
                         
-        if not radians:
+        if not degrees:
             theta = np.radians(theta)
 
         fwhm_rx = fwhm_x * np.cos(-theta) - fwhm_y * np.sin(-theta)
@@ -94,14 +94,14 @@ class GaussianFunctions(SpotModelBase):
     
     @staticmethod
     # @njit
-    def func_2d(xy, amp, x0, y0, fwhm_x, fwhm_y, theta, radians=False):
+    def func_2d(xy, amp, x0, y0, fwhm_x, fwhm_y, theta, degrees=False):
         if len(xy) != 2:
             raise IOError("xy input must be length 2.")
 
         x = xy[0]
         y = xy[1]
 
-        if not radians:
+        if not degrees:
             theta = np.radians(theta)
 
         #a = (np.cos(theta) ** 2) / (2 * sigma_x ** 2) + (np.sin(theta) ** 2) / (2 * sigma_y ** 2)
@@ -125,7 +125,7 @@ class GaussianFunctions(SpotModelBase):
     def func_3d(xyz, amp,
                 x0, y0, z0,
                 fwhm_x, fwhm_y, fwhm_z,
-                theta, phi, radians=False):
+                theta, phi, degrees=False):
         
         if len(xyz) != 3:
             raise IOError("xyz input must be length 3.")
@@ -134,26 +134,40 @@ class GaussianFunctions(SpotModelBase):
         y = xyz[1]
         z = xyz[2]
 
-        if not radians:
+        if not degrees:
             theta = np.radians(theta)
             phi = np.radians(phi)
-        
-        xp = ((x - x0) * np.cos(phi)
-              - (y - y0) * np.sin(phi) * np.cos(theta)
-              + (z - z0) * np.sin(phi) * np.sin(theta))
-        yp = ((x - x0) * np.sin(phi)
-              + (y - y0) * np.cos(phi) * np.cos(theta)
-              - (z - z0) * np.cos(phi) * np.sin(theta))
-        zp = ((y - y0) * np.sin(theta)
-              + (z - z0) * np.cos(theta))
-        
-        sigma_x = fwhm_x / (2 * np.sqrt(2 * np.log(2)))
-        sigma_y = fwhm_y / (2 * np.sqrt(2 * np.log(2)))
-        sigma_z = fwhm_z / (2 * np.sqrt(2 * np.log(2)))
 
-        return amp * np.exp(-((xp**2 / (2 * sigma_x**2))
-                            + (yp**2 / (2 * sigma_y**2))
-                            + (zp**2 / (2 * sigma_z**2))))
+        xc = x - x0
+        yc = y - y0
+        zc = z - z0
+
+        cos_t, sin_t = np.cos(theta), np.sin(theta)
+        cos_p, sin_p = np.cos(phi), np.sin(phi)
+
+        xp = (cos_p * cos_t * xc) - (sin_p * yc) + (cos_p * sin_t * zc)
+        yp = (sin_p * cos_t * xc) + (cos_p * yc) + (sin_p * sin_t * zc)
+        zp = (-sin_t * xc) + (cos_t * zc)
+        
+        # xp = ((x - x0) * np.cos(phi)
+        #       - (y - y0) * np.sin(phi) * np.cos(theta)
+        #       + (z - z0) * np.sin(phi) * np.sin(theta))
+        # yp = ((x - x0) * np.sin(phi)
+        #       + (y - y0) * np.cos(phi) * np.cos(theta)
+        #       - (z - z0) * np.cos(phi) * np.sin(theta))
+        # zp = ((y - y0) * np.sin(theta)
+        #       + (z - z0) * np.cos(theta))
+        
+        C = 2 * np.sqrt(2 * np.log(2))
+        sigma_x = fwhm_x / C
+        sigma_y = fwhm_y / C
+        sigma_z = fwhm_z / C
+
+        exponent = (-((xp**2 / (2 * sigma_x**2))
+                      + (yp**2 / (2 * sigma_y**2))
+                      + (zp**2 / (2 * sigma_z**2))))
+
+        return amp * np.exp(exponent)
     
     @staticmethod
     # @njit
@@ -164,7 +178,7 @@ class GaussianFunctions(SpotModelBase):
     
     @staticmethod
     # @njit
-    def get_volume(amp, x0, y0, fwhm_x, fwhm_y, theta, radians=False):
+    def get_volume(amp, x0, y0, fwhm_x, fwhm_y, theta, degrees=False):
         # Returns volume under 2d gaussian function
         sigma_x = fwhm_x / (2 * np.sqrt(2 * np.log(2)))
         sigma_y = fwhm_y / (2 * np.sqrt(2 * np.log(2)))
@@ -173,7 +187,7 @@ class GaussianFunctions(SpotModelBase):
     # Confirm this...
     @staticmethod
     # @njit
-    def get_hyper_volume(amp, x0, y0, z0, fwhm_x, fwhm_y, fwhm_z, theta, phi, radians=False):
+    def get_hyper_volume(amp, x0, y0, z0, fwhm_x, fwhm_y, fwhm_z, theta, phi, degrees=False):
         sigma_x = fwhm_x / (2 * np.sqrt(2 * np.log(2)))
         sigma_y = fwhm_y / (2 * np.sqrt(2 * np.log(2)))
         sigma_z = fwhm_z / (2 * np.sqrt(2 * np.log(2)))
@@ -196,14 +210,14 @@ class LorentzianFunctions(SpotModelBase):
     # Not sure about this one...
     @staticmethod
     # @njit
-    def func_2d(xy, amp, x0, y0, fwhm_x, fwhm_y, theta, radians=False):
+    def func_2d(xy, amp, x0, y0, fwhm_x, fwhm_y, theta, degrees=False):
         if len(xy) != 2:
             raise IOError("xy input must be length 2.")
         
         x = xy[0]
         y = xy[1]
 
-        if not radians:
+        if not degrees:
             theta = np.radians(theta)
         
         # Coordinate rotation and translation
@@ -224,7 +238,7 @@ class LorentzianFunctions(SpotModelBase):
     
     @staticmethod
     # @njit
-    def get_volume(amp, x0, y0, fwhm_x, fwhm_y, theta):
+    def get_volume(amp, x0, y0, fwhm_x, fwhm_y, theta, degrees=False):
         # Current 2D Lorentzian function does not have a finite volume
 
         # Approximate volume with a 2D gaussian based on equal areas of the major axes
@@ -282,17 +296,17 @@ class PseudoVoigtFunctions(SpotModelBase):
     @staticmethod
     # @njit
     def func_2d(xy, amp, x0, y0, G_fwhm_x, G_fwhm_y,
-                L_fwhm_x, L_fwhm_y, theta, radians=False):
+                L_fwhm_x, L_fwhm_y, theta, degrees=False):
         V = PseudoVoigtFunctions
         eta_x, fwhm_x = V._get_eta_fwhm(G_fwhm_x, L_fwhm_x)
         eta_y, fwhm_y = V._get_eta_fwhm(G_fwhm_y, L_fwhm_y)
         eta = np.mean([eta_x, eta_y]) # might not be needed  
         return (eta * V.G.func_2d(xy, amp, x0, y0,
                                   fwhm_x, fwhm_y,
-                                  theta, radians=radians)
+                                  theta, degrees=degrees)
                 + (1 - eta) * V.L.func_2d(xy, amp, x0, y0,
                                           fwhm_x, fwhm_y,
-                                          theta, radians=radians))
+                                          theta, degrees=degrees))
     
     @staticmethod
     # @njit
@@ -305,7 +319,7 @@ class PseudoVoigtFunctions(SpotModelBase):
     @staticmethod
     # @njit
     def get_volume(amp, x0, y0, G_fwhm_x, G_fwhm_y,
-                   L_fwhm_x, L_fwhm_y, theta):
+                   L_fwhm_x, L_fwhm_y, theta, degrees=False):
         V = PseudoVoigtFunctions
         eta_x, fwhm_x = V._get_eta_fwhm(G_fwhm_x, L_fwhm_x)
         eta_y, fwhm_y = V._get_eta_fwhm(G_fwhm_y, L_fwhm_y)
@@ -321,13 +335,13 @@ class PseudoVoigtFunctions(SpotModelBase):
         return fwhm_x
     
     @staticmethod
-    def get_2d_fwhm(amp, x0, y0, G_fwhm_x, G_fwhm_y, L_fwhm_x, L_fwhm_y, theta, radians=False):
+    def get_2d_fwhm(amp, x0, y0, G_fwhm_x, G_fwhm_y, L_fwhm_x, L_fwhm_y, theta, degrees=False):
 
         V = PseudoVoigtFunctions
         eta_x, fwhm_x = V._get_eta_fwhm(G_fwhm_x, L_fwhm_x)
         eta_y, fwhm_y = V._get_eta_fwhm(G_fwhm_y, L_fwhm_y)
 
-        return SpotModelBase.get_2d_fwhm(amp, x0, y0, fwhm_x, fwhm_y, theta, radians=radians)
+        return SpotModelBase.get_2d_fwhm(amp, x0, y0, fwhm_x, fwhm_y, theta, degrees=degrees)
     
 
 ####################
