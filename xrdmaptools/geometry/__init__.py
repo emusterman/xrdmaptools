@@ -35,12 +35,12 @@ def __getattr__(attr):
     import importlib
 
     if attr in __base_classes__:
-        mod = importlib.import_module(f'{__name__}.{attr}')
+        mod = importlib.import_module(f'{__name__}.{attr.lower()}')
         # Base classes are brought up one level for convenience
         globals()[attr] = getattr(mod, attr)
         return globals()[attr]   
     elif attr in __submodules__:
-        mod = importlib.import_module(f'{__name__}.{attr}')
+        mod = importlib.import_module(f'{__name__}.{attr.lower()}')
         return mod
     else:
         err_str = f"module {__name__} has no attribute {attr}"
