@@ -22,14 +22,14 @@ __submodules__ = [
     'crystal',
     'map_alignment',
     'orientation',
-    'Phase',
+    'phase',
     'rsm',
     'strain',
     'zero_point_correction'
 ]
 
 __base_classes__ = [
-    # 'Phase' # Too many other values in module; not a base class
+    # 'phase' # Too many other values in module; not a base class
 ]
 
 
