@@ -64,6 +64,21 @@ def base_slider_plot(image_stack,
 
     ax.set_title(f'{title} [0]')
 
+    if slider_vals is None:
+        slider_vals = np.asarray((range(len(image_stack))))
+    else:
+        slider_vals = np.asarray(slider_vals)
+
+        ascending = all(a < b for a, b in zip(slider_vals, slider_vals[1:]))
+        descending = all(a > b for a, b in zip(slider_vals, slider_vals[1:]))
+
+        if descending:
+            slider_vals = slider_vals[::-1]
+            image_stack = image_stack[::-1]
+            shifts = shifts[::-1]
+        elif not (ascending or descending):
+            raise ValueError('Slider values must be sorted sequentially.')    
+
     if np.any(np.asarray(shifts) != 0):
         rect_left = x_max - image_stack[0].shape[1]
         rect_right = x_min + image_stack[0].shape[1]
@@ -77,20 +92,6 @@ def base_slider_plot(image_stack,
                                 edgecolor='r',
                                 facecolor='none')
         ax.add_patch(rect)
-
-    if slider_vals is None:
-        slider_vals = np.asarray((range(len(image_stack))))
-    else:
-        slider_vals = np.asarray(slider_vals)
-
-        ascending = all(a < b for a, b in zip(slider_vals, slider_vals[1:]))
-        descending = all(a > b for a, b in zip(slider_vals, slider_vals[1:]))
-
-        if descending:
-            slider_vals = slider_vals[::-1]
-            image_stack = image_stack[::-1]
-        elif not (ascending or descending):
-            raise ValueError('Slider values must be sorted sequentially.')
 
     slider_ax = fig.add_axes([0.7, 0.1, 0.03, 0.8])
     slider = Slider(
