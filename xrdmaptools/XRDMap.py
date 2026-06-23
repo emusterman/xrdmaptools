@@ -6,7 +6,7 @@ from tqdm import tqdm
 import functools
 
 # Local imports
-from xrdmaptools.XRDBaseScan import XRDBaseScan
+from xrdmaptools.xrdbasescan import XRDBaseScan
 from xrdmaptools.utilities.utilities import (
     pathify,
     _check_dict_key,

@@ -29,7 +29,7 @@ from xrdmaptools.utilities.utilities import (
   timed_iter,
   memory_iter
 )
-from xrdmaptools.XRDBaseScan import XRDBaseScan
+from xrdmaptools.xrdbasescan import XRDBaseScan
 from xrdmaptools.utilities.utilities import (
     generate_intensity_mask
 )

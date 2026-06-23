@@ -23,7 +23,7 @@ from xrdmaptools.utilities.math import rescale_array
 from xrdmaptools.utilities.utilities import (
   timed_iter 
 )
-from xrdmaptools.XRDBaseScan import XRDBaseScan
+from xrdmaptools.xrdbasescan import XRDBaseScan
 from xrdmaptools.utilities.utilities import (
     generate_intensity_mask
 )

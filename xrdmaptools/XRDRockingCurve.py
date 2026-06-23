@@ -7,7 +7,7 @@ from tqdm import tqdm
 import matplotlib.pyplot as plt
 import dask.array as da
 
-from xrdmaptools.XRDBaseScan import XRDBaseScan
+from xrdmaptools.xrdbasescan import XRDBaseScan
 from xrdmaptools.utilities.math import (
     energy_2_wavelength,
     wavelength_2_energy
