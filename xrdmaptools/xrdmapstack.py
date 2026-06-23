@@ -19,7 +19,7 @@ import matplotlib.pyplot as plt
 from .xrddata import XRDData
 from .xrdbasescan import XRDBaseScan
 from .xrdmap import XRDMap
-from .XRDRockingCurve import XRDRockingCurve
+from .xrdrockingcurve import XRDRockingCurve
 from xrdmaptools.utilities.utilities import (
     timed_iter,
     pathify,
