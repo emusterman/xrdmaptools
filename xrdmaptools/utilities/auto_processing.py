@@ -17,17 +17,15 @@ from .math import tth_2_q
 
 # Load database if not already. This may fail...
 c = xrdmaptools.io.db_io.c
-# if c is None:
-#     _load_tiled_catalog()
+if c is None:
+    _load_tiled_catalog()
+    c = xrdmaptools.io.db_io.c
 
 
 
 # TODO:
 # Automatically check for swapped axes
 # Check dark-field shapes
-# Add auto processing for rsm
-# How to alter kwargs for each individual function?
-# Check for most recent scan_id and remove delays when lagging behind
 
 
 def standard_process_xdm(scan_id,
@@ -85,8 +83,9 @@ def standard_process_xdm(scan_id,
 
                 if all([os.path.exists(p) for p in [f'{wd}/max_1D_integrations/scan{fname[4:10]}_max_1D_integration.txt',
                                                     f'{wd}max_1D_integrations/scan{fname[4:10]}_max_integration.png',
-                                                    f'{wd}integrated_maps/scan{fname[4:10]}_max_map.tif',
-                                                    f'{wd}integrated_maps/scan{fname[4:10]}_blob_sum.tif']]):
+                                                    # f'{wd}integrated_maps/scan{fname[4:10]}_max_map.tif',
+                                                    # f'{wd}integrated_maps/scan{fname[4:10]}_blob_sum.tif'
+                                                    ]]):
                     _proc_dict['maximums'] = False
             
             if any(_proc_dict.values()):
@@ -104,7 +103,9 @@ def standard_process_xdm(scan_id,
             else:
                 raise ValueError(f'Scan ID must be string not {scan_id}')
         
-        print(f'Starting processing for XRDMap Scan ID {xdm.scan_id}.')
+        if xdm is not None:
+            scan_id = xdm.scan_id
+        print(f'Starting processing for XRDMap Scan ID {scan_id}.')
     else:
         # TODO: Look for processing conditions
         xdm = scan_id
@@ -123,14 +124,25 @@ def standard_process_xdm(scan_id,
 
         elif xdm.detector == 'eiger':
             xdm.apply_defect_mask()
+            # Check for weird panel glitches
+            xdm.null_map[xdm.sum_map > 1e10] = True
 
         xdm.convert_scalers_to_flux(scaler_key='i0')
         xdm.convert_scalers_to_flux(scaler_key='im')
         xdm.normalize_scaler()
         if air_scatter == False:
             pass
-        elif isinstance(air_scatter, np.ndarray):
-            xdm.correct_air_scatter(air_scatter)
+        elif isinstance(air_scatter, (np.ndarray, list, tuple)):
+            if np.asarray(air_scatter).ndim == 2:
+                xdm.correct_air_scatter(air_scatter)
+            else:
+                xdm.correct_air_scatter(xdm.images[tuple(air_scatter)], applied_corrections=xdm.corrections)
+        elif air_scatter == 'corners':
+            corners = [(0, 0), (xdm.map_shape[0] - 1, 0), (0, xdm.map_shape[1] - 1), (xdm.map_shape[0] - 1, xdm.map_shape[1] - 1)]
+            corner_images = np.asarray([xdm.images[c] for c in corners])
+            corner_images[..., ~xdm.mask] = 0
+            air_scatter = corner_images[np.argmin(np.sum(corner_images, axis=(1, 2)))]
+            xdm.correct_air_scatter(air_scatter, applied_corrections=xdm.corrections)
         elif air_scatter == True:
             if xdm.detector == 'eiger':
                 sum_map = xdm.sum_map.copy()
@@ -142,7 +154,7 @@ def standard_process_xdm(scan_id,
         else:
             err_str = 'Error handling air_scatter. Designate array, None, or bool.'
             raise RuntimeError(err_str)
-        xdm.correct_outliers(tolerance=10)
+        xdm.correct_outliers(tolerance=20)
 
         # Geometric corrections
         if poni_file is None:
@@ -163,13 +175,13 @@ def standard_process_xdm(scan_id,
         # Rescale and saving
         xdm.rescale_images(arr_max=xdm.estimate_saturated_pixel())
         if _proc_dict['save_images']:
-            if xdm.images.dtype != xdm.dtype:
-                print('WARNING: Data was somehow upcast!!!!')
-                print('Trying to downcasting data to np.float32')
-                xdm.images = xdm.images.astype(xdm.dtype)
-                xdm._dtype = xdm.images.dtype
+            # if xdm.images.dtype != xdm.dtype:
+            #     print('WARNING: Data was somehow upcast!!!!')
+            #     print('Trying to downcasting data to np.float32')
+            #     xdm.images = xdm.images.astype(xdm.dtype)
+            #     xdm._dtype = xdm.images.dtype
             
-            xdm.images[:, :, ~xdm.mask] = 0
+            # xdm.images[:, :, ~xdm.mask] = 0
             xdm.finalize_images()
 
     # Remove enitire bad rows
@@ -414,6 +426,7 @@ def prepare_standard_directories(wd):
     os.makedirs(os.path.join(wd, 'calibrations/'), exist_ok=True)
     # os.makedirs(os.path.join(wd, 'air_scatter/'), exist_ok=True)
     os.makedirs(os.path.join(wd, 'xrdmaps/'), exist_ok=True)
+    os.makedirs(os.path.join(wd, 'xrdmaps/reduced/'), exist_ok=True)
     # os.makedirs(os.path.join(wd, 'reciprocal_space_maps/'), exist_ok=True)
     # os.makedirs(os.path.join(wd, 'integrated_maps/'), exist_ok=True)
     os.makedirs(os.path.join(wd, 'max_1D_integrations/'), exist_ok=True)
