@@ -12,17 +12,17 @@ import xrdmaptools as xmt
 
 
 
-def track_q_vector_com(xdms, q_target, cutoff=0.25):
+def track_q_vector_com(vector_map, q_target, cutoff=0.25):
 
-    map_shape = xdms.xdms_vector_map.shape
+    map_shape = vector_map.shape
     fill_map = np.empty((*map_shape, 3), dtype=float)
     fill_map[:] = np.nan
 
     for index in tqdm(range(np.prod(map_shape))):
         indices = np.unravel_index(index, map_shape)
         
-        q_vectors = xdms.xdms_vector_map[indices][:, :3]
-        intensity = xdms.xdms_vector_map[indices][:, -1]
+        q_vectors = vector_map[indices][:, :3]
+        intensity = vector_map[indices][:, -1]
 
         if len(q_vectors) == 0:
             continue 
@@ -31,6 +31,8 @@ def track_q_vector_com(xdms, q_target, cutoff=0.25):
         masky = np.abs(q_vectors[:, 1] - q_target[1]) < cutoff
         maskz = np.abs(q_vectors[:, 2] - q_target[2]) < cutoff
         mask = maskx & masky & maskz
+
+        # mask = np.linalg.norm(q_vectors - q_target, axis=1) < cutoff
 
         com = xmt.utilities.math.arbitrary_center_of_mass(
             intensity[mask],
@@ -42,50 +44,57 @@ def track_q_vector_com(xdms, q_target, cutoff=0.25):
     return fill_map
 
 
-def track_q_vector_sum(xdms, q_target, cutoff=0.25):
+def track_q_vector_sum(vector_map, q_target, cutoff=0.25):
 
-    map_shape = xdms.xdms_vector_map.shape
+    map_shape = vector_map.shape
     fill_map = np.empty(map_shape, dtype=float)
     fill_map[:] = np.nan
 
     for index in tqdm(range(np.prod(map_shape))):
         indices = np.unravel_index(index, map_shape)
         
-        q_vectors = xdms.xdms_vector_map[indices][:, :3]
-        intensity = xdms.xdms_vector_map[indices][:, -1]
+        q_vectors = vector_map[indices][:, :3]
+        intensity = vector_map[indices][:, -1]
 
         if len(q_vectors) == 0:
-            continue 
+            continue
 
         maskx = np.abs(q_vectors[:, 0] - q_target[0]) < cutoff
         masky = np.abs(q_vectors[:, 1] - q_target[1]) < cutoff
         maskz = np.abs(q_vectors[:, 2] - q_target[2]) < cutoff
         mask = maskx & masky & maskz
+
+        # mask = np.linalg.norm(q_vectors - q_target, axis=1) < cutoff
+
+        if mask.sum() == 0:
+            continue
 
         fill_map[indices] = np.sum(intensity[mask])
     
     return fill_map
 
 
-def track_q_vector_max(xdms, q_target, cutoff=0.25):
+def track_q_vector_max(vector_map, q_target, cutoff=0.25):
 
-    map_shape = xdms.xdms_vector_map.shape
+    map_shape = vector_map.shape
     fill_map = np.empty((*map_shape, 3), dtype=float)
     fill_map[:] = np.nan
 
     for index in tqdm(range(np.prod(map_shape))):
         indices = np.unravel_index(index, map_shape)
         
-        q_vectors = xdms.xdms_vector_map[indices][:, :3]
-        intensity = xdms.xdms_vector_map[indices][:, -1]
+        q_vectors = vector_map[indices][:, :3]
+        intensity = vector_map[indices][:, -1]
 
         if len(q_vectors) == 0:
-            continue 
+            continue
 
         maskx = np.abs(q_vectors[:, 0] - q_target[0]) < cutoff
         masky = np.abs(q_vectors[:, 1] - q_target[1]) < cutoff
         maskz = np.abs(q_vectors[:, 2] - q_target[2]) < cutoff
         mask = maskx & masky & maskz
+
+        # mask = np.linalg.norm(q_vectors - q_target, axis=1) < cutoff
 
         if mask.sum() == 0:
             continue
@@ -134,8 +143,8 @@ def track_q_vector_max(xdms, q_target, cutoff=0.25):
 #     return max_q_vectors, max_intensity
 
 
-def get_max_vectors_fast(xdms, q_target, cutoff=0.25):
-    all_cells = xdms.xdms_vector_map.ravel()
+def get_max_vectors_fast(vector_map, q_target, cutoff=0.25):
+    all_cells = vector_map.ravel()
     valid_cells = [cell for cell in all_cells if cell is not None and len(cell) > 0]
     
     if not valid_cells:
@@ -188,3 +197,32 @@ def get_matching_indices(q0=5.26, q1=5.2, phase0=None, phase1=None, cutoff=0.1):
             print(f'q0 has HKL {tuple(phase0.all_hkls[idx0])}')
             print(f'q1 has HKL {tuple(phase1.all_hkls[idx1])}')
             print('')
+
+
+def mask_vector_map(vector_map, q_target, cutoff=0.25):
+
+    map_shape = vector_map.shape
+    fill_map = np.empty(map_shape, dtype=object)
+
+    for index in tqdm(range(np.prod(map_shape))):
+        indices = np.unravel_index(index, map_shape)
+        
+        q_vectors = vector_map[indices][:, :3]
+        intensity = vector_map[indices][:, -1]
+
+        if len(q_vectors) == 0:
+            fill_map[indices] = []
+
+        maskx = np.abs(q_vectors[:, 0] - q_target[0]) < cutoff
+        masky = np.abs(q_vectors[:, 1] - q_target[1]) < cutoff
+        maskz = np.abs(q_vectors[:, 2] - q_target[2]) < cutoff
+        mask = maskx & masky & maskz
+
+        # mask = np.linalg.norm(q_vectors - q_target, axis=1) < cutoff
+
+        if mask.sum() == 0:
+            fill_map[indices] = []
+
+        fill_map[indices] = vector_map[indices][mask]
+    
+    return fill_map

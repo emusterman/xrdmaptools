@@ -7,6 +7,7 @@ from scipy.spatial.transform import Rotation
 
 from xrdmaptools.crystal.strain import phase_get_strain_orientation
 from xrdmaptools.utilities.math import convert_qd
+from xrdmaptools.crystal.crystal import are_collinear, are_coplanar
 
 
 def pixel_spots(spots, indices):
@@ -419,6 +420,21 @@ def plot_strain_profiles(es_map):
     fig.show()
 
 
+def plot_selected_strains(all_es_map, all_int_map, strain_indices=0, int_cutoff=1e3):
+
+    fig, ax = plt.subplots(figsize=(5, 5))
+
+    for i in range(len(strains_list)):
+
+        strain_profiles, strain_errs = strains_list[i]
+        strain_profile = strain_profiles[ind]
+        strain_err = strain_errs[ind]
+
+        ax.errorbar(range(len(strain_profile)), strain_profile, yerr=strain_err, label=i)
+
+    ax.legend()
+    fig.show()
+
 
 def get_profile_distance(profile, step=1):
 
@@ -453,7 +469,56 @@ def get_profile_distance(profile, step=1):
 
     dist = edges['left_edge_right_feature'] - edges['right_edge_left_feature']
 
-    return dist * step
+    return (dist * step,
+            slice(edges['left_edge_right_feature'], edges['right_edge_right_feature']))
+
+
+def plot_selected_strains(all_es_maps, all_int_maps, strain_indices=(0, 0), int_cutoff=1e3, step=0.5):
+
+    titles = dict(zip([(0, 0), (1, 1), (2, 2), (0, 1), (0, 2), (1, 2)],
+                      ['ε_xx', 'ε_yy', 'ε_zz', 'ε_xy', 'ε_xz', 'ε_yz']))
+    title = titles[strain_indices]
+
+    def int_mask(arr, ints, int_cutoff=int_cutoff):
+        arr = arr.copy()
+        arr[ints < int_cutoff] = np.nan
+        return arr
+    
+    distances, profiles, errors = [], [], []
+    # Get strain profiles
+    for es_map, int_map in zip(all_es_maps, all_int_maps):
+        strain_map = int_mask(es_map[..., *strain_indices], int_map)
+
+        strain_map *= 1e3
+
+        full_profile = np.median(strain_map, axis=0)
+        full_err = np.std(strain_map, axis=0)
+        
+        dist, feature_slice = get_profile_distance(full_profile, step=step)
+
+        # raise Exception
+        if np.isnan(feature_slice.stop):
+            feature_slice = slice(feature_slice.start, None)
+
+        distances.append(dist)
+        profiles.append(full_profile[feature_slice])
+        errors.append(full_err[feature_slice])
+    
+    profiles = [p for _, p in sorted(zip(distances, profiles))]
+    errors = [e for _, e in sorted(zip(distances, errors))]
+    distances = sorted(distances)
+
+    fig, ax = plt.subplots(figsize=(10, 5))
+
+    for i in range(len(distances)):
+
+        ax.errorbar(np.array(range(len(profiles[i]))) * step, profiles[i], yerr=errors[i], label=f'Separation = {round(distances[i], 1):.1f} μm')
+    
+    ax.set_xlabel('x-axis [μm]')
+    ax.set_ylabel(f'Absolute {title} Strain [x10^3]')
+
+    ax.legend()
+    fig.show()
 
 
 def map_shape_from_spots(spots_3D):
@@ -463,7 +528,7 @@ def map_shape_from_spots(spots_3D):
 
 
 
-def get_custom_maps(xdms, q_targets, hkls, phase):
+def get_custom_maps(xdms, q_targets, hkls, phase, cutoff=0.1):
 
 
     map_shape = xdms.map_shape
@@ -474,25 +539,41 @@ def get_custom_maps(xdms, q_targets, hkls, phase):
     ec_map[:] = np.nan
     es_map = ec_map.copy()
     ori_map = ec_map.copy()
-    lattice_map = np.empty((*map_shape, 6))
+    lattice_map = np.empty((*map_shape, 7))
     lattice_map[:] = np.nan
 
-    q_dict = {}
-    int_dict = {}
-    for q_target, hkl in zip(q_targets, hkls):
-        q_dict[tuple(hkl)] = track_q_vector_com(xdms, q_target, cutoff=0.1)
-        int_dict[tuple(hkl)] = track_q_vector_sum(xdms, q_target, cutoff=0.1)
+    # q_dict = {}
+    # int_dict = {}
+    # for q_target, hkl in zip(q_targets, hkls):
+    #     q_dict[tuple(hkl)] = track_q_vector_com(xdms, q_target, cutoff=0.1)
+    #     int_dict[tuple(hkl)] = track_q_vector_sum(xdms, q_target, cutoff=0.1)
+    
 
     for index in range(np.prod(xdms.map_shape)):
         indices = np.unravel_index(index, xdms.map_shape)
-        
-        spot_hkls = []
+        pixel_df = pixel_spots(xdms.spots_3D, indices)
+
+        if len(pixel_df) < 1:
+            continue
+
+        all_spot_qs = pixel_df[['qx', 'qy', 'qz']].values
+        all_spot_ints = pixel_df['intensity'].values
+
         spot_qs = []
-        for hkl in hkls:
-            spot_q = q_dict[tuple(hkl)][indices]
-            if not np.any(np.isnan(spot_q)):
-                spot_qs.append(spot_q)
+        spot_hkls = []
+        for q_target, hkl in zip(q_targets, hkls):
+            diff_q = np.linalg.norm(all_spot_qs - q_target, axis=1)
+            if np.min(diff_q) < cutoff:
+                spot_qs.append(all_spot_qs[np.argmin(diff_q)])
                 spot_hkls.append(hkl)
+        
+        # spot_hkls = []
+        # spot_qs = []
+        # for hkl in hkls:
+        #     spot_q = q_dict[tuple(hkl)][indices]
+        #     if not np.any(np.isnan(spot_q)):
+        #         spot_qs.append(spot_q)
+        #         spot_hkls.append(hkl)
 
         if len(spot_qs) > 3:
 
@@ -502,7 +583,8 @@ def get_custom_maps(xdms, q_targets, hkls, phase):
             es_map[indices] = eij
             ori_map[indices] = ori
             lattice_map[indices] = [strained.a, strained.b, strained.c,
-                                    strained.alpha, strained.beta, strained.gamma]
+                                    strained.alpha, strained.beta, strained.gamma,
+                                    strained.lattice.UnitCellVolume()]
             
             ec_map[indices] = ori @ eij @ ori.T
         
