@@ -51,7 +51,8 @@ from xrdmaptools.crystal.crystal import (
 )
 from xrdmaptools.crystal.map_alignment import (
     relative_correlation_auto_alignment,
-    manual_alignment
+    manual_alignment,
+    com_auto_alignment
 )
 from xrdmaptools.plot.general import return_plot_wrapper
 from xrdmaptools.plot.image_stack import base_slider_plot
@@ -181,7 +182,7 @@ class XRDMapStack(list):
             self.xdms_hdf_path = None
             self.xdms_hdf = None
         else:
-            self.start_saving_xrdmapstack_hdf(
+            self.start_saving_xdms_hdf(
                         xdms_hdf=xdms_hdf,
                         xdms_hdf_filename=xdms_hdf_filename)
 
@@ -1084,11 +1085,11 @@ class XRDMapStack(list):
             self.xdms_hdf = None
         
 
-    def start_saving_xrdmapstack_hdf(self,
-                                     xdms_hdf=None,
-                                     xdms_hdf_filename=None,
-                                     xdms_hdf_path=None,
-                                     save_current=False):
+    def start_saving_xdms_hdf(self,
+                              xdms_hdf=None,
+                              xdms_hdf_filename=None,
+                              xdms_hdf_path=None,
+                              save_current=False):
         """
 
         """
@@ -1101,7 +1102,7 @@ class XRDMapStack(list):
             warn_str = ('WARNING: Trying to save to the HDF file, but '
                         'a file or location has already been '
                         'specified!\nSwitching save files or locations'
-                        ' should use the "switch_xrdmapstack_hdf" '
+                        ' should use the "switch_xdms_hdf" '
                         'function.\nProceeding without changes.')
             print(warn_str)
             return
@@ -1151,13 +1152,13 @@ class XRDMapStack(list):
             save_attrs(self)
 
         if save_current:
-            self.save_current_xrdmapstack_hdf()
+            self.save_current_xdms_hdf()
 
 
     # Saves current major features
     # Calls several other save functions
     @_protect_xdms_hdf()
-    def save_current_xrdmapstack_hdf(self):
+    def save_current_xdms_hdf(self):
         """
 
         """
@@ -1180,7 +1181,7 @@ class XRDMapStack(list):
 
     
     # Ability to toggle hdf saving and proceed without writing to disk.
-    def stop_saving_xrdmapstack_hdf(self):
+    def stop_saving_xdms_hdf(self):
         """
 
         """
@@ -1190,11 +1191,11 @@ class XRDMapStack(list):
     
 
     @_protect_xdms_hdf()
-    def switch_xrdmapstack_hdf(self,
-                             xdms_hdf=None,
-                             xdms_hdf_path=None,
-                             xdms_hdf_filename=None,
-                             save_current=False):
+    def switch_xdms_hdf(self,
+                        xdms_hdf=None,
+                        xdms_hdf_path=None,
+                        xdms_hdf_filename=None,
+                        save_current=False):
         """
 
         """
@@ -1227,8 +1228,8 @@ class XRDMapStack(list):
             # Success actually changes the write location
             old_base_attrs = dict(self.xdms_hdf[self._hdf_type].attrs)
 
-            self.stop_saving_xrdmapstack_hdf()
-            self.start_saving_xrdmapstack_hdf(
+            self.stop_saving_xdms_hdf()
+            self.start_saving_xdms_hdf(
                             xdms_hdf=xdms_hdf,
                             xdms_hdf_path=xdms_hdf_path,
                             xdms_hdf_filename=xdms_hdf_filename,
@@ -1264,7 +1265,7 @@ class XRDMapStack(list):
 
         # Move xrdmapstack and start new
         self.xdms_wd = new_xdms_wd
-        self.switch_xrdmapstack_hdf(xdms_hdf_path=new_xdms_wd,
+        self.switch_xdms_hdf(xdms_hdf_path=new_xdms_wd,
                                     save_current=True)
 
 
@@ -2182,12 +2183,13 @@ class XRDMapStack(list):
         Construct vector map from 3D spots pandas dataframe.
         """
 
-        if (spots_3D is None
-            and (not hasattr(self, 'spots_3D')
-                 or self.spots_3D is None)):
-            err_str = ("XRDMapStack must have 'spots_3D' attribute or "
-                       + "they must be provided.")
-            raise AttributeError(err_str)
+        if spots_3D is None:
+            if hasattr(self, 'spots_3D') and self.spots_3D is not None:
+                spots_3D = self.spots_3D
+            else:
+                err_str = ("XRDMapStack must have 'spots_3D' attribute or "
+                            + "they must be provided.")
+                raise AttributeError(err_str)
 
         if map_shape is None:
             if (hasattr(self, 'xdms_vector_map')
@@ -2199,14 +2201,14 @@ class XRDMapStack(list):
                             + 'Using shape estimated from spot map '
                             + 'extents.')
                 print(warn_str)
-                map_shape = (np.max(self.spots_3D['map_y']),
-                             np.max(self.spots_3D['map_x']))
+                map_shape = (np.max(spots_3D['map_y']),
+                             np.max(spots_3D['map_x']))
         
         vector_map = np.empty(map_shape, dtype=object)
 
         for index in range(np.prod(vector_map.shape)):
             indices = np.unravel_index(index, vector_map.shape)
-            df = self.pixel_3D_spots(indices)
+            df = self.pixel_3D_spots(indices, spots_3D=spots_3D)
             vector_map[indices] = df[['qx', 'qy', 'qz', 'intensity']].values
 
         return vector_map
