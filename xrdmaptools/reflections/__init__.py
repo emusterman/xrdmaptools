@@ -32,7 +32,7 @@ __submodules__ = [
     'spot_blob_search_3D',
     'spot_blob_indexing',
     'spot_blob_search',
-    'SpotModels'
+    'spot_models'
 ]
 
 __base_classes__ = [

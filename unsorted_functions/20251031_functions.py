@@ -9,7 +9,7 @@ from scipy.optimize import curve_fit
 from scipy.stats import t
 
 
-from xrdmaptools.reflections.SpotModels import (
+from xrdmaptools.reflections.spot_models import (
     GaussianFunctions,
     LorentzianFunctions,
     PseudoVoigtFunctions

@@ -22,7 +22,7 @@ from xrdmaptools.io.db_io import (
     get_scantype
     )
 from xrdmaptools.reflections.spot_blob_indexing import _initial_spot_analysis
-from xrdmaptools.reflections.SpotModels import GaussianFunctions
+from xrdmaptools.reflections.spot_models import GaussianFunctions
 from xrdmaptools.reflections.spot_blob_search import (
     find_blobs_spots,
     find_spot_stats,
@@ -1466,7 +1466,7 @@ class XRDMap(XRDBaseScan):
         Parameters
         ----------
         SpotModel : SpotModel
-            SpotModel object from the reflections.SpotModels module
+            SpotModel object from the reflections.spot_models module
             used to fit spots. Available models are GaussianFunctions,
             LorentzFunctions, and PseudoVoigtFunctions.
         max_dist : float, optional
@@ -1548,7 +1548,7 @@ class XRDMap(XRDBaseScan):
         Parameters
         ----------
         SpotModel : SpotModel, optional
-            SpotModel object from the reflections.SpotModels module
+            SpotModel object from the reflections.spot_models module
             used to fit spots. Available models are GaussianFunctions,
             LorentzFunctions, and PseudoVoigtFunctions.
             GaussianFunctions are used by default.

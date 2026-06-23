@@ -5,7 +5,7 @@ from scipy.spatial.transform import Rotation
 from itertools import product, combinations
 
 # Local imports
-from .SpotModels import GaussianFunctions
+from .spot_models import GaussianFunctions
 from ..crystal.orientation import euler_rotation
 from ..geometry.geometry import get_q_vect
 

@@ -23,7 +23,7 @@ from xrdmaptools.utilities.math import (
 from xrdmaptools.utilities.utilities import (
     iterative_background
 )
-from xrdmaptools.reflections.SpotModels import (
+from xrdmaptools.reflections.spot_models import (
     load_spot_function
 )
 

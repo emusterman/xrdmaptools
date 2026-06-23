@@ -9,8 +9,8 @@ from xrdmaptools.utilities.math import arbitrary_center_of_mass
 
 # TEMP
 from scipy.optimize import curve_fit
-from xrdmaptools.reflections.SpotModels import load_spot_function
-from xrdmaptools.reflections.SpotModels import GaussianFunctions
+from xrdmaptools.reflections.spot_models import load_spot_function
+from xrdmaptools.reflections.spot_models import GaussianFunctions
 
 
 # 3D analog of blob_search

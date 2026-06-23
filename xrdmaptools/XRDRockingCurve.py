@@ -1183,7 +1183,7 @@ class XRDRockingCurve(XRDBaseScan):
             If this key indicates a SpotModel, then the vectors will
             be fit to this 3D model and the fit amplitude and center
             will be used intstead. See the load_peak_function in the
-            SpotModels module for supported SpotModels. 'sum' is used
+            spot_models module for supported spot_models. 'sum' is used
             by default.
         save_to_hdf : bool, optional
             Flag to control if data is written to the HDF file. True by

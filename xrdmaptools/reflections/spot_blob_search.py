@@ -40,7 +40,7 @@ from xrdmaptools.geometry.geometry import (
     modular_azimuthal_shift,
     modular_azimuthal_reshift
 )
-from xrdmaptools.reflections.SpotModels import generate_bounds
+from xrdmaptools.reflections.spot_models import generate_bounds
 
 
 def resize_blobs(blob_image, distance=0):

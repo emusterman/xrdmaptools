@@ -20,7 +20,7 @@ from xrdmaptools.utilities.utilities import (
     pathify
 )
 from xrdmaptools.utilities.math import compute_r_squared
-from xrdmaptools.reflections.SpotModels import (
+from xrdmaptools.reflections.spot_models import (
     GaussianFunctions,
     generate_bounds
 )
