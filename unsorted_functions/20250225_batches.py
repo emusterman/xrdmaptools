@@ -10,7 +10,7 @@ import matplotlib.pyplot as plt
 
 # Local imports
 from xrdmaptools.XRDRockingCurve import XRDRockingCurve
-from xrdmaptools.XRDMap import XRDMap
+from xrdmaptools.xrdmap import XRDMap
 from xrdmaptools.reflections.spot_blob_indexing_3D import *
 from xrdmaptools.reflections.spot_blob_indexing_3D import _get_connection_indices
 from xrdmaptools.crystal.strain import *

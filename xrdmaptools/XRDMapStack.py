@@ -18,7 +18,7 @@ import matplotlib.pyplot as plt
 # Base classes must be relative imports
 from .xrddata import XRDData
 from .xrdbasescan import XRDBaseScan
-from .XRDMap import XRDMap
+from .xrdmap import XRDMap
 from .XRDRockingCurve import XRDRockingCurve
 from xrdmaptools.utilities.utilities import (
     timed_iter,

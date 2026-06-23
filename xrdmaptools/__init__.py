@@ -34,7 +34,7 @@ __submodules__ = [
 __base_classes__ = [
     'xrddata',
     'xrdbasescan',
-    'XRDMap',
+    'xrdmap',
     'XRDRockingCurve',
     'XRDMapStack'
 ]

@@ -30,7 +30,7 @@ import matplotlib.pyplot as plt
 
 # Local imports
 import xrdmaptools as xmt
-from xrdmaptools.XRDMap import XRDMap
+from xrdmaptools.xrdmap import XRDMap
 from xrdmaptools.utilities.db_io import (
     _get_resource_keys,
     _get_resource_paths,
