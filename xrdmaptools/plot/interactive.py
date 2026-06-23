@@ -80,6 +80,7 @@ def _update_axes(dyn_kw,
          'edges', # For 3D scatter
          'skip', # For 3D scatter
          'int_cutoff', # For 3D scatter
+         'alpha', # For 3D scatter
          'x_ticks', # For plot, images, and 3D scatter
          'x_min',
          'x_max',
@@ -293,6 +294,7 @@ def _update_3D_scatter(dyn_kw,
         dyn_kw['axes'][1].scatter(
                 *plot_scatter[::skip, :3].T,
                 c=plot_scatter[::skip, -1],
+                alpha=dyn_kw['alpha'],
                 cmap=cmap)
 
 
