@@ -125,7 +125,7 @@ def load_xrdbase_hdf(filename,
             
             if has_spots_3D:
                 spots_3D = pd.read_hdf(hdf_path,
-                                    key=f'{hdf_type}/reflections/spots_3D')
+                                       key=f'{hdf_type}/reflections/spots_3D')
 
             if not dask_enabled:
                 hdf = h5py.File(hdf_path, 'r')
