@@ -69,7 +69,7 @@ def blob_search(image,
     if mask is None or np.all(mask):
        temp_mask = np.ones_like(image, dtype=np.bool_)
     else:
-        temp_mask = mask
+        temp_mask = mask.copy()
 
     # Setup filter for the images
     # Works okay, could take no inputs...
@@ -77,7 +77,8 @@ def blob_search(image,
         image_filter = lambda image : gaussian_filter(image, sigma=size)
     # Works best
     elif str(filter_method).lower() in ['minimum', 'min']:
-        image_filter = lambda image : minimum_filter(gaussian_filter(image, sigma=1), size=size)
+        # image_filter = lambda image : minimum_filter(gaussian_filter(image, sigma=1), size=size)
+        image_filter = lambda image : minimum_filter(median_filter(image, size=2), size=size)
     # Gaussian is better and faster
     elif str(filter_method).lower() in ['median', 'med']:
         image_filter = lambda image : median_filter(image, size=size)
@@ -110,6 +111,9 @@ def blob_search(image,
                                      multiplier=multiplier)
     # blob_mask = blurred_image > mask_thresh
     blob_mask[~temp_mask] = 0
+
+    # blur filter
+    # blob_mask = minimum_filter(blob_mask, size=size)
 
     if (expansion is not None
         and expansion != 0
@@ -213,6 +217,7 @@ def find_blobs(images,
     map_shape = images.shape[:-2]
     num_images = np.prod(map_shape)
     delayed_list = []
+    # for index in tqdm(range(num_images)):
     for index in range(num_images):
         indices = np.unravel_index(index, map_shape)
         image = images[indices]
@@ -224,10 +229,17 @@ def find_blobs(images,
         output = dask_blob_search(image)
         delayed_list.append(output)
 
+    # return delayed_list
+
     # Process delayed tasks with callback
     print('Searching images for blobs...')
     with TqdmCallback(tqdm_class=tqdm):
         blob_mask_list = dask.compute(*delayed_list)
+    
+    # blob_masks = np.empty_like(images, dtype=np.bool_)
+    # for index in range(num_images):
+    #     indices = np.unravel_index(index, map_shape)
+    #     blob_masks[indices] = blob_mask_list[index][0]
     
     return blob_mask_list
 
