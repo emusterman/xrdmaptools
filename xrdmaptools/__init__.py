@@ -18,7 +18,7 @@ __status__ = 'testing'
 __date__ = "03/14/2024" # MM/DD/YYYY
 
 # This version is not currently published!
-__version__ = '2026.6.23'
+__version__ = '2026.7.22'
 
 
 __submodules__ = [
@@ -36,7 +36,8 @@ __base_classes__ = [
     'XRDBaseScan',
     'XRDMap',
     'XRDRockingCurve',
-    'XRDMapStack'
+    'XRDMapStack',
+    'XRDSlice'
 ]
 
 
