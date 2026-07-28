@@ -345,7 +345,8 @@ class XRDBaseScan(XRDData):
             ostr += f'\n\tScan_id:\t{self.scan_id}'
         if hasattr(self, 'detector') and self.detector != '':
             ostr += f'\n\tDetector:\t{self.detector}'
-        ostr += f'\n\tEnergy:\t\t{self.energy} keV'
+        ostr += f'\n\tEnergy:\t\t{self.energy.__str__().replace('\n', '')} keV'
+        ostr += f'\n\tTheta:\t\t{self.theta.__str__().replace('\n', '')} deg.'
         if self.hdf_path is not None:
             ostr += f'\n\tHDF Path:\t{self.hdf_path}\n'
 
@@ -2834,6 +2835,7 @@ class XRDBaseScan(XRDData):
                     multiplier=5,
                     size=3,
                     expansion=10,
+                    mask=None,
                     override_rescale=False):
         """
         Find significant blobs in the images.
@@ -2872,6 +2874,9 @@ class XRDBaseScan(XRDData):
         expansion : int, optional
             How many pixels to expand beyond the thresholded pixels. By
             default this number is 10.
+        mask : np.ndarray, optional
+            Masked pixels for blob search. If not given, the internal
+            mask attribute will be used.
         override_rescale : bool, optional
             Flag to override the internal check to ensure images have
             been rescaled before searching for blobs.
@@ -2897,11 +2902,14 @@ class XRDBaseScan(XRDData):
                         + " continue.\nProceeding without changes.")
             print(warn_str)
             return
+        
+        if mask is None:
+            mask = self.mask
 
         # Search each image for significant spots
         blob_mask_list = find_blobs(
                             self.images,
-                            mask=self.mask,
+                            mask=mask,
                             filter_method=filter_method,
                             multiplier=multiplier,
                             size=size,
