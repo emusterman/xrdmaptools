@@ -30,15 +30,24 @@ from xrdmaptools.reflections.spot_blob_search import (
     remake_spot_list,
     fit_spots
     )
-from xrdmaptools.plot.interactive import (
-    interactive_2D_plot,
-    interactive_1D_plot,
-    interactive_1D_window_sum_plot,
-    interactive_1D_window_com_plot,
-    interactive_2D_window_sum_plot,
-    interactive_2D_window_tth_com_plot,
-    interactive_2D_window_chi_com_plot
-    )
+# from xrdmaptools.plot.interactive_old import (
+#     interactive_2D_plot,
+#     interactive_1D_plot,
+#     interactive_1D_window_sum_plot,
+#     interactive_1D_window_com_plot,
+#     interactive_2D_window_sum_plot,
+#     interactive_2D_window_tth_com_plot,
+#     interactive_2D_window_chi_com_plot
+#     )
+from xrdmaptools.plot.interactive_map import (
+    Interactive2DPlot,
+    Interactive1DPlot,
+    Interactive1DWindowSumPlot,
+    Interactive1DWindowCOMPlot,
+    Interactive2DWindowSumPlot,
+    Interactive2DWindowTTHCOMPlot,
+    Interactive2DWindowCHICOMPlot
+)
 from xrdmaptools.plot.general import (
     return_plot_wrapper,
     plot_map,
@@ -212,7 +221,7 @@ class XRDMap(XRDBaseScan):
             raise RuntimeError(err_str)
     
         # No fluorescence key
-        pos_keys = ['enc1', 'enc2']
+        pos_keys = ['enc1', 'enc2', 'nano_stage_x', 'nano_stage_y', 'nano_stage_topx']
         sclr_keys = ['i0', 'i0_time', 'im', 'it']
         
         if data_keys is None:
@@ -221,27 +230,45 @@ class XRDMap(XRDBaseScan):
         (data_dict,
          scan_md,
          data_keys,
-         xrd_dets) = load_data(
-                            scan_id=scan_id,
-                            broker=broker,
-                            detectors=None,
-                            data_keys=data_keys,
-                            xrd_dets=xrd_dets,
-                            returns=['data_keys',
-                                     'xrd_dets'],
-                            repair_method=repair_method)
+         xrd_dets) = load_data(scan_id=scan_id,
+                               broker=broker,
+                               detectors=None,
+                               data_keys=data_keys,
+                               xrd_dets=xrd_dets,
+                               returns=['data_keys',
+                                        'xrd_dets'],
+                               repair_method=repair_method)
 
         # Extract main image_data
         xrd_data = [data_dict[f'{xrd_det}_image']
                     for xrd_det in xrd_dets]
 
-        # Make position dictionary
-        pos_dict = {key:value for key, value in data_dict.items()
-                    if key in pos_keys}
+        # # Make position dictionary
+        # pos_dict = {key:value for key, value in data_dict.items()
+        #             if key in pos_keys}
 
-        # Make scaler dictionary
-        sclr_dict = {key:value for key, value in data_dict.items()
-                     if key in sclr_keys}
+        # # Make scaler dictionary
+        # sclr_dict = {key:value for key, value in data_dict.items()
+        #              if key in sclr_keys}
+
+        # Get map shape information. Must follow flying directions
+        row_length = scan_md['scan_input'][2]
+        col_length = scan_md['scan_input'][5]
+
+        # Parse data_dict
+        pos_dict, sclr_dict = {}, {}
+        for key, value in data_dict.items():
+            if key in sclr_keys and value.ndim == 2:
+                sclr_dict[key] = value
+            elif key in pos_keys:
+                if value.ndim == 2:
+                    pos_dict[key] = value
+                else:
+                    # Check which axis. TEST ME!
+                    if key == scan_md['motors'][0]:
+                        pos_dict = np.asarray([value], * col_length)
+                    elif key == scan_md['motors'][1]:
+                        pos_dict[key] = np.asarray([value,] * row_length).T
 
         # Determine null_map
         null_maps = []
@@ -252,11 +279,38 @@ class XRDMap(XRDBaseScan):
             else:
                 null_maps.append(None)
 
-        if len(xrd_data) > 1:
-            filenames = [f'scan{scan_md["scan_id"]}_{det}_xrdmap.h5'
-                         for det in xrd_dets]
+        # Determine filename
+        if filename is None:
+            basenames = [f"scan{scan_md['scan_id']}",] * len(xrd_dets)
         else:
-            filenames = [filename]
+            if isinstance(filename, list):
+                if len(filename) != len(xrd_data):
+                    warn_str = ('WARNING: length of specified '
+                                + 'filenames does not match the '
+                                + 'number of detectors. Naming may '
+                                + 'be unexpected.')
+                    print(warn_str)
+                    basenames = [filename[0],] * len(xrd_dets)
+                else:
+                    basenames = filename
+            else:
+                basenames = [filename,] * len(xrd_dets)
+        
+        # Append discriminators
+        filenames = []
+        for name, det in zip(basenames, xrd_dets):
+            if len(xrd_dets) > 1:
+                name += f'_{det}'
+            if filename is None:
+                name += f'_{cls._hdf_type}'
+            name += '.h5'
+            filenames.append(name)
+
+        # if len(xrd_data) > 1:
+        #     filenames = [f'scan{scan_md["scan_id"]}_{det}_{self._hdf_type}.h5'
+        #                  for det in xrd_dets]
+        # else:
+        #     filenames = [filename]
 
         extra_md = {}
         for key in scan_md.keys():
@@ -903,15 +957,15 @@ class XRDMap(XRDBaseScan):
         temp_dict = {}
         for key in list(pos_dict.keys()):
             # Reserved keys...
-            if key == 'interp_x':
-                temp_dict[key] = pos_dict[key]
-            elif key == 'interp_y':
+            if key in ['interp_x', 'interp_y']:
                 temp_dict[key] = pos_dict[key]
             # More versatile to include data from multiple sources...
             elif key in ['enc1', '1', 'x', 'X', 'map_x', 'map_X']:
                 temp_dict['map_x'] = pos_dict[key]
             elif key in ['enc2', '2' 'y', 'Y', 'map_y', 'map_Y']:
                 temp_dict['map_y'] = pos_dict[key]
+            else:
+                temp_dict[key] = pos_dict[key]
         del pos_dict
         pos_dict = temp_dict
 
@@ -1986,7 +2040,7 @@ class XRDMap(XRDBaseScan):
                     break
             else:
                 err_str = (f"Could not find a suitable file in {wd} "
-                           + f" for scan {self.scan_id} without more "
+                           + f"for scan {self.scan_id} without more "
                            + "information.")
                 raise FileNotFoundError(err_str)
 
@@ -2148,7 +2202,7 @@ class XRDMap(XRDBaseScan):
     # Interactive plots do not currently accept fig, ax inputs
     @return_plot_wrapper
     def plot_interactive_map(self,
-                             dyn_kw=None,
+                             data_kw=None,
                              map_kw=None,
                              title_scan_id=True,
                              **kwargs):
@@ -2160,7 +2214,7 @@ class XRDMap(XRDBaseScan):
 
         Parameters
         ----------
-        dyn_kw : dict, optional
+        data_kw : dict, optional
             Dictionary of keyword arguments passed for dynamic
             plotting. Empty by default, and the values will be filled
             with the relevant instance parameters.
@@ -2214,12 +2268,12 @@ class XRDMap(XRDBaseScan):
         """
         
         # Python doesn't play well with mutable default kwargs
-        if dyn_kw is None:
-            dyn_kw = {}
+        if data_kw is None:
+            data_kw = {}
         if map_kw is None:
             map_kw = {}
 
-        if _check_dict_key(dyn_kw, 'data'):
+        if _check_dict_key(data_kw, 'data'):
             pass
         elif not hasattr(self, 'images'):
             raise ValueError('Could not find images to plot data!')
@@ -2228,17 +2282,17 @@ class XRDMap(XRDBaseScan):
                        + f'but {self.images.ndim}.')
             raise ValueError(err_str)
         else:
-            dyn_kw['data'] = self.images
+            data_kw['data'] = self.images
 
         if (self.corrections['polar_calibration']
-            and not _check_dict_key(dyn_kw, 'x_ticks')):
+            and not _check_dict_key(data_kw, 'x_ticks')):
             if hasattr(self, 'tth') and self.tth is not None:
-                dyn_kw['x_ticks'] = self.tth
-                dyn_kw['x_label'] = ('Scattering Angle, 2θ '
+                data_kw['x_ticks'] = self.tth
+                data_kw['x_label'] = ('Scattering Angle, 2θ '
                                      + f'[{self.scattering_units}]')
             if hasattr(self, 'chi') and self.chi is not None:
-                dyn_kw['y_ticks'] = self.chi
-                dyn_kw['x_label'] = ('Azimuthal Angle, χ '
+                data_kw['y_ticks'] = self.chi
+                data_kw['x_label'] = ('Azimuthal Angle, χ '
                                      + f'[{self.azimuthal_units}]')
 
         # Add default map_kw information if not already included
@@ -2268,15 +2322,23 @@ class XRDMap(XRDBaseScan):
                             default_title='Custom Map',
                             title_scan_id=title_scan_id)
 
-        return interactive_2D_plot(dyn_kw,
-                                   map_kw,
-                                   **kwargs)
+        # return interactive_2D_plot(data_kw,
+        #                            map_kw,
+        #                            **kwargs)
+        
+        return Interactive2DPlot(map_kw,
+                                 data_kw,
+                                 **kwargs).return_plot()
+
+        # return InteractiveIntegrated2DPlot(map_kw,
+        #                                    data_kw,
+        #                                    **kwargs).return_plot()
                     
 
 
     @return_plot_wrapper
     def plot_interactive_integration_map(self,
-                                         dyn_kw=None,
+                                         data_kw=None,
                                          map_kw=None,
                                          title_scan_id=True,
                                          **kwargs):
@@ -2288,7 +2350,7 @@ class XRDMap(XRDBaseScan):
 
         Parameters
         ----------
-        dyn_kw : dict, optional
+        data_kw : dict, optional
             Dictionary of keyword arguments passed for dynamic
             plotting. Empty by default, and the values will be filled
             with the relevant instance parameters.
@@ -2350,13 +2412,13 @@ class XRDMap(XRDBaseScan):
         """
         
         # Python doesn't play well with mutable default kwargs
-        if dyn_kw is None:
-            dyn_kw = {}
+        if data_kw is None:
+            data_kw = {}
         if map_kw is None:
             map_kw = {}
 
-        if _check_dict_key(dyn_kw, 'data'):
-            dyn_kw['data'] = np.asarray(dyn_kw['data'])
+        if _check_dict_key(data_kw, 'data'):
+            data_kw['data'] = np.asarray(data_kw['data'])
         elif not hasattr(self, 'integrations'):
             err_str = 'Could not find integrations to plot data!'
             raise ValueError(err_str)
@@ -2365,12 +2427,12 @@ class XRDMap(XRDBaseScan):
                        + f'but {self.integrations.ndim}.')
             raise ValueError(err_str)
         else:
-            dyn_kw['data'] = self.integrations
+            data_kw['data'] = self.integrations
 
-        if not _check_dict_key(dyn_kw, 'x_ticks'):
+        if not _check_dict_key(data_kw, 'x_ticks'):
             if hasattr(self, 'tth') and self.tth is not None:
-                dyn_kw['x_ticks'] = self.tth
-                dyn_kw['x_label'] = ('Scattering Angle, 2θ '
+                data_kw['x_ticks'] = self.tth
+                data_kw['x_label'] = ('Scattering Angle, 2θ '
                                      + f'[{self.scattering_units}]')
     
         # Add default map_kw information if not already included
@@ -2400,14 +2462,18 @@ class XRDMap(XRDBaseScan):
                             default_title='Custom Map',
                             title_scan_id=title_scan_id)
     
-        return interactive_1D_plot(dyn_kw,
-                                   map_kw,
-                                   **kwargs)
+        # return interactive_1D_plot(data_kw,
+        #                            map_kw,
+        #                            **kwargs)
+
+        return Interactive1DPlot(map_kw,
+                                 data_kw,
+                                 **kwargs).return_plot()
 
 
     @return_plot_wrapper
     def plot_1D_window_sum_map(self,
-                               dyn_kw=None,
+                               data_kw=None,
                                map_kw=None,
                                title_scan_id=True,
                                **kwargs):
@@ -2419,7 +2485,7 @@ class XRDMap(XRDBaseScan):
 
         Parameters
         ----------
-        dyn_kw : dict, optional
+        data_kw : dict, optional
             Dictionary of keyword arguments passed for dynamic
             plotting. Empty by default, and the values will be filled
             with the relevant instance parameters.
@@ -2477,24 +2543,28 @@ class XRDMap(XRDBaseScan):
             cannot be found or are of the wrong shape.
         """
         
-        dyn_kw, map_kw = self._prepare_1D_window_plot(
-                                        dyn_kw=dyn_kw,
+        data_kw, map_kw = self._prepare_1D_window_plot(
+                                        data_kw=data_kw,
                                         map_kw=map_kw,
                                         title_scan_id=title_scan_id
                                         )
         
-        fig, ax, span = interactive_1D_window_sum_plot(dyn_kw=dyn_kw,
-                                                       map_kw=map_kw,
-                                                       **kwargs)
-        # Save internally for reference.
-        self._1D_window_sum_span = span
+        # fig, ax, span = interactive_1D_window_sum_plot(data_kw=data_kw,
+        #                                                map_kw=map_kw,
+        #                                                **kwargs)
+        # # Save internally for reference.
+        # self._1D_window_sum_span = span
 
-        return fig, ax
+        # return fig, ax
+
+        return Interactive1DWindowSumPlot(map_kw,
+                                          data_kw,
+                                          **kwargs).return_plot()
         
 
     @return_plot_wrapper
     def plot_1D_window_com_map(self,
-                               dyn_kw=None,
+                               data_kw=None,
                                map_kw=None,
                                title_scan_id=True,
                                **kwargs):
@@ -2506,7 +2576,7 @@ class XRDMap(XRDBaseScan):
 
         Parameters
         ----------
-        dyn_kw : dict, optional
+        data_kw : dict, optional
             Dictionary of keyword arguments passed for dynamic
             plotting. Empty by default, and the values will be filled
             with the relevant instance parameters.
@@ -2564,24 +2634,28 @@ class XRDMap(XRDBaseScan):
             cannot be found or are of the wrong shape.
         """
 
-        dyn_kw, map_kw = self._prepare_1D_window_plot(
-                                        dyn_kw=dyn_kw,
+        data_kw, map_kw = self._prepare_1D_window_plot(
+                                        data_kw=data_kw,
                                         map_kw=map_kw,
                                         title_scan_id=title_scan_id
                                         )
         
-        fig, ax, span = interactive_1D_window_com_plot(dyn_kw=dyn_kw,
-                                                       map_kw=map_kw,
-                                                       **kwargs)
+        # fig, ax, span = interactive_1D_window_com_plot(data_kw=data_kw,
+        #                                                map_kw=map_kw,
+        #                                                **kwargs)
         
-        # Save internally for reference.
-        self._1D_window_com_span = span
+        # # Save internally for reference.
+        # self._1D_window_com_span = span
 
-        return fig, ax
+        # return fig, ax
+
+        return Interactive1DWindowCOMPlot(map_kw,
+                                          data_kw,
+                                          **kwargs).return_plot()
 
 
     def _prepare_1D_window_plot(self,
-                                dyn_kw=None,
+                                data_kw=None,
                                 map_kw=None,
                                 title_scan_id=True):
         """
@@ -2589,7 +2663,7 @@ class XRDMap(XRDBaseScan):
 
         Parameters
         ----------
-        dyn_kw : dict, optional
+        data_kw : dict, optional
             Dictionary of keyword arguments passed for dynamic
             plotting. Empty by default, and the values will be filled
             with the relevant instance parameters.
@@ -2608,13 +2682,13 @@ class XRDMap(XRDBaseScan):
         """
         
         # Python doesn't play well with mutable default kwargs
-        if dyn_kw is None:
-            dyn_kw = {}
+        if data_kw is None:
+            data_kw = {}
         if map_kw is None:
             map_kw = {}
 
-        if _check_dict_key(dyn_kw, 'data'):
-            dyn_kw['data'] = np.asarray(dyn_kw['data'])
+        if _check_dict_key(data_kw, 'data'):
+            data_kw['data'] = np.asarray(data_kw['data'])
         elif not hasattr(self, 'integrations'):
             err_str = 'Could not find integrations to plot data!'
             raise ValueError(err_str)
@@ -2623,12 +2697,12 @@ class XRDMap(XRDBaseScan):
                        + f'but {self.integrations.ndim}.')
             raise ValueError(err_str)
         else:
-            dyn_kw['data'] = self.integrations
+            data_kw['data'] = self.integrations
 
-        if not _check_dict_key(dyn_kw, 'x_ticks'):
+        if not _check_dict_key(data_kw, 'x_ticks'):
             if hasattr(self, 'tth') and self.tth is not None:
-                dyn_kw['x_ticks'] = self.tth
-                dyn_kw['x_label'] = ('Scattering Angle, 2θ '
+                data_kw['x_ticks'] = self.tth
+                data_kw['x_label'] = ('Scattering Angle, 2θ '
                                      + f'[{self.scattering_units}]')
     
         # Add default map_kw information if not already included
@@ -2657,19 +2731,19 @@ class XRDMap(XRDBaseScan):
                             map_kw['title'],
                             default_title='Custom Map',
                             title_scan_id=title_scan_id)
-        if 'title' not in dyn_kw:
-            dyn_kw['title'] = None
-        dyn_kw['title'] = self._title_with_scan_id(
-                            dyn_kw['title'],
+        if 'title' not in data_kw:
+            data_kw['title'] = None
+        data_kw['title'] = self._title_with_scan_id(
+                            data_kw['title'],
                             default_title='',
                             title_scan_id=title_scan_id)    
         
-        return dyn_kw, map_kw
+        return data_kw, map_kw
 
 
     @return_plot_wrapper
     def plot_2D_window_sum_map(self,
-                               dyn_kw=None,
+                               data_kw=None,
                                map_kw=None,
                                title_scan_id=True,
                                **kwargs):
@@ -2681,7 +2755,7 @@ class XRDMap(XRDBaseScan):
 
         Parameters
         ----------
-        dyn_kw : dict, optional
+        data_kw : dict, optional
             Dictionary of keyword arguments passed for dynamic
             plotting. Empty by default, and the values will be filled
             with the relevant instance parameters.
@@ -2731,24 +2805,28 @@ class XRDMap(XRDBaseScan):
             cannot be found or are of the wrong shape.
         """
         
-        dyn_kw, map_kw = self._prepare_2D_window_plot(
-                                        dyn_kw=dyn_kw,
+        data_kw, map_kw = self._prepare_2D_window_plot(
+                                        data_kw=data_kw,
                                         map_kw=map_kw,
                                         title_scan_id=title_scan_id
                                         )
         
-        fig, ax, rect = interactive_2D_window_sum_plot(dyn_kw=dyn_kw,
-                                                       map_kw=map_kw,
-                                                       **kwargs)
-        # Save internally for reference.
-        self._2D_window_sum_rect = rect
+        # fig, ax, rect = interactive_2D_window_sum_plot(data_kw=data_kw,
+        #                                                map_kw=map_kw,
+        #                                                **kwargs)
+        # # Save internally for reference.
+        # self._2D_window_sum_rect = rect
 
-        return fig, ax
+        # return fig, ax
+
+        return Interactive2DWindowSumPlot(map_kw,
+                                          data_kw,
+                                          **kwargs).return_plot()
 
 
     @return_plot_wrapper
     def plot_2D_window_tth_com_map(self,
-                                   dyn_kw=None,
+                                   data_kw=None,
                                    map_kw=None,
                                    title_scan_id=True,
                                    **kwargs):
@@ -2761,7 +2839,7 @@ class XRDMap(XRDBaseScan):
 
         Parameters
         ----------
-        dyn_kw : dict, optional
+        data_kw : dict, optional
             Dictionary of keyword arguments passed for dynamic
             plotting. Empty by default, and the values will be filled
             with the relevant instance parameters.
@@ -2811,25 +2889,29 @@ class XRDMap(XRDBaseScan):
             cannot be found or are of the wrong shape.
         """
         
-        dyn_kw, map_kw = self._prepare_2D_window_plot(
-                                        dyn_kw=dyn_kw,
+        data_kw, map_kw = self._prepare_2D_window_plot(
+                                        data_kw=data_kw,
                                         map_kw=map_kw,
                                         title_scan_id=title_scan_id
                                         )
         
-        fig, ax, rect = interactive_2D_window_tth_com_plot(
-                                                dyn_kw=dyn_kw,
-                                                map_kw=map_kw,
-                                                **kwargs)
-        # Save internally for reference.
-        self._2D_window_tth_com_rect = rect
+        # fig, ax, rect = interactive_2D_window_tth_com_plot(
+        #                                         data_kw=data_kw,
+        #                                         map_kw=map_kw,
+        #                                         **kwargs)
+        # # Save internally for reference.
+        # self._2D_window_tth_com_rect = rect
 
-        return fig, ax
+        # return fig, ax
+
+        return Interactive2DWindowTTHCOMPlot(map_kw,
+                                             data_kw,
+                                             **kwargs).return_plot()
 
 
     @return_plot_wrapper
     def plot_2D_window_chi_com_map(self,
-                                   dyn_kw=None,
+                                   data_kw=None,
                                    map_kw=None,
                                    title_scan_id=True,
                                    **kwargs):
@@ -2843,7 +2925,7 @@ class XRDMap(XRDBaseScan):
 
             Parameters
         ----------
-        dyn_kw : dict, optional
+        data_kw : dict, optional
             Dictionary of keyword arguments passed for dynamic
             plotting. Empty by default, and the values will be filled
             with the relevant instance parameters.
@@ -2893,24 +2975,28 @@ class XRDMap(XRDBaseScan):
             cannot be found or are of the wrong shape.
         """
         
-        dyn_kw, map_kw = self._prepare_2D_window_plot(
-                                        dyn_kw=dyn_kw,
+        data_kw, map_kw = self._prepare_2D_window_plot(
+                                        data_kw=data_kw,
                                         map_kw=map_kw,
                                         title_scan_id=title_scan_id
                                         )
         
-        fig, ax, rect = interactive_2D_window_chi_com_plot(
-                                                dyn_kw=dyn_kw,
-                                                map_kw=map_kw,
-                                                **kwargs)
-        # Save internally for reference.
-        self._2D_window_chi_com_rect = rect
+        # fig, ax, rect = interactive_2D_window_chi_com_plot(
+        #                                         data_kw=data_kw,
+        #                                         map_kw=map_kw,
+        #                                         **kwargs)
+        # # Save internally for reference.
+        # self._2D_window_chi_com_rect = rect
 
-        return fig, ax
+        # return fig, ax
+
+        return Interactive2DWindowCHICOMPlot(map_kw,
+                                             data_kw,
+                                             **kwargs).return_plot()
 
 
     def _prepare_2D_window_plot(self,
-                                dyn_kw=None,
+                                data_kw=None,
                                 map_kw=None,
                                 title_scan_id=True):
         """
@@ -2918,7 +3004,7 @@ class XRDMap(XRDBaseScan):
 
         Parameters
         ----------
-        dyn_kw : dict, optional
+        data_kw : dict, optional
             Dictionary of keyword arguments passed for dynamic
             plotting. Empty by default, and the values will be filled
             with the relevant instance parameters.
@@ -2937,13 +3023,13 @@ class XRDMap(XRDBaseScan):
         """
         
         # Python doesn't play well with mutable default kwargs
-        if dyn_kw is None:
-            dyn_kw = {}
+        if data_kw is None:
+            data_kw = {}
         if map_kw is None:
             map_kw = {}
 
-        if _check_dict_key(dyn_kw, 'data'):
-            dyn_kw['data'] = np.asarray(dyn_kw['data'])
+        if _check_dict_key(data_kw, 'data'):
+            data_kw['data'] = np.asarray(data_kw['data'])
         elif not hasattr(self, 'images'):
             err_str = 'Could not find images to plot data!'
             raise ValueError(err_str)
@@ -2952,13 +3038,14 @@ class XRDMap(XRDBaseScan):
                        + f'but {self.images.ndim}.')
             raise ValueError(err_str)
         else:
-            dyn_kw['data'] = self.images
+            data_kw['data'] = self.images
 
         # Add calibration information
-        if not _check_dict_key(dyn_kw, 'tth_arr'):
-            dyn_kw['tth_arr'] = self.tth_arr
-        if not _check_dict_key(dyn_kw, 'chi_arr'):
-            dyn_kw['chi_arr'] = self.chi_arr
+        if hasattr(self, 'ai') and self.ai is not None:
+            if not _check_dict_key(data_kw, 'tth_arr'):
+                data_kw['tth_arr'] = self.tth_arr
+            if not _check_dict_key(data_kw, 'chi_arr'):
+                data_kw['chi_arr'] = self.chi_arr
     
         # Add default map_kw information if not already included
         if not _check_dict_key(map_kw, 'map'):
@@ -2987,14 +3074,14 @@ class XRDMap(XRDBaseScan):
                             map_kw['title'],
                             default_title='Custom Map',
                             title_scan_id=title_scan_id)
-        if 'title' not in dyn_kw:
-            dyn_kw['title'] = None
-        dyn_kw['title'] = self._title_with_scan_id(
-                            dyn_kw['title'],
+        if 'title' not in data_kw:
+            data_kw['title'] = None
+        data_kw['title'] = self._title_with_scan_id(
+                            data_kw['title'],
                             default_title='',
                             title_scan_id=title_scan_id)        
         
-        return dyn_kw, map_kw
+        return data_kw, map_kw
     
 
     @return_plot_wrapper
