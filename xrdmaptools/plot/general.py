@@ -187,6 +187,8 @@ def plot_image(image,
             plot_kwargs[key] = kwargs[key]
             del kwargs[key]
 
+    kwargs.setdefault('interpolation', None)
+
     im = ax.imshow(image, aspect=aspect, **kwargs)
     ax.set_xlabel('x index')
     ax.set_ylabel('y index')
@@ -301,6 +303,7 @@ def plot_map(value,
         err_str = 'Fig and ax must both be None or both provided.'
         raise ValueError(err_str)  
 
+    kwargs.setdefault('interpolation', None)
     im = ax.imshow(value, extent=map_extent, **kwargs)
     fig.colorbar(im, ax=ax)
 
