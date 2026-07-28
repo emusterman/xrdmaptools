@@ -226,3 +226,140 @@ def mask_vector_map(vector_map, q_target, cutoff=0.25):
         fill_map[indices] = vector_map[indices][mask]
     
     return fill_map
+
+
+
+def analyze_q_vector(vector_map,
+                     q_target,
+                     q_cutoff=0.25,
+                     int_cutoff=0,
+                     map_cutoff=0,
+                     plot=True,
+                     title=None):
+
+    map_shape = vector_map.shape
+    sum_map = np.empty(map_shape, dtype=float)
+    sum_map[:] = np.nan    
+    com_map = np.empty((*map_shape, 3), dtype=float)
+    com_map[:] = np.nan
+
+    for index in tqdm(range(np.prod(map_shape))):
+        # Get vectors
+        indices = np.unravel_index(index, map_shape)
+        q_vectors = vector_map[indices][:, :3]
+        intensity = vector_map[indices][:, -1]
+
+        # Check for vectors
+        if len(q_vectors) == 0:
+            continue
+
+        # Mask intensity first
+        mask = intensity > int_cutoff
+        if mask.sum() == 0:
+            continue
+        q_vectors = q_vectors[mask]
+        intensity = intensity[mask]
+
+        # Then mask for q-space
+        mask = np.linalg.norm(q_vectors - q_target, axis=1) < q_cutoff
+        # maskx = np.abs(q_vectors[:, 0] - q_target[0]) < q_cutoff
+        # masky = np.abs(q_vectors[:, 1] - q_target[1]) < q_cutoff
+        # maskz = np.abs(q_vectors[:, 2] - q_target[2]) < q_cutoff
+        # mask = maskx & masky & maskz
+
+        com = xmt.utilities.math.arbitrary_center_of_mass(
+            intensity[mask],
+            *q_vectors[mask].T
+        )
+
+        com_map[indices] = com
+        sum_map[indices] = np.sum(intensity)
+        map_mask = sum_map > map_cutoff
+
+    mag_map = np.linalg.norm(com_map, axis=-1)
+    phi_map = np.degrees(com_map[..., -1] / mag_map)
+    chi_map = np.degrees(np.arctan2(com_map[..., 1], com_map[..., 0]))
+
+    if not plot:
+        return sum_map, com_map, mag_map, phi_map, chi_map
+
+    # Plot
+    fig, ax = plt.subplots(2, 2, figsize=(5, 5), dpi=200, layout='constrained')
+    fig.suptitle(title)
+    
+    def plot_axis(ax, img, title, mask=map_mask):
+        img = img.copy()
+        if mask is not None:
+            img[~mask] = np.nan
+        image = ax.imshow(img)
+        fig.colorbar(image, ax=ax)
+        ax.set_aspect('equal')
+        ax.set_title(title)
+    
+    plot_axis(ax[0, 0], sum_map, 'Sum Intensity [a.u.]', mask=None)
+    plot_axis(ax[0, 1], (2 * np.pi) / mag_map, 'd-spacing [Å]')
+    plot_axis(ax[1, 0], phi_map, 'Polar Angle [deg.]')
+    plot_axis(ax[1, 1], chi_map, 'Azimuthal Angle [deg.]')
+    fig.show()
+
+    # # Plot
+    # fig = plt.figure(figsize=(14, 6), layout="constrained")
+    # gs = fig.add_gridspec(nrows=2, ncols=6)
+
+    # # Create the top large image axis spanning the entire first row (all 6 columns)
+    # ax_top = fig.add_subplot(gs[0, :])
+    # ax_top.imshow(sum_map)
+    # ax_top.set_title("Sum Intensity")
+
+    # # Create the six smaller image axes lined up side-by-side in the second row
+    # for idx, img, title in enumerate([(mag)]):
+    #     ax_sub = fig.add_subplot(gs[1, idx])
+    #     ax_sub.imshow(img, cmap='plasma')
+    #     ax_sub.set_title(f"Sub {idx + 1}")
+    #     ax_sub.axis('off')
+
+    # plt.show()
+
+
+
+
+
+def add_plane(ax, normal_vector, multiplier, grid_size=5, grid_resolution=10):
+    """
+    Draws a 3D plane on a given matplotlib 3D axis.
+    The plane has the specified normal vector and is offset from the origin by a 
+    distance equal to: multiplier * ||normal_vector||.
+    """
+    # Convert normal vector to a numpy array and ensure it is float
+    n = np.array(normal_vector, dtype=float)
+    a, b, c = n
+    
+    # Calculate the norm (length) of the normal vector
+    norm_length = np.linalg.norm(n)
+    if norm_length == 0:
+        raise ValueError("Normal vector cannot be the zero vector.")
+        
+    # The algebraic constant D in the plane equation: ax + by + cz = D
+    # Perpendicular distance d = multiplier * ||n||
+    # For a plane facing direction n, D = d * ||n|| = multiplier * ||n||^2
+    D = multiplier * (norm_length ** 2)
+    
+    # Generate a grid for the plane plotting
+    # We choose the two coordinates with the largest normal components to avoid division by zero
+    max_idx = np.argmax(np.abs(n))
+    
+    span = np.linspace(-grid_size, grid_size, grid_resolution)
+    u, v = np.meshgrid(span, span)
+    
+    if max_idx == 2:  # c is the largest, solve for z: z = (D - ax - by) / c
+        x, y = u, v
+        z = (D - a*x - b*y) / c
+    elif max_idx == 1:  # b is the largest, solve for y: y = (D - ax - cz) / b
+        x, z = u, v
+        y = (D - a*x - c*z) / b
+    else:  # a is the largest, solve for x: x = (D - by - cz) / a
+        y, z = u, v
+        x = (D - b*y - c*z) / a
+        
+    # Plot the surface representing the 3D plane
+    ax.plot_surface(x, y, z, alpha=0.25, label='Plane')
