@@ -4,6 +4,7 @@ from skimage.restoration import rolling_ball
 import time as ttime
 from collections import OrderedDict
 import dask.array as da
+from dask.distributed import Client, LocalCluster
 import functools
 
 # Local imports
@@ -147,6 +148,12 @@ class XRDData:
         else:
             self._hdf_type = hdf_type
         
+        if image_data is not None and dask_enabled:
+            pass
+            # self.dask_cluster = LocalCluster(n_workers=4,
+            #                                  threads_per_worker=1)
+            # self.dask_client = Client(self.dask_cluster)
+        
         # Load image data
         if image_data is not None:
             if not isinstance(image_data,
@@ -162,13 +169,22 @@ class XRDData:
             # Parallized image processing
             if dask_enabled:
                 # Unusual chunk shapes are fixed later
-                image_data = da.stack(image_data)
+                image_data = [da.from_array(data, chunks=data.shape)
+                                            for data in image_data]
+                image_data = da.stack(image_data, axis=0)
             else:
                 # Non-paralleized image processing
                 if isinstance(image_data, da.core.Array):
                     image_data = image_data.compute()
                 elif isinstance(image_data, list):
-                    image_data = np.stack(image_data)
+                    ref_list = image_data
+                    image_data = np.empty((len(ref_list),
+                                           *ref_list[0].shape),
+                                           dtype=ref_list[0].dtype)
+                    for i, ref in enumerate(ref_list):
+                        image_data[i] = ref[:]
+                        del ref
+                    del ref_list
                 else:
                     image_data = np.asarray(image_data)
 
@@ -454,7 +470,8 @@ class XRDData:
             elif self.detector.lower() == 'merlin':
                 pass # TODO: What are these values
             elif self.detector.lower() == 'eiger':
-                self._raw_value_range = (0, 2**32 - 1)
+                # self._raw_value_range = (0, 2**32 - 1)
+                self._raw_value_range = (0, np.max(self.images))
         if self._raw_value_range is None:
             if np.issubdtype(self.dtype, np.integer):
                 self._raw_value_range = (np.iinfo(self.dtype).min,
@@ -522,6 +539,22 @@ class XRDData:
         ostr += f'\n\tdtype:  {self.dtype}'
         ostr += f'\n\tstate:  {self.title}'
         return ostr
+    
+
+    def __del__(self):
+        """
+        Protections to close certain attributes before deleting.
+        """
+
+        if (hasattr(self, 'hdf')
+            and self.hdf is not None):
+            self.hdf.close()
+        if (hasattr(self, 'dask_cluster')
+            and self.dask_cluser is not None):
+            self.dask_cluser.close()
+        if (hasattr(self, 'dask_client')
+            and self.dask_client is not None):
+            self.dask_client.close()
     
     #################################################
     ### Properties and Internal Utility Functions ###
