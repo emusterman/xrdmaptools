@@ -1,6 +1,7 @@
 import matplotlib.pyplot as plt
 import numpy as np
 from plotly import graph_objects as go
+from matplotlib.widgets import Slider
 
 # Local imports
 from xrdmaptools.plot import config
@@ -171,3 +172,82 @@ def plot_3D_isosurfaces(q_vectors,
                         y=y_range,
                         z=z_range))
     fig.show(renderer=renderer)
+
+
+def volume_slider_plot(vector_list,
+                       slider_vals=None,
+                       slider_label='Index',
+                       shifts=None,
+                       title=None,
+                       **kwargs
+                       ):
+
+    fig = plt.figure(figsize=config.figsize,
+                     dpi=config.dpi)
+    ax = fig.add_axes([0.1, 0.1, 0.5, 0.8], projection='3d')
+
+    scatter = ax.scatter(*vector_list[0][:, :3].T,
+                         c=vector_list[0][:, -1],
+                         **kwargs)
+
+    # Set plot labels
+    ax.set_xlabel('qx [Å⁻¹]')
+    ax.set_ylabel('qy [Å⁻¹]')
+    ax.set_zlabel('qz [Å⁻¹]')
+    ax.set_aspect('equal')
+    
+    # Set limits
+    ax.set_xlim(*ax.get_xlim())
+    ax.set_ylim(*ax.get_ylim())
+    ax.set_zlim(*ax.get_zlim())
+
+    if title is None:
+        title = ''
+
+    ax.set_title(f'{title} [0]')
+
+    if slider_vals is None:
+        slider_vals = np.asarray((range(len(vector_list))))
+    else:
+        slider_vals = np.asarray(slider_vals)
+
+        ascending = all(a < b for a, b in zip(slider_vals, slider_vals[1:]))
+        descending = all(a > b for a, b in zip(slider_vals, slider_vals[1:]))
+
+        if descending:
+            slider_vals = slider_vals[::-1]
+            vector_list = vector_list[::-1]
+        elif not (ascending or descending):
+            raise ValueError('Slider values must be sorted sequentially.')    
+
+    slider_ax = fig.add_axes([0.7, 0.1, 0.03, 0.8])
+    slider = Slider(
+        ax=slider_ax,
+        label=slider_label,
+        valmin=slider_vals[0],
+        valmax=slider_vals[-1],
+        valinit=slider_vals[0],
+        valstep=slider_vals,
+        orientation='vertical'
+    )
+
+    # The function to be called anytime a slider's value changes
+    def update(val):
+        # Remove data
+        for child in ax.get_children():
+            if isinstance(child, Path3DCollection):
+                child.remove()
+
+        val_ind = np.argmin(np.abs(slider_vals - val))
+        
+        scatter = ax.scatter(*vector_list[val_ind][:, :3].T,
+                             c=vector_list[val_ind][:, -1],
+                             **kwargs)
+
+        ax.set_title(f'{title} [{val_ind}]')
+        fig.canvas.draw_idle()
+    
+    slider.on_changed(update)
+    fig.slider = slider
+
+    return fig, ax
