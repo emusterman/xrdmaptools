@@ -2,9 +2,10 @@ import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.widgets import Slider
 import matplotlib.patches as patches
+from mpl_toolkits.mplot3d.art3d import Path3DCollection
 
 # Local imports
-from . import config
+from xrdmaptools.plot import config
 
 
 def base_slider_plot(image_stack,
@@ -13,6 +14,7 @@ def base_slider_plot(image_stack,
                      shifts=None,
                      vmin=None,
                      vmax=None,
+                     norm=None,
                      title=None,
                      **kwargs
                      ):
@@ -44,20 +46,20 @@ def base_slider_plot(image_stack,
     ax.set_xlim(x_min, x_max)
     ax.set_ylim(y_min, y_max)
 
-    if vmin is None:
-        img_vmin = np.min(image_stack)
-    else:
-        img_vmin = vmin
-    if vmax is None:
-        img_vmax = np.max(image_stack)
-    else:
-        img_vmax = vmax
+    if norm is None:
+        if vmin is None:
+            vmin = np.min(image_stack)
+        if vmax is None:
+            vmax = np.max(image_stack)
 
+    kwargs.setdefault('interpolation', None)
     image = ax.imshow(image_stack[0],
                       extent=extent,
-                      vmin=img_vmin,
-                      vmax=img_vmax,
+                      vmin=vmin,
+                      vmax=vmax,
+                      norm=norm,
                       **kwargs)
+    fig.colorbar(image, ax=ax)
 
     if title is None:
         title = ''
@@ -115,23 +117,12 @@ def base_slider_plot(image_stack,
                   image_stack[0].shape[0] - shifts[val_ind][0] - 0.5]
         
         image.set_data(image_stack[val_ind])
-
-        if vmin is None:
-            img_vmin = np.min(image_stack[val_ind])
-        else:
-            img_vmin = vmin
-        if vmax is None:
-            img_vmax = np.max(image_stack[val_ind])
-        else:
-            img_vmax = vmax
-        
-        image.set_clim(img_vmin, img_vmax)
         image.set_extent(extent)
 
         ax.set_title(f'{title} [{val_ind}]')
         fig.canvas.draw_idle()
-        
+    
     slider.on_changed(update)
+    fig.slider = slider
 
-    fig.show()
-    return fig, ax, slider
+    return fig, ax
