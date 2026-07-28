@@ -16,10 +16,10 @@ from tqdm.dask import TqdmCallback
 import matplotlib.pyplot as plt
 
 # Base classes must be relative imports
-from .xrddata import XRDData
-from .xrdbasescan import XRDBaseScan
-from .xrdmap import XRDMap
-from .xrdrockingcurve import XRDRockingCurve
+from xrdmaptools.xrddata import XRDData
+from xrdmaptools.xrdbasescan import XRDBaseScan
+from xrdmaptools.xrdmap import XRDMap
+from xrdmaptools.xrdrockingcurve import XRDRockingCurve
 from xrdmaptools.utilities.utilities import (
     timed_iter,
     pathify,
@@ -56,10 +56,14 @@ from xrdmaptools.crystal.map_alignment import (
 )
 from xrdmaptools.plot.general import return_plot_wrapper
 from xrdmaptools.plot.image_stack import base_slider_plot
-from xrdmaptools.plot.interactive import (
-    interactive_3D_plot,
-    interactive_3D_labeled_plot
-    )
+# from xrdmaptools.plot.interactive_old import (
+#     interactive_3D_plot,
+#     interactive_3D_labeled_plot
+#     )
+from xrdmaptools.plot.interactive_map import (
+    Interactive3DPlot,
+    Interactive3DLabeledPlot
+)
 
 
 # Class for working with PROCESSED XRDMaps
@@ -1596,6 +1600,11 @@ class XRDMapStack(list):
                             map_stack,
                             **kwargs
                         )
+        elif method in ['com', 'center_of_mass']:
+            shifts = com_auto_alignment(
+                            map_stack,
+                            **kwargs
+                        )   
         elif method in ['manual']:
             shifts = manual_alignment(
                             map_stack,
@@ -1640,7 +1649,7 @@ class XRDMapStack(list):
 
         # Redefine y-shifts to match matplotlib axes...
         shifts = np.asarray(shifts)
-        shifts[:, 0] *= -1
+        # shifts[:, 0] *= -1
 
         # Shifts stats
         x_step = np.mean(np.diff(x))
@@ -2168,7 +2177,7 @@ class XRDMapStack(list):
         
         # Track trimming metadata. Needed to fully replicate processing
         if save_metadata:
-            self.open_xdms_hdf()
+            # self.open_xdms_hdf()
             hdf_str = f'{self._hdf_type}/reflections/spots_3D'
             overwrite_attr(self.xdms_hdf[hdf_str].attrs,
                            'trimmed_key', key)
@@ -2268,24 +2277,19 @@ class XRDMapStack(list):
             title = (f'scan{self.scan_id[0]}-{self.scan_id[-1]}:'
                      + f' {title}')
 
-        fig, ax, slider = base_slider_plot(
-                                map_stack,
+        return base_slider_plot(map_stack,
                                 slider_vals=slider_vals,
                                 slider_label=slider_label,
                                 title=title,
                                 shifts=shifts,
                                 **kwargs
                                 )
-        
-        # matplotlib likes to keep a reference
-        self._map_stack_slider = slider 
-        return fig, ax
     
 
     @return_plot_wrapper
     def plot_interactive_map(self,
                              spots_3D=False,
-                             dyn_kw=None,
+                             data_kw=None,
                              map_kw=None,
                              labeled=False,
                              use_grains=False,
@@ -2296,23 +2300,23 @@ class XRDMapStack(list):
         """
         
         # Python doesn't play well with mutable default kwargs
-        if dyn_kw is None:
-            dyn_kw = {}
+        if data_kw is None:
+            data_kw = {}
         if map_kw is None:
             map_kw = {}
         default_map_title = None
 
         # Try for spots first
-        if _check_dict_key(dyn_kw, 'data'):
+        if _check_dict_key(data_kw, 'data'):
             pass
         elif isinstance(spots_3D, pd.DataFrame):
-            dyn_kw['data'] = self._spots_3D_to_vectors(
+            data_kw['data'] = self._spots_3D_to_vectors(
                                         spots_3D=spots_3D)
             default_map_title = 'Max Spot Intensity'
         elif spots_3D:
             if hasattr(self, 'spots_3D') and self.spots_3D is not None:
                 spots_3D = self.spots_3D
-                dyn_kw['data'] = self._spots_3D_to_vectors()
+                data_kw['data'] = self._spots_3D_to_vectors()
                 default_map_title = 'Max Spot Intensity'
         
         # Parse labeled inputs
@@ -2325,34 +2329,34 @@ class XRDMapStack(list):
                 raise ValueError(err_str)
         
         # Try vectors if still no data
-        if _check_dict_key(dyn_kw, 'data'):
+        if _check_dict_key(data_kw, 'data'):
             pass
         elif not hasattr(self, 'xdms_vector_map'):
             err_str = ('Could not find stacked vector map to plot '
                        + 'data!')
             raise ValueError(err_str)
         else:
-            dyn_kw['data'] = self.xdms_vector_map
+            data_kw['data'] = self.xdms_vector_map
             default_map_title = 'Max Vector Intensity'
         
         # Add edges
-        if not _check_dict_key(dyn_kw, 'edges'):
+        if not _check_dict_key(data_kw, 'edges'):
             if hasattr(self, 'edges') and self.edges is not None:
-                dyn_kw['edges'] = self.edges
+                data_kw['edges'] = self.edges
 
         # Add default map_kw information if not already included
         if _check_dict_key(map_kw, 'map'):
-            if map_kw['map'].shape != dyn_kw['data'].shape:
+            if map_kw['map'].shape != data_kw['data'].shape:
                 warn_str = ("WARNING: Provided map of shape "
                             + f"{map_kw['map'].shape} does not match "
-                            + f"data of shape {dyn_kw['data'].shape}. "
+                            + f"data of shape {data_kw['data'].shape}. "
                             + "Using default map instead.")
                 print(warn_str)
                 del map_kw['map']
 
         # Construct default map
         if not _check_dict_key(map_kw, 'map'):
-            map_kw['map'] = get_max_vector_map(dyn_kw['data'])
+            map_kw['map'] = get_max_vector_map(data_kw['data'])
             if default_map_title is None:
                 default_map_title = 'Max Vector Intensity'
             map_kw['title'] = default_map_title
@@ -2362,7 +2366,7 @@ class XRDMapStack(list):
             x_step = np.max([np.mean(np.diff(self[0].pos_dict['interp_x'],
                                              axis=i))
                              for i in range(2)])
-            x_ext = map_kw['map'].shape[1]
+            x_ext = map_kw['map'].shape[1] * x_step
             map_kw['x_ticks'] = np.linspace(-x_ext / 2,
                                             x_ext / 2,
                                             int(np.round(x_ext
@@ -2377,7 +2381,7 @@ class XRDMapStack(list):
             y_step = np.max([np.mean(np.diff(self[0].pos_dict['interp_y'],
                                              axis=i))
                              for i in range(2)])
-            y_ext = map_kw['map'].shape[0]
+            y_ext = map_kw['map'].shape[0] * y_step
             map_kw['y_ticks'] = np.linspace(-y_ext / 2,
                                             y_ext / 2,
                                             int(np.round(y_ext
@@ -2405,9 +2409,12 @@ class XRDMapStack(list):
 
         if not labeled:
             # Plot!
-            return interactive_3D_plot(dyn_kw,
-                                       map_kw,
-                                       **kwargs)
+            # return interactive_3D_plot(data_kw,
+            #                            map_kw,
+            #                            **kwargs)
+            return Interactive3DPlot(map_kw,
+                                     data_kw,
+                                     **kwargs).return_plot()
         
         else: # Build labels
             map_shape = map_kw['map'].shape
@@ -2447,14 +2454,17 @@ class XRDMapStack(list):
                 label_spots[indices] = spot_list
                 label_colors[indices] = color_list
             
-            dyn_kw['labels'] = labels
-            dyn_kw['label_spots'] = label_spots
-            dyn_kw['label_colors'] = label_colors
+            data_kw['labels'] = labels
+            data_kw['label_spots'] = label_spots
+            data_kw['label_colors'] = label_colors
 
             # Plot!
-            return interactive_3D_labeled_plot(
-                                    dyn_kw,
-                                    map_kw,
-                                    **kwargs)
+            # return interactive_3D_labeled_plot(
+            #                         data_kw,
+            #                         map_kw,
+            #                         **kwargs)
 
+            return Interactive3DLabeledPlot(map_kw,
+                                            data_kw,
+                                            **kwargs).return_plot()
 
