@@ -5,6 +5,8 @@ import os
 from scipy.stats import mode
 from collections import OrderedDict
 
+from xrdmaptools.utilities.math import rescale_array
+
 
 # Database variables
 c, db = None, None
@@ -282,6 +284,21 @@ def manual_load_data(scan_id=-1,
     if data_keys is None:
         data_keys = ['enc1', 'enc2', 'xs_fluor', 'i0', 'i0_time', 'im', 'it']
 
+    # Check primary stream for data keys, intended for step data
+    primary_dict = {}
+    for key in data_keys.copy():
+        if key in bs_run['primary']['data']:
+            data_keys.remove(key)
+            primary_dict[key] = bs_run['primary']['data'][key][:]
+        elif key in bs_run['stream0']['data']:
+            pass
+        # Remove keys that may cause issue finding resource documents    
+        else: 
+            data_keys.remove(key)
+            # warn_str = (f'WARNING: Key {key} not found in '
+            #             + 'expected streams.')
+            # print(warn_str)
+
     # Append XRD data keys
     for det in xrd_dets:
         # Data
@@ -309,7 +326,7 @@ def manual_load_data(scan_id=-1,
         r_paths = r_paths['stream0']
         r_specs = r_specs['stream0']
         r_shapes = r_shapes['stream0']
-    elif 'primary' in r_paths:
+    elif 'primary' in r_paths: # is this used? For step maps?
         r_paths = r_paths['primary']
         r_specs = r_specs['primary']
         r_shapes = r_shapes['primary']
@@ -404,8 +421,8 @@ def manual_load_data(scan_id=-1,
             vprint('Loading merlin...')
             key = 'merlin_image'
             for r_path in r_paths[r_key]:
-                with h5py.File(r_path, 'r') as f:
-                    data_dict[key].append(np.array(f['entry/data/data']))
+                f = h5py.File(r_path, 'r')
+                data_dict[key].append(f['entry/data/data'])
             # Stack data into array
             dr_rows, br_rows = _flag_broken_rows(data_dict[key],
                                                  key,
@@ -422,10 +439,13 @@ def manual_load_data(scan_id=-1,
             for row_i, r_path in enumerate(r_paths[r_key]):
                 f = h5py.File(r_path, 'r')
                 row_data = f['entry/data/data']
+                row_len = spec_shapes[r_key][0]
                 dropped_inds = np.array(f['entry/instrument/NDAttributes/NDArrayUniqueId'][:])
+                if np.any(dropped_inds > row_len):
+                    dropped_inds -= row_len * row_i
                 # Built-in eiger fixes first
-                filled_pts = spec_shapes[r_key][0] - len(dropped_inds)
-                null_row = np.zeros(spec_shapes[r_key][0], dtype=np.bool_)
+                filled_pts = row_len - len(dropped_inds)
+                null_row = np.zeros(row_len, dtype=np.bool_)
                 if filled_pts > 0:
                     print(f'Auto-filled {filled_pts} points in row {row_i} for {key}.')
                     full_row = np.zeros(spec_shapes[r_key], dtype=row_data.dtype)
@@ -461,6 +481,8 @@ def manual_load_data(scan_id=-1,
             for row_ind in range(1, len(map_data), 2):
                 map_data[row_ind] = map_data[row_ind][::-1]
 
+    # Add special data
+    data_dict.update(primary_dict)
     data_dict.update(supp_dict)
 
     out = [data_dict, scan_md]
@@ -511,7 +533,8 @@ def _load_scan_metadata(bs_run, keys=None):
                 'time_str',
                 'sample_name',
                 'theta',
-                'scan_input']
+                'scan_input',
+                'shape']
 
     remaining_keys = []
     scan_md = {}
@@ -842,6 +865,11 @@ def make_calibration_pattern(xrd_data):
 
     comps = make_composite_pattern(xrd_data, method='max', subtract='min')
 
+    if isinstance(comps, list):
+        comps = [rescale_array(img.astype(float)) for img in comps]
+    else:
+        comps = rescale_array(img.astype(float))
+
     return comps
 
 
@@ -1068,9 +1096,9 @@ def save_calibration_pattern(scan_id=-1,
     comps = make_calibration_pattern(xrd_data)
 
     _save_calibration_pattern(comps,
-                             xrd_dets=xrd_dets,
-                             scan_id=scan_md['scan_id'],
-                             wd=wd)
+                              xrd_dets=xrd_dets,
+                              scan_id=scan_md['scan_id'],
+                              wd=wd)
 
 
 # Function load and save map parameters 
