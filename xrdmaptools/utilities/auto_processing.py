@@ -5,11 +5,13 @@ from skimage import io
 import h5py
 import time as ttime
 import matplotlib.pyplot as plt
+import gc
 
 # Local imports
 import xrdmaptools
 from .. import XRDRockingCurve
 from .. import XRDMap
+from .. import XRDSlice
 # from .. import XRDMapStack
 from ..io.db_io import _load_tiled_catalog
 from .utilities import pathify
@@ -124,12 +126,18 @@ def standard_process_xdm(scan_id,
 
         elif xdm.detector == 'eiger':
             xdm.apply_defect_mask()
-            # Check for weird panel glitches
-            xdm.null_map[xdm.sum_map > 1e10] = True
+
+            # Check for weird panel glitches (500 pixels saturated)
+            xdm.null_map[xdm.sum_map > 500 * float(xdm._raw_value_range[1])] = True
+            # And for missing data
+            xdm.null_map[xdm.sum_map == 0] = True
 
         xdm.convert_scalers_to_flux(scaler_key='i0')
         xdm.convert_scalers_to_flux(scaler_key='im')
         xdm.normalize_scaler()
+
+        xdm.correct_outliers(tolerance=5)
+
         if air_scatter == False:
             pass
         elif isinstance(air_scatter, (np.ndarray, list, tuple)):
@@ -142,19 +150,22 @@ def standard_process_xdm(scan_id,
             corner_images = np.asarray([xdm.images[c] for c in corners])
             corner_images[..., ~xdm.mask] = 0
             air_scatter = corner_images[np.argmin(np.sum(corner_images, axis=(1, 2)))]
+            xdm.null_map[corners[np.argmin(np.sum(corner_images, axis=(1, 2)))]] = True
             xdm.correct_air_scatter(air_scatter, applied_corrections=xdm.corrections)
         elif air_scatter == True:
             if xdm.detector == 'eiger':
                 sum_map = xdm.sum_map.copy()
                 sum_map[xdm.null_map] = np.nan
-                air_scatter = xdm.images[np.unravel_index(np.nanargmin(sum_map), xdm.map_shape)]
+                air_scatter_indices = np.unravel_index(np.nanargmin(sum_map), xdm.map_shape)
+                air_scatter = xdm.images[air_scatter_indices]
+                xdm.null_map[air_scatter_indices] = True
                 xdm.correct_air_scatter(air_scatter, applied_corrections=xdm.corrections)
             elif xdm.detector == 'dexela':
                 xdm.correct_air_scatter(xdm.med_image, applied_corrections=xdm.corrections)
         else:
             err_str = 'Error handling air_scatter. Designate array, None, or bool.'
             raise RuntimeError(err_str)
-        xdm.correct_outliers(tolerance=20)
+        # xdm.correct_outliers(tolerance=5)
 
         # Geometric corrections
         if poni_file is None:
@@ -174,6 +185,13 @@ def standard_process_xdm(scan_id,
 
         # Rescale and saving
         xdm.rescale_images(arr_max=xdm.estimate_saturated_pixel())
+
+        # TEMP: Forcing ROI constraints
+        # if xdm.detector == 'eiger':
+        #     temp_mask = np.zeros_like(xdm.mask, dtype=np.bool_)
+        #     temp_mask[715:845, 675:875] = True
+        #     xdm.apply_custom_mask(temp_mask)
+
         if _proc_dict['save_images']:
             # if xdm.images.dtype != xdm.dtype:
             #     print('WARNING: Data was somehow upcast!!!!')
@@ -195,9 +213,12 @@ def standard_process_xdm(scan_id,
 
     # Find blobs
     if _proc_dict['blobs']:
-        xdm.find_blobs(filter_method='minimum',
-                    #    multiplier=5,
-                       multiplier=10,
+        # xdm.find_blobs(filter_method='minimum',
+        #                multiplier=5,
+        #                size=3,
+        #                expansion=10)
+        xdm.find_blobs(filter_method='gaussian',
+                       multiplier=4,
                        size=3,
                        expansion=10)
 
@@ -427,7 +448,8 @@ def prepare_standard_directories(wd):
     # os.makedirs(os.path.join(wd, 'air_scatter/'), exist_ok=True)
     os.makedirs(os.path.join(wd, 'xrdmaps/'), exist_ok=True)
     os.makedirs(os.path.join(wd, 'xrdmaps/reduced/'), exist_ok=True)
-    # os.makedirs(os.path.join(wd, 'reciprocal_space_maps/'), exist_ok=True)
+    os.makedirs(os.path.join(wd, 'rocking_curves/'), exist_ok=True)
+    os.makedirs(os.path.join(wd, 'xrdslices/'), exist_ok=True)
     # os.makedirs(os.path.join(wd, 'integrated_maps/'), exist_ok=True)
     os.makedirs(os.path.join(wd, 'max_1D_integrations/'), exist_ok=True)
 
@@ -450,6 +472,9 @@ def auto_process_xrd(start_id,
                      wd=None,
                      xrd_dets=None,
                      generate_directories=True,
+                     process_xdm=True,
+                     process_rsm=True,
+                     process_xds=True,
                      verbose=False,
                      **kwargs):
     
@@ -479,6 +504,7 @@ def auto_process_xrd(start_id,
     scan_id = start_id
     wait_iter = 0
     while True:
+        print(f'Checking scan ID {scan_id}...')
         try:
             # First check if beyond stop ID
             if stop_id is not None and scan_id > stop_id:
@@ -491,6 +517,7 @@ def auto_process_xrd(start_id,
             # scan id has not been started
             if scan_id > recent_id:
                 WAIT = True
+                print('', end='\r', flush=True)
             else:
                 # Does the scan_id exist?
                 if scan_id not in c:
@@ -506,6 +533,7 @@ def auto_process_xrd(start_id,
                         or c[scan_id].stop is None
                         or 'time' not in c[scan_id].stop):
                         WAIT = True
+                        print('', end='\r', flush=True)
 
             # Current scan has yet to finish. Give it some time.
             if WAIT:
@@ -530,7 +558,10 @@ def auto_process_xrd(start_id,
                 continue
             
             # Fourth determine exit status
-            if c[scan_id].stop['exit_status'] != 'success':
+            if (not hasattr(c[scan_id], 'stop')
+                or c[scan_id].stop is None
+                or 'exit_status' not in c[scan_id].stop
+                or c[scan_id].stop['exit_status'] != 'success'):
                 err_str = (f'Scan failed for scan ID {scan_id}.'
                            + '\nSkipping and moving to next scan ID.')
                 print(err_str)
@@ -542,18 +573,18 @@ def auto_process_xrd(start_id,
             if 'type' in c[scan_id].start['scan']:
                 scan_type = c[scan_id].start['scan']['type']
             else:
-                vprint(f'Scan type of {scan_type} does not have XRD for scan ID {scan_id}.')
+                vprint(f'Scan type of {scan_type} does not support XRD for scan ID {scan_id}.')
                 scan_id += 1
                 continue
             
-            if scan_type == 'XRF_FLY':
+            if scan_type in ['XRF_FLY']:
                 # First, is this a rocking curve
-                if c[scan_id].start['scan']['fast_axis'] == 'nano_stage_th':
+                if c[scan_id].start['scan']['fast_axis'] == 'nano_stage_th' and process_rsm:
                     rsm = standard_process_rsm(scan_id,
                                                wd,
                                                **kwargs)
-                    scan_id += 1
-                    continue
+                    del rsm
+                    gc.collect()
                 
                 # Second check if shape looks like a dark-field
                 elif c[scan_id].start['scan']['shape'] == [5, 5]:
@@ -564,30 +595,27 @@ def auto_process_xrd(start_id,
                                            broker='manual',
                                            wd=f'{wd}dark_fields/',
                                            method='median')
-                    scan_id += 1
-                    continue
                 
-                else:
+                elif process_xdm:
                     xdm = standard_process_xdm(scan_id,
                                                wd,
                                                **kwargs)
-                    scan_id += 1
-                    continue
+                    del xdm
+                    gc.collect()
             
-            elif scan_type == 'ENERGY_RC':
-                rsm = standard_process_rsm(scan_id,
-                                           wd,
-                                           **kwargs)
-                scan_id += 1
-                continue
-                
-
-            elif scan_type == 'ANGLE_RC':
-                rsm = standard_process_rsm(scan_id,
-                                           wd,
-                                           **kwargs)
-                scan_id += 1
-                continue
+            elif scan_type in ['ENERGY_RC', 'ANGLE_RC']:
+                if process_rsm:
+                    rsm = standard_process_rsm(scan_id,
+                                            wd,
+                                            **kwargs)
+                    del rsm
+                    gc.collect()
+            
+            elif scan_type in ['XAS_SLICE'] and process_xds:
+                if process_xds:
+                    xds = XRDSlice.from_db(scan_id, wd=f'{wd}xrdslices/')
+                    del xds
+                    gc.collect()
 
             else:
                 if scan_type is not None:
@@ -595,8 +623,9 @@ def auto_process_xrd(start_id,
                     + f'scan ID {scan_id}.\nSkipping and moving to '
                     + 'next scan ID.')
                     print(err_str)
-                scan_id += 1
-                continue
+            
+            # Iterate
+            scan_id += 1
                 
         except KeyboardInterrupt:
             print(f'Stopping auto processing on scan {scan_id}.')
@@ -604,6 +633,7 @@ def auto_process_xrd(start_id,
         
         except Exception as e:
             print(f'Auto processing failed for scan {scan_id}.\n{e}')
+            raise
             scan_id += 1
             # continue
             break
