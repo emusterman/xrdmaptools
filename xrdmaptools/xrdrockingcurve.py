@@ -230,10 +230,14 @@ class XRDRockingCurve(XRDBaseScan):
     # Overwrite parent function
     @copy_docstring(XRDBaseScan.__str__)
     def __str__(self):
-        ostr = (f'{self._hdf_type}:  scan_id={self.scan_id}, '
-                + f'energy_range={min(self.energy):.3f}'
-                + f'-{max(self.energy):.3f}, '
-                + f'shape={self.images.shape}')
+        ostr = f'{self._hdf_type}:  scan_id={self.scan_id}, '
+        if self.rocking_axis == 'energy':
+            ostr += (f'energy_range={min(self.energy):.3f}'
+                     + f'-{max(self.energy):.3f}, ')
+        elif self.rocking_axis == 'angle':
+            ostr += (f'ange_range={min(self.theta):.3f}'
+                     + f'-{max(self.theta):.3f}, ')
+        ostr += f'shape={self.images.shape}'
         return ostr
     
 
@@ -241,10 +245,21 @@ class XRDRockingCurve(XRDBaseScan):
     @copy_docstring(XRDBaseScan.__repr__)
     def __repr__(self):
         lines = XRDBaseScan.__repr__(self).splitlines(True)
-        lines[4] = (f'\tEnergy Range:\t\t{min(self.energy):.3f}'
-                    + f'-{max(self.energy):.3f} keV\n')
+        en_idx = np.nonzero(['energy' in line.lower()
+                             for line in lines])[0][0]
+        th_idx = np.nonzero(['theta' in line.lower()
+                             for line in lines])[0][0]
+        if self.rocking_axis == 'energy':
+            lines[en_idx] = (f'\tEnergy Range:\t{min(self.energy):.3f}'
+                             + f'-{max(self.energy):.3f} keV\n')
+            lines[th_idx] = f'\tTheta:\t\t{self.theta[0]:.3f} deg\n'
+        elif self.rocking_axis == 'angle':
+            lines[th_idx] = (f'\tAngle Range:\t{min(self.theta):.3f}'
+                            + f'-{max(self.theta):.3f} keV\n')
+            lines[en_idx] = f'\tEnergy:\t\t{self.energy[0]:.3f} keV'
         ostr = ''.join(lines)
         return ostr
+
 
     #########################
     ### Utility Functions ###
@@ -622,8 +637,6 @@ class XRDRockingCurve(XRDBaseScan):
                             scan_id=scan_id,
                             returns=['xrd_dets'],
                                 )
-            
-            filename_id = scan_md['scan_id']
         
         xrd_data = [data_dict[f'{xrd_det}_image']
                     for xrd_det in xrd_dets]
@@ -641,14 +654,16 @@ class XRDRockingCurve(XRDBaseScan):
                 null_maps.append(data_dict[null_key])
             else:
                 null_maps.append(None)
-        
+
+        # Determine filename
         if filename is None:
-            if len(xrd_data) > 1:
-                # Iterate through detectors
-                filenames = [f'scan{filename_id}_{det}_rsm'
-                            for det in xrd_dets]
+            if isinstance(scan_md['scan_id'],
+                          (list, tuple, np.ndarray)):
+                prefix = f"scan{scan_md['scan_id'][0]}-{scan_md['scan_id'][-1]}"
             else:
-                filenames = [f'scan{filename_id}_rsm']
+                prefix = f"scan{scan_md['scan_id']}"
+
+            basenames = [prefix,] * len(xrd_dets)
         else:
             if isinstance(filename, list):
                 if len(filename) != len(xrd_data):
@@ -657,13 +672,49 @@ class XRDRockingCurve(XRDBaseScan):
                                 + 'number of detectors. Naming may '
                                 + 'be unexpected.')
                     print(warn_str)
-                    # Iterate through detectors
-                    filenames = [f'{filename[0]}_{det}_rsm' ]
+                    basenames = [filename[0],] * len(xrd_dets)
                 else:
-                    filenames = [filename]
+                    basenames = filename
             else:
-                filenames = [f'{filename}_{det}_rsm'
-                             for det in xrd_dets]
+                basenames = [filename,] * len(xrd_dets)
+        
+        # Append discriminators
+        filenames = []
+        for name, det in zip(basenames, xrd_dets):
+            if len(xrd_dets) > 1:
+                name += f'_{det}'
+            if filename is None:
+                name += f'_{cls._hdf_type}'
+            name += '.h5'
+            filenames.append(name)
+                
+        # if len(xrd_dets) > 1:
+        #     filenames = [f'{name}_{det}'
+        #                  for name, det in zip(filenames, xrd_dets)]
+        # filenames = [f'{name}']
+        
+        # if filename is None:
+        #     if len(xrd_data) > 1:
+        #         # Iterate through detectors
+        #         filenames = [f"scan{scan_md['scan_id']}_{det}_{self._hdf_type}"
+        #                     for det in xrd_dets]
+        #     else:
+        #         filenames = [f'scan{filename_id}_{self._hdf_type}']
+        # else:
+        #     if isinstance(filename, list):
+        #         if len(filename) != len(xrd_data):
+        #             warn_str = ('WARNING: length of specified '
+        #                         + 'filenames does not match the '
+        #                         + 'number of detectors. Naming may '
+        #                         + 'be unexpected.')
+        #             print(warn_str)
+        #             # Iterate through detectors
+        #             filenames = [f'{filename[0]}_{det}_{self._hdf_type}' ]
+        #         else:
+        #             filenames = [filename]
+        #     else:
+        #         filenames = [f'{filename}_{det}_{self._hdf_type}'
+        #                      for det in xrd_dets]
 
         extra_md = {}
         for key in scan_md.keys():
@@ -1610,7 +1661,7 @@ class XRDRockingCurve(XRDBaseScan):
                        + "'seed_casting' is currently supported.")
             raise ValueError(err_str)
 
-        if hasattr(self, 'spots_3D') and spots is None:
+        if hasattr(self, 'spots_3D') and self.spots_3D is not None:
             grains = np.asarray([np.nan,] * len(self.spots_3D))
             h, k, l = grains.copy(), grains.copy(), grains.copy()
             phases = ['',] * len(self.spots_3D)
@@ -2045,18 +2096,13 @@ class XRDRockingCurve(XRDBaseScan):
                                 + 'Rocking Curve'),
                             title_scan_id=title_scan_id)
         
-        fig, ax, slider = base_slider_plot(
-                                images,
+        return base_slider_plot(images,
                                 slider_vals=slider_vals,
                                 slider_label=slider_label,
                                 title=title,
                                 vmin=vmin,
                                 vmax=vmax,
                                 **kwargs)
-        
-         # Need a slider reference
-        self._image_stack_slider = slider
-        return fig, ax
     
 
     @return_plot_wrapper
