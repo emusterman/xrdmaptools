@@ -28,7 +28,8 @@ from xrdmaptools.utilities.utilities import (
     pathify,
     generate_intensity_mask,
     copy_docstring,
-    parse_version
+    parse_version,
+    deprecated
 )
 from xrdmaptools.io.hdf_io import (
     initialize_xrdbase_hdf,

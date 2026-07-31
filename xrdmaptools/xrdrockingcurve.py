@@ -14,7 +14,8 @@ from xrdmaptools.utilities.math import (
 )
 from xrdmaptools.utilities.utilities import (
     generate_intensity_mask,
-    copy_docstring
+    copy_docstring,
+    deprecated
 )
 from xrdmaptools.geometry.geometry import (
     get_q_vect,
@@ -2009,7 +2010,7 @@ class XRDRockingCurve(XRDBaseScan):
         """
 
         err_str = ('Q-space plotting not supported for '
-                   + 'XRDRockingCurves; Ewald sphere/or '
+                   + f'{self.__class__.__name__}; Ewald sphere/or '
                    + 'crystal orientation changes during scanning.')
         raise NotImplementedError(err_str)
 

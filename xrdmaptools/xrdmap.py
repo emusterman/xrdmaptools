@@ -10,7 +10,8 @@ from xrdmaptools.xrdbasescan import XRDBaseScan
 from xrdmaptools.utilities.utilities import (
     pathify,
     _check_dict_key,
-    copy_docstring
+    copy_docstring,
+    deprecated
     )
 # from xrdmaptools.io.hdf_io import _load_xrd_hdf_vectorized_map_data
 from xrdmaptools.io.hdf_utils import (
@@ -30,15 +31,6 @@ from xrdmaptools.reflections.spot_blob_search import (
     remake_spot_list,
     fit_spots
     )
-# from xrdmaptools.plot.interactive_old import (
-#     interactive_2D_plot,
-#     interactive_1D_plot,
-#     interactive_1D_window_sum_plot,
-#     interactive_1D_window_com_plot,
-#     interactive_2D_window_sum_plot,
-#     interactive_2D_window_tth_com_plot,
-#     interactive_2D_window_chi_com_plot
-#     )
 from xrdmaptools.plot.interactive_map import (
     Interactive2DPlot,
     Interactive1DPlot,

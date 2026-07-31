@@ -17,7 +17,8 @@ from xrdmaptools.utilities.math import (
     rescale_array,
 )
 from xrdmaptools.utilities.utilities import (
-    Iterable2D
+    Iterable2D,
+    deprecated
 )
 from xrdmaptools.utilities.image_corrections import (
     iterative_outlier_correction,

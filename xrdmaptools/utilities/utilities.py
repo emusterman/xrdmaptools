@@ -258,6 +258,33 @@ def generate_intensity_mask(intensity,
         return int_mask
 
 
+def deprecated(new_plan):
+    """
+    Custom decorator for deprecated functions.
+
+    Parameters
+    ----------
+    new_plan : func:
+        Newly supported function to replace deprecated function.
+    """
+
+    def decorator(func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            warn_str = (
+                f"Function {func.__name__} is now deprecated.\n"
+                + f"This plan will still work as intended, but {new_plan.__name__} is encouraged as a replacement.\n\n"
+            )
+            warnings.warn(
+                warn_str,
+                category=DeprecationWarning,
+                stacklevel=2
+            )
+            return func(*args, **kwargs)
+        return wrapper
+    return decorator
+
+
 # Unused
 def deprecated(func):
     @functools.wraps(func)

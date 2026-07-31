@@ -12,7 +12,8 @@ from xrdmaptools.xrdrockingcurve import XRDRockingCurve
 from xrdmaptools.utilities.utilities import (
     pathify,
     _check_dict_key,
-    copy_docstring
+    copy_docstring,
+    deprecated
     )
 from xrdmaptools.utilities.math import (
     wavelength_2_energy,
@@ -394,12 +395,17 @@ class XRDSlice(XRDBaseScan):
         else:
             # Don't bother returning a tuple or list of xrdslices
             return xrdslices[0]
-    
+
 
     #################################
     ### Modified Parent Functions ###
     #################################
+
+    @copy_docstring(XRDRockingCurve.set_calibration)
+    def set_calibration(self, *args, **kwargs):
+        return XRDRockingCurve.set_calibration(self, *args, **kwargs)
     
+
     @copy_docstring(XRDBaseScan.save_current_hdf)
     def save_current_hdf(self, verbose=False):
 
@@ -413,10 +419,10 @@ class XRDSlice(XRDBaseScan):
                                 self.pos_dict,
                                 self.position_units)
         
-        # Save spots
-        if (hasattr(self, 'spots')
-            and self.spots is not None):
-            self.save_spots()
+        # Save 3D spots
+        if (hasattr(self, 'spots_3D')
+            and self.spots_3D is not None):
+            self.save_3D_spots()
         
         # Save vector_map
         if ((hasattr(self, 'vector_map')
@@ -424,6 +430,13 @@ class XRDSlice(XRDBaseScan):
             and (hasattr(self, 'edges')
              and self.edges is not None)):
             self.save_vector_map(rewrite_data=True)
+
+
+    def correct_scaler_energies():
+        raise NotImplementedError
+
+    def convert_scalers_to_flux():
+        raise NotImplementedError
 
 
     #########################
@@ -791,6 +804,7 @@ class XRDSlice(XRDBaseScan):
     def find_3D_spots(self, *args, **kwargs):
         raise NotImplementedError
 
+
     @copy_docstring(XRDRockingCurve.trim_3D_spots)
     def trim_3D_spots(self, *args, **kwargs):
         return XRDRockingCurve.trim_3D_spots(self, *args, **kwargs)
@@ -841,7 +855,13 @@ class XRDSlice(XRDBaseScan):
     ##########################
     ### Plotting Functions ###
     ##########################
+
+    # Disable q-space plotting
+    @copy_docstring(XRDRockingCurve.plot_q_space)
+    def plot_q_space(self, *args, **kwargs):
+        return XRDRockingCurve.plot_q_space(self, *args, **kwargs)
     
+
     @return_plot_wrapper
     def plot_map(self,
                  map_values,

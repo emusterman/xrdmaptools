@@ -27,7 +27,8 @@ from xrdmaptools.utilities.utilities import (
     get_int_vector_map,
     get_max_vector_map,
     get_num_vector_map,
-    copy_docstring
+    copy_docstring,
+    deprecated
 )
 from xrdmaptools.io.hdf_io import (
     initialize_xrdmapstack_hdf,
