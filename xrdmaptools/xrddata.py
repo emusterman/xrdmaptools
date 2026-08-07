@@ -341,6 +341,11 @@ class XRDData:
             self.num_images = np.prod(self.map_shape)
         else:
             self.num_images = 0
+        
+        if self.image_shape is not None:
+            self.num_pixels = np.prod(self.image_shape)
+        else:
+            self.num_pixels = 0
 
         if (self.map_shape is not None
             and self.image_shape is not None):
@@ -594,7 +599,7 @@ class XRDData:
         """
         return Iterable2D(self.map_shape)
 
-    
+
     def _projection_factory(property_name, function):
         """
         Internal function for constructing projection properties from
@@ -633,17 +638,25 @@ class XRDData:
                     mask = np.ones(self.image_shape, dtype=np.bool_)
 
                 if projection == 'image':
-                    val = function(self.images[map_mask],
-                                   axis=0).astype(self.dtype)
+                    val = np.empty(self.num_pixels, dtype=self.dtype)
+                    for ind, pix in enumerate(self.images.reshape(
+                                                *self.map_shape,
+                                                self.num_pixels).T):
+                        val[ind] = function(pix.T[map_mask])
                     if self._dask_enabled:
                         val = val.compute()
+                    val = val.reshape(self.image_shape)
                     val[~mask] = 0
                 
                 elif projection == 'map':
-                    val = function(self.images[..., mask],
-                                   axis=-1).astype(self.dtype)
+                    val = np.empty(self.num_images, dtype=self.dtype)
+                    for ind, img in enumerate(self.images.reshape(
+                                                self.num_images,
+                                                *self.image_shape)):
+                        val[ind] = function(img[mask])
                     if self._dask_enabled:
                         val = val.compute()
+                    val = val.reshape(self.map_shape)
                     val[~map_mask] = 0
 
                 setattr(self, property_name, val)                
@@ -653,6 +666,66 @@ class XRDData:
             delattr(self, property_name)
         
         return property(get_projection, None, del_projection)
+
+    
+    # def _projection_factory(property_name, function):
+    #     """
+    #     Internal function for constructing projection properties from
+    #     images.
+    #     """
+
+    #     projection = property_name.split('_')[-1]
+    #     if projection not in {'image', 'map'}:
+    #         err_str = ("Projections only supported for 'image' and "
+    #                    + "'map'.")
+    #         raise ValueError(err_str) 
+
+    #     property_name = f'_{property_name}' # This line is crucial! 
+    #     def get_projection(self):
+    #         if hasattr(self, property_name):
+    #             return getattr(self, property_name)
+    #         else:
+    #             if (not hasattr(self, 'images')
+    #                 or self.images is None):
+    #                 err_str = ('Cannot determine image '
+    #                            + 'projection without images.')
+    #                 raise AttributeError(err_str)
+
+    #             # Compute any scheduled operations
+    #             self._dask_2_dask()
+
+    #             # Discount ignored values
+    #             if (hasattr(self, 'null_map')
+    #                 and self.null_map is not None):
+    #                 map_mask = ~self.null_map
+    #             else:
+    #                 map_mask = np.ones(self.map_shape, dtype=np.bool_)
+    #             if hasattr(self, 'mask') and self.mask is not None:
+    #                 mask = self.mask
+    #             else:
+    #                 mask = np.ones(self.image_shape, dtype=np.bool_)
+
+    #             if projection == 'image':
+    #                 val = function(self.images[map_mask],
+    #                                axis=0).astype(self.dtype)
+    #                 if self._dask_enabled:
+    #                     val = val.compute()
+    #                 val[~mask] = 0
+                
+    #             elif projection == 'map':
+    #                 val = function(self.images[..., mask],
+    #                                axis=-1).astype(self.dtype)
+    #                 if self._dask_enabled:
+    #                     val = val.compute()
+    #                 val[~map_mask] = 0
+
+    #             setattr(self, property_name, val)                
+    #             return getattr(self, property_name)
+
+    #     def del_projection(self):
+    #         delattr(self, property_name)
+        
+    #     return property(get_projection, None, del_projection)
 
 
     min_map = _projection_factory('min_map', np.min)
@@ -1061,6 +1134,7 @@ class XRDData:
             self.map_shape = self.shape[:2]
             self.image_shape = self.shape[-2:]
             self.num_images = np.prod(self.map_shape)
+            self.num_pixels = np.prod(self.image_shape)
         
         # Loading only an image attribute
         else:
@@ -1307,7 +1381,7 @@ class XRDData:
             print(note_str)
             return
         elif self.hdf_path is None:
-            note_str = ('NOTE: HDF path is not being saved in this'
+            note_str = ('NOTE: HDF path is not being saved in this '
                         + 'instance. Run start_saving_hdf method to '
                         + 'start saving to HDF file.')
             print(note_str)
@@ -1460,6 +1534,11 @@ class XRDData:
                        + f'determined from raw images not {self.title}'
                        + ' images.')
             raise ValueError(err_str)
+
+        # TEMP: Find a better way to NOT track the bar
+        if self.detector == 'eiger':
+            print('CAUTION: Not tracking saturated Eiger pixels!')
+            return
         
         if verbose:
             print('Tracking saturated pixels...')
@@ -1610,10 +1689,10 @@ class XRDData:
             print('done!')
 
 
-    def correct_air_scatter(self,
-                            air_scatter=None,
-                            applied_corrections=None,
-                            override=False):
+    def correct_static_background(self,
+                                  air_scatter=None,
+                                  applied_corrections=None,
+                                  override=False):
         """
         Correct for air scatter.
 
@@ -1757,6 +1836,11 @@ class XRDData:
         self.update_map_title()
         self._dask_2_hdf()
         print('done!')
+    
+
+    # Maintain backwards compatibility after renaming
+    correct_air_scatter = correct_static_background
+    # correct_air_scatter = deprecated(correct_static_background)(correct_air_scatter)
 
         
     def correct_outliers(self,
