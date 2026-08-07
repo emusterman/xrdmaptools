@@ -114,9 +114,9 @@ def timed_func(func):
     # Time a function
     
     def wrap_func(*args, **kwargs):
-        t0 = ttime()
+        t0 = ttime.monotonic()
         result = func(*args, **kwargs)
-        tf = ttime()
+        tf = ttime.monotonic()
         print(f'Function {func.__name__!r} executed in {(tf - t0):.4f}s')
         return result
     
@@ -283,19 +283,6 @@ def deprecated(new_plan):
             return func(*args, **kwargs)
         return wrapper
     return decorator
-
-
-# Unused
-def deprecated(func):
-    @functools.wraps(func)
-    def new_func(*args, **kwargs):
-        warnings.simplefilter('always', DeprecationWarning)  # turn off filter
-        warnings.warn("Call to deprecated function {}.".format(func.__name__),
-                      category=DeprecationWarning,
-                      stacklevel=2)
-        warnings.simplefilter('default', DeprecationWarning)  # reset filter
-        return func(*args, **kwargs)
-    return new_func
 
 
 def copy_docstring(copy_func, sep='\n'):
