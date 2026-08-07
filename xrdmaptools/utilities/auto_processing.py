@@ -152,6 +152,27 @@ def standard_process_xdm(scan_id,
             air_scatter = corner_images[np.argmin(np.sum(corner_images, axis=(1, 2)))]
             xdm.null_map[corners[np.argmin(np.sum(corner_images, axis=(1, 2)))]] = True
             xdm.correct_air_scatter(air_scatter, applied_corrections=xdm.corrections)
+        elif air_scatter == 'top_bot_edge_centers':
+            centers = [(0, xdm.map_shape[1] // 2), (xdm.map_shape[0] - 1, xdm.map_shape[1] // 2)]
+            center_images = np.asarray([xdm.images[c] for c in centers])
+            center_images[..., ~xdm.mask] = 0
+            air_scatter = center_images[np.argmin(np.sum(center_images, axis=(1, 2)))]
+            xdm.null_map[centers[np.argmin(np.sum(center_images, axis=(1, 2)))]] = True
+            xdm.correct_air_scatter(air_scatter, applied_corrections=xdm.corrections)
+        elif air_scatter == 'edge_centers':
+            centers = [(0, xdm.map_shape[1] // 2), (xdm.map_shape[0] // 2, 0), (xdm.map_shape[0] - 1, xdm.map_shape[1] // 2), (xdm.map_shape[0] // 2, xdm.map_shape[1] - 1)]
+            center_images = np.asarray([xdm.images[c] for c in centers])
+            center_images[..., ~xdm.mask] = 0
+            air_scatter = center_images[np.argmin(np.sum(center_images, axis=(1, 2)))]
+            xdm.null_map[centers[np.argmin(np.sum(center_images, axis=(1, 2)))]] = True
+            xdm.correct_air_scatter(air_scatter, applied_corrections=xdm.corrections)
+        elif air_scatter == 'top_bot_edges':
+            edges = [(0, i) for i in range(0, xdm.map_shape[1] - 1)] + [(xdm.map_shape[0] - 1, i) for i in range(0, xdm.map_shape[1] - 1)]
+            edge_images = np.asarray([xdm.images[e] for e in edges])
+            edge_images[..., ~xdm.mask] = 0
+            air_scatter = edge_images[np.argmin(np.sum(edge_images, axis=(1, 2)))]
+            xdm.null_map[edges[np.argmin(np.sum(edge_images, axis=(1, 2)))]] = True
+            xdm.correct_air_scatter(air_scatter, applied_corrections=xdm.corrections)
         elif air_scatter == True:
             if xdm.detector == 'eiger':
                 sum_map = xdm.sum_map.copy()
@@ -179,9 +200,9 @@ def standard_process_xdm(scan_id,
         xdm.apply_solidangle_correction()
 
         # Background correction
-        xdm.estimate_background(method='bruckner',
-                                binning=4,
-                                min_prominence=0.1)
+        # xdm.estimate_background(method='bruckner',
+        #                         binning=4,
+        #                         min_prominence=0.1)
 
         # Rescale and saving
         xdm.rescale_images(arr_max=xdm.estimate_saturated_pixel())
