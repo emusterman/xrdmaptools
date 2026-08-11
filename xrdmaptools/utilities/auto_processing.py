@@ -525,7 +525,8 @@ def auto_process_xrd(start_id,
     scan_id = start_id
     wait_iter = 0
     while True:
-        print(f'Checking scan ID {scan_id}...')
+        if wait_iter == 0:
+            print(f'Checking scan ID {scan_id}...')
         try:
             # First check if beyond stop ID
             if stop_id is not None and scan_id > stop_id:
