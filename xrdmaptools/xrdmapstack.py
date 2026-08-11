@@ -1944,10 +1944,10 @@ class XRDMapStack(list):
                               label_ints, # intensity
                               *spots.T, # qx, qy, qz
                               np.linalg.norm(spots, axis=1), # q_mag
-                              tth,
-                              chi, 
-                              wavelength,
-                              theta
+                              tth, # center tth
+                              chi, # center chi
+                              wavelength, # center wavelength
+                              theta # center theta
                               ]
             else:
                 spot_labels = []
