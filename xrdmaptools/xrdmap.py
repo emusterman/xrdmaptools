@@ -13,7 +13,6 @@ from xrdmaptools.utilities.utilities import (
     copy_docstring,
     deprecated
     )
-# from xrdmaptools.io.hdf_io import _load_xrd_hdf_vectorized_map_data
 from xrdmaptools.io.hdf_utils import (
     overwrite_attr,
     get_large_map_slices
@@ -235,14 +234,6 @@ class XRDMap(XRDBaseScan):
         xrd_data = [data_dict[f'{xrd_det}_image']
                     for xrd_det in xrd_dets]
 
-        # # Make position dictionary
-        # pos_dict = {key:value for key, value in data_dict.items()
-        #             if key in pos_keys}
-
-        # # Make scaler dictionary
-        # sclr_dict = {key:value for key, value in data_dict.items()
-        #              if key in sclr_keys}
-
         # Get map shape information. Must follow flying directions
         row_length = scan_md['scan_input'][2]
         col_length = scan_md['scan_input'][5]
@@ -297,12 +288,6 @@ class XRDMap(XRDBaseScan):
                 name += f'_{cls._hdf_type}'
             name += '.h5'
             filenames.append(name)
-
-        # if len(xrd_data) > 1:
-        #     filenames = [f'scan{scan_md["scan_id"]}_{det}_{self._hdf_type}.h5'
-        #                  for det in xrd_dets]
-        # else:
-        #     filenames = [filename]
 
         extra_md = {}
         for key in scan_md.keys():

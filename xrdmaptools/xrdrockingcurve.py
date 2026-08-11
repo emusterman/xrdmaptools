@@ -688,34 +688,6 @@ class XRDRockingCurve(XRDBaseScan):
                 name += f'_{cls._hdf_type}'
             name += '.h5'
             filenames.append(name)
-                
-        # if len(xrd_dets) > 1:
-        #     filenames = [f'{name}_{det}'
-        #                  for name, det in zip(filenames, xrd_dets)]
-        # filenames = [f'{name}']
-        
-        # if filename is None:
-        #     if len(xrd_data) > 1:
-        #         # Iterate through detectors
-        #         filenames = [f"scan{scan_md['scan_id']}_{det}_{self._hdf_type}"
-        #                     for det in xrd_dets]
-        #     else:
-        #         filenames = [f'scan{filename_id}_{self._hdf_type}']
-        # else:
-        #     if isinstance(filename, list):
-        #         if len(filename) != len(xrd_data):
-        #             warn_str = ('WARNING: length of specified '
-        #                         + 'filenames does not match the '
-        #                         + 'number of detectors. Naming may '
-        #                         + 'be unexpected.')
-        #             print(warn_str)
-        #             # Iterate through detectors
-        #             filenames = [f'{filename[0]}_{det}_{self._hdf_type}' ]
-        #         else:
-        #             filenames = [filename]
-        #     else:
-        #         filenames = [f'{filename}_{det}_{self._hdf_type}'
-        #                      for det in xrd_dets]
 
         extra_md = {}
         for key in scan_md.keys():

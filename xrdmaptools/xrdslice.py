@@ -82,7 +82,6 @@ class XRDSlice(XRDBaseScan):
                  ):
 
 
-
         XRDBaseScan.__init__(
             self,
             map_labels=['rocking_ind',
@@ -107,21 +106,6 @@ class XRDSlice(XRDBaseScan):
             and ('interp_x' not in self.pos_dict 
                  or 'interp_y' not in self.pos_dict)):
             self.interpolate_positions(check_init_sets=check_init_sets)
-
-        # Check for changes. Wavelength will depend on energy
-        if (np.all(~np.isnan(self.energy))
-            and np.all(~np.isnan(self.theta))):
-            # If all the same raise error
-            if all([
-                all(np.round(i, 4) == np.round(self.energy[0], 4)
-                    for i in self.energy),
-                all(np.round(i, 4) == np.round(self.theta[0], 4)
-                    for i in self.theta)
-            ]):
-                err_str = ('Rocking curves must be constructed '
-                           + 'by varying energy/wavelength or '
-                           + 'theta. Given values are constant.')
-                raise ValueError(err_str)
         
         # Find rocking axis
         self._set_rocking_axis(rocking_axis=rocking_axis)
@@ -337,12 +321,6 @@ class XRDSlice(XRDBaseScan):
             if name.split('.')[-1] != 'h5':
                 name += '.h5'
             filenames.append(name)
-
-        # if len(xrd_data) > 1:
-        #     filenames = [f'scan{scan_md["scan_id"]}_{det}_{self._hdf_type}.h5'
-        #                  for det in xrd_dets]
-        # else:
-        #     filenames = [filename]
 
         extra_md = {}
         for key in scan_md.keys():
