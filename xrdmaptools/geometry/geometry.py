@@ -3,6 +3,7 @@ from scipy.optimize import curve_fit
 from scipy.interpolate import griddata, RegularGridInterpolator
 from scipy.interpolate import RegularGridInterpolator
 from scipy.spatial.transform import Rotation
+from scipy.spatial import KDTree, Delaunay, ConvexHull
 
 # Local imports
 from xrdmaptools.utilities.math import (
@@ -470,8 +471,14 @@ def det_plane_from_ai(ai,
     return svd[0][:, -1], d.squeeze()
 
 
-# Class for bounding reciprocal space volumes mapped by rocking curves
-class QMask():
+
+class OldQMask:
+    """
+    Class for bounding reciprocal space volumes mapped by angle
+    and energy "rocking" curves.
+
+
+    """
 
     def __init__(self,
                  tth_arr,
@@ -641,10 +648,6 @@ class QMask():
             first = chi
             second = tth
 
-        # TODO: Check that the sign of angle_correct for both detector positions
-        # upper = second - (general_polynomial(first, *self.upper_poly) - angle_ext)
-        # lower = second - (general_polynomial(first, *self.lower_poly) + angle_ext)
-        # vertical_mask = np.sign(upper) != np.sign(lower)
         upper = second - general_polynomial(first, *self.upper_poly)
         lower = second - general_polynomial(first, *self.lower_poly)
         vertical_mask = np.any([np.sign(upper - angle_ext) != np.sign(lower + angle_ext),
@@ -659,10 +662,6 @@ class QMask():
             first = chi
             second = tth
 
-        # TODO: Check that the sign of angle_correct for both detector positions
-        # left = second - (general_polynomial(first, *self.left_poly) + angle_ext)
-        # right = second - (general_polynomial(first, *self.right_poly) - angle_ext)
-        # horizontal_mask = np.sign(left) != np.sign(right)
         left = second - general_polynomial(first, *self.left_poly)
         right = second - general_polynomial(first, *self.right_poly)
         horizontal_mask = np.any([np.sign(left - angle_ext) != np.sign(right + angle_ext),
@@ -693,3 +692,221 @@ class QMask():
             ], axis=0)
 
             return qmask
+
+
+class QMask:
+    """
+    Class for bounding reciprocal space volumes mapped by angle
+    and energy "rocking" curves.
+
+    With padding.
+    """
+
+    def __init__(self,
+                 tth_arr,
+                 chi_arr,
+                 wavelength_vals,
+                 theta_vals=0,
+                 poly_order=6,
+                 use_stage_rotation=False,
+                 rocking_axis=None,
+                 q_pad=0.1,
+                 angle_pad=np.radians(1) # in rad
+                 ):
+
+        if np.any([tth_arr > 2 * np.pi, chi_arr > 2 * np.pi,
+                   tth_arr < -2 * np.pi, chi_arr < -2 * np.pi]):
+            err_str = ('QMask only supports input arrays in units '
+                       + 'of radians.')
+            raise ValueError(err_str)
+        
+        # Check for azimuthal discontintuites
+        self.chi_max_arr = np.max(np.abs(chi_arr)) # determines units...
+        chi_arr, _, shifted = modular_azimuthal_shift(chi_arr)
+        self.chi_shifted = shifted # conditional
+
+        # Determine simple extents
+        self.tth_min = np.min(tth_arr)
+        self.tth_max = np.max(tth_arr)
+        self.chi_min = np.min(chi_arr)
+        self.chi_max = np.max(chi_arr)
+        self.wavelength_min = np.min(wavelength_vals)
+        self.wavelength_max = np.max(wavelength_vals)
+        self.theta_min = np.min(theta_vals)
+        self.theta_max = np.max(theta_vals)
+        self.use_stage_rotation = use_stage_rotation
+        self.q_pad = q_pad
+        self.angle_pad = angle_pad
+
+        # Get rocking axis
+        energy_rc = np.abs(self.wavelength_min - self.wavelength_max) > 0.001 # in nm
+        min_angle = np.radians(0.05) # in degrees
+        angle_rc = np.abs(self.theta_min - self.theta_max) > min_angle
+
+        if energy_rc and angle_rc:
+            err_str = ('Both energy and angle are changing. '
+                      + '\nOne must be static to generate Qmask.')
+            raise RuntimeError(err_str)
+        elif not energy_rc and not angle_rc:
+            err_str = ('Neither energy nor angle are changing. '
+                      + '\nOne must be rocking to generate Qmask.')
+            raise RuntimeError(err_str)
+        elif energy_rc:
+            self.rocking_axis = 'energy'
+        else:
+            self.rocking_axis = 'angle'
+
+        # Determine edges
+        # Inelegant method of throwing higher
+        # order polynomials at the problem
+        p0 = np.zeros(poly_order + 1)
+        for indexing, poly in zip([(0), # [0, :] 
+                                   (-1), # [-1, :]
+                                   (slice(None), 0), # [:, 0]
+                                   (slice(None), -1)], # [:, -1]
+                                   ['upper_poly',
+                                   'lower_poly',
+                                   'left_poly',
+                                   'right_poly']):
+            
+            # Determine functional direction
+            tth_grad = np.gradient(tth_arr[indexing])
+            if np.all(tth_grad > 0) or np.all(tth_grad < 0):
+                first_arr = tth_arr
+                second_arr = chi_arr
+                setattr(self, f'{poly}_first', 'tth')
+            else:
+                first_arr = chi_arr
+                second_arr = tth_arr
+                setattr(self, f'{poly}_first', 'chi')
+            
+            # Fit edge functions
+            popt, _ = curve_fit(general_polynomial,
+                                first_arr[indexing],
+                                second_arr[indexing],
+                                p0=p0)
+            
+            setattr(self, poly, popt)
+
+    
+    @classmethod
+    def from_XRDRockingScan(cls,
+                            rsm,
+                            **kwargs):
+        # Works for both XRDRockingCurve and XRDMapStack
+
+        if rsm.scattering_units == 'deg':
+            tth_arr = np.radians(rsm.tth_arr)
+        elif rsm.scattering_units == 'rad':
+            tth_arr = rsm.tth_arr
+        if rsm.azimuthal_units == 'deg':
+            chi_arr = np.radians(rsm.chi_arr)
+        elif rsm.azimuthal_units == 'rad':
+            chi_arr = rsm.chi_arr
+        
+        inst = cls(tth_arr,
+                   chi_arr,
+                   rsm.wavelength,
+                   np.radians(rsm.theta), # Convert to radians
+                   use_stage_rotation=rsm.use_stage_rotation,
+                   rocking_axis=rsm.rocking_axis,
+                   **kwargs)
+        
+        return inst
+
+
+    def generate(self,
+                 q_vectors,
+                 q_pad=None,
+                 angle_pad=None, # in rad
+                 return_sub_masks=False):
+
+        # Padding in detector plane in angular space
+        if angle_pad is None:
+            angle_pad = self.angle_pad
+
+        # Padding normal to detector plane in reciprocal space
+        if q_pad is None:
+            q_pad = self.q_pad
+
+        # Convert to vectors and get magnitudes
+        q_vectors = np.asarray(q_vectors)
+        q_norm = np.linalg.norm(q_vectors, axis=-1)
+
+        # Get rocking mask for energy scans
+        if self.rocking_axis == 'energy':
+            theta_rot = self.theta_min if self.use_stage_rotation else 0
+            tth, chi, wavelength = q_2_polar(q_vectors, stage_rotation=theta_rot, degrees=False)
+
+            # Extract the raw z-component in the reference frame
+            if self.use_stage_rotation:
+                # Mirror the internal logic of q_2_polar applying stage rotation
+                stage_rotation = _parse_rotation_input(theta_rot, 'stage_rotation', 
+                                                       rotation_axis=self.rotation_axis, degrees=False)
+                rotated_q = stage_rotation.apply(q_vectors)
+                qz = rotated_q[..., 2]
+            else:
+                qz = q_vectors[..., 2]
+
+            # q-padding 
+            # Computes how much a change in 3D space stretches the wavelength
+            # Prevents division by zero on boundaries using a tiny epsilon clip
+            q_radial_sq = np.clip(q_norm**2 - qz**2, 1e-9, None)
+            wavelength_sensitivity = (4 * np.pi * np.abs(q_norm**2 - 2 * qz**2)) / (q_norm**3 * np.sqrt(q_radial_sq))
+            
+            # Calculate a unique padding
+            local_wavelength_ext = q_pad * wavelength_sensitivity
+
+            # Apply localized limits seamlessly using NumPy vector math
+            rocking_mask = np.all([
+                        wavelength >= self.wavelength_min - local_wavelength_ext,
+                        wavelength <= self.wavelength_max + local_wavelength_ext],
+                        axis=0)
+        
+        # Get rocking mask for angle scans
+        else:
+            tth, chi, rotation = q_2_polar(q_vectors, wavelength=self.wavelength_min, degrees=False)
+            
+            # q-padding
+            # An angular rotation cushion scales inversely with the Ewald radius and Bragg geometry
+            bragg_offset = np.clip(np.cos(tth / 2), 1e-4, None)
+            local_angle_ext = q_pad / (np.clip(q_norm, 1e-9, None) * bragg_offset)
+            
+            rocking_mask = np.all([
+                            rotation >= self.theta_min - local_angle_ext,
+                            rotation <= self.theta_max + local_angle_ext],
+                            axis=0)
+
+        # Shift chi into a continuous value range
+        chi, _, _ = modular_azimuthal_shift(chi, max_arr=self.chi_max_arr, force_shift=self.chi_shifted)
+
+        # Vertically bounded mask
+        first, second = (tth, chi) if getattr(self, 'upper_poly_first') == 'tth' else (chi, tth)
+        upper = second - general_polynomial(first, *self.upper_poly)
+        lower = second - general_polynomial(first, *self.lower_poly)
+        
+        vertical_mask = np.any([np.sign(upper - angle_pad) != np.sign(lower + angle_pad),
+                                np.sign(upper + angle_pad) != np.sign(lower - angle_pad)],
+                                axis=0)
+        
+        # Horizontally bounded mask
+        first, second = (tth, chi) if getattr(self, 'left_poly_first') == 'tth' else (chi, tth)
+        left = second - general_polynomial(first, *self.left_poly)
+        right = second - general_polynomial(first, *self.right_poly)
+        
+        horizontal_mask = np.any([np.sign(left - angle_pad) != np.sign(right + angle_pad),
+                                  np.sign(left + angle_pad) != np.sign(right - angle_pad)],
+                                    axis=0)
+        
+        # Extent masks. This may be redundant...
+        tth_mask = np.all([tth >= self.tth_min - angle_pad,
+                           tth <= self.tth_max + angle_pad],
+                           axis=0)
+        chi_mask = np.all([chi >= self.chi_min - angle_pad,
+                           chi <= self.chi_max + angle_pad],
+                           axis=0)
+        
+        if return_sub_masks:
+            return (vertical_mask, horizontal_mask, tth_mask, chi_mask, rocking_mask)
+        else:
+            return np.all([vertical_mask, horizontal_mask, tth_mask, chi_mask, rocking_mask], axis=0)
