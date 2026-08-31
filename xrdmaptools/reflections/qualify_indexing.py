@@ -3,6 +3,7 @@ import scipy
 from scipy.spatial.transform import Rotation
 from scipy.spatial.distance import cdist
 from orix.quaternion.symmetry import get_point_group
+from tqdm import tqdm
 
 from xrdmaptools.crystal.phase import get_default_sym_ops
 
