@@ -1924,7 +1924,7 @@ class XRDRockingCurve(XRDBaseScan):
                                 hkls,
                                 LatticeParameters.from_Phase(phase))
         
-        return eij, U
+        return eij, U, strained
 
 
     ##########################
