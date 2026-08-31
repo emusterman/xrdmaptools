@@ -76,7 +76,6 @@ def index_best_grain(all_ref_qs,
                     all_spot_ints,
                     all_ref_qs,
                     all_ref_fs,
-                    qmask,
                     near_q,
                     iter_max=max_ori_refine_iter,
                     exclude_found_seeds=exclude_found_seeds,
@@ -364,7 +363,8 @@ def find_valid_pairs(all_spot_qs,
     return pairs
 
 
-def seed_casting(seed,
+# Unused now. 
+def masked_seed_casting(seed,
                  all_spot_qs,
                  all_spot_ints,
                  all_ref_qs,
@@ -482,12 +482,127 @@ def seed_casting(seed,
     return indexing
 
 
+def seed_casting(seed,
+                 all_spot_qs,
+                 all_spot_ints,
+                 all_ref_qs,
+                 all_ref_fs,
+                 near_q,
+                 iter_max=50):
+
+    # Perform input checks
+    if isinstance(seed, (list, np.ndarray)):
+        seed = np.asarray(seed)
+        if seed.shape[1] != 2:
+            err_str = ('Seed must have shape of (N, 2) not '
+                       + f'{seed.shape}.')
+            raise ValueError(err_str)
+        if len(seed) < 2:
+            # Seed is orientationally indeterminate
+            return seed # Force return of input with 0 qof
+
+        prev_indexing = seed
+        orientation = Rotation.align_vectors(
+                        all_spot_qs[np.asarray(seed)[:, 0]],
+                        all_ref_qs[np.asarray(seed)[:, 1]])[0]
+
+    elif isinstance(seed, Rotation):
+        orientation = seed
+        prev_indexing = []
+    
+    else:
+        err_str = ('Only seeds of indexing as type list or '
+                   + 'numpy.ndarray or seeds of a starting orientation'
+                   + ' of type scipy.spatail.transform.Rotation are '
+                   + f'supported. Type {type(seed)} is not.')
+        raise TypeError(err_str)
+
+    # Build spot kdtree
+    kdtree = KDTree(all_spot_qs)
+
+    # Start iterating
+    iter_count = 0
+    while True:
+        # Rotate reference based on previous orientation
+        all_rot_qs = orientation.apply(all_ref_qs, inverse=False)
+
+        # Query kdtree to find closest reference lattice points
+        pot_conn = kdtree.query_ball_point(all_rot_qs,
+                                           r=near_q)
+
+        # Find closests points
+        indexing = []
+        for conn_i, conn in enumerate(pot_conn):
+            if len(conn) == 0:
+                continue
+            elif len(conn) == 1:
+                # Add candidate reflection
+                indexing.append([conn[0], conn_i])
+            else:
+                # Add closest of multiple candidate reflections
+                _, spot_idx = kdtree.query(all_rot_qs[conn_i])
+                indexing.append([spot_idx, conn_i])
+        indexing = np.asarray(indexing)
+
+        # Break if indexing becomes orientationally indeterminant
+        if len(indexing) < 2:
+            # Has the original seed failed?
+            if iter_count == 0:
+                if isinstance(seed, Rotation):
+                    return []
+                else:
+                    indexing = seed
+                    curr_spots, curr_refs = indexing.T
+                    # Re-determine orientation
+                    orientation = Rotation.align_vectors(
+                                    all_spot_qs[curr_spots],
+                                    all_ref_qs[curr_refs])[0]
+                    break
+            # Otherwise prev_indexing should have worked
+            else:
+                indexing = prev_indexing
+                curr_spots, curr_refs = indexing.T
+                break
+        else:
+            curr_spots, curr_refs = indexing.T
+            if are_collinear(all_ref_qs[curr_refs]):
+                if len(prev_indexing) > 0:
+                    indexing = prev_indexing # revert
+                    break
+                else:
+                    # Only collinear solution found...
+                    return []
+        
+        # Parse indexing
+        if len(prev_indexing) > 0:
+            prev_spots, prev_refs = np.asarray(prev_indexing).T
+
+            # Check to see if indexing has converged
+            if len(indexing) == len(prev_indexing):
+                if all([curr_spots[i] == prev_spots[i]
+                        and curr_refs[i] == prev_refs[i]
+                        for i in range(len(indexing))]):
+                    break
+
+        # Update for next round
+        prev_indexing = indexing
+        orientation = Rotation.align_vectors(
+                            all_spot_qs[curr_spots],
+                            all_ref_qs[curr_refs])[0]
+
+        # Or break if max iterations reached
+        iter_count += 1
+        if iter_count >= iter_max:
+            break
+
+    return indexing
+
+
 def dask_multiple_seed_casting(seeds,
                           all_spot_qs,
                           all_spot_ints,
                           all_ref_qs,
                           all_ref_fs,
-                          qmask,
                           near_q,
                           iter_max=50,
                           verbose=True):
@@ -505,7 +620,6 @@ def dask_multiple_seed_casting(seeds,
                             all_spot_ints,
                             all_ref_qs,
                             all_ref_fs,
-                            qmask,
                             near_q,
                             iter_max=iter_max)
 
@@ -528,7 +642,6 @@ def multiple_seed_casting(seeds,
                           all_spot_ints,
                           all_ref_qs,
                           all_ref_fs,
-                          qmask,
                           near_q,
                           iter_max=50,
                           exclude_found_seeds=False,
@@ -563,7 +676,6 @@ def multiple_seed_casting(seeds,
                            all_spot_ints,
                            all_ref_qs,
                            all_ref_fs,
-                           qmask,
                            near_q,
                            iter_max=iter_max)
         indexings.append(indexing)
@@ -632,7 +744,6 @@ def pattern_decomposition_from_seeds(start_seeds,
             all_spot_ints, # All spot ints passed to maintain qof
             all_ref_qs,
             all_ref_fs,
-            qmask,
             near_q,
             iter_max=max_ori_refine_iter,
             verbose=verbose
