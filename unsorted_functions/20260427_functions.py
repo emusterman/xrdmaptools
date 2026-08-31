@@ -27,12 +27,12 @@ def track_q_vector_com(vector_map, q_target, cutoff=0.25):
         if len(q_vectors) == 0:
             continue 
 
-        maskx = np.abs(q_vectors[:, 0] - q_target[0]) < cutoff
-        masky = np.abs(q_vectors[:, 1] - q_target[1]) < cutoff
-        maskz = np.abs(q_vectors[:, 2] - q_target[2]) < cutoff
-        mask = maskx & masky & maskz
+        # maskx = np.abs(q_vectors[:, 0] - q_target[0]) < cutoff
+        # masky = np.abs(q_vectors[:, 1] - q_target[1]) < cutoff
+        # maskz = np.abs(q_vectors[:, 2] - q_target[2]) < cutoff
+        # mask = maskx & masky & maskz
 
-        # mask = np.linalg.norm(q_vectors - q_target, axis=1) < cutoff
+        mask = np.linalg.norm(q_vectors - q_target, axis=1) < cutoff
 
         com = xmt.utilities.math.arbitrary_center_of_mass(
             intensity[mask],
@@ -273,7 +273,7 @@ def analyze_q_vector(vector_map,
         )
 
         com_map[indices] = com
-        sum_map[indices] = np.sum(intensity)
+        sum_map[indices] = np.sum(intensity[mask])
         map_mask = sum_map > map_cutoff
 
     mag_map = np.linalg.norm(com_map, axis=-1)
@@ -295,6 +295,8 @@ def analyze_q_vector(vector_map,
         fig.colorbar(image, ax=ax)
         ax.set_aspect('equal')
         ax.set_title(title)
+        ax.set_xticks([])
+        ax.set_yticks([])
     
     plot_axis(ax[0, 0], sum_map, 'Sum Intensity [a.u.]', mask=None)
     plot_axis(ax[0, 1], (2 * np.pi) / mag_map, 'd-spacing [Å]')

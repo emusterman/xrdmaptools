@@ -114,10 +114,10 @@ def desymmetrize_full_map(spots_3D, phase, near_q, xdms):
                 space_group_nr=phase.lattice.space_group_nr
             )
             new_hkls = phase.all_hkls[deindexing[:, 1]]
-            print("assigning", pixel_df[grain_mask].index, new_hkls)
-            print("before", spots_3D.loc[pixel_df[grain_mask].index, ['h','k','l']].values)
+            # print("assigning", pixel_df[grain_mask].index, new_hkls)
+            # print("before", spots_3D.loc[pixel_df[grain_mask].index, ['h','k','l']].values)
             spots_3D.loc[pixel_df[grain_mask].index, ['h', 'k', 'l']] = new_hkls
-            print("after", spots_3D.loc[pixel_df[grain_mask].index, ['h','k','l']].values)
+            # print("after", spots_3D.loc[pixel_df[grain_mask].index, ['h','k','l']].values)
 
 
 
