@@ -7,7 +7,7 @@ from matplotlib import color_sequences
 
 # Local imports
 from xrdmaptools.plot import config
-# from xrdmaptools.plot.general import plot_image_gallery
+from xrdmaptools.plot.general import plot_image_gallery
 from xrdmaptools.plot.volume import plot_3D_scatter
 from xrdmaptools.utilities.math import rescale_array
 from xrdmaptools.geometry.geometry import (
