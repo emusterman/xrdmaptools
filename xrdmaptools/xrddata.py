@@ -2214,7 +2214,7 @@ class XRDData:
 
     
     def apply_polarization_correction(self,
-                                      polarization=0.9,
+                                      polarization=0.99,
                                       apply=True,
                                       override=False):
         """
