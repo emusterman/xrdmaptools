@@ -349,8 +349,11 @@ get_num_vector_map = lambda vm : get_vector_map_feature(vm, dtype=int)
 def iterative_background(data, multiplier=5, max_iter=100):
 
     # Bkg subtraction
-    data = data - np.mean(data)
-    old_mask = data > multiplier * np.std(data)
+    # data = data - np.mean(data)
+    # old_mask = data > multiplier * np.std(data)
+    # old_mask = data > multiplier * np.median(data)
+    old_mask = data > np.median(data)
+    # old_mask = data > (np.max(data) - np.min(data)) / 2
 
     counter = 0
     while True:
