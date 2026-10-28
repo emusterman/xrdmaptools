@@ -271,59 +271,28 @@ def kabsch_orientation_matrix(S, T):
     
     return R
 
-def batch_triad_orientation(s1, s2, t1, t2):
-    # 1. Standardize dimensions: coerces (3,) to (1, 3) without changing (N, 3)
-    s1, s2 = np.atleast_2d(s1), np.atleast_2d(s2)
-    t1, t2 = np.atleast_2d(t1), np.atleast_2d(t2)
-    
-    # 2. Vectorized Source Basis
-    u1 = s1 / np.linalg.norm(s1, axis=1, keepdims=True)
-    cross_s = np.cross(s1, s2)
-    u2 = cross_s / np.linalg.norm(cross_s, axis=1, keepdims=True)
-    u3 = np.cross(u1, u2)
-    # FIXED: Stack along axis=-1 for columns, and order as [u1, u3, u2] for right-handedness
-    M_source = np.stack((u1, u3, u2), axis=-1) # Shape: (N, 3, 3)
-    
-    # 3. Vectorized Target Basis
-    v1 = t1 / np.linalg.norm(t1, axis=1, keepdims=True)
-    cross_t = np.cross(t1, t2)
-    v2 = cross_t / np.linalg.norm(cross_t, axis=1, keepdims=True)
-    v3 = np.cross(v1, v2)
-    # FIXED: Stack along axis=-1 for columns, and order as [v1, v3, v2] for right-handedness
-    M_target = np.stack((v1, v3, v2), axis=-1) # Shape: (N, 3, 3)
-
-    # 4. Batch Transpose and Multiply: R = M_target @ M_source.T
-    # Since columns are basis vectors, M_source^T is found by swapping the last two axes
-    R_matrices = np.matmul(M_target, np.swapaxes(M_source, -1, -2))
-    
-    # If the original input was a single pair, squeeze out the extra dim
-    if R_matrices.shape[0] == 1:
-        return R_matrices[0]
-        
-    return R_matrices
-
 
 def triad_orientation_matrix(s1, s2, t1, t2):
 
-    # 1. Standardize dimensions: coerces (3,) to (1, 3) without changing (N, 3)
+    # Standardize dimensions: coerces (3,) to (1, 3) without changing (N, 3)
     s1, s2 = np.atleast_2d(s1), np.atleast_2d(s2)
     t1, t2 = np.atleast_2d(t1), np.atleast_2d(t2)
     
-    # 2. Vectorized Source Basis
+    # Vectorized Source Basis
     u1 = s1 / np.linalg.norm(s1, axis=1, keepdims=True)
     cross_s = np.cross(s1, s2)
     u2 = cross_s / np.linalg.norm(cross_s, axis=1, keepdims=True)
     u3 = np.cross(u1, u2)
     M_source = np.stack((u1, u2, u3), axis=1) # Shape: (N, 3, 3)
     
-    # 3. Vectorized Target Basis
+    # Vectorized Target Basis
     v1 = t1 / np.linalg.norm(t1, axis=1, keepdims=True)
     cross_t = np.cross(t1, t2)
     v2 = cross_t / np.linalg.norm(cross_t, axis=1, keepdims=True)
     v3 = np.cross(v1, v2)
     M_target = np.stack((v1, v2, v3), axis=1) # Shape: (N, 3, 3)
 
-    # 4. Batch Transpose and Multiply: (N, 3, 3) @ (N, 3, 3)
+    # Batch Transpose and Multiply: (N, 3, 3) @ (N, 3, 3)
     R_matrices = np.matmul(M_target, np.swapaxes(M_source, -1, -2))
     
     # If the original input was a single pair, squeeze out the extra dim
@@ -334,7 +303,7 @@ def triad_orientation_matrix(s1, s2, t1, t2):
 
 
 
-def v6_find_valid_pairs(all_spot_qs,
+def find_valid_pairs(all_spot_qs,
                      all_ref_qs,
                      all_ref_hkls,
                      all_ref_fs,
@@ -359,7 +328,11 @@ def v6_find_valid_pairs(all_spot_qs,
     num_refs = len(all_ref_qs)
 
     if verbose:
-        print('Finding all valid pairs...', flush=True)
+        vprint = lambda *a, **k : print(*a, **k)
+    else:
+        vprint = lambda *a, **k : None
+
+    vprint('Finding all valid pairs...', flush=True)
 
     # Increasingly aggressive culling steps to reduce data size
     
@@ -381,7 +354,7 @@ def v6_find_valid_pairs(all_spot_qs,
     r1 = ref_map[idx1]
     s2 = spot_map[idx2]
     r2 = ref_map[idx2]
-    print(f'Full:\t\t{s1.shape=}')
+    vprint(f'Full Set:\t\tNo. Valid Pairs = {len(s1)}')
 
     def get_unq(l1, l2, num):
         pair_keys = l1 * num + l2
@@ -393,7 +366,7 @@ def v6_find_valid_pairs(all_spot_qs,
     # 2. Immediately remove all doublets (cheapest)
     mask = ((s1 != s2) | (r1 != r2))
     s1, r1, s2, r2 = s1[mask], r1[mask], s2[mask], r2[mask]
-    print(f'Doublet:\t\t{s1.shape=}')
+    vprint(f'Doublet:\t\tNo. Valid Pairs = {len(s1)}')
 
     # 3. Only consider feasible inter-spot distances
     # Downcast to only spot_pairs
@@ -402,7 +375,7 @@ def v6_find_valid_pairs(all_spot_qs,
     unq_spot_dist_mask = (unq_spot_dist > min_q * min_ext)
     mask = unq_spot_dist_mask[spot_inverse]
     s1, r1, s2, r2 = s1[mask], r1[mask], s2[mask], r2[mask]
-    print(f'Dist Min:\t\t{s1.shape=}')
+    vprint(f'Dist Min:\t\tNo. Valid Pairs = {len(s1)}')
 
     # 4. Only consider non-collinear pairs
     # Downcast refs pairs
@@ -411,7 +384,7 @@ def v6_find_valid_pairs(all_spot_qs,
     unq_cross_norms_mask = unq_cross_norms > 1e-5
     mask = unq_cross_norms_mask[ref_inverse]
     s1, r1, s2, r2 = s1[mask], r1[mask], s2[mask], r2[mask]
-    print(f'Collinearity:\t\t{s1.shape=}')
+    vprint(f'Collinearity:\t\tNo. Valid Pairs = {len(s1)}')
 
     # 5. Match inter-distances
     # Downcast both datasets again
@@ -430,7 +403,7 @@ def v6_find_valid_pairs(all_spot_qs,
     inter_dist_mask = np.abs(unq_spot_dist[mapped_spot_idx] - unq_ref_dist[mapped_ref_idx]) < near_q
     mask = inter_dist_mask[combo_inverse]
     s1, r1, s2, r2 = s1[mask], r1[mask], s2[mask], r2[mask]
-    print(f'Pair Dist:\t\t{s1.shape=}')
+    vprint(f'Pair Dist:\t\tNo. Valid Pairs = {len(s1)}')
 
     # 6. Match inter-angles (slowest)
     # Downcast both datasets again
@@ -456,12 +429,10 @@ def v6_find_valid_pairs(all_spot_qs,
 
     inter_ang_mask = np.abs(unq_spot_ang[mapped_spot_idx] - unq_ref_ang[mapped_ref_idx]) < rad_near_ang
     mask = inter_ang_mask[combo_inverse] # Keep angles for symmetrizing
-    # ref_angles = unq_ref_ang[mapped_ref_idx][mask]
-    # ref_angles = unq_ref_ang[mapped_ref_idx][combo_inverse][mask]
     ref_angles = unq_ref_ang[ref_inverse]
     ref_angles = ref_angles[mask]
     s1, r1, s2, r2 = s1[mask], r1[mask], s2[mask], r2[mask]
-    print(f'Pair Angle:\t\t{s1.shape=}')
+    vprint(f'Pair Angle:\t\tNo. Valid Pairs = {len(s1)}')
 
     if symmetrize:
         prec = 8
@@ -537,800 +508,802 @@ def v6_find_valid_pairs(all_spot_qs,
         # Build pairs list
         pairs = [np.asarray([[ps1, pr1], [ps2, pr2]]) for ps1, pr1, ps2, pr2 in zip(s1, r1, s2, r2)]
 
+    vprint(f'Symmetry:\t\tNo. Valid Pairs = {len(pairs)}')
+
     return pairs
 
 
-def v5_find_valid_pairs(all_spot_qs,
-                     all_ref_qs,
-                     all_ref_hkls,
-                     all_ref_fs,
-                     near_q,
-                     near_angle,
-                     min_q,
-                     degrees=False,
-                     symmetrize=None,
-                     verbose=True):
+# def v5_find_valid_pairs(all_spot_qs,
+#                      all_ref_qs,
+#                      all_ref_hkls,
+#                      all_ref_fs,
+#                      near_q,
+#                      near_angle,
+#                      min_q,
+#                      degrees=False,
+#                      symmetrize=None,
+#                      verbose=True):
 
-    # Padding value for masking
-    min_ext = 0.85
+#     # Padding value for masking
+#     min_ext = 0.85
 
-    # Guard block(s)
-    if near_q > min_q * min_ext:
-        err_str = (f"'near_q' threshold is greater than {min_ext * 100}% "
-                   "of minimum lattice spacing. This seems unwise.")
-        raise ValueError(err_str)
+#     # Guard block(s)
+#     if near_q > min_q * min_ext:
+#         err_str = (f"'near_q' threshold is greater than {min_ext * 100}% "
+#                    "of minimum lattice spacing. This seems unwise.")
+#         raise ValueError(err_str)
 
-    # Tracking references to original lists
-    num_spots = len(all_spot_qs)
-    num_refs = len(all_ref_qs)
+#     # Tracking references to original lists
+#     num_spots = len(all_spot_qs)
+#     num_refs = len(all_ref_qs)
 
-    if verbose:
-        print('Finding all valid pairs...', flush=True)
+#     if verbose:
+#         print('Finding all valid pairs...', flush=True)
 
-    # Increasingly aggressive culling steps to reduce data size
+#     # Increasingly aggressive culling steps to reduce data size
     
-    # 1. Compare direct magnitudes and keep only feasible 
-    # Find vector magnitudes for measured and reference reflections
-    spot_q_mags = np.linalg.norm(all_spot_qs, axis=1)
-    ref_q_mags = np.linalg.norm(all_ref_qs, axis=1)
+#     # 1. Compare direct magnitudes and keep only feasible 
+#     # Find vector magnitudes for measured and reference reflections
+#     spot_q_mags = np.linalg.norm(all_spot_qs, axis=1)
+#     ref_q_mags = np.linalg.norm(all_ref_qs, axis=1)
 
-    # Find difference between measured and calculated q magnitudes
-    mag_diff_matrix = np.abs(spot_q_mags[:, np.newaxis]
-                             - ref_q_mags[np.newaxis, :])
-    valid_mag_mask = mag_diff_matrix < near_q
-    spot_map, ref_map = np.nonzero(valid_mag_mask)
+#     # Find difference between measured and calculated q magnitudes
+#     mag_diff_matrix = np.abs(spot_q_mags[:, np.newaxis]
+#                              - ref_q_mags[np.newaxis, :])
+#     valid_mag_mask = mag_diff_matrix < near_q
+#     spot_map, ref_map = np.nonzero(valid_mag_mask)
 
-    # Indexing values for pairwise comparisons
-    num_map = len(spot_map)
-    idx1, idx2 = np.triu_indices(num_map, k=1)
-    s1 = spot_map[idx1]
-    r1 = ref_map[idx1]
-    s2 = spot_map[idx2]
-    r2 = ref_map[idx2]
-    print(f'Full:\t\t{s1.shape=}')
+#     # Indexing values for pairwise comparisons
+#     num_map = len(spot_map)
+#     idx1, idx2 = np.triu_indices(num_map, k=1)
+#     s1 = spot_map[idx1]
+#     r1 = ref_map[idx1]
+#     s2 = spot_map[idx2]
+#     r2 = ref_map[idx2]
+#     print(f'Full:\t\t{s1.shape=}')
 
-    def get_unq(l1, l2, num):
-        pair_keys = l1 * num + l2
-        unq_keys, inverse = np.unique(pair_keys, return_inverse=True)
-        unq_l1 = unq_keys // num
-        unq_l2 = unq_keys % num
-        return unq_l1, unq_l2, inverse, unq_keys
+#     def get_unq(l1, l2, num):
+#         pair_keys = l1 * num + l2
+#         unq_keys, inverse = np.unique(pair_keys, return_inverse=True)
+#         unq_l1 = unq_keys // num
+#         unq_l2 = unq_keys % num
+#         return unq_l1, unq_l2, inverse, unq_keys
 
-    # 2. Immediately remove all doublets (cheapest)
-    mask = ((s1 != s2) | (r1 != r2))
-    s1, r1, s2, r2 = s1[mask], r1[mask], s2[mask], r2[mask]
-    print(f'Doublet:\t\t{s1.shape=}')
+#     # 2. Immediately remove all doublets (cheapest)
+#     mask = ((s1 != s2) | (r1 != r2))
+#     s1, r1, s2, r2 = s1[mask], r1[mask], s2[mask], r2[mask]
+#     print(f'Doublet:\t\t{s1.shape=}')
 
-    # 3. Only consider feasible inter-spot distances
-    # Downcast to only spot_pairs
-    unq_s1, unq_s2, spot_inverse, spot_keys = get_unq(s1, s2, num_spots)
-    unq_spot_dist = np.linalg.norm(all_spot_qs[unq_s1] - all_spot_qs[unq_s2], axis=1)
-    unq_spot_dist_mask = (unq_spot_dist > min_q * min_ext)
-    mask = unq_spot_dist_mask[spot_inverse]
-    s1, r1, s2, r2 = s1[mask], r1[mask], s2[mask], r2[mask]
-    print(f'Dist Min:\t\t{s1.shape=}')
+#     # 3. Only consider feasible inter-spot distances
+#     # Downcast to only spot_pairs
+#     unq_s1, unq_s2, spot_inverse, spot_keys = get_unq(s1, s2, num_spots)
+#     unq_spot_dist = np.linalg.norm(all_spot_qs[unq_s1] - all_spot_qs[unq_s2], axis=1)
+#     unq_spot_dist_mask = (unq_spot_dist > min_q * min_ext)
+#     mask = unq_spot_dist_mask[spot_inverse]
+#     s1, r1, s2, r2 = s1[mask], r1[mask], s2[mask], r2[mask]
+#     print(f'Dist Min:\t\t{s1.shape=}')
 
-    # 4. Only consider non-collinear pairs
-    # Downcast refs pairs
-    unq_r1, unq_r2, ref_inverse, ref_keys = get_unq(r1, r2, num_refs)
-    unq_cross_norms = np.linalg.norm(np.cross(all_ref_hkls[unq_r1], all_ref_hkls[unq_r2]), axis=1)
-    unq_cross_norms_mask = unq_cross_norms > 1e-5
-    mask = unq_cross_norms_mask[ref_inverse]
-    s1, r1, s2, r2 = s1[mask], r1[mask], s2[mask], r2[mask]
-    print(f'Collinearity:\t\t{s1.shape=}')
+#     # 4. Only consider non-collinear pairs
+#     # Downcast refs pairs
+#     unq_r1, unq_r2, ref_inverse, ref_keys = get_unq(r1, r2, num_refs)
+#     unq_cross_norms = np.linalg.norm(np.cross(all_ref_hkls[unq_r1], all_ref_hkls[unq_r2]), axis=1)
+#     unq_cross_norms_mask = unq_cross_norms > 1e-5
+#     mask = unq_cross_norms_mask[ref_inverse]
+#     s1, r1, s2, r2 = s1[mask], r1[mask], s2[mask], r2[mask]
+#     print(f'Collinearity:\t\t{s1.shape=}')
 
-    # 5. Match inter-distances
-    # Downcast both datasets again
-    unq_s1, unq_s2, spot_inverse, spot_keys = get_unq(s1, s2, num_spots)
-    unq_r1, unq_r2, ref_inverse, ref_keys = get_unq(r1, r2, num_refs)
-    multiplier = len(unq_r1)
-    flat_keys = spot_inverse * multiplier + ref_inverse
-    unq_keys, combo_inverse = np.unique(flat_keys, return_inverse=True)
+#     # 5. Match inter-distances
+#     # Downcast both datasets again
+#     unq_s1, unq_s2, spot_inverse, spot_keys = get_unq(s1, s2, num_spots)
+#     unq_r1, unq_r2, ref_inverse, ref_keys = get_unq(r1, r2, num_refs)
+#     multiplier = len(unq_r1)
+#     flat_keys = spot_inverse * multiplier + ref_inverse
+#     unq_keys, combo_inverse = np.unique(flat_keys, return_inverse=True)
 
-    mapped_spot_idx = unq_keys // multiplier
-    mapped_ref_idx = unq_keys % multiplier
+#     mapped_spot_idx = unq_keys // multiplier
+#     mapped_ref_idx = unq_keys % multiplier
 
-    unq_spot_dist = np.linalg.norm(all_spot_qs[unq_s1] - all_spot_qs[unq_s2], axis=1)
-    unq_ref_dist = np.linalg.norm(all_ref_qs[unq_r1] - all_ref_qs[unq_r2], axis=1)
+#     unq_spot_dist = np.linalg.norm(all_spot_qs[unq_s1] - all_spot_qs[unq_s2], axis=1)
+#     unq_ref_dist = np.linalg.norm(all_ref_qs[unq_r1] - all_ref_qs[unq_r2], axis=1)
 
-    inter_dist_mask = np.abs(unq_spot_dist[mapped_spot_idx] - unq_ref_dist[mapped_ref_idx]) < near_q
-    mask = inter_dist_mask[combo_inverse]
-    s1, r1, s2, r2 = s1[mask], r1[mask], s2[mask], r2[mask]
-    print(f'Pair Dist:\t\t{s1.shape=}')
+#     inter_dist_mask = np.abs(unq_spot_dist[mapped_spot_idx] - unq_ref_dist[mapped_ref_idx]) < near_q
+#     mask = inter_dist_mask[combo_inverse]
+#     s1, r1, s2, r2 = s1[mask], r1[mask], s2[mask], r2[mask]
+#     print(f'Pair Dist:\t\t{s1.shape=}')
 
-    # 6. Match inter-angles (slowest)
-    # Downcast both datasets again
-    unq_s1, unq_s2, spot_inverse, spot_keys = get_unq(s1, s2, num_spots)
-    unq_r1, unq_r2, ref_inverse, ref_keys = get_unq(r1, r2, num_refs)
-    multiplier = len(unq_r1)
-    flat_keys = spot_inverse * multiplier + ref_inverse
-    unq_keys, combo_inverse = np.unique(flat_keys, return_inverse=True)
+#     # 6. Match inter-angles (slowest)
+#     # Downcast both datasets again
+#     unq_s1, unq_s2, spot_inverse, spot_keys = get_unq(s1, s2, num_spots)
+#     unq_r1, unq_r2, ref_inverse, ref_keys = get_unq(r1, r2, num_refs)
+#     multiplier = len(unq_r1)
+#     flat_keys = spot_inverse * multiplier + ref_inverse
+#     unq_keys, combo_inverse = np.unique(flat_keys, return_inverse=True)
 
-    mapped_spot_idx = unq_keys // multiplier
-    mapped_ref_idx = unq_keys % multiplier
+#     mapped_spot_idx = unq_keys // multiplier
+#     mapped_ref_idx = unq_keys % multiplier
 
-    cos_spot = np.einsum('ij, ij->i', all_spot_qs[unq_s1], all_spot_qs[unq_s2]) / (spot_q_mags[unq_s1] * spot_q_mags[unq_s2])
-    unq_spot_ang = np.arccos(np.clip(cos_spot, -1.0, 1.0))
+#     cos_spot = np.einsum('ij, ij->i', all_spot_qs[unq_s1], all_spot_qs[unq_s2]) / (spot_q_mags[unq_s1] * spot_q_mags[unq_s2])
+#     unq_spot_ang = np.arccos(np.clip(cos_spot, -1.0, 1.0))
 
-    cos_ref = np.einsum('ij, ij->i', all_ref_qs[unq_r1], all_ref_qs[unq_r2]) / (ref_q_mags[unq_r1] * ref_q_mags[unq_r2])
-    unq_ref_ang = np.arccos(np.clip(cos_ref, -1.0, 1.0))
+#     cos_ref = np.einsum('ij, ij->i', all_ref_qs[unq_r1], all_ref_qs[unq_r2]) / (ref_q_mags[unq_r1] * ref_q_mags[unq_r2])
+#     unq_ref_ang = np.arccos(np.clip(cos_ref, -1.0, 1.0))
 
-    if degrees:
-        rad_near_ang = np.radians(near_angle)
-    else:
-        rad_near_ang = near_angle
+#     if degrees:
+#         rad_near_ang = np.radians(near_angle)
+#     else:
+#         rad_near_ang = near_angle
 
-    inter_ang_mask = np.abs(unq_spot_ang[mapped_spot_idx] - unq_ref_ang[mapped_ref_idx]) < rad_near_ang
-    mask = inter_ang_mask[combo_inverse] # Keep angles for symmetrizing
-    # ref_angles = unq_ref_ang[mapped_ref_idx][mask]
-    # ref_angles = unq_ref_ang[mapped_ref_idx][combo_inverse][mask]
-    ref_angles = unq_ref_ang[ref_inverse]
-    ref_angles = ref_angles[mask]
-    s1, r1, s2, r2 = s1[mask], r1[mask], s2[mask], r2[mask]
-    print(f'Pair Angle:\t\t{s1.shape=}')
+#     inter_ang_mask = np.abs(unq_spot_ang[mapped_spot_idx] - unq_ref_ang[mapped_ref_idx]) < rad_near_ang
+#     mask = inter_ang_mask[combo_inverse] # Keep angles for symmetrizing
+#     # ref_angles = unq_ref_ang[mapped_ref_idx][mask]
+#     # ref_angles = unq_ref_ang[mapped_ref_idx][combo_inverse][mask]
+#     ref_angles = unq_ref_ang[ref_inverse]
+#     ref_angles = ref_angles[mask]
+#     s1, r1, s2, r2 = s1[mask], r1[mask], s2[mask], r2[mask]
+#     print(f'Pair Angle:\t\t{s1.shape=}')
 
-    if symmetrize:
-        prec = 8
+#     if symmetrize:
+#         prec = 8
 
-        # Precompute approximate orientation matrices for each pair
-        oris = triad_orientation_matrix(all_spot_qs[s1],
-                                        all_spot_qs[s2],
-                                        all_ref_qs[r1],
-                                        all_ref_qs[r2])
-        traces = np.einsum('nii->n', oris)
+#         # Precompute approximate orientation matrices for each pair
+#         oris = triad_orientation_matrix(all_spot_qs[s1],
+#                                         all_spot_qs[s2],
+#                                         all_ref_qs[r1],
+#                                         all_ref_qs[r2])
+#         traces = np.einsum('nii->n', oris)
 
-        # Vectorize rouding characteristics first
-        q1_round = ref_q_mags[r1].round(prec)
-        q2_round = ref_q_mags[r2].round(prec)
-        ang_round = ref_angles.round(prec)
+#         # Vectorize rouding characteristics first
+#         q1_round = ref_q_mags[r1].round(prec)
+#         q2_round = ref_q_mags[r2].round(prec)
+#         ang_round = ref_angles.round(prec)
         
-        # Get pair characteristics
-        if symmetrize == 'lattice':
-            sort_idx = np.lexsort((ang_round,
-                                   q1_round,
-                                   q2_round,
-                                   -traces))
-            stacked_keys = np.column_stack((q1_round[sort_idx],
-                                            q2_round[sort_idx],
-                                            ang_round[sort_idx]))
+#         # Get pair characteristics
+#         if symmetrize == 'lattice':
+#             sort_idx = np.lexsort((ang_round,
+#                                    q1_round,
+#                                    q2_round,
+#                                    -traces))
+#             stacked_keys = np.column_stack((q1_round[sort_idx],
+#                                             q2_round[sort_idx],
+#                                             ang_round[sort_idx]))
                                    
-        elif symmetrize == 'point_group':
-            f1_round = all_ref_fs[r1].round(prec)
-            f2_round = all_ref_fs[r2].round(prec)
-            sort_idx = np.lexsort((ang_round,
-                                   q1_round,
-                                   f1_round,
-                                   q2_round,
-                                   f2_round,
-                                   -traces))
-            stacked_keys = np.column_stack((q1_round[sort_idx],
-                                            f1_round[sort_idx],
-                                            q2_round[sort_idx],
-                                            f2_round[sort_idx],
-                                            ang_round[sort_idx]))
-        else:
-            raise ValueError(f"'symmetrize' must be 'point_group' or 'lattice', not {symmetrize}.")
+#         elif symmetrize == 'point_group':
+#             f1_round = all_ref_fs[r1].round(prec)
+#             f2_round = all_ref_fs[r2].round(prec)
+#             sort_idx = np.lexsort((ang_round,
+#                                    q1_round,
+#                                    f1_round,
+#                                    q2_round,
+#                                    f2_round,
+#                                    -traces))
+#             stacked_keys = np.column_stack((q1_round[sort_idx],
+#                                             f1_round[sort_idx],
+#                                             q2_round[sort_idx],
+#                                             f2_round[sort_idx],
+#                                             ang_round[sort_idx]))
+#         else:
+#             raise ValueError(f"'symmetrize' must be 'point_group' or 'lattice', not {symmetrize}.")
         
-        # Sort groups contiguously
-        s1_sort, r1_sort, s2_sort, r2_sort = s1[sort_idx], r1[sort_idx], s2[sort_idx], r2[sort_idx]
-        _, unique_indices = np.unique(stacked_keys, axis=0, return_index=True)
+#         # Sort groups contiguously
+#         s1_sort, r1_sort, s2_sort, r2_sort = s1[sort_idx], r1[sort_idx], s2[sort_idx], r2[sort_idx]
+#         _, unique_indices = np.unique(stacked_keys, axis=0, return_index=True)
 
-        # Extract the filtered data and construct pairs
-        final_s1 = s1_sort[unique_indices]
-        final_r1 = r1_sort[unique_indices]
-        final_s2 = s2_sort[unique_indices]
-        final_r2 = r2_sort[unique_indices]
+#         # Extract the filtered data and construct pairs
+#         final_s1 = s1_sort[unique_indices]
+#         final_r1 = r1_sort[unique_indices]
+#         final_s2 = s2_sort[unique_indices]
+#         final_r2 = r2_sort[unique_indices]
         
-        # Build pairs list
-        pairs = [np.asarray([[ps1, pr1], [ps2, pr2]]) for ps1, pr1, ps2, pr2 in zip(final_s1, final_r1, final_s2, final_r2)]
+#         # Build pairs list
+#         pairs = [np.asarray([[ps1, pr1], [ps2, pr2]]) for ps1, pr1, ps2, pr2 in zip(final_s1, final_r1, final_s2, final_r2)]
         
-    else:
-        # Build pairs list
-        pairs = [np.asarray([[ps1, pr1], [ps2, pr2]]) for ps1, pr1, ps2, pr2 in zip(s1, r1, s2, r2)]
+#     else:
+#         # Build pairs list
+#         pairs = [np.asarray([[ps1, pr1], [ps2, pr2]]) for ps1, pr1, ps2, pr2 in zip(s1, r1, s2, r2)]
 
-    return pairs
-
-
+#     return pairs
 
 
-def v4_find_valid_pairs(all_spot_qs,
-                     all_ref_qs,
-                     all_ref_hkls,
-                     all_ref_fs,
-                     near_q,
-                     near_angle,
-                     min_q,
-                     degrees=False,
-                     symmetrize=None,
-                     verbose=True):
 
-    # Padding value for masking
-    min_ext = 0.85
 
-    # Guard block(s)
-    if near_q > min_q * min_ext:
-        err_str = (f"'near_q' threshold is greater than {ext * 100}% "
-                   "of minimum lattice spacing. This seems unwise.")
-        raise ValueError(err_str)
+# def v4_find_valid_pairs(all_spot_qs,
+#                      all_ref_qs,
+#                      all_ref_hkls,
+#                      all_ref_fs,
+#                      near_q,
+#                      near_angle,
+#                      min_q,
+#                      degrees=False,
+#                      symmetrize=None,
+#                      verbose=True):
 
-    # Tracking references to original lists
-    num_spots = len(all_spot_qs)
-    num_refs = len(all_ref_qs)
+#     # Padding value for masking
+#     min_ext = 0.85
 
-    # Construct iterable
-    if verbose:
-        iterate = lambda x, **k : tqdm(x, position=0, leave=True, **k)
-    else:
-        iterate = lambda x, **k : x
+#     # Guard block(s)
+#     if near_q > min_q * min_ext:
+#         err_str = (f"'near_q' threshold is greater than {ext * 100}% "
+#                    "of minimum lattice spacing. This seems unwise.")
+#         raise ValueError(err_str)
 
-    if verbose:
-        print('Finding all valid pairs...', flush=True)
+#     # Tracking references to original lists
+#     num_spots = len(all_spot_qs)
+#     num_refs = len(all_ref_qs)
 
-    # Increasingly aggressive culling steps to reduce data size
+#     # Construct iterable
+#     if verbose:
+#         iterate = lambda x, **k : tqdm(x, position=0, leave=True, **k)
+#     else:
+#         iterate = lambda x, **k : x
+
+#     if verbose:
+#         print('Finding all valid pairs...', flush=True)
+
+#     # Increasingly aggressive culling steps to reduce data size
     
-    # 1. Compare direct magnitudes and keep only feasible 
-    # Find vector magnitudes for measured and reference reflections
-    spot_q_mags = np.linalg.norm(all_spot_qs, axis=1)
-    ref_q_mags = np.linalg.norm(all_ref_qs, axis=1)
+#     # 1. Compare direct magnitudes and keep only feasible 
+#     # Find vector magnitudes for measured and reference reflections
+#     spot_q_mags = np.linalg.norm(all_spot_qs, axis=1)
+#     ref_q_mags = np.linalg.norm(all_ref_qs, axis=1)
 
-    # Find difference between measured and calculated q magnitudes
-    mag_diff_matrix = np.abs(spot_q_mags[:, np.newaxis]
-                             - ref_q_mags[np.newaxis, :])
-    valid_mag_mask = mag_diff_matrix < near_q
-    spot_map, ref_map = np.nonzero(valid_mag_mask)
+#     # Find difference between measured and calculated q magnitudes
+#     mag_diff_matrix = np.abs(spot_q_mags[:, np.newaxis]
+#                              - ref_q_mags[np.newaxis, :])
+#     valid_mag_mask = mag_diff_matrix < near_q
+#     spot_map, ref_map = np.nonzero(valid_mag_mask)
 
-    # Indexing values for pairwise comparisons
-    num_map = len(spot_map)
-    idx1, idx2 = np.triu_indices(num_map, k=1)
-    s1 = spot_map[idx1]
-    r1 = ref_map[idx1]
-    s2 = spot_map[idx2]
-    r2 = ref_map[idx2]
-    print(f'Full:\t\t{s1.shape=}')
+#     # Indexing values for pairwise comparisons
+#     num_map = len(spot_map)
+#     idx1, idx2 = np.triu_indices(num_map, k=1)
+#     s1 = spot_map[idx1]
+#     r1 = ref_map[idx1]
+#     s2 = spot_map[idx2]
+#     r2 = ref_map[idx2]
+#     print(f'Full:\t\t{s1.shape=}')
 
-    def get_unq(l1, l2, num):
-        pair_keys = l1 * num + l2
-        unq_keys, inverse = np.unique(pair_keys, return_inverse=True)
-        unq_l1 = unq_keys // num
-        unq_l2 = unq_keys % num
-        return unq_l1, unq_l2, inverse, unq_keys
+#     def get_unq(l1, l2, num):
+#         pair_keys = l1 * num + l2
+#         unq_keys, inverse = np.unique(pair_keys, return_inverse=True)
+#         unq_l1 = unq_keys // num
+#         unq_l2 = unq_keys % num
+#         return unq_l1, unq_l2, inverse, unq_keys
 
-    # 2. Immediately remove all doublets (cheapest)
-    mask = ((s1 != s2) | (r1 != r2))
-    s1, r1, s2, r2 = s1[mask], r1[mask], s2[mask], r2[mask]
-    print(f'Doublet:\t\t{s1.shape=}')
+#     # 2. Immediately remove all doublets (cheapest)
+#     mask = ((s1 != s2) | (r1 != r2))
+#     s1, r1, s2, r2 = s1[mask], r1[mask], s2[mask], r2[mask]
+#     print(f'Doublet:\t\t{s1.shape=}')
 
-    # 3. Only consider feasible inter-spot distances
-    # Downcast to only spot_pairs
-    unq_s1, unq_s2, spot_inverse, spot_keys = get_unq(s1, s2, num_spots)
-    unq_spot_dist = np.linalg.norm(all_spot_qs[unq_s1] - all_spot_qs[unq_s2], axis=1)
-    unq_spot_dist_mask = (unq_spot_dist > min_q * min_ext)
-    mask = unq_spot_dist_mask[spot_inverse]
-    s1, r1, s2, r2 = s1[mask], r1[mask], s2[mask], r2[mask]
-    print(f'Dist Min:\t\t{s1.shape=}')
+#     # 3. Only consider feasible inter-spot distances
+#     # Downcast to only spot_pairs
+#     unq_s1, unq_s2, spot_inverse, spot_keys = get_unq(s1, s2, num_spots)
+#     unq_spot_dist = np.linalg.norm(all_spot_qs[unq_s1] - all_spot_qs[unq_s2], axis=1)
+#     unq_spot_dist_mask = (unq_spot_dist > min_q * min_ext)
+#     mask = unq_spot_dist_mask[spot_inverse]
+#     s1, r1, s2, r2 = s1[mask], r1[mask], s2[mask], r2[mask]
+#     print(f'Dist Min:\t\t{s1.shape=}')
 
-    # 4. Only consider non-collinear pairs
-    # Downcast refs pairs
-    unq_r1, unq_r2, ref_inverse, ref_keys = get_unq(r1, r2, num_refs)
-    unq_cross_norms = np.linalg.norm(np.cross(all_ref_hkls[unq_r1], all_ref_hkls[unq_r2]), axis=1)
-    unq_cross_norms_mask = unq_cross_norms > 1e-5
-    mask = unq_cross_norms_mask[ref_inverse]
-    s1, r1, s2, r2 = s1[mask], r1[mask], s2[mask], r2[mask]
-    print(f'Collinearity:\t\t{s1.shape=}')
+#     # 4. Only consider non-collinear pairs
+#     # Downcast refs pairs
+#     unq_r1, unq_r2, ref_inverse, ref_keys = get_unq(r1, r2, num_refs)
+#     unq_cross_norms = np.linalg.norm(np.cross(all_ref_hkls[unq_r1], all_ref_hkls[unq_r2]), axis=1)
+#     unq_cross_norms_mask = unq_cross_norms > 1e-5
+#     mask = unq_cross_norms_mask[ref_inverse]
+#     s1, r1, s2, r2 = s1[mask], r1[mask], s2[mask], r2[mask]
+#     print(f'Collinearity:\t\t{s1.shape=}')
 
-    # 5. Match inter-distances
-    # Downcast both datasets again
-    unq_s1, unq_s2, spot_inverse, spot_keys = get_unq(s1, s2, num_spots)
-    unq_r1, unq_r2, ref_inverse, ref_keys = get_unq(r1, r2, num_refs)
-    multiplier = len(unq_r1)
-    flat_keys = spot_inverse * multiplier + ref_inverse
-    unq_keys, combo_inverse = np.unique(flat_keys, return_inverse=True)
+#     # 5. Match inter-distances
+#     # Downcast both datasets again
+#     unq_s1, unq_s2, spot_inverse, spot_keys = get_unq(s1, s2, num_spots)
+#     unq_r1, unq_r2, ref_inverse, ref_keys = get_unq(r1, r2, num_refs)
+#     multiplier = len(unq_r1)
+#     flat_keys = spot_inverse * multiplier + ref_inverse
+#     unq_keys, combo_inverse = np.unique(flat_keys, return_inverse=True)
 
-    mapped_spot_idx = unq_keys // multiplier
-    mapped_ref_idx = unq_keys % multiplier
+#     mapped_spot_idx = unq_keys // multiplier
+#     mapped_ref_idx = unq_keys % multiplier
 
-    unq_spot_dist = np.linalg.norm(all_spot_qs[unq_s1] - all_spot_qs[unq_s2], axis=1)
-    unq_ref_dist = np.linalg.norm(all_ref_qs[unq_r1] - all_ref_qs[unq_r2], axis=1)
+#     unq_spot_dist = np.linalg.norm(all_spot_qs[unq_s1] - all_spot_qs[unq_s2], axis=1)
+#     unq_ref_dist = np.linalg.norm(all_ref_qs[unq_r1] - all_ref_qs[unq_r2], axis=1)
 
-    inter_dist_mask = np.abs(unq_spot_dist[mapped_spot_idx] - unq_ref_dist[mapped_ref_idx]) < near_q
-    mask = inter_dist_mask[combo_inverse]
-    s1, r1, s2, r2 = s1[mask], r1[mask], s2[mask], r2[mask]
-    print(f'Pair Dist:\t\t{s1.shape=}')
+#     inter_dist_mask = np.abs(unq_spot_dist[mapped_spot_idx] - unq_ref_dist[mapped_ref_idx]) < near_q
+#     mask = inter_dist_mask[combo_inverse]
+#     s1, r1, s2, r2 = s1[mask], r1[mask], s2[mask], r2[mask]
+#     print(f'Pair Dist:\t\t{s1.shape=}')
 
-    # 6. Match inter-angles (slowest)
-    # Downcast both datasets again
-    unq_s1, unq_s2, spot_inverse, spot_keys = get_unq(s1, s2, num_spots)
-    unq_r1, unq_r2, ref_inverse, ref_keys = get_unq(r1, r2, num_refs)
-    multiplier = len(unq_r1)
-    flat_keys = spot_inverse * multiplier + ref_inverse
-    unq_keys, combo_inverse = np.unique(flat_keys, return_inverse=True)
+#     # 6. Match inter-angles (slowest)
+#     # Downcast both datasets again
+#     unq_s1, unq_s2, spot_inverse, spot_keys = get_unq(s1, s2, num_spots)
+#     unq_r1, unq_r2, ref_inverse, ref_keys = get_unq(r1, r2, num_refs)
+#     multiplier = len(unq_r1)
+#     flat_keys = spot_inverse * multiplier + ref_inverse
+#     unq_keys, combo_inverse = np.unique(flat_keys, return_inverse=True)
 
-    mapped_spot_idx = unq_keys // multiplier
-    mapped_ref_idx = unq_keys % multiplier
+#     mapped_spot_idx = unq_keys // multiplier
+#     mapped_ref_idx = unq_keys % multiplier
 
-    unq_spot_ang = np.arccos(np.einsum('ij, ij->i', all_spot_qs[unq_s1], all_spot_qs[unq_s2]) / (spot_q_mags[unq_s1] * spot_q_mags[unq_s2]))
-    unq_ref_ang = np.arccos(np.einsum('ij, ij->i', all_ref_qs[unq_r1], all_ref_qs[unq_r2]) / (ref_q_mags[unq_r1] * ref_q_mags[unq_r2]))
-    if degrees:
-        rad_near_ang = np.radians(near_angle)
-    else:
-        rad_near_ang = near_angle
+#     unq_spot_ang = np.arccos(np.einsum('ij, ij->i', all_spot_qs[unq_s1], all_spot_qs[unq_s2]) / (spot_q_mags[unq_s1] * spot_q_mags[unq_s2]))
+#     unq_ref_ang = np.arccos(np.einsum('ij, ij->i', all_ref_qs[unq_r1], all_ref_qs[unq_r2]) / (ref_q_mags[unq_r1] * ref_q_mags[unq_r2]))
+#     if degrees:
+#         rad_near_ang = np.radians(near_angle)
+#     else:
+#         rad_near_ang = near_angle
 
-    inter_ang_mask = np.abs(unq_spot_ang[mapped_spot_idx] - unq_ref_ang[mapped_ref_idx]) < rad_near_ang
-    mask = inter_ang_mask[combo_inverse] # Keep angles for symmetrizing
-    # ref_angles = unq_ref_ang[mapped_ref_idx][mask]
-    # ref_angles = unq_ref_ang[mapped_ref_idx][combo_inverse][mask]
-    ref_angles = unq_ref_ang[ref_inverse]
-    ref_angles = ref_angles[mask]
-    s1, r1, s2, r2 = s1[mask], r1[mask], s2[mask], r2[mask]
-    print(f'Pair Angle:\t\t{s1.shape=}')
+#     inter_ang_mask = np.abs(unq_spot_ang[mapped_spot_idx] - unq_ref_ang[mapped_ref_idx]) < rad_near_ang
+#     mask = inter_ang_mask[combo_inverse] # Keep angles for symmetrizing
+#     # ref_angles = unq_ref_ang[mapped_ref_idx][mask]
+#     # ref_angles = unq_ref_ang[mapped_ref_idx][combo_inverse][mask]
+#     ref_angles = unq_ref_ang[ref_inverse]
+#     ref_angles = ref_angles[mask]
+#     s1, r1, s2, r2 = s1[mask], r1[mask], s2[mask], r2[mask]
+#     print(f'Pair Angle:\t\t{s1.shape=}')
 
-    # Precompute approximate orientation matrices for each pair
-    oris = triad_orientation_matrix(all_spot_qs[s1],
-                                    all_spot_qs[s2],
-                                    all_ref_qs[r1],
-                                    all_ref_qs[r2])
-    traces = np.einsum('nii->n', oris)
+#     # Precompute approximate orientation matrices for each pair
+#     oris = triad_orientation_matrix(all_spot_qs[s1],
+#                                     all_spot_qs[s2],
+#                                     all_ref_qs[r1],
+#                                     all_ref_qs[r2])
+#     traces = np.einsum('nii->n', oris)
 
-    # Iterate through remaining pairs
-    pairs, pair_chars = [], {}
-    mis_thresh = 1 + 2 * np.cos(rad_near_ang)
-    for idx, (ps1, pr1, ps2, pr2) in iterate(enumerate(zip(s1, r1, s2, r2)), total=s1.shape[0]):
-        pair = np.asarray([[ps1, pr1], [ps2, pr2]])
+#     # Iterate through remaining pairs
+#     pairs, pair_chars = [], {}
+#     mis_thresh = 1 + 2 * np.cos(rad_near_ang)
+#     for idx, (ps1, pr1, ps2, pr2) in iterate(enumerate(zip(s1, r1, s2, r2)), total=s1.shape[0]):
+#         pair = np.asarray([[ps1, pr1], [ps2, pr2]])
 
-        if symmetrize:
-            # # Approximate lattice orientation magnitude (minimum is fundamental zone)
-            # ori = triad_orientation_matrix(*all_spot_qs[pair[:, 0]],
-            #                                *all_ref_qs[pair[:, 1]])
+#         if symmetrize:
+#             # # Approximate lattice orientation magnitude (minimum is fundamental zone)
+#             # ori = triad_orientation_matrix(*all_spot_qs[pair[:, 0]],
+#             #                                *all_ref_qs[pair[:, 1]])
 
-            # # ori = Rotation.align_vectors(all_spot_qs[pair[:, 0]],
-            # #                              all_ref_qs[pair[:, 1]])[0]
+#             # # ori = Rotation.align_vectors(all_spot_qs[pair[:, 0]],
+#             # #                              all_ref_qs[pair[:, 1]])[0]
 
-            # ori_mag = np.trace(ori) # approximate
+#             # ori_mag = np.trace(ori) # approximate
 
-            # Characterize found pair
-            prec = 8
-            if symmetrize == 'lattice':
-                combo_char = (ref_q_mags[pr1].round(prec), # ref1 q-magnitude
-                              ref_q_mags[pr2].round(prec), # ref2 q-magnitude
-                              ref_angles[idx].round(prec), # interplanar angle
-                              )
-            elif symmetrize == 'point_group':
-                combo_char = (ref_q_mags[pr1].round(prec), # ref1 q-magnitude
-                              all_ref_fs[pr1].round(prec), # ref1 structure factor
-                              ref_q_mags[pr2].round(prec), # ref2 q-magnitude
-                              all_ref_fs[pr2].round(prec), # ref2 structure factor
-                              ref_angles[idx].round(prec), # interplanar angle
-                              )          
-            else:
-                raise ValueError(f"'symmetrize' must be 'point_group' or 'lattice', not {symmetrize}.")
+#             # Characterize found pair
+#             prec = 8
+#             if symmetrize == 'lattice':
+#                 combo_char = (ref_q_mags[pr1].round(prec), # ref1 q-magnitude
+#                               ref_q_mags[pr2].round(prec), # ref2 q-magnitude
+#                               ref_angles[idx].round(prec), # interplanar angle
+#                               )
+#             elif symmetrize == 'point_group':
+#                 combo_char = (ref_q_mags[pr1].round(prec), # ref1 q-magnitude
+#                               all_ref_fs[pr1].round(prec), # ref1 structure factor
+#                               ref_q_mags[pr2].round(prec), # ref2 q-magnitude
+#                               all_ref_fs[pr2].round(prec), # ref2 structure factor
+#                               ref_angles[idx].round(prec), # interplanar angle
+#                               )          
+#             else:
+#                 raise ValueError(f"'symmetrize' must be 'point_group' or 'lattice', not {symmetrize}.")
 
-            # Add pair if minimum orientation magnitude within error
-            if combo_char in pair_chars:
-                if traces[idx] > pair_chars[combo_char][1]: # maximum trace is minimum magnitude
-                    pair_chars[combo_char] = (pair, traces[idx])
-                # if np.abs(ori_mag - pair_chars[combo_char][1] - mis_thresh) < 0:
-                #     pair_chars[combo_char] = (pair, ori_mag)
-            else:
-                pair_chars[combo_char] = (pair, traces[idx])
+#             # Add pair if minimum orientation magnitude within error
+#             if combo_char in pair_chars:
+#                 if traces[idx] > pair_chars[combo_char][1]: # maximum trace is minimum magnitude
+#                     pair_chars[combo_char] = (pair, traces[idx])
+#                 # if np.abs(ori_mag - pair_chars[combo_char][1] - mis_thresh) < 0:
+#                 #     pair_chars[combo_char] = (pair, ori_mag)
+#             else:
+#                 pair_chars[combo_char] = (pair, traces[idx])
             
-        else:
-            # Include everything, even symmetrically equivalent duplicates
-            pairs.append(pair)
+#         else:
+#             # Include everything, even symmetrically equivalent duplicates
+#             pairs.append(pair)
         
-    # Unpack
-    if symmetrize:
-        pairs = [v[0] for v in pair_chars.values()]
+#     # Unpack
+#     if symmetrize:
+#         pairs = [v[0] for v in pair_chars.values()]
     
-    return pairs #, pair_chars
+#     return pairs #, pair_chars
 
 
-def v3_find_valid_pairs(all_spot_qs,
-                     all_ref_qs,
-                     all_ref_hkls,
-                     all_ref_fs,
-                     near_q,
-                     near_angle,
-                     min_q,
-                     degrees=False,
-                     symmetrize=None,
-                     verbose=True):
+# def v3_find_valid_pairs(all_spot_qs,
+#                      all_ref_qs,
+#                      all_ref_hkls,
+#                      all_ref_fs,
+#                      near_q,
+#                      near_angle,
+#                      min_q,
+#                      degrees=False,
+#                      symmetrize=None,
+#                      verbose=True):
 
-    # Padding value for masking
-    min_ext = 0.85
+#     # Padding value for masking
+#     min_ext = 0.85
 
-    # Guard block(s)
-    if near_q > min_q * min_ext:
-        err_str = (f"'near_q' threshold is greater than {ext * 100}% "
-                   "of minimum lattice spacing. This seems unwise.")
-        raise ValueError(err_str)
+#     # Guard block(s)
+#     if near_q > min_q * min_ext:
+#         err_str = (f"'near_q' threshold is greater than {ext * 100}% "
+#                    "of minimum lattice spacing. This seems unwise.")
+#         raise ValueError(err_str)
 
-    # Tracking references to original lists
-    num_spots = len(all_spot_qs)
-    num_refs = len(all_ref_qs)
+#     # Tracking references to original lists
+#     num_spots = len(all_spot_qs)
+#     num_refs = len(all_ref_qs)
 
-    # Construct iterable
-    if verbose:
-        iterate = lambda x, **k : tqdm(x, position=0, leave=True, **k)
-    else:
-        iterate = lambda x, **k : x
+#     # Construct iterable
+#     if verbose:
+#         iterate = lambda x, **k : tqdm(x, position=0, leave=True, **k)
+#     else:
+#         iterate = lambda x, **k : x
 
-    if verbose:
-        print('Finding all valid pairs...', flush=True)
+#     if verbose:
+#         print('Finding all valid pairs...', flush=True)
 
-    # Increasingly aggressive culling steps to reduce data size
+#     # Increasingly aggressive culling steps to reduce data size
     
-    # 1. Compare direct magnitudes and keep only feasible 
-    # Find vector magnitudes for measured and reference reflections
-    spot_q_mags = np.linalg.norm(all_spot_qs, axis=1)
-    ref_q_mags = np.linalg.norm(all_ref_qs, axis=1)
+#     # 1. Compare direct magnitudes and keep only feasible 
+#     # Find vector magnitudes for measured and reference reflections
+#     spot_q_mags = np.linalg.norm(all_spot_qs, axis=1)
+#     ref_q_mags = np.linalg.norm(all_ref_qs, axis=1)
 
-    # Find difference between measured and calculated q magnitudes
-    mag_diff_matrix = np.abs(spot_q_mags[:, np.newaxis]
-                             - ref_q_mags[np.newaxis, :])
-    valid_mag_mask = mag_diff_matrix < near_q
-    spot_map, ref_map = np.nonzero(valid_mag_mask)
+#     # Find difference between measured and calculated q magnitudes
+#     mag_diff_matrix = np.abs(spot_q_mags[:, np.newaxis]
+#                              - ref_q_mags[np.newaxis, :])
+#     valid_mag_mask = mag_diff_matrix < near_q
+#     spot_map, ref_map = np.nonzero(valid_mag_mask)
 
-    # Indexing values for pairwise comparisons
-    num_map = len(spot_map)
-    idx1, idx2 = np.triu_indices(num_map, k=1)
-    s1 = spot_map[idx1]
-    r1 = ref_map[idx1]
-    s2 = spot_map[idx2]
-    r2 = ref_map[idx2]
-    print(f'Full:\t\t{s1.shape=}')
+#     # Indexing values for pairwise comparisons
+#     num_map = len(spot_map)
+#     idx1, idx2 = np.triu_indices(num_map, k=1)
+#     s1 = spot_map[idx1]
+#     r1 = ref_map[idx1]
+#     s2 = spot_map[idx2]
+#     r2 = ref_map[idx2]
+#     print(f'Full:\t\t{s1.shape=}')
 
-    def get_unq(l1, l2, num):
-        pair_keys = l1 * num + l2
-        unq_keys, inverse = np.unique(pair_keys, return_inverse=True)
-        unq_l1 = unq_keys // num
-        unq_l2 = unq_keys % num
-        return unq_l1, unq_l2, inverse, unq_keys
+#     def get_unq(l1, l2, num):
+#         pair_keys = l1 * num + l2
+#         unq_keys, inverse = np.unique(pair_keys, return_inverse=True)
+#         unq_l1 = unq_keys // num
+#         unq_l2 = unq_keys % num
+#         return unq_l1, unq_l2, inverse, unq_keys
 
-    # 2. Immediately remove all doublets (cheapest)
-    mask = ((s1 != s2) | (r1 != r2))
-    s1, r1, s2, r2 = s1[mask], r1[mask], s2[mask], r2[mask]
-    print(f'Doublet:\t\t{s1.shape=}')
+#     # 2. Immediately remove all doublets (cheapest)
+#     mask = ((s1 != s2) | (r1 != r2))
+#     s1, r1, s2, r2 = s1[mask], r1[mask], s2[mask], r2[mask]
+#     print(f'Doublet:\t\t{s1.shape=}')
 
-    # 3. Only consider feasible inter-spot distances
-    # Downcast to only spot_pairs
-    unq_s1, unq_s2, spot_inverse, spot_keys = get_unq(s1, s2, num_spots)
-    unq_spot_dist = np.linalg.norm(all_spot_qs[unq_s1] - all_spot_qs[unq_s2], axis=1)
-    unq_spot_dist_mask = (unq_spot_dist > min_q * min_ext)
-    mask = unq_spot_dist_mask[spot_inverse]
-    s1, r1, s2, r2 = s1[mask], r1[mask], s2[mask], r2[mask]
-    print(f'Dist Min:\t\t{s1.shape=}')
+#     # 3. Only consider feasible inter-spot distances
+#     # Downcast to only spot_pairs
+#     unq_s1, unq_s2, spot_inverse, spot_keys = get_unq(s1, s2, num_spots)
+#     unq_spot_dist = np.linalg.norm(all_spot_qs[unq_s1] - all_spot_qs[unq_s2], axis=1)
+#     unq_spot_dist_mask = (unq_spot_dist > min_q * min_ext)
+#     mask = unq_spot_dist_mask[spot_inverse]
+#     s1, r1, s2, r2 = s1[mask], r1[mask], s2[mask], r2[mask]
+#     print(f'Dist Min:\t\t{s1.shape=}')
 
-    # 4. Only consider non-collinear pairs
-    # Downcast refs pairs
-    unq_r1, unq_r2, ref_inverse, ref_keys = get_unq(r1, r2, num_refs)
-    unq_cross_norms = np.linalg.norm(np.cross(all_ref_hkls[unq_r1], all_ref_hkls[unq_r2]), axis=1)
-    unq_cross_norms_mask = unq_cross_norms > 1e-5
-    mask = unq_cross_norms_mask[ref_inverse]
-    s1, r1, s2, r2 = s1[mask], r1[mask], s2[mask], r2[mask]
-    print(f'Collinearity:\t\t{s1.shape=}')
+#     # 4. Only consider non-collinear pairs
+#     # Downcast refs pairs
+#     unq_r1, unq_r2, ref_inverse, ref_keys = get_unq(r1, r2, num_refs)
+#     unq_cross_norms = np.linalg.norm(np.cross(all_ref_hkls[unq_r1], all_ref_hkls[unq_r2]), axis=1)
+#     unq_cross_norms_mask = unq_cross_norms > 1e-5
+#     mask = unq_cross_norms_mask[ref_inverse]
+#     s1, r1, s2, r2 = s1[mask], r1[mask], s2[mask], r2[mask]
+#     print(f'Collinearity:\t\t{s1.shape=}')
 
-    # 5. Match inter-distances
-    # Downcast both datasets again
-    unq_s1, unq_s2, spot_inverse, spot_keys = get_unq(s1, s2, num_spots)
-    unq_r1, unq_r2, ref_inverse, ref_keys = get_unq(r1, r2, num_refs)
-    multiplier = len(unq_r1)
-    flat_keys = spot_inverse * multiplier + ref_inverse
-    unq_keys, combo_inverse = np.unique(flat_keys, return_inverse=True)
+#     # 5. Match inter-distances
+#     # Downcast both datasets again
+#     unq_s1, unq_s2, spot_inverse, spot_keys = get_unq(s1, s2, num_spots)
+#     unq_r1, unq_r2, ref_inverse, ref_keys = get_unq(r1, r2, num_refs)
+#     multiplier = len(unq_r1)
+#     flat_keys = spot_inverse * multiplier + ref_inverse
+#     unq_keys, combo_inverse = np.unique(flat_keys, return_inverse=True)
 
-    mapped_spot_idx = unq_keys // multiplier
-    mapped_ref_idx = unq_keys % multiplier
+#     mapped_spot_idx = unq_keys // multiplier
+#     mapped_ref_idx = unq_keys % multiplier
 
-    unq_spot_dist = np.linalg.norm(all_spot_qs[unq_s1] - all_spot_qs[unq_s2], axis=1)
-    unq_ref_dist = np.linalg.norm(all_ref_qs[unq_r1] - all_ref_qs[unq_r2], axis=1)
+#     unq_spot_dist = np.linalg.norm(all_spot_qs[unq_s1] - all_spot_qs[unq_s2], axis=1)
+#     unq_ref_dist = np.linalg.norm(all_ref_qs[unq_r1] - all_ref_qs[unq_r2], axis=1)
 
-    inter_dist_mask = np.abs(unq_spot_dist[mapped_spot_idx] - unq_ref_dist[mapped_ref_idx]) < near_q
-    mask = inter_dist_mask[combo_inverse]
-    s1, r1, s2, r2 = s1[mask], r1[mask], s2[mask], r2[mask]
-    print(f'Pair Dist:\t\t{s1.shape=}')
+#     inter_dist_mask = np.abs(unq_spot_dist[mapped_spot_idx] - unq_ref_dist[mapped_ref_idx]) < near_q
+#     mask = inter_dist_mask[combo_inverse]
+#     s1, r1, s2, r2 = s1[mask], r1[mask], s2[mask], r2[mask]
+#     print(f'Pair Dist:\t\t{s1.shape=}')
 
-    # 6. Match inter-angles (slowest)
-    # Downcast both datasets again
-    unq_s1, unq_s2, spot_inverse, spot_keys = get_unq(s1, s2, num_spots)
-    unq_r1, unq_r2, ref_inverse, ref_keys = get_unq(r1, r2, num_refs)
-    multiplier = len(unq_r1)
-    flat_keys = spot_inverse * multiplier + ref_inverse
-    unq_keys, combo_inverse = np.unique(flat_keys, return_inverse=True)
+#     # 6. Match inter-angles (slowest)
+#     # Downcast both datasets again
+#     unq_s1, unq_s2, spot_inverse, spot_keys = get_unq(s1, s2, num_spots)
+#     unq_r1, unq_r2, ref_inverse, ref_keys = get_unq(r1, r2, num_refs)
+#     multiplier = len(unq_r1)
+#     flat_keys = spot_inverse * multiplier + ref_inverse
+#     unq_keys, combo_inverse = np.unique(flat_keys, return_inverse=True)
 
-    mapped_spot_idx = unq_keys // multiplier
-    mapped_ref_idx = unq_keys % multiplier
+#     mapped_spot_idx = unq_keys // multiplier
+#     mapped_ref_idx = unq_keys % multiplier
 
-    unq_spot_ang = np.arccos(np.einsum('ij, ij->i', all_spot_qs[unq_s1], all_spot_qs[unq_s2]) / (spot_q_mags[unq_s1] * spot_q_mags[unq_s2]))
-    unq_ref_ang = np.arccos(np.einsum('ij, ij->i', all_ref_qs[unq_r1], all_ref_qs[unq_r2]) / (ref_q_mags[unq_r1] * ref_q_mags[unq_r2]))
-    if degrees:
-        rad_near_ang = np.radians(near_angle)
-    else:
-        rad_near_ang = near_angle
+#     unq_spot_ang = np.arccos(np.einsum('ij, ij->i', all_spot_qs[unq_s1], all_spot_qs[unq_s2]) / (spot_q_mags[unq_s1] * spot_q_mags[unq_s2]))
+#     unq_ref_ang = np.arccos(np.einsum('ij, ij->i', all_ref_qs[unq_r1], all_ref_qs[unq_r2]) / (ref_q_mags[unq_r1] * ref_q_mags[unq_r2]))
+#     if degrees:
+#         rad_near_ang = np.radians(near_angle)
+#     else:
+#         rad_near_ang = near_angle
 
-    inter_ang_mask = np.abs(unq_spot_ang[mapped_spot_idx] - unq_ref_ang[mapped_ref_idx]) < rad_near_ang
-    mask = inter_ang_mask[combo_inverse] # Keep angles for symmetrizing
-    # ref_angles = unq_ref_ang[mapped_ref_idx][mask]
-    # ref_angles = unq_ref_ang[mapped_ref_idx][combo_inverse][mask]
-    ref_angles = unq_ref_ang[ref_inverse]
-    ref_angles = ref_angles[mask]
-    s1, r1, s2, r2 = s1[mask], r1[mask], s2[mask], r2[mask]
-    print(f'Pair Angle:\t\t{s1.shape=}')
+#     inter_ang_mask = np.abs(unq_spot_ang[mapped_spot_idx] - unq_ref_ang[mapped_ref_idx]) < rad_near_ang
+#     mask = inter_ang_mask[combo_inverse] # Keep angles for symmetrizing
+#     # ref_angles = unq_ref_ang[mapped_ref_idx][mask]
+#     # ref_angles = unq_ref_ang[mapped_ref_idx][combo_inverse][mask]
+#     ref_angles = unq_ref_ang[ref_inverse]
+#     ref_angles = ref_angles[mask]
+#     s1, r1, s2, r2 = s1[mask], r1[mask], s2[mask], r2[mask]
+#     print(f'Pair Angle:\t\t{s1.shape=}')
 
-    # Precompute approximate orientation matrices for each pair
-    oris = triad_orientation_matrix(all_spot_qs[s1],
-                                    all_spot_qs[s2],
-                                    all_ref_qs[r1],
-                                    all_ref_qs[r2])
-    traces = np.einsum('nii->n', oris)
+#     # Precompute approximate orientation matrices for each pair
+#     oris = triad_orientation_matrix(all_spot_qs[s1],
+#                                     all_spot_qs[s2],
+#                                     all_ref_qs[r1],
+#                                     all_ref_qs[r2])
+#     traces = np.einsum('nii->n', oris)
 
-    if symmetrize:
-        prec = 8
-        trace_tolerance = 1 + 2 * np.cos(rad_near_ang)
+#     if symmetrize:
+#         prec = 8
+#         trace_tolerance = 1 + 2 * np.cos(rad_near_ang)
 
-        # Vectorize rouding characteristics first
-        q1_round = ref_q_mags[r1].round(prec)
-        q2_round = ref_q_mags[r2].round(prec)
-        ang_round = ref_angles.round(prec)
+#         # Vectorize rouding characteristics first
+#         q1_round = ref_q_mags[r1].round(prec)
+#         q2_round = ref_q_mags[r2].round(prec)
+#         ang_round = ref_angles.round(prec)
         
-        # Get pair characteristics
-        if symmetrize == 'lattice':
-            sort_idx = np.lexsort((ang_round,
-                                   q1_round,
-                                   q2_round,
-                                   ))
+#         # Get pair characteristics
+#         if symmetrize == 'lattice':
+#             sort_idx = np.lexsort((ang_round,
+#                                    q1_round,
+#                                    q2_round,
+#                                    ))
                                    
-        elif symmetrize == 'point_group':
-            f1_round = all_ref_fs[r1].round(prec)
-            f2_round = all_ref_fs[r2].round(prec)
-            sort_idx = np.lexsort((ang_round,
-                                   q1_round,
-                                   f1_round,
-                                   q2_round,
-                                   f2_round,
-                                   ))
-        else:
-            raise ValueError(f"'symmetrize' must be 'point_group' or 'lattice', not {symmetrize}.")
+#         elif symmetrize == 'point_group':
+#             f1_round = all_ref_fs[r1].round(prec)
+#             f2_round = all_ref_fs[r2].round(prec)
+#             sort_idx = np.lexsort((ang_round,
+#                                    q1_round,
+#                                    f1_round,
+#                                    q2_round,
+#                                    f2_round,
+#                                    ))
+#         else:
+#             raise ValueError(f"'symmetrize' must be 'point_group' or 'lattice', not {symmetrize}.")
         
-        # Sort groups contiguously
-        s1_sort, r1_sort, s2_sort, r2_sort = s1[sort_idx], r1[sort_idx], s2[sort_idx], r2[sort_idx]
-        traces_sort = traces[sort_idx]
+#         # Sort groups contiguously
+#         s1_sort, r1_sort, s2_sort, r2_sort = s1[sort_idx], r1[sort_idx], s2[sort_idx], r2[sort_idx]
+#         traces_sort = traces[sort_idx]
 
-        # Find each unique group starts
-        if symmetrize == 'lattice':
-            stacked_keys = np.column_stack((q1_round[sort_idx],
-                                            q2_round[sort_idx],
-                                            ang_round[sort_idx]))
-        elif symmetrize == 'point_group':
-            stacked_keys = np.column_stack((q1_round[sort_idx],
-                                            f1_round[sort_idx],
-                                            q2_round[sort_idx],
-                                            f2_round[sort_idx],
-                                            ang_round[sort_idx]))
+#         # Find each unique group starts
+#         if symmetrize == 'lattice':
+#             stacked_keys = np.column_stack((q1_round[sort_idx],
+#                                             q2_round[sort_idx],
+#                                             ang_round[sort_idx]))
+#         elif symmetrize == 'point_group':
+#             stacked_keys = np.column_stack((q1_round[sort_idx],
+#                                             f1_round[sort_idx],
+#                                             q2_round[sort_idx],
+#                                             f2_round[sort_idx],
+#                                             ang_round[sort_idx]))
             
-        # Look for differences to find group starts
-        group_changes = np.any(np.diff(stacked_keys, axis=0) != 0, axis=1)
-        group_boundaries = np.flatnonzero(group_changes) + 1
-        group_boundaries = np.concatenate(([0], group_boundaries, [len(traces_sort)]))
+#         # Look for differences to find group starts
+#         group_changes = np.any(np.diff(stacked_keys, axis=0) != 0, axis=1)
+#         group_boundaries = np.flatnonzero(group_changes) + 1
+#         group_boundaries = np.concatenate(([0], group_boundaries, [len(traces_sort)]))
         
-        # Process each group sequentially
-        keep_indices = []
-        for i in range(len(group_boundaries) - 1):
-            start, end = group_boundaries[i], group_boundaries[i+1]
+#         # Process each group sequentially
+#         keep_indices = []
+#         for i in range(len(group_boundaries) - 1):
+#             start, end = group_boundaries[i], group_boundaries[i+1]
             
-            # Slice the traces belonging to this group
-            group_traces = traces_sort[start:end]
-            max_trace = np.max(group_traces)
+#             # Slice the traces belonging to this group
+#             group_traces = traces_sort[start:end]
+#             max_trace = np.max(group_traces)
             
-            # Keep anything within the threshold of the maximum trace
-            valid_in_group = np.flatnonzero(group_traces >= (max_trace - trace_tolerance))
-            keep_indices.extend(start + valid_in_group)
+#             # Keep anything within the threshold of the maximum trace
+#             valid_in_group = np.flatnonzero(group_traces >= (max_trace - trace_tolerance))
+#             keep_indices.extend(start + valid_in_group)
             
-        # Extract the filtered data and construct pairs
-        final_s1 = s1_sort[keep_indices]
-        final_r1 = r1_sort[keep_indices]
-        final_s2 = s2_sort[keep_indices]
-        final_r2 = r2_sort[keep_indices]
+#         # Extract the filtered data and construct pairs
+#         final_s1 = s1_sort[keep_indices]
+#         final_r1 = r1_sort[keep_indices]
+#         final_s2 = s2_sort[keep_indices]
+#         final_r2 = r2_sort[keep_indices]
         
-        # Build pairs list
-        pairs = [np.asarray([[ps1, pr1], [ps2, pr2]]) for ps1, pr1, ps2, pr2 in zip(final_s1, final_r1, final_s2, final_r2)]
+#         # Build pairs list
+#         pairs = [np.asarray([[ps1, pr1], [ps2, pr2]]) for ps1, pr1, ps2, pr2 in zip(final_s1, final_r1, final_s2, final_r2)]
         
-    else:
-        # Build pairs list
-        pairs = [np.asarray([[ps1, pr1], [ps2, pr2]]) for ps1, pr1, ps2, pr2 in zip(s1, r1, s2, r2)]
+#     else:
+#         # Build pairs list
+#         pairs = [np.asarray([[ps1, pr1], [ps2, pr2]]) for ps1, pr1, ps2, pr2 in zip(s1, r1, s2, r2)]
 
-    return pairs
-
-
+#     return pairs
 
 
 
-def v2_find_valid_pairs(all_spot_qs,
-                     all_ref_qs,
-                     all_ref_hkls,
-                     all_ref_fs,
-                     near_q,
-                     near_angle,
-                     min_q,
-                     degrees=False,
-                     symmetrize=None,
-                     verbose=True):
 
-    # Padding value for masking
-    min_ext = 0.85
 
-    # Guard block(s)
-    if near_q > min_q * min_ext:
-        err_str = (f"'near_q' threshold is greater than {ext * 100}% "
-                   "of minimum lattice spacing. This seems unwise.")
-        raise ValueError(err_str)
+# def v2_find_valid_pairs(all_spot_qs,
+#                      all_ref_qs,
+#                      all_ref_hkls,
+#                      all_ref_fs,
+#                      near_q,
+#                      near_angle,
+#                      min_q,
+#                      degrees=False,
+#                      symmetrize=None,
+#                      verbose=True):
 
-    # Tracking references to original lists
-    num_spots = len(all_spot_qs)
-    num_refs = len(all_ref_qs)
+#     # Padding value for masking
+#     min_ext = 0.85
 
-    # Construct iterable
-    if verbose:
-        iterate = lambda x, **k : tqdm(x, position=0, leave=True, **k)
-    else:
-        iterate = lambda x, **k : x
+#     # Guard block(s)
+#     if near_q > min_q * min_ext:
+#         err_str = (f"'near_q' threshold is greater than {ext * 100}% "
+#                    "of minimum lattice spacing. This seems unwise.")
+#         raise ValueError(err_str)
 
-    if verbose:
-        print('Finding all valid pairs...', flush=True)
+#     # Tracking references to original lists
+#     num_spots = len(all_spot_qs)
+#     num_refs = len(all_ref_qs)
 
-    # Increasingly aggressive culling steps to reduce data size
+#     # Construct iterable
+#     if verbose:
+#         iterate = lambda x, **k : tqdm(x, position=0, leave=True, **k)
+#     else:
+#         iterate = lambda x, **k : x
+
+#     if verbose:
+#         print('Finding all valid pairs...', flush=True)
+
+#     # Increasingly aggressive culling steps to reduce data size
     
-    # 1. Compare direct magnitudes and keep only feasible 
-    # Find vector magnitudes for measured and reference reflections
-    spot_q_mags = np.linalg.norm(all_spot_qs, axis=1)
-    ref_q_mags = np.linalg.norm(all_ref_qs, axis=1)
+#     # 1. Compare direct magnitudes and keep only feasible 
+#     # Find vector magnitudes for measured and reference reflections
+#     spot_q_mags = np.linalg.norm(all_spot_qs, axis=1)
+#     ref_q_mags = np.linalg.norm(all_ref_qs, axis=1)
 
-    # Find difference between measured and calculated q magnitudes
-    mag_diff_matrix = np.abs(spot_q_mags[:, np.newaxis]
-                             - ref_q_mags[np.newaxis, :])
-    valid_mag_mask = mag_diff_matrix < near_q
-    spot_map, ref_map = np.nonzero(valid_mag_mask)
+#     # Find difference between measured and calculated q magnitudes
+#     mag_diff_matrix = np.abs(spot_q_mags[:, np.newaxis]
+#                              - ref_q_mags[np.newaxis, :])
+#     valid_mag_mask = mag_diff_matrix < near_q
+#     spot_map, ref_map = np.nonzero(valid_mag_mask)
 
-    # Indexing values for pairwise comparisons
-    num_map = len(spot_map)
-    idx1, idx2 = np.triu_indices(num_map, k=1)
-    s1 = spot_map[idx1]
-    r1 = ref_map[idx1]
-    s2 = spot_map[idx2]
-    r2 = ref_map[idx2]
-    print(f'Full:\t\t{s1.shape=}')
+#     # Indexing values for pairwise comparisons
+#     num_map = len(spot_map)
+#     idx1, idx2 = np.triu_indices(num_map, k=1)
+#     s1 = spot_map[idx1]
+#     r1 = ref_map[idx1]
+#     s2 = spot_map[idx2]
+#     r2 = ref_map[idx2]
+#     print(f'Full:\t\t{s1.shape=}')
 
-    def get_unq(l1, l2, num):
-        pair_keys = l1 * num + l2
-        unq_keys, inverse = np.unique(pair_keys, return_inverse=True)
-        unq_l1 = unq_keys // num
-        unq_l2 = unq_keys % num
-        return unq_l1, unq_l2, inverse, unq_keys
+#     def get_unq(l1, l2, num):
+#         pair_keys = l1 * num + l2
+#         unq_keys, inverse = np.unique(pair_keys, return_inverse=True)
+#         unq_l1 = unq_keys // num
+#         unq_l2 = unq_keys % num
+#         return unq_l1, unq_l2, inverse, unq_keys
 
-    # 2. Immediately remove all doublets (cheapest)
-    mask = ((s1 != s2) | (r1 != r2))
-    s1, r1, s2, r2 = s1[mask], r1[mask], s2[mask], r2[mask]
-    print(f'Doublet:\t\t{s1.shape=}')
+#     # 2. Immediately remove all doublets (cheapest)
+#     mask = ((s1 != s2) | (r1 != r2))
+#     s1, r1, s2, r2 = s1[mask], r1[mask], s2[mask], r2[mask]
+#     print(f'Doublet:\t\t{s1.shape=}')
 
-    # 3. Only consider feasible inter-spot distances
-    # Downcast to only spot_pairs
-    unq_s1, unq_s2, spot_inverse, spot_keys = get_unq(s1, s2, num_spots)
-    unq_spot_dist = np.linalg.norm(all_spot_qs[unq_s1] - all_spot_qs[unq_s2], axis=1)
-    unq_spot_dist_mask = (unq_spot_dist > min_q * min_ext)
-    mask = unq_spot_dist_mask[spot_inverse]
-    s1, r1, s2, r2 = s1[mask], r1[mask], s2[mask], r2[mask]
-    print(f'Dist Min:\t\t{s1.shape=}')
+#     # 3. Only consider feasible inter-spot distances
+#     # Downcast to only spot_pairs
+#     unq_s1, unq_s2, spot_inverse, spot_keys = get_unq(s1, s2, num_spots)
+#     unq_spot_dist = np.linalg.norm(all_spot_qs[unq_s1] - all_spot_qs[unq_s2], axis=1)
+#     unq_spot_dist_mask = (unq_spot_dist > min_q * min_ext)
+#     mask = unq_spot_dist_mask[spot_inverse]
+#     s1, r1, s2, r2 = s1[mask], r1[mask], s2[mask], r2[mask]
+#     print(f'Dist Min:\t\t{s1.shape=}')
 
-    # 4. Only consider non-collinear pairs
-    # Downcast refs pairs
-    unq_r1, unq_r2, ref_inverse, ref_keys = get_unq(r1, r2, num_refs)
-    unq_cross_norms = np.linalg.norm(np.cross(all_ref_hkls[unq_r1], all_ref_hkls[unq_r2]), axis=1)
-    unq_cross_norms_mask = unq_cross_norms > 1e-5
-    mask = unq_cross_norms_mask[ref_inverse]
-    s1, r1, s2, r2 = s1[mask], r1[mask], s2[mask], r2[mask]
-    print(f'Collinearity:\t\t{s1.shape=}')
+#     # 4. Only consider non-collinear pairs
+#     # Downcast refs pairs
+#     unq_r1, unq_r2, ref_inverse, ref_keys = get_unq(r1, r2, num_refs)
+#     unq_cross_norms = np.linalg.norm(np.cross(all_ref_hkls[unq_r1], all_ref_hkls[unq_r2]), axis=1)
+#     unq_cross_norms_mask = unq_cross_norms > 1e-5
+#     mask = unq_cross_norms_mask[ref_inverse]
+#     s1, r1, s2, r2 = s1[mask], r1[mask], s2[mask], r2[mask]
+#     print(f'Collinearity:\t\t{s1.shape=}')
 
-    # 5. Match inter-distances
-    # Downcast both datasets again
-    unq_s1, unq_s2, spot_inverse, spot_keys = get_unq(s1, s2, num_spots)
-    unq_r1, unq_r2, ref_inverse, ref_keys = get_unq(r1, r2, num_refs)
-    combined_inverse = np.column_stack((spot_inverse, ref_inverse))
-    unq_combos, combo_inverse = np.unique(combined_inverse, axis=0, return_inverse=True)
+#     # 5. Match inter-distances
+#     # Downcast both datasets again
+#     unq_s1, unq_s2, spot_inverse, spot_keys = get_unq(s1, s2, num_spots)
+#     unq_r1, unq_r2, ref_inverse, ref_keys = get_unq(r1, r2, num_refs)
+#     combined_inverse = np.column_stack((spot_inverse, ref_inverse))
+#     unq_combos, combo_inverse = np.unique(combined_inverse, axis=0, return_inverse=True)
 
-    mapped_spot_idx = unq_combos[:, 0]
-    mapped_ref_idx = unq_combos[:, 1]
+#     mapped_spot_idx = unq_combos[:, 0]
+#     mapped_ref_idx = unq_combos[:, 1]
 
-    unq_spot_dist = np.linalg.norm(all_spot_qs[unq_s1] - all_spot_qs[unq_s2], axis=1)
-    unq_ref_dist = np.linalg.norm(all_ref_qs[unq_r1] - all_ref_qs[unq_r2], axis=1)
+#     unq_spot_dist = np.linalg.norm(all_spot_qs[unq_s1] - all_spot_qs[unq_s2], axis=1)
+#     unq_ref_dist = np.linalg.norm(all_ref_qs[unq_r1] - all_ref_qs[unq_r2], axis=1)
 
-    inter_dist_mask = np.abs(unq_spot_dist[mapped_spot_idx] - unq_ref_dist[mapped_ref_idx]) < near_q
-    mask = inter_dist_mask[combo_inverse]
-    s1, r1, s2, r2 = s1[mask], r1[mask], s2[mask], r2[mask]
-    print(f'Pair Dist:\t\t{s1.shape=}')
+#     inter_dist_mask = np.abs(unq_spot_dist[mapped_spot_idx] - unq_ref_dist[mapped_ref_idx]) < near_q
+#     mask = inter_dist_mask[combo_inverse]
+#     s1, r1, s2, r2 = s1[mask], r1[mask], s2[mask], r2[mask]
+#     print(f'Pair Dist:\t\t{s1.shape=}')
 
-    # 6. Match inter-angles (slowest)
-    # Downcast both datasets again
-    unq_s1, unq_s2, spot_inverse, spot_keys = get_unq(s1, s2, num_spots)
-    unq_r1, unq_r2, ref_inverse, ref_keys = get_unq(r1, r2, num_refs)
-    combined_inverse = np.column_stack((spot_inverse, ref_inverse))
-    unq_combos, combo_inverse = np.unique(combined_inverse, axis=0, return_inverse=True)
+#     # 6. Match inter-angles (slowest)
+#     # Downcast both datasets again
+#     unq_s1, unq_s2, spot_inverse, spot_keys = get_unq(s1, s2, num_spots)
+#     unq_r1, unq_r2, ref_inverse, ref_keys = get_unq(r1, r2, num_refs)
+#     combined_inverse = np.column_stack((spot_inverse, ref_inverse))
+#     unq_combos, combo_inverse = np.unique(combined_inverse, axis=0, return_inverse=True)
 
-    mapped_spot_idx = unq_combos[:, 0]
-    mapped_ref_idx = unq_combos[:, 1]
+#     mapped_spot_idx = unq_combos[:, 0]
+#     mapped_ref_idx = unq_combos[:, 1]
 
-    unq_spot_ang = np.arccos(np.einsum('ij, ij->i', all_spot_qs[unq_s1], all_spot_qs[unq_s2]) / (spot_q_mags[unq_s1] * spot_q_mags[unq_s2]))
-    unq_ref_ang = np.arccos(np.einsum('ij, ij->i', all_ref_qs[unq_r1], all_ref_qs[unq_r2]) / (ref_q_mags[unq_r1] * ref_q_mags[unq_r2]))
-    if degrees:
-        rad_near_ang = np.radians(near_angle)
-    else:
-        rad_near_ang = near_angle
+#     unq_spot_ang = np.arccos(np.einsum('ij, ij->i', all_spot_qs[unq_s1], all_spot_qs[unq_s2]) / (spot_q_mags[unq_s1] * spot_q_mags[unq_s2]))
+#     unq_ref_ang = np.arccos(np.einsum('ij, ij->i', all_ref_qs[unq_r1], all_ref_qs[unq_r2]) / (ref_q_mags[unq_r1] * ref_q_mags[unq_r2]))
+#     if degrees:
+#         rad_near_ang = np.radians(near_angle)
+#     else:
+#         rad_near_ang = near_angle
 
-    inter_ang_mask = np.abs(unq_spot_ang[mapped_spot_idx] - unq_ref_ang[mapped_ref_idx]) < rad_near_ang
-    mask = inter_ang_mask[combo_inverse] # Keep angles for symmetrizing
-    ref_angles = unq_ref_ang[ref_inverse]
-    ref_angles = ref_angles[mask]
-    s1, r1, s2, r2 = s1[mask], r1[mask], s2[mask], r2[mask]
-    print(f'Pair Angle:\t\t{s1.shape=}')
+#     inter_ang_mask = np.abs(unq_spot_ang[mapped_spot_idx] - unq_ref_ang[mapped_ref_idx]) < rad_near_ang
+#     mask = inter_ang_mask[combo_inverse] # Keep angles for symmetrizing
+#     ref_angles = unq_ref_ang[ref_inverse]
+#     ref_angles = ref_angles[mask]
+#     s1, r1, s2, r2 = s1[mask], r1[mask], s2[mask], r2[mask]
+#     print(f'Pair Angle:\t\t{s1.shape=}')
 
-    # Precompute approximate orientation matrices for each pair
-    oris = triad_orientation_matrix(all_spot_qs[s1],
-                                    all_spot_qs[s2],
-                                    all_ref_qs[r1],
-                                    all_ref_qs[r2])
-    traces = np.einsum('nii->n', oris)
+#     # Precompute approximate orientation matrices for each pair
+#     oris = triad_orientation_matrix(all_spot_qs[s1],
+#                                     all_spot_qs[s2],
+#                                     all_ref_qs[r1],
+#                                     all_ref_qs[r2])
+#     traces = np.einsum('nii->n', oris)
 
-    # Iterate through remaining pairs
-    pairs, pair_chars = [], {}
-    mis_thresh = 1 + 2 * np.cos(rad_near_ang)
-    for idx, (ps1, pr1, ps2, pr2) in iterate(enumerate(zip(s1, r1, s2, r2)), total=s1.shape[0]):
-        pair = np.asarray([[ps1, pr1], [ps2, pr2]])
+#     # Iterate through remaining pairs
+#     pairs, pair_chars = [], {}
+#     mis_thresh = 1 + 2 * np.cos(rad_near_ang)
+#     for idx, (ps1, pr1, ps2, pr2) in iterate(enumerate(zip(s1, r1, s2, r2)), total=s1.shape[0]):
+#         pair = np.asarray([[ps1, pr1], [ps2, pr2]])
 
-        if symmetrize:
-            # # Approximate lattice orientation magnitude (minimum is fundamental zone)
-            # ori = triad_orientation_matrix(*all_spot_qs[pair[:, 0]],
-            #                                *all_ref_qs[pair[:, 1]])
+#         if symmetrize:
+#             # # Approximate lattice orientation magnitude (minimum is fundamental zone)
+#             # ori = triad_orientation_matrix(*all_spot_qs[pair[:, 0]],
+#             #                                *all_ref_qs[pair[:, 1]])
 
-            # # ori = Rotation.align_vectors(all_spot_qs[pair[:, 0]],
-            # #                              all_ref_qs[pair[:, 1]])[0]
+#             # # ori = Rotation.align_vectors(all_spot_qs[pair[:, 0]],
+#             # #                              all_ref_qs[pair[:, 1]])[0]
 
-            # ori_mag = np.trace(ori) # approximate
+#             # ori_mag = np.trace(ori) # approximate
 
-            # Characterize found pair
-            prec = 8
-            if symmetrize == 'lattice':
-                combo_char = (ref_q_mags[pr1].round(prec), # ref1 q-magnitude
-                              ref_q_mags[pr2].round(prec), # ref2 q-magnitude
-                              ref_angles[idx].round(prec), # interplanar angle
-                              )
-            elif symmetrize == 'point_group':
-                combo_char = (ref_q_mags[pr1].round(prec), # ref1 q-magnitude
-                              all_ref_fs[pr1].round(prec), # ref1 structure factor
-                              ref_q_mags[pr2].round(prec), # ref2 q-magnitude
-                              all_ref_fs[pr2].round(prec), # ref2 structure factor
-                              ref_angles[idx].round(prec), # interplanar angle
-                              )          
-            else:
-                raise ValueError(f"'symmetrize' must be 'point_group' or 'lattice', not {symmetrize}.")
+#             # Characterize found pair
+#             prec = 8
+#             if symmetrize == 'lattice':
+#                 combo_char = (ref_q_mags[pr1].round(prec), # ref1 q-magnitude
+#                               ref_q_mags[pr2].round(prec), # ref2 q-magnitude
+#                               ref_angles[idx].round(prec), # interplanar angle
+#                               )
+#             elif symmetrize == 'point_group':
+#                 combo_char = (ref_q_mags[pr1].round(prec), # ref1 q-magnitude
+#                               all_ref_fs[pr1].round(prec), # ref1 structure factor
+#                               ref_q_mags[pr2].round(prec), # ref2 q-magnitude
+#                               all_ref_fs[pr2].round(prec), # ref2 structure factor
+#                               ref_angles[idx].round(prec), # interplanar angle
+#                               )          
+#             else:
+#                 raise ValueError(f"'symmetrize' must be 'point_group' or 'lattice', not {symmetrize}.")
 
-            # Add pair if minimum orientation magnitude within error
-            if combo_char in pair_chars:
-                if traces[idx] > pair_chars[combo_char][1]: # maximum trace is minimum magnitude
-                    pair_chars[combo_char] = (pair, traces[idx])
-                # if np.abs(ori_mag - pair_chars[combo_char][1] - mis_thresh) < 0:
-                #     pair_chars[combo_char] = (pair, ori_mag)
-            else:
-                pair_chars[combo_char] = (pair, traces[idx])
+#             # Add pair if minimum orientation magnitude within error
+#             if combo_char in pair_chars:
+#                 if traces[idx] > pair_chars[combo_char][1]: # maximum trace is minimum magnitude
+#                     pair_chars[combo_char] = (pair, traces[idx])
+#                 # if np.abs(ori_mag - pair_chars[combo_char][1] - mis_thresh) < 0:
+#                 #     pair_chars[combo_char] = (pair, ori_mag)
+#             else:
+#                 pair_chars[combo_char] = (pair, traces[idx])
             
-        else:
-            # Include everything, even symmetrically equivalent duplicates
-            pairs.append(pair)
+#         else:
+#             # Include everything, even symmetrically equivalent duplicates
+#             pairs.append(pair)
         
-    # Unpack
-    if symmetrize:
-        pairs = [v[0] for v in pair_chars.values()]
+#     # Unpack
+#     if symmetrize:
+#         pairs = [v[0] for v in pair_chars.values()]
     
-    return pairs #,pair_chars
+#     return pairs #,pair_chars
 
 
-def find_valid_pairs(all_spot_qs,
+def old_find_valid_pairs(all_spot_qs,
                      all_ref_qs,
                      all_ref_hkls,
                      all_ref_fs,
