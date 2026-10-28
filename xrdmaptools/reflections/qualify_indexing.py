@@ -14,30 +14,6 @@ from xrdmaptools.crystal.phase import get_default_sym_ops
 ### Base Utility Functions ###
 ##############################
 
-# def reduce_indexings_old(indexings, return_groups=False):
-
-#     ind_len = np.array([len(index) for index in indexings])
-    
-#     red_indexings = []
-#     expired_idxs = []
-#     expired_grps = []
-#     for idx in range(len(indexings)):
-#         if idx in expired_idxs:
-#             continue
-#         len_mask = ind_len == ind_len[idx]
-
-#         mat_index = [indexings[i] for i in len_mask.nonzero()[0]]
-#         full_match = np.all(mat_index == indexings[idx], axis=(-1, -2))
-
-#         red_indexings.append(indexings[idx])
-#         expired_idxs.extend(len_mask.nonzero()[0][full_match])
-#         expired_grps.append(len_mask.nonzero()[0][full_match])
-    
-#     if return_groups:
-#         return red_indexings, expired_grps
-#     else:
-#         return red_indexings
-
 
 def reduce_indexings(indexings, return_groups=False):
 
@@ -70,12 +46,12 @@ def qof_from_indexing(indexing,
     
     # Rotate reference frame
     if orientation is None:
-        orientation = Rotation.align_vectors(
+        orientation, _, _, _ = align_vectors_with_inversion(
                                     all_spot_qs[spot_inds],
-                                    all_ref_qs[ref_inds])[0]
+                                    all_ref_qs[ref_inds])
 
-
-    all_rot_qs = orientation.apply(all_ref_qs, inverse=False)
+    # all_rot_qs = orientation.apply(all_ref_qs, inverse=False)
+    all_rot_qs = all_ref_qs @ orientation.T
     temp_qmask = qmask.generate(all_rot_qs)
     # Forces bad seeds to be included in qmask
     temp_qmask[ref_inds] = True
@@ -137,10 +113,8 @@ def desymmetrize(indexing,
                  all_ref_hkls=None,
                  space_group_nr=230,
                  symmetrize='lattice',
-                 return_all=False):
-
-    I = np.eye(3)
-    inv = -I
+                 return_all=False,
+                 allow_improper=False):
 
     # Determine all symmetrically equivalent orientations
     # 'point_group' considers only Laue group
@@ -159,20 +133,9 @@ def desymmetrize(indexing,
         syms = get_default_sym_ops(space_group_nr, symmetrize=symmetrize)
     else:
         syms = phase.get_sym_ops(symmetrize=symmetrize)
-
-    # if symmetrize == 'point_group':
-    #     # spgrp = get_point_group(space_group_nr)
-    # # 'lattice' considers entire crystal system
-    # elif symmetrize == 'lattice':
-    #     # spgrp = get_point_group(crystal_grp_nr[space_group_nr])
-    # else:
-    #     err_str = 'Not a valid symmetry input.'
-    #     raise ValueError(err_str)
-
-    # TODO: Add improper rotations (rotoreflections)
-    # syms = spgrp.laue.to_matrix()[~spgrp.laue.improper]
-    # syms = spgrp.laue.to_matrix()
-    # syms[spgrp.laue.improper] *= -1
+    
+    if not allow_improper:
+        syms = syms[np.linalg.det(syms) > 0.5]
 
     # Parse symmetrized indexing
     spot_inds, ref_inds = indexing.T
@@ -183,7 +146,6 @@ def desymmetrize(indexing,
         for i in range(len(sym_qs)):
             temp_ref_inds = []
             for q_vect in sym_qs[i]:
-                # dist = cdist(q_vect, all_ref_qs)
                 dist = np.linalg.norm(all_ref_qs - q_vect, axis=1)
                 if dist.min() <= near_q:
                     temp_ref_inds.append(np.argmin(dist))
@@ -215,9 +177,9 @@ def desymmetrize(indexing,
     sym_qofs, sym_mags, sym_oris = [], [], []
     for indexing in sym_indexings:
         spot_inds, ref_inds = indexing.T
-        orientation = Rotation.align_vectors(
+        M, R, _, _ = align_vectors_with_inversion(
                                     all_spot_qs[spot_inds],
-                                    all_ref_qs[ref_inds])[0]
+                                    all_ref_qs[ref_inds])
 
         sym_qof = qof_from_indexing(indexing,
                                     all_ref_qs,
@@ -226,14 +188,13 @@ def desymmetrize(indexing,
                                     all_spot_ints,
                                     near_q,
                                     qmask,
-                                    orientation=orientation)
+                                    orientation=M)
         
         sym_qofs.append(sym_qof)
-        sym_mags.append(orientation.magnitude())
-        sym_oris.append(orientation.as_matrix())
+        sym_mags.append(R.magnitude())
+        sym_oris.append(M)
     
     if return_all:
-        # sym_oris = orientation.as_matrix()[np.newaxis, ...] @ syms  # (n_syms, 3, 3)
         return sym_indexings, sym_qofs, sym_mags, sym_oris
     
     # Pick the best
@@ -262,6 +223,40 @@ def multi_desymmetrize(indexings, *args, **kwargs):
             best_qof = sym_qof
         
     return best_indexing, best_qof
+
+
+def align_vectors_with_inversion(a, b, weights=None):
+    """
+    Version of scipy Rotation class align_vectors method which allows
+    for improper rotations present in real crystal symmetry groups.
+    """
+
+    if weights is None:
+        w = np.ones(len(a))
+    else:
+        w = np.array(weights, dtype=float)
+    w /= np.sum(w)
+
+    H = np.dot(a.T * w, b)
+
+    U, S, Vt = np.linalg.svd(H)
+    M = np.dot(U, Vt)
+    det = np.linalg.det(M)
+
+    is_inverted = det < 0
+
+    if is_inverted:
+        R_proper = Rotation.from_matrix(-1.0 * M)
+    else:
+        R_proper = Rotation.from_matrix(M)
+    
+    b_transformed = np.dot(b, M.T)
+    rssd = np.sqrt(np.sum(w * np.sum((a - b_transformed)**2, axis=1)))
+
+    return M, R_proper, rssd, is_inverted
+    
+
+    
 
 
 
@@ -473,10 +468,12 @@ def symmetrize_and_stitch_v2(spots_3D,
                              near_q,
                              qmask,
                              mis_thresh=0.5,
-                             metric='intensity',
+                             metric='int_corr',
                              degrees=True,
                              verbose=False):
 
+    if metric not in spots_3D:
+        raise KeyError(f'{metric} not in spots_3D')
 
     map_shape = (np.max(spots_3D['map_y']) + 1,
                  np.max(spots_3D['map_x']) + 1)
@@ -517,7 +514,7 @@ def symmetrize_and_stitch_v2(spots_3D,
                     hkls = pixel_df.loc[grain_mask, ['h', 'k', 'l']].values
                     ref_inds = np.array([np.all(phase.all_hkls == hkl, axis=1).nonzero()[0][0] for hkl in hkls])
                     spot_qs = pixel_df[['qx', 'qy', 'qz']].values
-                    spot_ints = pixel_df['intensity'].values
+                    spot_ints = pixel_df[metric].values
 
                     indexing = np.asarray([spot_inds, ref_inds]).T
 
@@ -828,7 +825,6 @@ def symmetrize_and_stitch_v2(spots_3D,
 def symmetrize_and_stitch(spots_3D,
                           phase,
                           mis_thresh=0.5,
-                          metric='intensity',
                           degrees=True,
                           verbose=False,
                           debug_stop=None):
