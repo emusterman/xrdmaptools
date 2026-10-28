@@ -131,12 +131,18 @@ def standard_process_xdm(scan_id,
             xdm.null_map[xdm.sum_map > 500 * float(xdm._raw_value_range[1])] = True
             # And for missing data
             xdm.null_map[xdm.sum_map == 0] = True
+        
+            sat_mask = xdm.images == np.max(xdm.max_image)
 
         xdm.convert_scalers_to_flux(scaler_key='i0')
         xdm.convert_scalers_to_flux(scaler_key='im')
         xdm.normalize_scaler()
 
-        xdm.correct_outliers(tolerance=5)
+        xdm.correct_outliers(tolerance=3)
+
+        if xdm.detector == 'eiger':
+            sat_mask = sat_mask & (xdm.images > 1)
+            xdm.images[sat_mask] = 0
 
         if air_scatter == False:
             pass
@@ -200,12 +206,15 @@ def standard_process_xdm(scan_id,
         xdm.apply_solidangle_correction()
 
         # Background correction
-        # xdm.estimate_background(method='bruckner',
-        #                         binning=4,
-        #                         min_prominence=0.1)
+        xdm.estimate_background(method='bruckner',
+                                binning=16,
+                                min_prominence=0.01)
 
         # Rescale and saving
-        xdm.rescale_images(arr_max=xdm.estimate_saturated_pixel())
+        # xdm.rescale_images(arr_max=xdm.estimate_saturated_pixel())
+        max_image = xdm.max_image.copy()
+        max_image[~xdm.mask] = 0
+        xdm.rescale_images(arr_max=np.max(max_image))
 
         # TEMP: Forcing ROI constraints
         # if xdm.detector == 'eiger':
@@ -214,13 +223,6 @@ def standard_process_xdm(scan_id,
         #     xdm.apply_custom_mask(temp_mask)
 
         if _proc_dict['save_images']:
-            # if xdm.images.dtype != xdm.dtype:
-            #     print('WARNING: Data was somehow upcast!!!!')
-            #     print('Trying to downcasting data to np.float32')
-            #     xdm.images = xdm.images.astype(xdm.dtype)
-            #     xdm._dtype = xdm.images.dtype
-            
-            # xdm.images[:, :, ~xdm.mask] = 0
             xdm.finalize_images()
 
     # Remove enitire bad rows
@@ -299,17 +301,17 @@ def standard_process_rsm(scan_id,
         else:
             fname = f'scan{int(scan_id)}_rsm.h5'
 
-        if os.path.exists(f'{wd}reciprocal_space_maps/{fname}'):
+        if os.path.exists(f'{wd}rsms/{fname}'):
             print('File found! Loading from HDF...')
             
             load_kwargs = {
-                'wd' : f'{wd}reciprocal_space_maps/',
+                'wd' : f'{wd}rsms/',
                 'image_data_key' : 'raw',
                 'swapped_axes' : swapped_axes
             }
             if not reprocess:
                 # Check to avoid reprocessing
-                temp_hdf = h5py.File(f'{wd}reciprocal_space_maps/{fname}')
+                temp_hdf = h5py.File(f'{wd}rsms/{fname}')
                 if 'final_images' in temp_hdf['xrdmap/image_data']:
                     _proc_dict['images'] = False
                     _proc_dict['save_images'] = False
@@ -382,16 +384,11 @@ def standard_process_rsm(scan_id,
         # Background correction
         xdm.estimate_background(method='bruckner',
                                 binning=8,
-                                min_prominence=0.01)
+                                min_prominence=0.1)
 
         # Rescale and saving
         xdm.rescale_images(arr_max=xdm.estimate_saturated_pixel())
         if _proc_dict['save_images']:
-            if xdm.images.dtype != xdm.dtype:
-                print('WARNING: Data was somehow upcast!!!!')
-                print('Trying to downcasting data to np.float32')
-                xdm.images = xdm.images.astype(xdm.dtype)
-                xdm._dtype = xdm.images.dtype
             xdm.finalize_images()
 
     # Remove enitire bad rows
@@ -469,7 +466,7 @@ def prepare_standard_directories(wd):
     # os.makedirs(os.path.join(wd, 'air_scatter/'), exist_ok=True)
     os.makedirs(os.path.join(wd, 'xrdmaps/'), exist_ok=True)
     os.makedirs(os.path.join(wd, 'xrdmaps/reduced/'), exist_ok=True)
-    os.makedirs(os.path.join(wd, 'rocking_curves/'), exist_ok=True)
+    os.makedirs(os.path.join(wd, 'rsms/'), exist_ok=True)
     os.makedirs(os.path.join(wd, 'xrdslices/'), exist_ok=True)
     # os.makedirs(os.path.join(wd, 'integrated_maps/'), exist_ok=True)
     os.makedirs(os.path.join(wd, 'max_1D_integrations/'), exist_ok=True)
