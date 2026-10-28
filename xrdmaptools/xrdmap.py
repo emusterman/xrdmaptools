@@ -168,6 +168,9 @@ class XRDMap(XRDBaseScan):
             data keys are supported or will be used. ['enc1', 'enc2',
             'i0', 'i0_time', 'im', 'it'] be default along with any
             either the merlin or dexela area detectors if used.
+        xrd_dets : list, optional
+            List of XRD detectors to be considered. None by default and
+            all XRD detectors will be considered.
         repair_method : {"fill", "flatten", "replace"}, optional
             Repair method used for missing data if data broker is
             "manual". "fill" auto-pads missing pixels with zero and is
@@ -286,7 +289,6 @@ class XRDMap(XRDBaseScan):
                 name += f'_{det}'
             if filename is None:
                 name += f'_{cls._hdf_type}'
-            name += '.h5'
             filenames.append(name)
 
         extra_md = {}
@@ -415,7 +417,7 @@ class XRDMap(XRDBaseScan):
         else:
             poni = self.poni
 
-        # Slicing of numpy arrays create veiws, not new copys
+        # Slicing of numpy arrays create veiws, not new copies
         sliced_images = []
         sliced_pos_dicts = []
         sliced_sclr_dicts = []
