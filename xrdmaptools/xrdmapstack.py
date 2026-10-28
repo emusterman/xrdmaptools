@@ -42,7 +42,10 @@ from xrdmaptools.geometry.geometry import (
     QMask
 )
 from xrdmaptools.reflections.spot_blob_search_3D import (
-    rsm_spot_search
+    rsm_blob_search,
+    rsm_spot_search,
+    rsm_characterize_spots,
+    rsm_get_spot_stats
 )
 from xrdmaptools.reflections.spot_blob_indexing_3D import(
     phase_index_all_grains
@@ -1850,7 +1853,8 @@ class XRDMapStack(list):
                       max_dist=0.1,
                       significance=0.1,
                       subsample=1,
-                      label_int_method='sum',
+                      spot_model=None,
+                      ext=0.15,
                       verbose=False,
                       save_to_hdf=True,
                       rewrite_data=True):
@@ -1876,7 +1880,9 @@ class XRDMapStack(list):
         df_keys = ['map_x',
                    'map_y',
                    'height',
-                   'intensity',
+                   'int_raw',
+                   'int_corr',
+                   'lorentz',
                    'qx',
                    'qy',
                    'qz',
@@ -1889,71 +1895,71 @@ class XRDMapStack(list):
         # Setup search function. Breaking down individually might be fast
         @dask.delayed()
         def delayed_spot_search(indices):
+            if verbose:
+                print(f'Spot search for {indices}')
 
             # Break down individual vectors
             q_vectors = self.xdms_vector_map[indices][:, :-1]
             intensity = self.xdms_vector_map[indices][:, -1]
 
+            # Declare default values
+            stats_dict = {k : [] for k in df_keys}
+            spot_labels = np.empty((0, 3))
+
             # Some level of assigning significance
             if abs_int_cutoff is not None:
                 int_mask = intensity > abs_int_cutoff
-                q_vectors = q_vectors[int_mask]
-                intensity = intensity[int_mask]
-
-            # Find spots if there are vectors to index
-            if len(intensity) > 0:
-                (spot_labels,
-                 spots,
-                 label_ints,
-                 label_maxs) = rsm_spot_search(
-                                    q_vectors,
-                                    intensity,
-                                    max_dist=max_dist,
-                                    significance=significance,
-                                    subsample=subsample,
-                                    label_int_method=label_int_method,
-                                    verbose=verbose)
-                
-                if len(spots) == 0:
-                    spot_labels = []
-                    temp_lists = [[] for _ in range(len(df_keys))]
-                    return temp_lists, spot_labels
-                
-                # Convert reciprocal positions to polar units
-                if self.rocking_axis == 'energy':
-                    if self.use_stage_rotation:
-                        stage_rotation = self.theta[0]
-                    else:
-                        stage_rotation = 0
-                    tth, chi, wavelength = q_2_polar(spots,
-                                        stage_rotation=stage_rotation,
-                                        degrees=(
-                                        self.scattering_units == 'deg'))
-                    theta = [self.theta[0],] * len(spots)
-                else: # angle
-                    tth, chi, theta = q_2_polar(spots,
-                                        wavelength=self.wavelength[0],
-                                        degrees=(
-                                        self.scattering_units == 'deg'))
-                    wavelength = [self.wavelength[0],] * len(wavelength)
-            
-                # Create temporary dictionary to store information
-                temp_lists = [[indices[1],]*len(spots), # map_x
-                              [indices[0],]*len(spots),  # map_y
-                              label_maxs, # height
-                              label_ints, # intensity
-                              *spots.T, # qx, qy, qz
-                              np.linalg.norm(spots, axis=1), # q_mag
-                              tth, # center tth
-                              chi, # center chi
-                              wavelength, # center wavelength
-                              theta # center theta
-                              ]
             else:
-                spot_labels = []
-                temp_lists = [[] for _ in range(len(df_keys))]
+                int_mask = np.ones_like(intensity, dtype=np.bool_)
 
-            return temp_lists, spot_labels
+            # Return nothing if there are no vectors
+            if int_mask.sum() == 0:
+                if verbose:
+                    print('No vectors found with sufficient intensity '
+                          + f'in pixel {indices}.')
+                return stats_dict, spot_labels         
+            
+            labels = rsm_spot_search(q_vectors[int_mask],
+                                     intensity[int_mask],
+                                     max_dist=max_dist,
+                                     significance=significance,
+                                     subsample=subsample,
+                                     verbose=verbose)
+            
+            (spots,
+             spot_heights,
+             spot_intensities) = rsm_characterize_spots(
+                                        q_vectors[int_mask],
+                                        intensity[int_mask],
+                                        labels,
+                                        spot_model=spot_model,
+                                        ext=ext,
+                                        verbose=verbose)
+
+            # Return nothing if no spots are found
+            if len(spots) == 0:
+                if verbose:
+                    print(f'No spots found in pixel {indices}.')
+                return stats_dict, spot_labels
+            else:
+                spot_labels = labels
+            
+            # Overwise
+            stats_dict = rsm_get_spot_stats(
+                            spots,
+                            spot_heights,
+                            spot_intensities,
+                            self.wavelength,
+                            np.radians(self.theta),
+                            self.rocking_axis,
+                            rotation_axis='y', # hard-coded for srx
+                            use_stage_rotation=self.use_stage_rotation)
+
+            # Update stats with map indices
+            stats_dict['map_x'] = [indices[1],] * len(spots)
+            stats_dict['map_y'] = [indices[0],] * len(spots)
+
+            return stats_dict, spot_labels
 
         # Iterate through each spatial pixel of map
         delayed_list = []
@@ -1971,12 +1977,10 @@ class XRDMapStack(list):
             proc_list = dask.compute(*delayed_list)
 
         # Unpack data into useable format
-        df_data = []
-        for i in range(len(df_keys)):
-            df_data.append(list(itertools.chain(*[res[0][i] for res in proc_list])))
-
-        # Compile spots
-        full_dict = dict(zip(df_keys, df_data))
+        full_dict = {
+            key : list(itertools.chain.from_iterable([d[0][key] for d in proc_list]))
+            for key in df_keys
+        }
         self.spots_3D = pd.DataFrame.from_dict(full_dict)
 
         # Store spot labels
@@ -1987,13 +1991,18 @@ class XRDMapStack(list):
 
         # Write to hdf
         if save_to_hdf:
+            if spot_model is None:
+                spot_model_name = 'none'
+            else:
+                spot_model_name = spot_model.name
+
             self.save_3D_spots(
                     extra_attrs={
                             'abs_int_cutoff' : abs_int_cutoff,
                             'max_dist' : max_dist,
                             'significance' : significance,
                             'subsample' : subsample,
-                            'label_int_method' : label_int_method})
+                            'spot_model' : spot_model_name})
             self.save_xdms_vector_map_information(
                     self.xdms_spot_labels_map,
                     'spot_labels_map',
@@ -2003,7 +2012,7 @@ class XRDMapStack(list):
                             'max_dist' : max_dist,
                             'significance' : significance,
                             'subsample' : subsample,
-                            'label_int_method' : label_int_method})
+                            'spot_model' : spot_model_name})
 
     
     def index_all_3D_spots(self,
@@ -2015,6 +2024,7 @@ class XRDMapStack(list):
                            verbose=False,
                            symmetrize='lattice',
                            debug_stop=None,
+                           intensity_metric=None,
                            **kwargs):
         """
 
@@ -2023,6 +2033,15 @@ class XRDMapStack(list):
         if not hasattr(self, 'spots_3D') or self.spots_3D is None:
             err_str = 'Spots must be found before they can be indexed.'
             raise AttributeError(err_str)
+
+        for key in ['int_corr', 'intensity', 'int_raw']:
+            if key in spots_3D:
+                intensity_metric = key
+                break
+        else:
+            err_str = ('Could not find suitable intensity metric '
+                        + 'in spots_3D!')
+            raise KeyError(err_str)
 
         if phase is None:
             if len(self.phases) == 1:
@@ -2065,7 +2084,7 @@ class XRDMapStack(list):
             
             if len(spots) > 1 and not are_collinear(spots):
                 spot_mags = pixel_df['q_mag'].values
-                spot_ints = pixel_df['intensity'].values
+                spot_ints = pixel_df[intensity_metric].values
                 ext = 0.15
                 ref_mask = ((ref_mags > spot_mags.min() * (1 - ext))
                             & (ref_mags < spot_mags.max() * (1 + ext)))
@@ -2161,7 +2180,7 @@ class XRDMapStack(list):
     @_protect_xdms_hdf()
     def trim_3D_spots(self,
                       remove_less=0.01,
-                      key='intensity',
+                      key='int_corr',
                       save_spots=False,
                       save_metadata=True):
         """
@@ -2219,7 +2238,18 @@ class XRDMapStack(list):
         for index in range(np.prod(vector_map.shape)):
             indices = np.unravel_index(index, vector_map.shape)
             df = self.pixel_3D_spots(indices, spots_3D=spots_3D)
-            vector_map[indices] = df[['qx', 'qy', 'qz', 'intensity']].values
+
+            for key in ['int_corr', 'intensity', 'int_raw']:
+                if key in spots_3D:
+                    intensity_metric = key
+                    break
+            else:
+                err_str = ('Could not find suitable intensity metric '
+                           + 'in spots_3D!')
+                raise KeyError(err_str)
+
+            vector_map[indices] = df[['qx', 'qy', 'qz',
+                                      intensity_metric]].values
 
         return vector_map
 
