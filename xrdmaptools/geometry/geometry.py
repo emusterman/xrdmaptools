@@ -7,6 +7,8 @@ from scipy.spatial import KDTree, Delaunay, ConvexHull
 
 # Local imports
 from xrdmaptools.utilities.math import (
+    wavelength_2_energy,
+    energy_2_wavelength,
     vector_angle,
     general_polynomial
 )
@@ -83,7 +85,9 @@ def get_q_vect(tth,
                         np.cos(tth)])
     
     if return_kf:
-        return 2 * np.pi / wavelength * kf_unit
+        kf = 2 * np.pi / wavelength * kf_unit
+        kf = np.moveaxis(kf, 0, -1)
+        return kf
     
     delta_k = kf_unit - ki_unit
 
@@ -471,227 +475,139 @@ def det_plane_from_ai(ai,
     return svd[0][:, -1], d.squeeze()
 
 
+def get_3D_single_crystal_Lorentz(q_centers,
+                                  wavelength,
+                                  theta,
+                                  rocking_axis,
+                                  rotation_axis='y',
+                                  use_stage_rotation=False,
+                                  return_stats=False):
+        
+        """
+        Get the Lorentz correction factor component for the 
+        differential sampling of single crystals for different
+        scanning strategies and different q-centers.
+        """
 
-class OldQMask:
-    """
-    Class for bounding reciprocal space volumes mapped by angle
-    and energy "rocking" curves.
-
-
-    """
-
-    def __init__(self,
-                 tth_arr,
-                 chi_arr,
-                 wavelength_vals,
-                 theta_vals=0,
-                 poly_order=6,
-                 use_stage_rotation=False,
-                 rocking_axis=None):
-
-        if np.any([tth_arr > 2 * np.pi, chi_arr > 2 * np.pi,
-                   tth_arr < -2 * np.pi, chi_arr < -2 * np.pi]):
-            err_str = ('QMask only supports input arrays in units '
-                       + 'of radians.')
+        # Guard blocks and standard transformations
+        rocking_axis = rocking_axis.lower()
+        
+        if q_centers.ndim != 2:
+            q_centers = q_centers.reshape(1, -1)
+        if q_centers.shape[1] != 3:
+            err_str = ("'q_centers' must be of shape (N, 3) not "
+                       + f"{q_center.shape}.")
             raise ValueError(err_str)
         
-        # Check for azimuthal discontintuites
-        self.chi_max_arr = np.max(np.abs(chi_arr)) # determines units...
-        chi_arr, _, shifted = modular_azimuthal_shift(chi_arr)
-        self.chi_shifted = shifted # conditional
+        if not isinstance(wavelength, (list, tuple, np.ndarray)):
+            wavelength = [wavelength]
+        wavelength = np.asarray(wavelength)
 
-        # Determine simple extents
-        self.tth_min = np.min(tth_arr)
-        self.tth_max = np.max(tth_arr)
-        self.chi_min = np.min(chi_arr)
-        self.chi_max = np.max(chi_arr)
-        self.wavelength_min = np.min(wavelength_vals)
-        self.wavelength_max = np.max(wavelength_vals)
-        self.theta_min = np.min(theta_vals)
-        self.theta_max = np.max(theta_vals)
-        self.use_stage_rotation = use_stage_rotation
+        if not isinstance(theta, (list, tuple, np.ndarray)):
+            theta = [theta]
+        theta = np.asarray(theta)
 
-        # Get rocking axis
-        energy_rc = np.abs(self.wavelength_min - self.wavelength_max) > 0.001 # in nm
-        min_angle = np.radians(0.05) # in degrees
-        angle_rc = np.abs(self.theta_min - self.theta_max) > min_angle
+        # Conventional angle rotation about vertical axis with equal
+        # angle steps
+        if rocking_axis == 'angle':
+            # Get angle step
+            step = np.median(np.diff(sorted(theta)))
 
-        if energy_rc and angle_rc:
-            err_str = ('Both energy and angle are changing. '
-                      + '\nOne must be static to generate Qmask.')
-            raise RuntimeError(err_str)
-        elif not energy_rc and not angle_rc:
-            err_str = ('Neither energy nor angle are changing. '
-                      + '\nOne must be rocking to generate Qmask.')
-            raise RuntimeError(err_str)
-        elif energy_rc:
-            self.rocking_axis = 'energy'
-        else:
-            self.rocking_axis = 'angle'
+            tth, chi, theta = q_2_polar(q_centers,
+                                        wavelength=wavelength[0],
+                                        degrees=False)
+            wavelength = np.asarray([wavelength[0],] * len(q_centers))
 
-        # Determine edges
-        # Inelegant method of throwing higher
-        # order polynomials at the problem
-        p0 = np.zeros(poly_order + 1)
-        for indexing, poly in zip([(0), # [0, :] 
-                                   (-1), # [-1, :]
-                                   (slice(None), 0), # [:, 0]
-                                   (slice(None), -1)], # [:, -1]
-                                   ['upper_poly',
-                                   'lower_poly',
-                                   'left_poly',
-                                   'right_poly']):
-            
-            # Determine functional direction
-            tth_grad = np.gradient(tth_arr[indexing])
-            if np.all(tth_grad > 0) or np.all(tth_grad < 0):
-                first_arr = tth_arr
-                second_arr = chi_arr
-                setattr(self, f'{poly}_first', 'tth')
+            # Deltas
+            theta_neg = theta - (step / 2)
+            theta_pos = theta + (step / 2)
+            # Static 
+            wavelength_neg = wavelength[0]
+            wavelength_pos = wavelength[0]
+        
+        elif rocking_axis in ['energy', 'wavelength']:
+            # Convert to energy
+            energy = wavelength_2_energy(wavelength)            
+            # Get energy step
+            step = np.median(np.diff(sorted(energy)))
+
+            if use_stage_rotation:
+                stage_rotation = theta[0]
             else:
-                first_arr = chi_arr
-                second_arr = tth_arr
-                setattr(self, f'{poly}_first', 'chi')
+                stage_rotation = 0
+            tth, chi, wavelength = q_2_polar(
+                            q_centers,
+                            stage_rotation=np.radians(stage_rotation),
+                            degrees=False
+                            )
+            theta = np.asarray([theta[0],] * len(q_centers))
+
+            # Energy scan with equal steps in energy
+            if rocking_axis == 'energy':
+                # Convert to energy
+                energy = wavelength_2_energy(wavelength)
+
+                # Deltas
+                wavelength_neg = energy_2_wavelength(energy - (step / 2))
+                wavelength_pos = energy_2_wavelength(energy + (step / 2))
+                # Static 
+                theta_neg = theta[0]
+                theta_pos = theta[0]
             
-            # Fit edge functions
-            popt, _ = curve_fit(general_polynomial,
-                                first_arr[indexing],
-                                second_arr[indexing],
-                                p0=p0)
-            
-            setattr(self, poly, popt)
-
-    
-    @classmethod
-    def from_XRDRockingScan(cls,
-                            rsm,
-                            **kwargs):
-        # Works for both XRDRockingCurve and XRDMapStack
-
-        if rsm.scattering_units == 'deg':
-            tth_arr = np.radians(rsm.tth_arr)
-        elif rsm.scattering_units == 'rad':
-            tth_arr = rsm.tth_arr
-        if rsm.azimuthal_units == 'deg':
-            chi_arr = np.radians(rsm.chi_arr)
-        elif rsm.azimuthal_units == 'rad':
-            chi_arr = rsm.chi_arr
-        
-        inst = cls(tth_arr,
-                   chi_arr,
-                   rsm.wavelength,
-                   np.radians(rsm.theta), # Convert to radians
-                   use_stage_rotation=rsm.use_stage_rotation,
-                   rocking_axis=rsm.rocking_axis,
-                   **kwargs)
-        
-        return inst
-
-
-    def generate(self,
-                 q_vectors,
-                 wavelength_ext=0.025,
-                 angle_ext=None,
-                 angle_ext_units='rad', # Assumed
-                 return_sub_masks=False):
-
-        # Setup wiggle room
-        if angle_ext is None:
-            angle_ext = np.radians(1)
-        elif angle_ext_units == 'rad':
-            pass
-        elif angle_ext_units == 'deg':
-            angle_ext = np.radians(angle_ext)
-        else:
-            err_str = (f"Unknown angle units {angle_ext_units}. Only "
-                       + "'rad' and 'deg' are supported.")
-            raise ValueError(err_str)  
-
-        # Convert vectors to polar
-        if self.rocking_axis == 'energy':
-            if self.use_stage_rotation:
-                theta = self.theta_min # should match theta_max
-            else:
-                theta = 0
-
-            tth, chi, wavelength = q_2_polar(q_vectors,
-                                             stage_rotation=theta,
-                                             degrees=False)
-
-            rocking_mask = np.all([
-                        wavelength >= self.wavelength_min - wavelength_ext,
-                        wavelength <= self.wavelength_max + wavelength_ext],
-                        axis=0)
+            # Wavelength scan with equal steps in wavelength
+            elif rocking_axis == 'wavelength':
+                # Get wavelength step
+                step = np.median(np.diff(sorted(wavelength)))
+                
+                # Deltas
+                wavelength_neg = wavelength - (step / 2)
+                wavelength_pos = wavelength + (step / 2)
+                # Static 
+                theta_neg = theta[0]
+                theta_pos = theta[0]
         
         else:
-            tth, chi, rotation = q_2_polar(
-                                    q_vectors,
-                                    wavelength=self.wavelength_min,
-                                    degrees=False)
-            
-            rocking_mask = np.all([
-                            rotation >= self.theta_min - angle_ext,
-                            rotation <= self.theta_max + angle_ext],
-                            axis=0)
+            err_str = (f"Cannot parse 'rocking_axis' of {rocking_axis}."
+                        + " Only 'angle', 'energy', and, 'wavelength' "
+                        + "are supported.")
+            raise ValueError(err_str)
 
-        # Shift chi values if discontinuiteies
-        chi, _, _ = modular_azimuthal_shift(
-                            chi,
-                            max_arr=self.chi_max_arr,
-                            force_shift=self.chi_shifted)
+        # Get vector normal to Ewald Sphere
+        # Which is also the diffracted wavevector, kf
+        kf = get_q_vect(tth,
+                        chi,
+                        wavelength,
+                        stage_rotation=theta,
+                        rotation_axis=rotation_axis,
+                        return_kf=True,
+                        degrees=False)
+        q_perp = kf / np.linalg.norm(kf, axis=-1, keepdims=True)
 
-        # Vertically bounded mask
-        if getattr(self, 'upper_poly_first') == 'tth':
-            first = tth
-            second = chi
+        # Determine delta_q
+        q_neg = get_q_vect(tth,
+                           chi,
+                           wavelength_neg,
+                           stage_rotation=theta_neg,
+                           rotation_axis=rotation_axis,
+                           return_kf=False,
+                           degrees=False)
+        q_pos = get_q_vect(tth,
+                           chi,
+                           wavelength_pos,
+                           stage_rotation=theta_pos,
+                           rotation_axis=rotation_axis,
+                           return_kf=False,
+                           degrees=False)
+        delta_q = q_pos - q_neg
+
+        # Magnitude of the projection of delta_q normal to
+        # the Ewald sphere
+        delta_q_perp = np.abs(np.einsum('ij,ij->i', q_perp, delta_q))
+
+        if return_stats:
+            return delta_q_perp, tth, chi, wavelength, theta
         else:
-            first = chi
-            second = tth
-
-        upper = second - general_polynomial(first, *self.upper_poly)
-        lower = second - general_polynomial(first, *self.lower_poly)
-        vertical_mask = np.any([np.sign(upper - angle_ext) != np.sign(lower + angle_ext),
-                                np.sign(upper + angle_ext) != np.sign(lower - angle_ext)],
-                                axis=0)
-        
-        # Horizontally bounded mask
-        if getattr(self, 'left_poly_first') == 'tth':
-            first = tth
-            second = chi
-        else:
-            first = chi
-            second = tth
-
-        left = second - general_polynomial(first, *self.left_poly)
-        right = second - general_polynomial(first, *self.right_poly)
-        horizontal_mask = np.any([np.sign(left - angle_ext) != np.sign(right + angle_ext),
-                                  np.sign(left + angle_ext) != np.sign(right - angle_ext)],
-                                    axis=0)
-        
-        # Extent masks
-        tth_mask = np.all([tth >= self.tth_min - angle_ext,
-                           tth <= self.tth_max + angle_ext],
-                           axis=0)
-        chi_mask = np.all([chi >= self.chi_min - angle_ext,
-                           chi <= self.chi_max + angle_ext],
-                           axis=0)
-        
-        if return_sub_masks:
-            return (vertical_mask,
-                    horizontal_mask,
-                    tth_mask,
-                    chi_mask,
-                    rocking_mask)
-        else:
-            qmask = np.all([
-                vertical_mask,
-                horizontal_mask,
-                tth_mask,
-                chi_mask,
-                rocking_mask
-            ], axis=0)
-
-            return qmask
+            return delta_q_perp
 
 
 class QMask:
@@ -910,3 +826,225 @@ class QMask:
             return (vertical_mask, horizontal_mask, tth_mask, chi_mask, rocking_mask)
         else:
             return np.all([vertical_mask, horizontal_mask, tth_mask, chi_mask, rocking_mask], axis=0)
+
+
+# class OldQMask:
+#     """
+#     Class for bounding reciprocal space volumes mapped by angle
+#     and energy "rocking" curves.
+
+
+#     """
+
+#     def __init__(self,
+#                  tth_arr,
+#                  chi_arr,
+#                  wavelength_vals,
+#                  theta_vals=0,
+#                  poly_order=6,
+#                  use_stage_rotation=False,
+#                  rocking_axis=None):
+
+#         if np.any([tth_arr > 2 * np.pi, chi_arr > 2 * np.pi,
+#                    tth_arr < -2 * np.pi, chi_arr < -2 * np.pi]):
+#             err_str = ('QMask only supports input arrays in units '
+#                        + 'of radians.')
+#             raise ValueError(err_str)
+        
+#         # Check for azimuthal discontintuites
+#         self.chi_max_arr = np.max(np.abs(chi_arr)) # determines units...
+#         chi_arr, _, shifted = modular_azimuthal_shift(chi_arr)
+#         self.chi_shifted = shifted # conditional
+
+#         # Determine simple extents
+#         self.tth_min = np.min(tth_arr)
+#         self.tth_max = np.max(tth_arr)
+#         self.chi_min = np.min(chi_arr)
+#         self.chi_max = np.max(chi_arr)
+#         self.wavelength_min = np.min(wavelength_vals)
+#         self.wavelength_max = np.max(wavelength_vals)
+#         self.theta_min = np.min(theta_vals)
+#         self.theta_max = np.max(theta_vals)
+#         self.use_stage_rotation = use_stage_rotation
+
+#         # Get rocking axis
+#         energy_rc = np.abs(self.wavelength_min - self.wavelength_max) > 0.001 # in nm
+#         min_angle = np.radians(0.05) # in degrees
+#         angle_rc = np.abs(self.theta_min - self.theta_max) > min_angle
+
+#         if energy_rc and angle_rc:
+#             err_str = ('Both energy and angle are changing. '
+#                       + '\nOne must be static to generate Qmask.')
+#             raise RuntimeError(err_str)
+#         elif not energy_rc and not angle_rc:
+#             err_str = ('Neither energy nor angle are changing. '
+#                       + '\nOne must be rocking to generate Qmask.')
+#             raise RuntimeError(err_str)
+#         elif energy_rc:
+#             self.rocking_axis = 'energy'
+#         else:
+#             self.rocking_axis = 'angle'
+
+#         # Determine edges
+#         # Inelegant method of throwing higher
+#         # order polynomials at the problem
+#         p0 = np.zeros(poly_order + 1)
+#         for indexing, poly in zip([(0), # [0, :] 
+#                                    (-1), # [-1, :]
+#                                    (slice(None), 0), # [:, 0]
+#                                    (slice(None), -1)], # [:, -1]
+#                                    ['upper_poly',
+#                                    'lower_poly',
+#                                    'left_poly',
+#                                    'right_poly']):
+            
+#             # Determine functional direction
+#             tth_grad = np.gradient(tth_arr[indexing])
+#             if np.all(tth_grad > 0) or np.all(tth_grad < 0):
+#                 first_arr = tth_arr
+#                 second_arr = chi_arr
+#                 setattr(self, f'{poly}_first', 'tth')
+#             else:
+#                 first_arr = chi_arr
+#                 second_arr = tth_arr
+#                 setattr(self, f'{poly}_first', 'chi')
+            
+#             # Fit edge functions
+#             popt, _ = curve_fit(general_polynomial,
+#                                 first_arr[indexing],
+#                                 second_arr[indexing],
+#                                 p0=p0)
+            
+#             setattr(self, poly, popt)
+
+    
+#     @classmethod
+#     def from_XRDRockingScan(cls,
+#                             rsm,
+#                             **kwargs):
+#         # Works for both XRDRockingCurve and XRDMapStack
+
+#         if rsm.scattering_units == 'deg':
+#             tth_arr = np.radians(rsm.tth_arr)
+#         elif rsm.scattering_units == 'rad':
+#             tth_arr = rsm.tth_arr
+#         if rsm.azimuthal_units == 'deg':
+#             chi_arr = np.radians(rsm.chi_arr)
+#         elif rsm.azimuthal_units == 'rad':
+#             chi_arr = rsm.chi_arr
+        
+#         inst = cls(tth_arr,
+#                    chi_arr,
+#                    rsm.wavelength,
+#                    np.radians(rsm.theta), # Convert to radians
+#                    use_stage_rotation=rsm.use_stage_rotation,
+#                    rocking_axis=rsm.rocking_axis,
+#                    **kwargs)
+        
+#         return inst
+
+
+#     def generate(self,
+#                  q_vectors,
+#                  wavelength_ext=0.025,
+#                  angle_ext=None,
+#                  angle_ext_units='rad', # Assumed
+#                  return_sub_masks=False):
+
+#         # Setup wiggle room
+#         if angle_ext is None:
+#             angle_ext = np.radians(1)
+#         elif angle_ext_units == 'rad':
+#             pass
+#         elif angle_ext_units == 'deg':
+#             angle_ext = np.radians(angle_ext)
+#         else:
+#             err_str = (f"Unknown angle units {angle_ext_units}. Only "
+#                        + "'rad' and 'deg' are supported.")
+#             raise ValueError(err_str)  
+
+#         # Convert vectors to polar
+#         if self.rocking_axis == 'energy':
+#             if self.use_stage_rotation:
+#                 theta = self.theta_min # should match theta_max
+#             else:
+#                 theta = 0
+
+#             tth, chi, wavelength = q_2_polar(q_vectors,
+#                                              stage_rotation=theta,
+#                                              degrees=False)
+
+#             rocking_mask = np.all([
+#                         wavelength >= self.wavelength_min - wavelength_ext,
+#                         wavelength <= self.wavelength_max + wavelength_ext],
+#                         axis=0)
+        
+#         else:
+#             tth, chi, rotation = q_2_polar(
+#                                     q_vectors,
+#                                     wavelength=self.wavelength_min,
+#                                     degrees=False)
+            
+#             rocking_mask = np.all([
+#                             rotation >= self.theta_min - angle_ext,
+#                             rotation <= self.theta_max + angle_ext],
+#                             axis=0)
+
+#         # Shift chi values if discontinuiteies
+#         chi, _, _ = modular_azimuthal_shift(
+#                             chi,
+#                             max_arr=self.chi_max_arr,
+#                             force_shift=self.chi_shifted)
+
+#         # Vertically bounded mask
+#         if getattr(self, 'upper_poly_first') == 'tth':
+#             first = tth
+#             second = chi
+#         else:
+#             first = chi
+#             second = tth
+
+#         upper = second - general_polynomial(first, *self.upper_poly)
+#         lower = second - general_polynomial(first, *self.lower_poly)
+#         vertical_mask = np.any([np.sign(upper - angle_ext) != np.sign(lower + angle_ext),
+#                                 np.sign(upper + angle_ext) != np.sign(lower - angle_ext)],
+#                                 axis=0)
+        
+#         # Horizontally bounded mask
+#         if getattr(self, 'left_poly_first') == 'tth':
+#             first = tth
+#             second = chi
+#         else:
+#             first = chi
+#             second = tth
+
+#         left = second - general_polynomial(first, *self.left_poly)
+#         right = second - general_polynomial(first, *self.right_poly)
+#         horizontal_mask = np.any([np.sign(left - angle_ext) != np.sign(right + angle_ext),
+#                                   np.sign(left + angle_ext) != np.sign(right - angle_ext)],
+#                                     axis=0)
+        
+#         # Extent masks
+#         tth_mask = np.all([tth >= self.tth_min - angle_ext,
+#                            tth <= self.tth_max + angle_ext],
+#                            axis=0)
+#         chi_mask = np.all([chi >= self.chi_min - angle_ext,
+#                            chi <= self.chi_max + angle_ext],
+#                            axis=0)
+        
+#         if return_sub_masks:
+#             return (vertical_mask,
+#                     horizontal_mask,
+#                     tth_mask,
+#                     chi_mask,
+#                     rocking_mask)
+#         else:
+#             qmask = np.all([
+#                 vertical_mask,
+#                 horizontal_mask,
+#                 tth_mask,
+#                 chi_mask,
+#                 rocking_mask
+#             ], axis=0)
+
+#             return qmask
