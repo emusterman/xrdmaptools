@@ -3,6 +3,7 @@ import os
 from skimage import io
 from tqdm import tqdm
 from scipy.spatial.transform import Rotation
+from collections import defaultdict
 
 
 import xrdmaptools as xmt
@@ -170,7 +171,38 @@ def get_max_vectors_fast(vector_map, q_target, cutoff=0.25):
 
     max_map = {tuple(vec): inten for vec, inten in zip(sorted_vectors, sorted_intensities)}
     
-    return list(max_map.keys()), list(max_map.values())
+    return np.asarray(list(max_map.keys())), np.asarray(list(max_map.values()))
+
+
+def get_sum_vectors_fast(vector_map, q_target, cutoff=0.25):
+    all_cells = vector_map.ravel()
+    valid_cells = [cell for cell in all_cells if cell is not None and len(cell) > 0]
+    
+    if not valid_cells:
+        return [], []
+        
+    all_data = np.vstack(valid_cells)
+    
+    q_vectors = all_data[:, :3]
+    intensity = all_data[:, -1]
+
+    diff = np.abs(q_vectors - q_target)
+    mask = np.all(diff < cutoff, axis=1)
+    
+    filtered_vectors = q_vectors[mask]
+    filtered_intensities = intensity[mask]
+    
+    if len(filtered_vectors) == 0:
+        return [], []
+
+    # Since we are summing up duplicates, sorting beforehand is no longer required 
+    # to find the "maximum" value.
+    sum_map = defaultdict(float)
+    for vec, inten in zip(filtered_vectors, filtered_intensities):
+        sum_map[tuple(vec)] += inten
+        
+    return np.asarray(list(sum_map.keys())), np.asarray(list(sum_map.values()))
+
 
 
 
@@ -365,3 +397,63 @@ def add_plane(ax, normal_vector, multiplier, grid_size=5, grid_resolution=10):
         
     # Plot the surface representing the 3D plane
     ax.plot_surface(x, y, z, alpha=0.25, label='Plane')
+
+
+
+def drop_spots(spots_3D, q_target, cutoff):
+
+    all_qs = spots_3D[['qx', 'qy', 'qz']].values
+    mask = np.linalg.norm(all_qs - q_target, axis=-1) < cutoff
+    spots_3D.drop(index=spots_3D.index[mask], inplace=True)
+
+
+
+
+def track_q_vector_sum_down(vector_map, q_target, cutoff=0.25, down=2):
+
+    map_shape = vector_map.shape
+    fill_map = np.empty(map_shape, dtype=float)
+    fill_map[:] = np.nan
+
+    for index in tqdm(range(np.prod(map_shape))):
+        indices = np.unravel_index(index, map_shape)
+        
+        q_vectors = vector_map[indices][:, :3][::down]
+        intensity = vector_map[indices][:, -1][::down]
+
+        if len(q_vectors) == 0:
+            continue
+
+        maskx = np.abs(q_vectors[:, 0] - q_target[0]) < cutoff
+        masky = np.abs(q_vectors[:, 1] - q_target[1]) < cutoff
+        maskz = np.abs(q_vectors[:, 2] - q_target[2]) < cutoff
+        mask = maskx & masky & maskz
+
+        # mask = np.linalg.norm(q_vectors - q_target, axis=1) < cutoff
+
+        if mask.sum() == 0:
+            continue
+
+        fill_map[indices] = np.sum(intensity[mask])
+    
+    return fill_map
+
+
+def max_map(vector_map):
+
+    map_shape = vector_map.shape
+    fill_map = np.empty(map_shape, dtype=float)
+    fill_map[:] = np.nan
+
+    for index in tqdm(range(np.prod(map_shape))):
+        indices = np.unravel_index(index, map_shape)
+        
+        q_vectors = vector_map[indices][:, :3]
+        intensity = vector_map[indices][:, -1]
+
+        if len(q_vectors) == 0:
+            continue
+        
+        fill_map[indices] = np.max(intensity)
+
+    return fill_map

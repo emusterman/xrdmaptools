@@ -80,7 +80,15 @@ def characterize_3D_spots(xdms,
             continue
 
         q_mag = df['q_mag'].values
-        intensity = df['intensity'].values
+
+        for key in ['int_corr', 'intensity', 'int_raw']:
+            if key in df:
+                intensity = df[key].values
+                break
+        else:
+            err_str = ('Could not find suitable intensity metric '
+                        + 'in spots_3D!')
+            raise KeyError(err_str)
 
         # Target a specific hkl ring
         q_mag_mask = np.ones_like(q_mag, dtype=np.bool_)
@@ -248,7 +256,7 @@ def convert_1D(data, std=None):
 
     return data_1D, std_1D
 
-def plot_1D(data, std=None, x=None, step=0.1, title=None, wd='/nsls2/users/emusterma/Figures/Ru patterns/20260817_subset/'):
+def plot_1D(data, std=None, x=None, step=0.1, title=None, wd='/nsls2/users/emusterma/Figures/Ru patterns/20260817_subset/', ylabel=None):
 
     if std is not None:
         data_1D, std_1D = convert_1D(data, std)
@@ -265,6 +273,7 @@ def plot_1D(data, std=None, x=None, step=0.1, title=None, wd='/nsls2/users/emust
         ax.fill_between(x, data_1D - std_1D, data_1D + std_1D, alpha=0.2, label='±1 Std Dev')
     ax.set_xlabel('Relative Position [um]')
     ax.set_title(title)
+    ax.set_ylabel(ylabel)
     fig.show()
     # fig.savefig(f'{wd}{title} plot.png')
     
