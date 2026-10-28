@@ -230,10 +230,6 @@ def get_default_sym_ops(space_group_nr, symmetrize=None):
 
 
 
-# Pre-computed Laue group symmetry operations
-# For symmetry reduction
-
-
 class Phase(xu.materials.Crystal):
     # TODO: Add specific calls useful for this analysis
     # Find way to generate Phase class automatically from XRD card files too
@@ -410,7 +406,7 @@ class Phase(xu.materials.Crystal):
         sort_refl = [tuple(x) for _, x in sorted(zip(all_q, all_refl))]
         all_q.sort()
         # Only real values...
-        F_hkl = np.abs(self.StructureFactor(sort_refl))**2
+        F_hkl = np.abs(self.StructureFactor(self.Q(sort_refl)))**2
         if not isinstance(F_hkl, np.ndarray):
             F_hkl = np.ones((len(sort_refl)))
         #F_hkl = rescale_array(F_hkl, lower=0, upper=100)
