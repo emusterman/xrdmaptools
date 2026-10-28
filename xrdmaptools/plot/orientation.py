@@ -206,10 +206,13 @@ def build_mis_mag_map(ori_map, ref=None):
     return mag_map
 
 
-def build_grain_map(spots_3D, grain_id, color=None, intensity=False):
+def build_grain_map(spots_3D, grain_id, color=None, intensity=False, metric='int_corr'):
 
     map_shape = map_shape_from_spots(spots_3D)
         
+    if intensity and metric not in spots_3D:
+        raise KeyError(f'{metric} not in spots_3D')
+
     if color is None:
         grain_map = np.empty(map_shape)
     else:
@@ -223,7 +226,8 @@ def build_grain_map(spots_3D, grain_id, color=None, intensity=False):
         df = pixel_spots(spots_3D, indices)
         if grain_id in df['grain_id'].values:
             grain_mask = df['grain_id'] == grain_id
-            int_map[indices] = np.sum(df[grain_mask]['intensity'].values)
+            if intensity:
+                int_map[indices] = np.sum(df[grain_mask][metric].values)
             if color is None:
                 grain_map[indices] = True
             else:
@@ -263,11 +267,14 @@ def build_ori_map(spots_3D, phase, grain_id=0):
     return ori_map
 
 
-def build_ori_list(spots_3D, phase, grain_id=0, intensity=True):
+def build_ori_list(spots_3D, phase, grain_id=0, intensity=True, metric='int_corr'):
 
     int_flag = intensity
     ori_list = []
     intensity = []
+
+    if int_flag and metric not in spots_3D:
+        raise KeyError(f'{metric} not in spots_3D')
 
     map_shape = map_shape_from_spots(spots_3D)
     null_ori = np.eye(3)
@@ -282,10 +289,12 @@ def build_ori_list(spots_3D, phase, grain_id=0, intensity=True):
             hkls = pixel_df[grain_mask][['h', 'k', 'l']]
             ori, _ = Rotation.align_vectors(spots, phase.Q(hkls))
             ori_list.append(ori.as_matrix())
-            intensity.append(pixel_df[grain_mask]['intensity'].values.sum())
+            if int_flag:
+                intensity.append(pixel_df[grain_mask][metric].values.sum())
         else:
             ori_list.append(null_ori)
-            intensity.append(np.nan)
+            if int_flag:
+                intensity.append(np.nan)
     
     if int_flag:
         return np.asarray(ori_list), np.asarray(intensity)
@@ -293,10 +302,13 @@ def build_ori_list(spots_3D, phase, grain_id=0, intensity=True):
         return np.asarray(ori_list)
 
 
-def build_full_ori_list(spots_3D, phase, intensity=True):
+def build_full_ori_list(spots_3D, phase, intensity=True, metric='int_corr'):
     int_flag = intensity
     ori_list = []
     intensity = []
+
+    if int_flag and metric not in spots_3D:
+        raise KeyError(f'{metric} not in spots_3D')
 
     map_shape = map_shape_from_spots(spots_3D)
 
@@ -311,7 +323,8 @@ def build_full_ori_list(spots_3D, phase, intensity=True):
                 hkls = pixel_df[grain_mask][['h', 'k', 'l']]
                 ori, _ = Rotation.align_vectors(spots, phase.Q(hkls))
                 ori_list.append(ori.as_matrix())
-                intensity.append(pixel_df[grain_mask]['intensity'].values.sum())
+                if int_flag:
+                    intensity.append(pixel_df[grain_mask][metric].values.sum())
     
     if int_flag:
         return np.asarray(ori_list), np.asarray(intensity)
