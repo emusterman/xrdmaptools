@@ -11,6 +11,14 @@ from xrdmaptools.utilities.math import rescale_array
 # Database variables
 c, db = None, None
 
+# Configuration variables
+supported_sclr_keys = ['i0', 'i0_time', 'im', 'it']
+supported_sclr_keys += [f'i{i:02d}' for i in range(5, 33)]
+
+supported_zebra_keys = ['enc1', 'enc2', 'enc3', 'zebra_time']
+
+supported_xrd_dets = ['dexela', 'merlin', 'eiger']
+
 
 # Working at the beamline...
 def _load_tiled_catalog():
@@ -19,6 +27,8 @@ def _load_tiled_catalog():
         print('Connecting to database...', end='', flush=True)
         try:
             from tiled.profiles import ProfileNotFound
+            from tiled.client import from_uri
+            from tiled.client.utils import ClientError
         except ModuleNotFoundError:
             print('failed.')
             err_str = ('Cannot load tiled catalog at this time. '
@@ -28,17 +38,47 @@ def _load_tiled_catalog():
         try:
             # from tiled.client import from_profile
             # c = from_profile('srx')
-            from tiled.client import from_uri
+            # from tiled.client import from_uri
             c = tiled_reading_client = from_uri(
                 "https://tiled.nsls2.bnl.gov/api/v1/metadata/srx/raw",
                 include_data_sources=True,
             )
             print('done!')
+        
         except (ModuleNotFoundError, ProfileNotFound):
             print('failed.')
             err_str = ('Cannot load tiled catalog at this time. '
                     + 'Try another database.')
             raise RuntimeError(err_str)
+        
+        except ClientError as ex:
+            print('')
+            # Remove cached tokens and try again
+            from pathlib import path
+            import shutil
+
+            # Get the anticipated token directory
+            target_dir = Path('~/.cache/tiled/tokens').expanduser()
+            home_dir = Path('~').expanduser()
+
+            # Safety check
+            if target_dir == home_dir or target_dir == Path('/'):
+                err_str = f'Safety Abort: {target_dir} is too broad.'
+                raise ValueError(err_str)
+
+            # If it is a directory, try to delete it
+            if target_dir.exists() and target_dir.is_dir():
+                print('Expired tiled credentials found. Clearing and retrying...', end='', flush=True)
+                shutil.rmtree(target_dir)
+
+                c = from_uri(
+                    "https://tiled.nsls2.bnl.gov/api/v1/metadata/srx/raw",
+                    include_data_sources=True,
+                )
+                print('done!')
+            else:
+                print(f'Could not delete expired tiled tokens in {target_dir}.')
+                raise ex
 
 
 
@@ -63,10 +103,6 @@ def _load_databroker():
             err_str = ('Cannot load databroker catalog at this time. '
                        + 'Try another database.')
             raise RuntimeError(err_str)
-
-
-# Useful detectors
-supported_xrd_dets = ['dexela', 'merlin', 'eiger']
 
 
 # Wrapper for all load data options...
@@ -158,7 +194,12 @@ def load_tiled_data(scan_id=-1,
     data_dict = {}
     # enc1 is x for nano_scan_and_fly. Is it always the fast axis or always x??
     if data_keys is None:
-        data_keys = ['enc1', 'enc2', 'xs_fluor', 'i0', 'i0_time', 'im', 'it']
+        data_keys = ['xs_fluor'] # Start with xrf
+        # Add encoders and scaler keys if available
+        for key_list in [supported_zebra_keys, supported_sclr_keys]:
+            for key in key_list:
+                if key in bs_run['stream0']['data']:
+                    data_keys.append(key)
 
     for detector in xrd_dets:
         data_keys.append(f'{detector}_image')
@@ -214,9 +255,13 @@ def load_db_data(scan_id=-1,
     print(f'Loading data from databroker for scan {scan_md["scan_id"]}...')
 
     data_dict = {}
-    # enc1 is x for nano_scan_and_fly. Is it always the fast axis or always x??
     if data_keys is None:
-        data_keys = ['enc1', 'enc2', 'xs_fluor', 'i0', 'i0_time', 'im', 'it']
+        data_keys = ['xs_fluor'] # Start with xrf
+        # Add encoders and scaler keys if available
+        for key_list in [supported_zebra_keys, supported_scaler_keys]:
+            for key in key_list:
+                if key in bs_run['stream0']['data']:
+                    data_keys.append(key)
 
     for detector in xrd_dets:
         data_keys.append(f'{detector}_image')
@@ -282,7 +327,12 @@ def manual_load_data(scan_id=-1,
 
     # Add default data keys
     if data_keys is None:
-        data_keys = ['enc1', 'enc2', 'xs_fluor', 'i0', 'i0_time', 'im', 'it']
+        data_keys = ['xs_fluor'] # Start with xrf
+        # Add encoders and scaler keys if available
+        for key_list in [supported_zebra_keys, supported_scaler_keys]:
+            for key in key_list:
+                if key in bs_run['stream0']['data']:
+                    data_keys.append(key)
 
     # Check primary stream for data keys, intended for step data
     primary_dict = {}
@@ -295,9 +345,6 @@ def manual_load_data(scan_id=-1,
         # Remove keys that may cause issue finding resource documents    
         else: 
             data_keys.remove(key)
-            # warn_str = (f'WARNING: Key {key} not found in '
-            #             + 'expected streams.')
-            # print(warn_str)
 
     # Append XRD data keys
     for det in xrd_dets:
@@ -765,7 +812,8 @@ def _get_resources(bs_run, data_keys):
             descriptors.append((
                 doc['uid'],
                 doc['name'],
-                {key : doc['data_keys'][key]['shape'] for key in data_keys if key in doc['data_keys']}
+                {key : [int(s) for s in doc['data_keys'][key]['shape']]
+                 for key in data_keys if key in doc['data_keys']}
             ))
             stream_uids[doc['uid']] = doc['name']
     
