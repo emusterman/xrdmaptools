@@ -4,7 +4,8 @@ from skimage.restoration import rolling_ball
 import time as ttime
 from collections import OrderedDict
 import dask.array as da
-from dask.distributed import Client, LocalCluster
+import dask
+# from dask.distributed import Client, LocalCluster
 import functools
 
 # Local imports
@@ -169,10 +170,21 @@ class XRDData:
 
             # Parallized image processing
             if dask_enabled:
-                # Unusual chunk shapes are fixed later
-                image_data = [da.from_array(data, chunks=data.shape)
-                                            for data in image_data]
-                image_data = da.stack(image_data, axis=0)
+                if not isinstance(image_data, da.core.Array):
+                    
+                    slice_wrapper = lambda data : data[...]
+
+                    # Unusual chunk shapes are fixed later
+                    image_data = [da.from_delayed(
+                                    dask.delayed(slice_wrapper)(data),
+                                    shape=data.shape,
+                                    dtype=data.dtype)
+                                  for data in image_data]
+                    image_data = da.stack(image_data, axis=0)
+                    # # Unusual chunk shapes are fixed later
+                    # image_data = [da.from_array(data, chunks=data.shape)
+                    #                             for data in image_data]
+                    # image_data = da.stack(image_data, axis=0)
             else:
                 # Non-paralleized image processing
                 if isinstance(image_data, da.core.Array):
@@ -575,20 +587,81 @@ class XRDData:
         """
         return self._dtype
 
+    # @dtype.setter
+    # def dtype(self, dtype):
+    #     # Update datatype if different
+    #     if dtype != self._dtype:
+    #         if (hasattr(self, 'images')
+    #             and self.images is not None):
+    #             # Unfortunately, this has to copy the dataset
+    #             self.images = self.images.astype(dtype)
+    #             self._dtype = dtype
+    #         if (hasattr(self, 'integrations')
+    #             and self.integrations is not None):
+    #             self.integrations = self.integrations.astype(dtype)
+    #             self._dtype = dtype
+    #         self.reset_projections()
+
     @dtype.setter
     def dtype(self, dtype):
-        # Update datatype if different
-        if dtype != self._dtype:
-            if (hasattr(self, 'images')
-                and self.images is not None):
-                # Unfortunately, this has to copy the dataset
-                self.images = self.images.astype(dtype)
-                self._dtype = dtype
-            if (hasattr(self, 'integrations')
-                and self.integrations is not None):
-                self.integrations = self.integrations.astype(dtype)
-                self._dtype = dtype
-            self.reset_projections()
+
+        # Don't update if datype is the same
+        if dtype == self._dtype:
+            return
+        
+        # Memory safe-ish conversion function
+        def convert_dtype(arr, dtype):
+            
+            # If the datasize is different, a copy is required
+            if np.dtype(dtype).itemsize != arr.dtype.itemsize:
+                return arr.astype(dtype)
+
+            # Check for contiguity
+            transposed = not arr.flags['C_CONTIGUOUS']
+
+            # Un-transpose
+            if transposed:
+                arr = arr.swapaxes(0, 1)
+
+                # Check to see if this worked
+                if not arr.flags['C_CONTIGUOUS']:
+                    return arr.swapaxes(0, 1).astype(dtype)
+            
+            # Generate container
+            new_arr = arr.view(dtype)
+
+            # Flatten
+            flat_src = arr.reshape(-1)
+            flat_dst = new_arr.reshape(-1)
+
+            # Fill container
+            chunk_size = 25_000_000
+            for start in range(0, flat_src.size, chunk_size):
+                end = start + chunk_size
+                np.copyto(flat_dst[start:end],
+                          flat_src[start:end],
+                          casting='unsafe')
+            
+            # Change view back to original
+            arr = new_arr.reshape(arr.shape)
+
+            # Swap back
+            if transposed:
+                arr = arr.swapaxes(0, 1)
+            
+            return arr
+
+        if (hasattr(self, 'images')
+            and self.images is not None):
+            self.images = convert_dtype(self.images, dtype)
+
+        if (hasattr(self, 'integrations')
+            and self.integrations is not None):
+            self.integrations = convert_dtype(self.integrations, dtype)
+        
+        # Set new values
+        self._dtype = dtype
+        self.reset_projections()
 
     
     @property
@@ -666,66 +739,6 @@ class XRDData:
             delattr(self, property_name)
         
         return property(get_projection, None, del_projection)
-
-    
-    # def _projection_factory(property_name, function):
-    #     """
-    #     Internal function for constructing projection properties from
-    #     images.
-    #     """
-
-    #     projection = property_name.split('_')[-1]
-    #     if projection not in {'image', 'map'}:
-    #         err_str = ("Projections only supported for 'image' and "
-    #                    + "'map'.")
-    #         raise ValueError(err_str) 
-
-    #     property_name = f'_{property_name}' # This line is crucial! 
-    #     def get_projection(self):
-    #         if hasattr(self, property_name):
-    #             return getattr(self, property_name)
-    #         else:
-    #             if (not hasattr(self, 'images')
-    #                 or self.images is None):
-    #                 err_str = ('Cannot determine image '
-    #                            + 'projection without images.')
-    #                 raise AttributeError(err_str)
-
-    #             # Compute any scheduled operations
-    #             self._dask_2_dask()
-
-    #             # Discount ignored values
-    #             if (hasattr(self, 'null_map')
-    #                 and self.null_map is not None):
-    #                 map_mask = ~self.null_map
-    #             else:
-    #                 map_mask = np.ones(self.map_shape, dtype=np.bool_)
-    #             if hasattr(self, 'mask') and self.mask is not None:
-    #                 mask = self.mask
-    #             else:
-    #                 mask = np.ones(self.image_shape, dtype=np.bool_)
-
-    #             if projection == 'image':
-    #                 val = function(self.images[map_mask],
-    #                                axis=0).astype(self.dtype)
-    #                 if self._dask_enabled:
-    #                     val = val.compute()
-    #                 val[~mask] = 0
-                
-    #             elif projection == 'map':
-    #                 val = function(self.images[..., mask],
-    #                                axis=-1).astype(self.dtype)
-    #                 if self._dask_enabled:
-    #                     val = val.compute()
-    #                 val[~map_mask] = 0
-
-    #             setattr(self, property_name, val)                
-    #             return getattr(self, property_name)
-
-    #     def del_projection(self):
-    #         delattr(self, property_name)
-        
-    #     return property(get_projection, None, del_projection)
 
 
     min_map = _projection_factory('min_map', np.min)
@@ -2805,21 +2818,42 @@ class XRDData:
                         + '\nProceeding without changes.')
             print(warn_str)
             return
+        
+        if mask is None:
+            full_mask = np.empty_like(self.images, dtype=np.bool_)
+            full_mask[:, :] = self.mask
+            mask = self.mask
+        elif mask.shape == self.image.shape:
+            full_mask = np.empty_like(self.images, dtype=np.bool_)
+            full_mask[:, :] = mask
+        elif mask.shape != self.image_shape:
+            err_str = (f'Provided mask of shape {mask.shape} must '
+                       + f'match image shape {self.image_shape}.')
+            raise ValueError(err_str)
 
-        if mask is None and np.any(self.mask != 1):
-            mask = np.empty_like(self.images, dtype=np.bool_)
-            mask[:, :] = self.mask
+        # Get minimum array value if needed
+        if (not self.corrections['rescaled']
+            or arr_min is None):
+            min_image = self.min_image.copy()
+            if mask is not None:
+                min_image[~mask] = np.nan
+            proc_min = np.nanmin(min_image)
+            if arr_min is None:
+                arr_min = proc_min
+
+        # Get maximum array value if needed
+        if (not self.corrections['rescaled']
+            or arr_max is None):
+            max_image = self.max_image.copy()
+            if mask is not None:
+                max_image[~mask] = np.nan
+            proc_max = np.nanmax(max_image)
+            if arr_max is None:
+                arr_max = proc_max
         
         # Write original values to disk
         # These might be useful for undoing this operation
         if not self.corrections['rescaled']:
-            if mask is None:
-                proc_min = np.nanmin(self.images)
-                proc_max = np.nanmax(self.images)
-            else:
-                proc_min = np.nanmin(self.images[~mask])
-                proc_max = np.nanmax(self.images[~mask])
-
             @XRDData._protect_hdf()
             def save_attrs(self): # Not sure if this needs self...
                 # print(type(self.hdf))
@@ -2834,7 +2868,7 @@ class XRDData:
             upper=upper,
             arr_min=arr_min,
             arr_max=arr_max,
-            mask=mask)
+            mask=full_mask)
         
         self.corrections['rescaled'] = True
         self.update_map_title()
@@ -3659,7 +3693,6 @@ class XRDData:
             images = None
             dask_flag = True
         
-        # print(f'Image to save have shape {image_shape}')
         img_grp = self.hdf[f'{self._hdf_type}/image_data']
         
         if title not in img_grp.keys():
@@ -3701,9 +3734,13 @@ class XRDData:
         
         # Fill in data from dask after setting up the datasets
         if dask_flag:
+            pass
             # print(f'Storing dask dataset: {title}')
             # This should ensure lazy operations
-            da.store(dask_images, dset, compute=True)
+            # da.store(dask_images,
+            #          dset,
+            #          compute=True,
+            #          scheduler="synchronous")
         
         overwrite_attr(dset.attrs, 'labels', labels)
         overwrite_attr(dset.attrs, 'units', units)
