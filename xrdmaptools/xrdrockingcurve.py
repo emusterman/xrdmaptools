@@ -33,7 +33,9 @@ from xrdmaptools.io.db_io import (
 )
 from xrdmaptools.reflections.spot_blob_search_3D import (
     rsm_blob_search,
-    rsm_spot_search
+    rsm_spot_search,
+    rsm_characterize_spots,
+    rsm_get_spot_stats
 )
 from xrdmaptools.reflections.spot_blob_indexing_3D import (
     phase_index_best_grain,
@@ -686,7 +688,6 @@ class XRDRockingCurve(XRDBaseScan):
                 name += f'_{det}'
             if filename is None:
                 name += f'_{cls._hdf_type}'
-            name += '.h5'
             filenames.append(name)
 
         extra_md = {}
@@ -1163,7 +1164,8 @@ class XRDRockingCurve(XRDBaseScan):
                       subsample=1,
                       int_cutoff=0,
                       relative_cutoff=True,
-                      label_int_method='sum',
+                      spot_model=None,
+                      ext=0.15,
                       save_to_hdf=True,
                       verbose=False):
         """
@@ -1198,17 +1200,16 @@ class XRDRockingCurve(XRDBaseScan):
         relative_cutoff : bool, optional
             Flag to determine if the cutoff value is a relative (True)
             an absolute (False) comparison. True by default.
-        label_int_method : str, optional
-            Key determining which method is used to calculate
-            spot centers and intensities. {'mean', 'avg', and
-            'average'} will yield the mean intensity and {'sum' and
-            'total'} will yield the total itensity of all vectors in a
-            spot. Both will use the center of mass for the spot center.
-            If this key indicates a SpotModel, then the vectors will
-            be fit to this 3D model and the fit amplitude and center
-            will be used intstead. See the load_peak_function in the
-            spot_models module for supported spot_models. 'sum' is used
-            by default.
+        spot_model : str or SpotModel, optional
+            Spot model used for fitting found spots and characterizing
+            their features. Can be a string including {'gaussian',
+            'lorentzian', 'pseudovoigt', or None}. None, by default and
+            simple approximations will be used instead.
+        ext : float, optional
+            Extent parameter used for fitting when spot_model is not
+            None. This parameter defines the extent of the bounds
+            placed on the optimization as a function of the base value.
+            0.15 as default, which is 0.85 to 1.15 of guess value.
         save_to_hdf : bool, optional
             Flag to control if data is written to the HDF file. True by
             default.
@@ -1230,59 +1231,46 @@ class XRDRockingCurve(XRDBaseScan):
                         int_cutoff=int_cutoff,
                         relative_cutoff=relative_cutoff)
         
-        (spot_labels,
-         spots,
-         label_ints,
-         label_maxs) = rsm_spot_search(self.vectors[:, :3][int_mask],
-                                       self.vectors[:, -1][int_mask],
-                                       max_dist=max_dist,
-                                       significance=significance,
-                                       subsample=subsample,
-                                       verbose=verbose)
-
-        # Convert reciprocal positions to polar units
-        if self.rocking_axis == 'energy':
-            if self.use_stage_rotation:
-                stage_rotation = self.theta[0]
-            else:
-                stage_rotation = 0
-            tth, chi, wavelength = q_2_polar(
+        spot_labels = rsm_spot_search(self.vectors[:, :3][int_mask],
+                                      self.vectors[:, -1][int_mask],
+                                      max_dist=max_dist,
+                                      significance=significance,
+                                      subsample=subsample,
+                                      verbose=verbose)
+        
+        (spots,
+         spot_heights,
+         spot_intensities) = rsm_characterize_spots(
+                                    self.vectors[:, :3][int_mask],
+                                    self.vectors[:, -1][int_mask],
+                                    spot_labels,
+                                    spot_model=spot_model,
+                                    ext=ext,
+                                    verbose=verbose)
+        
+        stats_dict = rsm_get_spot_stats(
                             spots,
-                            stage_rotation=np.radians(stage_rotation),
-                            degrees=False
-                            )
-            theta = [self.theta[0],] * len(spots)
-        else: # angle
-            tth, chi, theta = q_2_polar(
-                            spots,
-                            wavelength=self.wavelength[0],
-                            degrees=False)
-            wavelength = [self.wavelength[0],] * len(spots)
+                            spot_heights,
+                            spot_intensities,
+                            self.wavelength,
+                            np.radians(self.theta),
+                            self.rocking_axis,
+                            rotation_axis='y', # hard-coded for srx
+                            use_stage_rotation=self.use_stage_rotation)
         
         # Outputs always in radians. Convert as necessary
         if self.scattering_units == 'deg':
-            tth = np.degrees(tth)
+            stats_dict['tth'] = np.degrees(stats_dict['tth'])
         if self.azimuthal_units == 'deg':
-            chi = np.degrees(chi)
-        # Stage rotation always reported in degrees
-        theta = np.degrees(theta)
+            stats_dict['chi'] = np.degrees(stats_dict['chi'])
 
-        temp_dict = {
-            'height' : label_maxs,
-            'intensity' : label_ints,
-            'qx' : spots[:, 0],
-            'qy' : spots[:, 1],
-            'qz' : spots[:, 2],
-            'tth' : tth,
-            'chi' : chi,
-            'wavelength': wavelength,
-            'theta' : theta
-            }
+        # Stage rotation always reported in degrees
+        stats_dict['theta'] = np.degrees(stats_dict['theta'])
 
         # Save 3D spots similar to 3D spots
-        spots_3D = pd.DataFrame.from_dict(temp_dict)
+        spots_3D = pd.DataFrame.from_dict(stats_dict)
         self.spots_3D = spots_3D
-        del temp_dict, spots, label_ints
+        del stats_dict, spots, spot_heights, spot_intensities
         # Information for rebuilding spots
         # from vectorized images
         self.spot_labels = spot_labels
@@ -1300,7 +1288,7 @@ class XRDRockingCurve(XRDBaseScan):
 
     def trim_3D_spots(self,
                       remove_less=0.01,
-                      key='intensity',
+                      key='int_corr',
                       save_spots=False):
         """
         Trim all 3D spots below some value.
@@ -1481,19 +1469,28 @@ class XRDRockingCurve(XRDBaseScan):
             lengths.
         """
         
-        if spots is None and hasattr(self, 'spots_3D'):
-            spots = self.spots_3D[['qx', 'qy', 'qz']].values
-        else:
-            err_str = ('Must specify 3D spots or rocking curve must '
-                       + 'already have spots.')
-            raise ValueError(err_str)
+        if spots is None:
+            if hasattr(self, 'spots_3D'):
+                spots = self.spots_3D[['qx', 'qy', 'qz']].values
+            else:
+                err_str = ('Must specify 3D spots or rocking curve must '
+                        + 'already have spots.')
+                raise ValueError(err_str)
         
-        if intensity is None and hasattr(self, 'spots_3D'):
-            intensity = self.spots_3D['intensity'].values
-        else:
-            err_str = ('Must specify 3D spot intensities or rocking '
-                       + 'curve must already have spot intensities.')
-            raise ValueError(err_str)
+        if intensity is None:
+            if hasattr(self, 'spots_3D'):
+                for key in ['int_corr', 'intensity', 'int_raw']:
+                    if key in self.spots_3D:
+                        intensity = self.spots_3D[key].values
+                        break
+                else:
+                    err_str = ('Could not find suitable intensity metric '
+                            + 'in spots_3D!')
+                    raise KeyError(err_str)
+            else:
+                err_str = ('Must specify 3D spot intensities or rocking '
+                        + 'curve must already have spot intensities.')
+                raise ValueError(err_str)
         
         if len(spots) != len(intensity):
             err_str = (f'Length of spots ({len(intensity)}) does '
@@ -2218,25 +2215,30 @@ class XRDRockingCurve(XRDBaseScan):
         # Parse inputs
         if spots_3D is not None:
             if isinstance(spots_3D, pd.DataFrame):
-                q_vectors = spots_3D[['qx', 'qy', 'qz']].values
-                intensity = spots_3D['intensity'].values
-                default_title = '3D Spots'
-                skip = 1
-                kwargs['alpha'] = 1
+                pass
             elif (spots_3D is True
                   and hasattr(self, 'spots_3D')
                   and self.spots_3D is not None):
-                q_vectors = self.spots_3D[['qx', 'qy', 'qz']].values
-                intensity = self.spots_3D['intensity'].values
-                default_title = '3D Spots'
-                skip = 1
-                kwargs['alpha'] = 1
+                spots_3D = self.spots_3D
             else:
                 warn_str = ("WARNING: 'spots_3D' could not be properly"
                             + " parsed. Must be Pandas DataFrame or "
                             + "bool indicating an internal DataFrame. "
                             + "\nAttempting to plot vectors instead.")
                 print(warn_str)
+            # Get data
+            default_title = '3D Spots'
+            skip = 1
+            kwargs['alpha'] = 1             
+            q_vectors = spots_3D[['qx', 'qy', 'qz']].values
+            for key in ['int_corr', 'intensity', 'int_raw']:
+                if key in spots_3D:
+                    intensity = spots_3D[key].values
+                    break
+            else:
+                err_str = ('Could not find suitable intensity metric '
+                           + 'in spots_3D!')
+                raise KeyError(err_str)
 
         # Plot direct vectors
         if q_vectors is None:
@@ -2276,6 +2278,7 @@ class XRDRockingCurve(XRDBaseScan):
     def plot_3D_indexing(self,
                          spots_3D=None,
                          grain_ids=[0],
+                         intensity_metric=None,
                          edges=None,
                          title=None,
                          title_scan_id=True,
@@ -2292,6 +2295,10 @@ class XRDRockingCurve(XRDBaseScan):
         spots_3D : Pandas DataFrame, optional
             DataFrame containing the 3D spot and indexing information.
             By default this will use the internal 'spots_3D' attribute.
+        intensity_metric : str, optional
+            Key in spots_3D used for intensity. None by default which
+            will use the corrected intensity ('int_corr') if available,
+            and the raw intensity ('int_raw' or 'intensity') if not.
         grain_ids : list of ints, optional
             List of grain IDs to be indexed. By default only the zero
             indexed grain HKL labels will be displayed.
@@ -2361,9 +2368,17 @@ class XRDRockingCurve(XRDBaseScan):
                         + " not be indexed yet.")
                 raise KeyError(err_str)
         
+        if intensity_metric is None:
+            for key in ['int_corr', 'intensity', 'int_raw']:
+                if key in spots_3D:
+                    intensity_metric = key
+                    break
+        if intensity_metric not in spots_3D:
+            raise KeyError(f'{intensity_metric} not in spots_3D!')
+        
         # Get universal values
         all_spot_qs = spots_3D[['qx', 'qy', 'qz']].values
-        all_spot_ints = spots_3D['intensity'].values
+        all_spot_ints = spots_3D[intensity_metric].values
 
         # Parse phases
         phases = [spots_3D[spots_3D['grain_id'] == gi]['phase'].values[0] for gi in grain_ids]
