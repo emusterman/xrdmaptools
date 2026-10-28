@@ -18,7 +18,6 @@ from xrdmaptools.utilities.utilities import pathify
 def initialize_xrdbase_hdf(xrdbase,
                            hdf_file):
     
-    # Is this with statement still necessary?
     with h5py.File(hdf_file, 'w-') as f:
         base_grp = f.require_group(xrdbase._hdf_type) # xrdmap or rsm
         base_grp.attrs['scan_id'] = xrdbase.scan_id
@@ -91,7 +90,7 @@ def load_xrdbase_hdf(filename,
             base_grp = hdf[hdf_type]
         else:
             if len(hdf.keys()) == 1:
-                found_hdf_type = hdf.keys()[0]
+                found_hdf_type = list(hdf.keys())[0]
                 err_str = ('Found HDF of incorrect type. Expected '
                            + f'{hdf_type}, but found {found_hdf_type}'
                            + 'instead.')
@@ -763,10 +762,10 @@ def load_xrdmapstack_hdf(filename,
             base_grp = hdf[hdf_type]
         else:
             if len(hdf.keys()) == 1:
-                found_hdf_type = hdf.keys()[0]
+                found_hdf_type = list(hdf.keys())[0]
                 err_str = ('Found HDF of incorrect type. Expected '
                            + f'{hdf_type}, but found {found_hdf_type}'
-                           + 'instead.')
+                           + ' instead.')
                 if found_hdf_type == 'xrfmap':
                     err_str += ('\nXRF maps should be handled with '
                                 + 'pyxrf or similar packages.')
@@ -843,12 +842,6 @@ def load_xrdmapstack_hdf(filename,
         vector_dict = _load_xrd_hdf_vector_data(
                                 base_grp,
                                 load_vector_map=load_xdms_vector_map)
-            
-        # if load_xdms_vector_map:
-        #     # Same functions works for XRDMaps and XRDMapStacks
-        #     vector_dict = _load_xrd_hdf_vectorized_map_data(base_grp)
-        # else:
-        #     vector_dict = None
     
     # Catch error, close hdf, re-raise
     except Exception as e:
