@@ -318,8 +318,6 @@ class XRDSlice(XRDBaseScan):
                 name += f'_{det}'
             if filename is None:
                 name += f'_{cls._hdf_type}'
-            if name.split('.')[-1] != 'h5':
-                name += '.h5'
             filenames.append(name)
 
         extra_md = {}
