@@ -11,9 +11,12 @@ import scipy.stats as stats
 
 def load_spot_function(name):
 
+    if name in {None, ''}:
+        return None
+
     for SpotModel in [GaussianFunctions,
-                     LorentzianFunctions,
-                     PseudoVoigtFunctions]:
+                      LorentzianFunctions,
+                      PseudoVoigtFunctions]:
         if name in {SpotModel.name, SpotModel.name.lower(),
                     SpotModel.abbr}:
             return SpotModel
@@ -188,9 +191,10 @@ class GaussianFunctions(SpotModelBase):
     @staticmethod
     # @njit
     def get_hyper_volume(amp, x0, y0, z0, fwhm_x, fwhm_y, fwhm_z, theta, phi, degrees=False):
-        sigma_x = fwhm_x / (2 * np.sqrt(2 * np.log(2)))
-        sigma_y = fwhm_y / (2 * np.sqrt(2 * np.log(2)))
-        sigma_z = fwhm_z / (2 * np.sqrt(2 * np.log(2)))
+        C = 2 * np.sqrt(2 * np.log(2))
+        sigma_x = fwhm_x / C
+        sigma_y = fwhm_y / C
+        sigma_z = fwhm_z / C
         return amp * (2 * np.pi)**1.5 * sigma_x * sigma_y * sigma_z 
 
 
