@@ -97,7 +97,7 @@ def blob_search(image,
         
         blurred_image = zero_filter / filter_div
         # Clean up some NaNs from median filters
-        temp_mask[np.isnan(blurred_image)] = False
+        temp_mask[~np.isfinite(blurred_image)] = False
         # Clear image from masked values. Should not matter....
         blurred_image[~temp_mask] = 0
     
