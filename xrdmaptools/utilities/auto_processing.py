@@ -131,18 +131,36 @@ def standard_process_xdm(scan_id,
             xdm.null_map[xdm.sum_map > 500 * float(xdm._raw_value_range[1])] = True
             # And for missing data
             xdm.null_map[xdm.sum_map == 0] = True
-        
+
             sat_mask = xdm.images == np.max(xdm.max_image)
+            sat_mask = sat_mask & xdm.mask
+            sat_ind = sat_mask.nonzero()
+            del sat_mask
 
         xdm.convert_scalers_to_flux(scaler_key='i0')
         xdm.convert_scalers_to_flux(scaler_key='im')
         xdm.normalize_scaler()
 
-        xdm.correct_outliers(tolerance=3)
+        if xdm.detector == 'eiger':
+            sat_vals = xdm.images[sat_ind]
+        
+        xdm.correct_outliers(tolerance=5, size=2)
 
         if xdm.detector == 'eiger':
-            sat_mask = sat_mask & (xdm.images > 1)
-            xdm.images[sat_mask] = 0
+            # If the saturated values are not caught by outlier correction,
+            # then nullify them
+            new_sat_vals = xdm.images[sat_ind]
+            # sat_mask = sat_mask & (sat_vals == new_sat_vals)
+            sat_ind = tuple(np.asarray(sat_ind)[:, sat_vals != new_sat_vals])
+            xdm.images[sat_ind] = 0
+
+            # Save the saturated pixels that were delayed
+            xdm.saturated_pixels = np.asarray(sat_ind).T
+
+            # Write values to HDF
+            xdm.save_images(images='saturated_pixels',
+                            units='indices',
+                            labels=[*xdm.map_labels, 'img_y', 'img_x']) 
 
         if air_scatter == False:
             pass
@@ -175,6 +193,13 @@ def standard_process_xdm(scan_id,
         elif air_scatter == 'top_bot_edges':
             edges = [(0, i) for i in range(0, xdm.map_shape[1] - 1)] + [(xdm.map_shape[0] - 1, i) for i in range(0, xdm.map_shape[1] - 1)]
             edge_images = np.asarray([xdm.images[e] for e in edges])
+            edge_images[..., ~xdm.mask] = 0
+            air_scatter = edge_images[np.argmin(np.sum(edge_images, axis=(1, 2)))]
+            xdm.null_map[edges[np.argmin(np.sum(edge_images, axis=(1, 2)))]] = True
+            xdm.correct_air_scatter(air_scatter, applied_corrections=xdm.corrections)
+        elif air_scatter == 'left_right_edges':
+            edges = [(i, 0) for i in range(0, xdm.map_shape[0] - 1)] + [(i, xdm.map_shape[1] - 1) for i in range(0, xdm.map_shape[0] - 1)]
+            edge_images = np.asarray([xdm.images[e] for e in edges if not xdm.null_map[e]])
             edge_images[..., ~xdm.mask] = 0
             air_scatter = edge_images[np.argmin(np.sum(edge_images, axis=(1, 2)))]
             xdm.null_map[edges[np.argmin(np.sum(edge_images, axis=(1, 2)))]] = True
@@ -301,27 +326,27 @@ def standard_process_rsm(scan_id,
         else:
             fname = f'scan{int(scan_id)}_rsm.h5'
 
-        if os.path.exists(f'{wd}rsms/{fname}'):
+        if os.path.exists(f'{wd}rocking_curves/{fname}'):
             print('File found! Loading from HDF...')
             
             load_kwargs = {
-                'wd' : f'{wd}rsms/',
+                'wd' : f'{wd}rocking_curves/',
                 'image_data_key' : 'raw',
                 'swapped_axes' : swapped_axes
             }
             if not reprocess:
                 # Check to avoid reprocessing
-                temp_hdf = h5py.File(f'{wd}rsms/{fname}')
-                if 'final_images' in temp_hdf['xrdmap/image_data']:
+                temp_hdf = h5py.File(f'{wd}rocking_curves/{fname}')
+                if 'final_images' in temp_hdf['rsm/image_data']:
                     _proc_dict['images'] = False
                     _proc_dict['save_images'] = False
                     load_kwargs['image_data_key'] = 'final'
-                if 'integration_data' in temp_hdf['xrdmap'] and 'final_integrations' in temp_hdf['xrdmap/integration_data']:
+                if 'integration_data' in temp_hdf['rsm'] and 'final_integrations' in temp_hdf['rsm/integration_data']:
                     _proc_dict['integrations'] = False
                     load_kwargs['integration_data_key'] = None
-                if '_blob_masks' in temp_hdf['xrdmap/image_data']:
+                if '_blob_masks' in temp_hdf['rsm/image_data']:
                     _proc_dict['blobs'] = False
-                if 'vectorized_map' in temp_hdf['xrdmap']:
+                if 'vectorized_map' in temp_hdf['rsm']:
                     _proc_dict['vectors'] = False
                 temp_hdf.close()
 
@@ -332,104 +357,102 @@ def standard_process_rsm(scan_id,
                     _proc_dict['maximums'] = False
             
             if any(_proc_dict.values()):
-                xdm = XRDMap.from_hdf(fname, **load_kwargs)
+                rsm = XRDRockingCurve.from_hdf(fname, **load_kwargs)
             else:
-                xdm = None
+                rsm = None
         else:
             if not isinstance(scan_id, str):
                 print('Loading data from server...')
-                xdm = XRDMap.from_db(scan_id, wd=f'{wd}xrdmaps/', swapped_axes=swapped_axes)
+                rsm = XRDRockingCurve.from_db(scan_id, wd=f'{wd}rocking_curves/', swapped_axes=swapped_axes)
             else:
                 raise ValueError(f'Scan ID must be string not {scan_id}')
     else:
         # TODO: Look for processing conditions
-        xdm = scan_id
+        rsm = scan_id
     
     if _proc_dict['images']:
         # Basic corrections
         if dark_field is None:
-            if (not hasattr(xdm, 'dark_field')
-                or xdm.dark_field is None):
-                dark_field  = find_most_recent_dark_field(xdm.scan_id,
+            if (not hasattr(rsm, 'dark_field')
+                or rsm.dark_field is None):
+                dark_field  = find_most_recent_dark_field(rsm.scan_id,
                                                           f'{wd}dark_fields/',
-                                                          shape=xdm.image_shape)
-        xdm.correct_dark_field(dark_field)
-        # xdm.correct_scaler_energies(scaler_key='i0')
-        xdm.convert_scalers_to_flux(scaler_key='i0')
-        # xdm.correct_scaler_energies(scaler_key='im')
-        xdm.convert_scalers_to_flux(scaler_key='im')
-        xdm.normalize_scaler()
+                                                          shape=rsm.image_shape)
+        rsm.correct_dark_field(dark_field)
+        rsm.convert_scalers_to_flux(scaler_key='i0')
+        rsm.convert_scalers_to_flux(scaler_key='im')
+        rsm.normalize_scaler()
         if air_scatter == False:
             pass
         elif isinstance(air_scatter, np.ndarray):
-            xdm.correct_air_scatter(air_scatter)
+            rsm.correct_air_scatter(air_scatter)
         elif air_scatter == True:
-            xdm.correct_air_scatter(xdm.med_image, applied_corrections=xdm.corrections)
+            rsm.correct_air_scatter(rsm.med_image, applied_corrections=rsm.corrections)
         else:
             err_str = 'Error handling air_scatter. Designate array, None, or bool.'
             raise RuntimeError(err_str)
-        xdm.correct_outliers(tolerance=10)
+        rsm.correct_outliers(tolerance=10)
 
         # Geometric corrections
         if poni_file is None:
-            if not hasattr(xdm, 'ai') or xdm.ai is None:
-                poni_file = find_most_recent_calibration(xdm.scan_id,
+            if not hasattr(rsm, 'ai') or rsm.ai is None:
+                poni_file = find_most_recent_calibration(rsm.scan_id,
                                                          f'{wd}calibrations/')
-                xdm.set_calibration(poni_file, wd=f'{wd}calibrations/')
+                rsm.set_calibration(poni_file, wd=f'{wd}calibrations/')
         else:
-            xdm.set_calibration(poni_file, wd=f'{wd}calibrations/')
-        xdm.apply_polarization_correction()
-        xdm.apply_solidangle_correction()
+            rsm.set_calibration(poni_file, wd=f'{wd}calibrations/')
+        rsm.apply_polarization_correction()
+        rsm.apply_solidangle_correction()
 
         # Background correction
-        xdm.estimate_background(method='bruckner',
+        rsm.estimate_background(method='bruckner',
                                 binning=8,
                                 min_prominence=0.1)
 
         # Rescale and saving
-        xdm.rescale_images(arr_max=xdm.estimate_saturated_pixel())
+        rsm.rescale_images(arr_max=rsm.estimate_saturated_pixel())
         if _proc_dict['save_images']:
-            xdm.finalize_images()
+            rsm.finalize_images()
 
     # Remove enitire bad rows
-    if _proc_dict['nullify_bad_rows'] and xdm is not None:
-        bad_rows = np.any(xdm.null_map, axis=1)
-        xdm.images[bad_rows] = 0  
+    if _proc_dict['nullify_bad_rows'] and rsm is not None:
+        bad_rows = np.any(rsm.null_map, axis=1)
+        rsm.images[bad_rows] = 0  
 
     # Integrate map
     if _proc_dict['integrations']:
-        xdm.integrate1D_map()
+        rsm.integrate1D_map()
 
     # Find blobs
     if _proc_dict['blobs']:
-        xdm.find_blobs(filter_method='minimum',
+        rsm.find_blobs(filter_method='minimum',
                        multiplier=5,
                        size=3,
                        expansion=10)
 
     # Vectorize blobs
     if _proc_dict['vectors']:
-        xdm.vectorize_map_data()
+        rsm.vectorize_map_data()
 
     # Convert to 1D integrations
-    if _proc_dict['maximums'] and xdm is not None:
-        tth, intensity = xdm.integrate1D_image(xdm.max_image)
-        q = tth_2_q(tth, wavelength=xdm.wavelength)
+    if _proc_dict['maximums'] and rsm is not None:
+        tth, intensity = rsm.integrate1D_image(rsm.max_image)
+        q = tth_2_q(tth, wavelength=rsm.wavelength)
 
-        np.savetxt(f'{wd}/max_1D_integrations/scan{xdm.scan_id}_max_1D_integration.txt',
+        np.savetxt(f'{wd}/max_1D_integrations/scan{rsm.scan_id}_max_1D_integration.txt',
                 np.asarray([q, tth, intensity]))
-        fig, ax = xdm.plot_integration(intensity, tth=tth, title='Max Integration', return_plot=True)
-        fig.savefig(f'{wd}max_1D_integrations/scan{xdm.scan_id}_max_integration.png')
+        fig, ax = rsm.plot_integration(intensity, tth=tth, title='Max Integration', return_plot=True)
+        fig.savefig(f'{wd}max_1D_integrations/scan{rsm.scan_id}_max_integration.png')
         plt.close('all')
 
-        io.imsave(f'{wd}integrated_maps/scan{xdm.scan_id}_max_map.tif', xdm.max_map)
+        io.imsave(f'{wd}integrated_maps/scan{rsm.scan_id}_max_map.tif', rsm.max_map)
 
-        images = xdm.images.copy()
-        xdm.dump_images()
-        images[~xdm.blob_masks] = 0
+        images = rsm.images.copy()
+        rsm.dump_images()
+        images[~rsm.blob_masks] = 0
         blob_sum_map = np.sum(images, axis=(2, 3))
 
-        io.imsave(f'{wd}integrated_maps/scan{xdm.scan_id}_blob_sum.tif', blob_sum_map)
+        io.imsave(f'{wd}integrated_maps/scan{rsm.scan_id}_blob_sum.tif', blob_sum_map)
 
     return xdm
 
@@ -466,7 +489,7 @@ def prepare_standard_directories(wd):
     # os.makedirs(os.path.join(wd, 'air_scatter/'), exist_ok=True)
     os.makedirs(os.path.join(wd, 'xrdmaps/'), exist_ok=True)
     os.makedirs(os.path.join(wd, 'xrdmaps/reduced/'), exist_ok=True)
-    os.makedirs(os.path.join(wd, 'rsms/'), exist_ok=True)
+    os.makedirs(os.path.join(wd, 'rocking_curves/'), exist_ok=True)
     os.makedirs(os.path.join(wd, 'xrdslices/'), exist_ok=True)
     # os.makedirs(os.path.join(wd, 'integrated_maps/'), exist_ok=True)
     os.makedirs(os.path.join(wd, 'max_1D_integrations/'), exist_ok=True)
