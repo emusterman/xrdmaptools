@@ -108,6 +108,7 @@ class BaseInteractivePlot:
                          vmax=self.map_kw['vmax']
                          ),
                          interpolation=None)
+        axis.set_autoscale_on(False)
         
         # Add colorbar
         axis.figure.colorbar(im, ax=axis)
@@ -292,7 +293,7 @@ class BaseInteractivePlot:
                                    linewidth=1,
                                    color=self.marker_color)
         if self.dynamic_toggle:
-            self.marker.set_visible(False)    
+            self.marker.set_visible(False) 
     
     
     def update_map(self, axis, data_kw=None):
