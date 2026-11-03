@@ -20,18 +20,22 @@ def interpolate_merlin_mask(masked_img):
     return healed_img
 
 
-def iterative_outlier_correction(images, size=2, tolerance=0.5):
+def iterative_outlier_correction(images, mask=None, size=3, tolerance=0.5):
     # Image axes must be last two axes
 
     image_shape = images.shape[-2:]
     set_shape = images.shape[:-2]
 
+    footprint = np.eye(size, dtype=bool) + np.fliplr(np.eye(size, dtype=bool))
+
     num_pixels_replaced = 0
     for index in tqdm(range(np.prod(set_shape))):
         indices = np.unravel_index(index, set_shape)
 
-        image = images[indices]
-        med_image = ndi.median_filter(image, size=size)
+        image = images[indices].copy()
+        if mask is not None:
+            image[~mask] = np.mean(image)
+        med_image = ndi.median_filter(image, footprint=footprint)
         sig_image = np.abs((image - med_image) / med_image)
         replace_mask = sig_image > tolerance
 
@@ -41,6 +45,45 @@ def iterative_outlier_correction(images, size=2, tolerance=0.5):
         # No return; in-place operation
 
     return num_pixels_replaced
+
+
+def dask_outlier_correction(images, mask=None, size=3, tolerance=5):
+
+    image_shape = images.shape[-2:]
+    map_shape = images.shape[:2]
+
+    footprint = np.eye(size, dtype=bool) + np.fliplr(np.eye(size, dtype=bool))
+    num_pixels_replaced = 0
+
+    @dask.delayed
+    def get_swapped_pixels(image):
+        if mask is not None:
+            image = image.copy()
+            image[~mask] = np.mean(image)
+        med_image = ndi.median_filter(image, footprint=footprint)
+        sig_image = np.abs((image - med_image) / med_image)
+        
+        replace_mask = sig_image > tolerance
+        replace_vals = med_image[replace_mask]
+
+        return np.asarray(replace_mask[0], replace_mask[1]), replace_vals
+    
+    # Dask operation
+    delayed_list = []
+    indices_list = []
+    for index in range(np.prod(map_shape)):
+        indices = np.unravel_index(index, map_shape)
+        delayed_list.append(get_swapped_pixels(images[indices]))
+        indices_list.append(indices)
+        
+    with TqdmCallback(tqdm_class=tqdm):
+        swapped_pixels = dask.compute(*delayed_list)
+    
+    # Unpack
+    for indices, swaps in zip(indices_list, swapped_pixels):
+        imgy, imgx, vals = swaps
+        images[indices][imgy, imgx] = vals
+
 
 
 
