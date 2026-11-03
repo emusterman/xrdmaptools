@@ -485,11 +485,11 @@ class XRDData:
         if hasattr(self, 'detector'):
             if self.detector.lower() == 'dexela':
                 self._raw_value_range = (0, 2**14 - 1)
-            elif self.detector.lower() == 'merlin':
-                pass # TODO: What are these values
-            elif self.detector.lower() == 'eiger':
-                # self._raw_value_range = (0, 2**32 - 1)
-                self._raw_value_range = (0, np.max(self.images))
+            # elif self.detector.lower() == 'merlin':
+            #     pass # TODO: What are these values
+            # elif self.detector.lower() == 'eiger':
+            #     # self._raw_value_range = (0, 2**32 - 1)
+            #     self._raw_value_range = (0, np.max(self.images))
         if self._raw_value_range is None:
             if np.issubdtype(self.dtype, np.integer):
                 self._raw_value_range = (np.iinfo(self.dtype).min,
@@ -1857,8 +1857,9 @@ class XRDData:
 
         
     def correct_outliers(self,
-                         size=2,
+                         size=3,
                          tolerance=2,
+                         mask=None,
                          override=False):
 
         """
@@ -1877,8 +1878,11 @@ class XRDData:
         tolerance : float, optional
             Normalized difference of allowable fluctuations between
             original image and median-filtered image. For example, an
-            original pixel value of 2 and median pixel value of 1 would
+            original pixel value of 3 and median pixel value of 1 would
             have a 0.5 value to compare against the tolerance.
+        mask : 2D array, optional
+            Mask of pixels to include. Excluded pixels will be set to
+            the image mean.
         override : bool, optional
             Override already applied corrections if True. Default is
             False.
@@ -1900,12 +1904,16 @@ class XRDData:
             err_str = ('Tolerance for outlier correction must be '
                        + 'greater than 0.')
             raise ValueError(err_str)
+        
+        if mask is None:
+            mask = self.mask
 
         print('Finding and correcting image outliers...')
         num_pixels_replaced = iterative_outlier_correction(
                                     self.images,
                                     size=size, 
-                                    tolerance=tolerance)
+                                    tolerance=tolerance,
+                                    mask=mask)
         
         self.corrections['outliers'] = True
         self.update_map_title()
