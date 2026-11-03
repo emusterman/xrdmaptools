@@ -368,7 +368,7 @@ def estimate_image_coords(coords,
         raise ValueError(err_str)
 
     # For better indexing
-    coords = np.asarray(coords)
+    coords = np.asarray(coords).copy()
 
     # Shift azimuthal discontinuities
     chi_arr, max_arr, shifted = modular_azimuthal_shift(chi_arr)
