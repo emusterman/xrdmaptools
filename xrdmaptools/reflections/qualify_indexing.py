@@ -129,45 +129,65 @@ def desymmetrize(indexing,
         return indexing, qof
     
     # Get symmetry operators
-    if phase is None:
+    if phase is not None:
+        syms = phase.get_sym_ops(symmetrize=symmetrize)
+    elif space_group_nr is not None:
         syms = get_default_sym_ops(space_group_nr, symmetrize=symmetrize)
     else:
-        syms = phase.get_sym_ops(symmetrize=symmetrize)
+        err_str = 'Must define phase or space_group_nr.'
+        raise ValueError(err_str)
+    
+    if all_ref_hkls is None:
+        if phase is None or not hasattr(phase, 'all_hkls'):
+            err_str = ("Must define all_ref_hkls or provide phase "
+                       + "with a generated reciprocal lattice.")
+            raise ValueError(err_str)
+        else:
+            all_ref_hkls = phase.all_hkls
+
     
     if not allow_improper:
         syms = syms[np.linalg.det(syms) > 0.5]
 
     # Parse symmetrized indexing
     spot_inds, ref_inds = indexing.T
+    
+    sym_hkls = all_ref_hkls[ref_inds] @ syms
+    (ref_idx,
+     sym_idx,
+     spot_idx) = np.all(all_ref_hkls[:, np.newaxis, np.newaxis]
+                        == sym_hkls[np.newaxis], axis=-1).nonzero()
+    sym_ref_inds = [ref_idx[sym_idx == i][np.argsort(spot_idx[sym_idx == i])]
+                    for i in range(len(syms))]
 
-    if phase is None:
-        sym_qs = all_ref_qs[ref_inds] @ syms
-        sym_ref_inds = []
-        for i in range(len(sym_qs)):
-            temp_ref_inds = []
-            for q_vect in sym_qs[i]:
-                dist = np.linalg.norm(all_ref_qs - q_vect, axis=1)
-                if dist.min() <= near_q:
-                    temp_ref_inds.append(np.argmin(dist))
-                else:
-                    break
-            else:
-                sym_ref_inds.append(temp_ref_inds)
-
-    else:
-        sym_hkls = phase.HKL(all_ref_qs[ref_inds] @ syms).round(0)
-        sym_ref_inds = []
-        for i in range(len(sym_hkls)):
-            temp_ref_inds = []
-            for hkl in sym_hkls[i]:
-                match_mask = np.all(all_ref_hkls == hkl, axis=1)
-                if match_mask.sum() > 0:
-                    temp_ref_inds.append(match_mask.nonzero()[0][0])
-                else:
-                    break
-            else:
-                sym_ref_inds.append(temp_ref_inds)
-
+    # if phase is None or True:
+    #     all_sym_qs = all_ref_qs[ref_inds] @ syms
+    #     sym_ref_inds = []
+    #     for sym_qs in all_sym_qs:
+    #         temp_ref_inds = []
+    #         for q_vect in sym_qs:
+    #             dist = np.linalg.norm(all_ref_qs - q_vect, axis=1)
+    #             if dist.min() <= near_q:
+    #                 temp_ref_inds.append(np.argmin(dist))
+    #             else:
+    #                 print('AHHH')
+    #                 break
+    #         else:
+    #             sym_ref_inds.append(temp_ref_inds)
+    # else:
+    #     sym_hkls = phase.HKL(all_ref_qs[ref_inds] @ syms).round(0)
+    #     raise RuntimeError
+    #     sym_ref_inds = []
+    #     for i in range(len(sym_hkls)):
+    #         temp_ref_inds = []
+    #         for hkl in sym_hkls[i]:
+    #             match_mask = np.all(all_ref_hkls == hkl, axis=1)
+    #             if match_mask.sum() > 0:
+    #                 temp_ref_inds.append(match_mask.nonzero()[0][0])
+    #             else:
+    #                 break
+    #         else:
+    #             sym_ref_inds.append(temp_ref_inds)
     
     sym_indexings = []
     for ref_inds in sym_ref_inds:
@@ -188,7 +208,8 @@ def desymmetrize(indexing,
                                     all_spot_ints,
                                     near_q,
                                     qmask,
-                                    orientation=M)
+                                    orientation=M
+                                    )
         
         sym_qofs.append(sym_qof)
         sym_mags.append(R.magnitude())
