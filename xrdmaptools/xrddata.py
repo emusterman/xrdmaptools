@@ -490,7 +490,7 @@ class XRDData:
             # elif self.detector.lower() == 'eiger':
             #     # self._raw_value_range = (0, 2**32 - 1)
             #     self._raw_value_range = (0, np.max(self.images))
-        if self._raw_value_range is None:
+        if self._raw_value_range is None and self.dtype is not None:
             if np.issubdtype(self.dtype, np.integer):
                 self._raw_value_range = (np.iinfo(self.dtype).min,
                                          np.iinfo(self.dtype).max)
