@@ -28,47 +28,47 @@ from xrdmaptools.utilities.math import (
 ### Useful crystallography tools ###
 
 # Point group from space group
-point_group = RangeDict({# Space group number, (Schoenflies, Hermann-Mauguin, Order)
-                         # Triclinic
-                         range(1, 2): 1,
-                         range(2, 3): 2,
-                         # Monoclinic
-                         range(3, 6): 5,
-                         range(6, 10): 9,
-                         range(10, 16): 15,
-                         # Orthorhombic
-                         range(16, 25): 24,
-                         range(25, 47): 46,
-                         range(47, 75): 74,
-                         # Tetragonal
-                         range(75, 81): 80,
-                         range(81, 83): 82,
-                         range(83, 89): 88,
-                         range(89, 99): 98,
-                         range(99, 111): 110,
-                         range(111, 123): 122,
-                         range(123, 143): 142,
-                         # Trigonal
-                         range(143, 147): 146,
-                         range(147, 149): 148,
-                         range(149, 156): 155,
-                         range(156, 162): 161,
-                         range(162, 168): 167,
-                         # Hexagonal
-                         range(168, 174): 173,
-                         range(174, 175): 174,
-                         range(175, 177): 176,
-                         range(177, 183): 182,
-                         range(183, 187): 186,
-                         range(187, 191): 190,
-                         range(191, 195): 194,
-                         # Cubic
-                         range(195, 200): 199,
-                         range(200, 207): 206,
-                         range(207, 215): 214,
-                         range(215, 221): 220,
-                         range(221, 231): 230,
-                         })
+point_group_nr = RangeDict({# Space group number, (Schoenflies, Hermann-Mauguin, Order)
+                           # Triclinic
+                           range(1, 2): 1,
+                           range(2, 3): 2,
+                           # Monoclinic
+                           range(3, 6): 5,
+                           range(6, 10): 9,
+                           range(10, 16): 15,
+                           # Orthorhombic
+                           range(16, 25): 24,
+                           range(25, 47): 46,
+                           range(47, 75): 74,
+                           # Tetragonal
+                           range(75, 81): 80,
+                           range(81, 83): 82,
+                           range(83, 89): 88,
+                           range(89, 99): 98,
+                           range(99, 111): 110,
+                           range(111, 123): 122,
+                           range(123, 143): 142,
+                           # Trigonal
+                           range(143, 147): 146,
+                           range(147, 149): 148,
+                           range(149, 156): 155,
+                           range(156, 162): 161,
+                           range(162, 168): 167,
+                           # Hexagonal
+                           range(168, 174): 173,
+                           range(174, 175): 174,
+                           range(175, 177): 176,
+                           range(177, 183): 182,
+                           range(183, 187): 186,
+                           range(187, 191): 190,
+                           range(191, 195): 194,
+                           # Cubic
+                           range(195, 200): 199,
+                           range(200, 207): 206,
+                           range(207, 215): 214,
+                           range(215, 221): 220,
+                           range(221, 231): 230,
+                           })
 
 # Point group from space group
 point_group = RangeDict({# Space group number, (Schoenflies, Hermann-Mauguin, Order)
@@ -555,10 +555,18 @@ class Phase(xu.materials.Crystal):
                                   for op in self.lattice.symops]),
                                   axis=0)
 
+        # Mapping the crystal operators onto the reference system
+        # all_ops = []
+        # for op in phase_sym_ops:
+        #     for sym_op in sym_ops:
+        #         all_ops.append(np.round(np.linalg.inv(sym_op) @ op @ sym_op, 5))
+
+        # Mapping the reference operators onto the crystal coordinate system
+        # I think this one is correct (yields expected number of operators)
         all_ops = []
         for op in phase_sym_ops:
             for sym_op in sym_ops:
-                all_ops.append(np.round(np.linalg.inv(sym_op) @ op @ sym_op, 5))
+                all_ops.append(np.round(np.linalg.inv(op) @ sym_op @ op, 5))
 
         return np.unique(all_ops, axis=0)
 
